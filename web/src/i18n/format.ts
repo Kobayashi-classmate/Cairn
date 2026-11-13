@@ -100,3 +100,11 @@ export function formatTime(unixSeconds: number, withSeconds = true): string {
     unixSeconds * 1000,
   )
 }
+
+/** Formats a Unix timestamp (seconds) as a date and time. */
+export function formatDateTime(unixSeconds: number): string {
+  const options: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' }
+  return cached('datetime', options, (locale) => new Intl.DateTimeFormat(locale, options)).format(
+    unixSeconds * 1000,
+  )
+}

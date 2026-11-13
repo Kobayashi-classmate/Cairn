@@ -1,0 +1,59 @@
+{
+  "title": "审计日志",
+  "noUser": "系统",
+  "filter": {
+    "user": "按用户名筛选",
+    "category": "全部操作"
+  },
+  "category": {
+    "auth": "登录与账号",
+    "users": "用户管理",
+    "settings": "面板设置"
+  },
+  "column": {
+    "time": "时间",
+    "user": "用户",
+    "action": "操作",
+    "result": "结果",
+    "source": "来源",
+    "remote": "IP 地址"
+  },
+  "result": {
+    "ok": "成功"
+  },
+  "source": {
+    "web": "网页",
+    "cli": "命令行"
+  },
+  "detail": {
+    "role": "角色：{role}",
+    "disabled": "已停用",
+    "enabled": "已启用"
+  },
+  "action": {
+    "auth": {
+      "setup": "完成了初始化",
+      "login": "登录",
+      "login_mfa": "通过两步验证登录",
+      "logout": "退出登录",
+      "elevate": "为敏感操作验证了身份",
+      "change_password": "修改了自己的密码",
+      "reset_password": "重置了 {username} 的密码",
+      "reset_2fa": "重置了 {username} 的两步验证",
+      "totp_enable": "开启了两步验证",
+      "totp_disable": "关闭了两步验证",
+      "recovery_codes": "生成了新的恢复码",
+      "session_revoke": "退出了 {count} 个会话"
+    },
+    "users": {
+      "create": "添加了用户 {username}，角色为{role}",
+      "update": "修改了用户 {username}",
+      "set_password": "为 {username} 设置了新密码",
+      "reset_totp": "重置了 {username} 的两步验证",
+      "delete": "删除了用户 {username}"
+    },
+    "settings": {
+      "default_locale": "将默认语言改为 {locale}"
+    }
+  }
+}

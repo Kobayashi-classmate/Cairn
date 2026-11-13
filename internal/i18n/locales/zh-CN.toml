@@ -9,3 +9,4 @@
 "cli.reset_password.sessions_revoked" = "该用户所有已登录的会话都已退出。"
 "cli.reset_password.no_user" = "不存在名为 {{.Username}} 的用户。"
 "cli.reset_password.need_username" = "存在多个用户，请用 --username 指定。"
+"cli.reset_2fa.done" = "已关闭 {{.Username}} 的两步验证。该用户可以只用密码登录，然后重新设置。"

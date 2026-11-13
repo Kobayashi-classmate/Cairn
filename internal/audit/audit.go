@@ -9,18 +9,21 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
 // Entry is one audit record.
 type Entry struct {
-	UserID   int64
-	Username string
-	Action   string
-	Params   map[string]any
-	Result   string // "ok" or an error code
-	Remote   string
-	Source   string // web | cli | helper
+	ID       int64          `json:"id"`
+	TS       int64          `json:"ts"`
+	UserID   int64          `json:"userId"`
+	Username string         `json:"username"`
+	Action   string         `json:"action"`
+	Params   map[string]any `json:"params"`
+	Result   string         `json:"result"` // "ok" or an error code
+	Remote   string         `json:"remote"`
+	Source   string         `json:"source"` // web | cli | helper
 }
 
 // Record stores e. Failing to audit is reported to the caller, which decides
@@ -45,4 +48,74 @@ func Record(ctx context.Context, db *sql.DB, e Entry) error {
 		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
 		time.Now().Unix(), uid, e.Username, e.Action, string(params), e.Result, e.Remote, e.Source)
 	return err
+}
+
+// Filter narrows a listing. Zero values mean "no filter".
+type Filter struct {
+	Before       int64  // only entries with id < Before
+	Username     string // exact match
+	ActionPrefix string // e.g. "auth." or "users.create"
+	Limit        int    // 1..200, default 50
+}
+
+// List returns entries newest first, plus the cursor for the next page
+// (0 when there are no more entries).
+func List(ctx context.Context, db *sql.DB, f Filter) ([]Entry, int64, error) {
+	limit := f.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	var where []string
+	var args []any
+	if f.Before > 0 {
+		where = append(where, "id < ?")
+		args = append(args, f.Before)
+	}
+	if f.Username != "" {
+		where = append(where, "username = ?")
+		args = append(args, f.Username)
+	}
+	if f.ActionPrefix != "" {
+		where = append(where, `action LIKE ? ESCAPE '\'`)
+		args = append(args, escapeLike(f.ActionPrefix)+"%")
+	}
+	query := `SELECT id, ts, COALESCE(user_id, 0), username, action, params, result, remote_addr, source FROM audit_log`
+	if len(where) > 0 {
+		// Only the fixed clause literals above are joined; every value is a
+		// bound parameter.
+		query += " WHERE " + strings.Join(where, " AND ") //nolint:gosec // G202: see above.
+	}
+	query += " ORDER BY id DESC LIMIT ?"
+	args = append(args, limit+1)
+
+	rows, err := db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	out := []Entry{}
+	for rows.Next() {
+		var e Entry
+		var params string
+		if err := rows.Scan(&e.ID, &e.TS, &e.UserID, &e.Username, &e.Action, &params, &e.Result, &e.Remote, &e.Source); err != nil {
+			return nil, 0, err
+		}
+		if err := json.Unmarshal([]byte(params), &e.Params); err != nil || e.Params == nil {
+			e.Params = map[string]any{}
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	var next int64
+	if len(out) > limit {
+		out = out[:limit]
+		next = out[limit-1].ID
+	}
+	return out, next, nil
+}
+
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
 }

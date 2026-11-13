@@ -79,7 +79,7 @@ func TestValidation(t *testing.T) {
 func TestAuthenticate(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	if _, err := CreateUser(ctx, db, "admin", goodPassword, ""); err != nil {
+	if _, err := CreateUser(ctx, db, "admin", goodPassword, "", "admin"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Authenticate(ctx, db, "admin", goodPassword); err != nil {
@@ -95,7 +95,7 @@ func TestAuthenticate(t *testing.T) {
 func TestSessionsExpire(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()
-	u, err := CreateUser(ctx, db, "admin", goodPassword, "zh-CN")
+	u, err := CreateUser(ctx, db, "admin", goodPassword, "zh-CN", "admin")
 	if err != nil {
 		t.Fatal(err)
 	}

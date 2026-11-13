@@ -14,6 +14,7 @@ linters:
       exclude-functions:
         - (*database/sql.DB).Close
         - (*database/sql.Tx).Rollback
+        - (*database/sql.Rows).Close # read errors surface through rows.Err()
         - (*os.File).Close
         - (io.Closer).Close
         - (io.ReadCloser).Close

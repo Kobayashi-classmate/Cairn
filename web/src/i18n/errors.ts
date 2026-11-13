@@ -53,17 +53,24 @@ function decorate(params: ErrorParams): NamedParams {
   return named
 }
 
+/**
+ * Message for an error code, or null when this build has no translation for
+ * it. Used directly where the raw code is a better fallback than a generic
+ * message (for example in the audit log).
+ */
+export function errorText(code: string, params: ErrorParams = {}): string | null {
+  const { t, te } = i18n.global
+  if (code === 'validation.invalid') {
+    const { field, rule } = params
+    if (typeof field !== 'string' || field === '') return t('errors.validation.invalid')
+    return validationMessage(field, typeof rule === 'string' ? rule : '', decorate(params))
+  }
+  const key = `errors.${code}`
+  return te(key) ? t(key, decorate(params)) : null
+}
+
 /** Turns anything thrown by an API call into a message in the current language. */
 export function errorMessage(err: unknown): string {
-  const { t, te } = i18n.global
-  if (!isApiError(err)) return t(UNKNOWN_KEY)
-
-  if (err.code === 'validation.invalid') {
-    const { field, rule } = err.params
-    if (typeof field !== 'string' || field === '') return t('errors.validation.invalid')
-    return validationMessage(field, typeof rule === 'string' ? rule : '', decorate(err.params))
-  }
-
-  const key = `errors.${err.code}`
-  return te(key) ? t(key, decorate(err.params)) : t(UNKNOWN_KEY)
+  const text = isApiError(err) ? errorText(err.code, err.params) : null
+  return text ?? i18n.global.t(UNKNOWN_KEY)
 }

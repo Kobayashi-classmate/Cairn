@@ -10,3 +10,4 @@
 "cli.reset_password.sessions_revoked" = "All signed-in sessions of this user have been signed out."
 "cli.reset_password.no_user" = "There is no user named {{.Username}}."
 "cli.reset_password.need_username" = "More than one user exists. Choose one with --username."
+"cli.reset_2fa.done" = "Two-step sign-in has been turned off for {{.Username}}. They can sign in with their password and set it up again."

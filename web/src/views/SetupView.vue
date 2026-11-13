@@ -12,20 +12,23 @@ import {
   NSelect,
   NText,
   type FormInst,
-  type FormItemRule,
   type FormRules,
 } from 'naive-ui'
 import { isApiError } from '@/api/client'
+import {
+  PASSWORD_MIN,
+  USERNAME_MAX,
+  USERNAME_MIN,
+  confirmPasswordRules,
+  newPasswordRules,
+  requiredRule,
+  usernameRules,
+} from '@/auth/rules'
 import AuthLayout from '@/layouts/AuthLayout.vue'
+import { homeLocation } from '@/layouts/navigation'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
-import { errorMessage, validationMessage } from '@/i18n/errors'
+import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
-
-// Must match the server's validation rules.
-const USERNAME_MIN = 3
-const USERNAME_MAX = 32
-const USERNAME_PATTERN = /^[a-z][a-z0-9_.-]*$/
-const PASSWORD_MIN = 12
 
 const { t } = useI18n()
 const route = useRoute()
@@ -42,47 +45,11 @@ const form = reactive({ token: linkToken, username: '', password: '', passwordCo
 const submitting = ref(false)
 const error = ref<unknown>(null)
 
-/** Length in Unicode code points, the way the server counts it. */
-const length = (value: string) => [...value].length
-
-function required(field: string): FormItemRule {
-  return {
-    required: true,
-    trigger: 'blur',
-    renderMessage: () => validationMessage(field, 'required'),
-  }
-}
-
-function check(
-  field: string,
-  rule: string,
-  test: (value: string) => boolean,
-  params: Record<string, number> = {},
-): FormItemRule {
-  return {
-    trigger: ['blur', 'input'],
-    // Empty values are reported by the "required" rule instead.
-    validator: (_rule, value: string) => value === '' || test(value),
-    renderMessage: () => validationMessage(field, rule, params),
-  }
-}
-
 const rules: FormRules = {
-  token: [required('token')],
-  username: [
-    required('username'),
-    check('username', 'min_length', (v) => length(v) >= USERNAME_MIN, { min: USERNAME_MIN }),
-    check('username', 'max_length', (v) => length(v) <= USERNAME_MAX, { max: USERNAME_MAX }),
-    check('username', 'pattern', (v) => USERNAME_PATTERN.test(v)),
-  ],
-  password: [
-    required('password'),
-    check('password', 'min_length', (v) => length(v) >= PASSWORD_MIN, { min: PASSWORD_MIN }),
-  ],
-  passwordConfirm: [
-    required('passwordConfirm'),
-    check('passwordConfirm', 'mismatch', (v) => v === form.password),
-  ],
+  token: [requiredRule('token')],
+  username: usernameRules(),
+  password: newPasswordRules(),
+  passwordConfirm: confirmPasswordRules(() => form.password),
 }
 
 function onLocaleChange(value: string) {
@@ -104,7 +71,7 @@ async function submit() {
       password: form.password,
       locale: locale.value,
     })
-    await router.replace({ name: 'overview' })
+    await router.replace(homeLocation(session.can))
   } catch (err) {
     if (isApiError(err) && err.code === 'setup.already_completed') {
       session.setupAlreadyCompleted(err)

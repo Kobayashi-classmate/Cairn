@@ -1,0 +1,64 @@
+{
+  "title": "用户",
+  "you": "我",
+  "never": "从未",
+  "column": {
+    "status": "状态",
+    "totp": "两步验证",
+    "created": "创建时间",
+    "lastLogin": "最近登录",
+    "actions": "操作"
+  },
+  "status": {
+    "active": "正常",
+    "disabled": "已停用"
+  },
+  "action": {
+    "changeRole": "修改角色",
+    "disable": "停用",
+    "enable": "启用",
+    "resetPassword": "设置新密码",
+    "resetTotp": "重置两步验证",
+    "delete": "删除"
+  },
+  "roleHelp": {
+    "admin": "拥有全部权限，包括管理用户和面板设置。",
+    "operator": "可以查看系统状态和面板设置。",
+    "auditor": "可以查看系统状态、面板设置和审计日志。"
+  },
+  "create": {
+    "title": "添加用户",
+    "submit": "添加用户",
+    "done": "已添加用户 {username}。"
+  },
+  "role": {
+    "title": "修改 {username} 的角色",
+    "done": "已修改 {username} 的角色。"
+  },
+  "password": {
+    "title": "为 {username} 设置新密码",
+    "hint": "{username} 的所有会话都会被退出登录。",
+    "submit": "设置密码",
+    "done": "已修改 {username} 的密码。"
+  },
+  "confirm": {
+    "disable": {
+      "title": "停用 {username}？",
+      "content": "{username} 会被退出登录，在账号重新启用之前无法登录。"
+    },
+    "resetTotp": {
+      "title": "重置 {username} 的两步验证？",
+      "content": "重置后 {username} 只需密码即可登录，之后可以重新设置两步验证。"
+    },
+    "delete": {
+      "title": "删除 {username}？",
+      "content": "该账号将被永久删除，审计日志中的相关记录会保留。"
+    }
+  },
+  "done": {
+    "disabled": "已停用 {username}。",
+    "enabled": "已启用 {username}。",
+    "totpReset": "已重置 {username} 的两步验证。",
+    "deleted": "已删除 {username}。"
+  }
+}

@@ -11,15 +11,15 @@ import {
   NLayoutHeader,
   NLayoutSider,
   NMenu,
-  NText,
   useMessage,
   type MenuOption,
 } from 'naive-ui'
 import { LogOutOutline, PersonCircleOutline } from '@vicons/ionicons5'
+import ElevationBadge from '@/components/ElevationBadge.vue'
 import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
-import { navItems } from './navigation'
+import { homeLocation, visibleNavItems } from './navigation'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -31,8 +31,10 @@ const message = useMessage()
 const collapsed = ref(window.matchMedia('(max-width: 768px)').matches)
 const signingOut = ref(false)
 
+const home = computed(() => homeLocation(session.can))
+
 const menuOptions = computed<MenuOption[]>(() =>
-  navItems.map((item) => ({
+  visibleNavItems(session.can).map((item) => ({
     key: item.key,
     label: () => h(RouterLink, { to: item.to }, () => t(item.labelKey)),
     icon: () => h(NIcon, null, () => h(item.icon)),
@@ -57,13 +59,19 @@ async function signOut() {
 <template>
   <NLayout class="shell">
     <NLayoutHeader bordered class="shell__header">
-      <RouterLink :to="{ name: 'overview' }" class="shell__brand">{{ t('common.app.name') }}</RouterLink>
+      <RouterLink :to="home" class="shell__brand">{{ t('common.app.name') }}</RouterLink>
       <div class="shell__actions">
+        <ElevationBadge />
         <LocaleSwitcher />
-        <NText v-if="session.user" class="shell__user">
+        <RouterLink
+          v-if="session.user"
+          :to="{ name: 'settings-account' }"
+          class="shell__user"
+          :title="t('common.nav.account')"
+        >
           <NIcon :size="18"><PersonCircleOutline /></NIcon>
           <span>{{ session.user.username }}</span>
-        </NText>
+        </RouterLink>
         <NButton quaternary size="small" :loading="signingOut" @click="signOut">
           <template #icon>
             <NIcon><LogOutOutline /></NIcon>
@@ -130,6 +138,8 @@ async function signOut() {
   align-items: center;
   gap: 4px;
   padding-inline: 4px;
+  color: inherit;
+  text-decoration: none;
 }
 
 .shell__body {

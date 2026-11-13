@@ -4,11 +4,21 @@
     "pageTitle": "{page} · {app}"
   },
   "nav": {
-    "overview": "Overview"
+    "overview": "Overview",
+    "users": "Users",
+    "audit": "Audit log",
+    "settings": "Settings",
+    "account": "Account settings"
   },
   "action": {
     "signOut": "Sign out",
-    "retry": "Retry"
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "copy": "Copy",
+    "download": "Download",
+    "loadMore": "Load more"
   },
   "language": {
     "label": "Language"
@@ -18,7 +28,12 @@
     "password": "Password",
     "passwordConfirm": "Confirm password",
     "token": "Setup token",
-    "locale": "Language"
+    "locale": "Language",
+    "role": "Role",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "code": "Verification code",
+    "recoveryCode": "Recovery code"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -26,5 +41,18 @@
   "format": {
     "bytes": "{value} {unit}",
     "rate": "{value}/s"
+  },
+  "role": {
+    "admin": "Administrator",
+    "operator": "Operator",
+    "auditor": "Auditor"
+  },
+  "status": {
+    "on": "On",
+    "off": "Off"
+  },
+  "elevated": {
+    "label": "Verified",
+    "tooltip": "Identity confirmed until {time}. Sensitive actions will not ask for your password again until then."
   }
 }

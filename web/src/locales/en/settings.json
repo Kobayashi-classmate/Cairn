@@ -1,0 +1,77 @@
+{
+  "title": "Settings",
+  "tabs": {
+    "account": "Account",
+    "security": "Security",
+    "sessions": "Sessions",
+    "panel": "Panel"
+  },
+  "account": {
+    "profile": "Profile",
+    "language": "Language",
+    "languageHint": "Applies immediately and is saved to your account.",
+    "password": "Change password",
+    "passwordHint": "After the change, all your other sessions are signed out.",
+    "passwordSubmit": "Change password",
+    "passwordChanged": "Your password was changed. Your other sessions were signed out."
+  },
+  "security": {
+    "title": "Two-factor authentication",
+    "description": "Protect your account with a one-time code from an authenticator app in addition to your password.",
+    "enable": "Set up two-factor authentication",
+    "disable": "Turn off",
+    "regenerate": "Generate new recovery codes",
+    "enabled": "Two-factor authentication is on.",
+    "disabled": "Two-factor authentication is off.",
+    "enroll": {
+      "scan": "1. Scan this QR code with your authenticator app.",
+      "qrLabel": "QR code for your authenticator app",
+      "manual": "Cannot scan it? Enter this key in the app instead:",
+      "enterCode": "2. Enter the 6-digit code the app shows.",
+      "submit": "Turn on"
+    },
+    "confirmDisable": {
+      "title": "Turn off two-factor authentication?",
+      "content": "Your account will be protected by your password alone."
+    },
+    "confirmRegenerate": {
+      "title": "Generate new recovery codes?",
+      "content": "Your current recovery codes will stop working."
+    }
+  },
+  "recoveryCodes": {
+    "warningTitle": "Save your recovery codes now",
+    "warning": "If you lose access to your authenticator app, each of these codes lets you sign in once. They are shown only this time.",
+    "copied": "Recovery codes copied.",
+    "copyFailed": "Could not copy. Select the codes and copy them manually.",
+    "saved": "I have saved them",
+    "fileHeader": "Cairn recovery codes for {username} on {host}. Each code can be used once."
+  },
+  "sessions": {
+    "title": "Active sessions",
+    "description": "Browsers and devices signed in to your account.",
+    "column": {
+      "device": "Browser",
+      "remote": "IP address",
+      "created": "Signed in",
+      "lastSeen": "Last active"
+    },
+    "current": "This browser",
+    "unknownDevice": "Unknown browser",
+    "revoke": "Sign out",
+    "revoked": "The session was signed out.",
+    "revokeOthers": "Sign out all other sessions",
+    "revokedOthers": "Signed out {count} session. | Signed out {count} sessions.",
+    "confirmOthers": {
+      "title": "Sign out all other sessions?",
+      "content": "Every other browser signed in to your account will have to sign in again."
+    }
+  },
+  "panel": {
+    "title": "Panel",
+    "defaultLocale": "Default language",
+    "defaultLocaleHint": "Used on the sign-in page and for users who have not chosen a language.",
+    "readOnly": "Your role can view these settings but not change them.",
+    "saved": "Settings saved."
+  }
+}

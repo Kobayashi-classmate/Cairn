@@ -17,6 +17,9 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 )
 
 // Error is an API failure: an HTTP status, a stable code that the UI
@@ -106,11 +109,14 @@ const principalKey ctxKey = iota
 
 // Principal is the authenticated user of a request.
 type Principal struct {
-	UserID    int64
-	Username  string
-	Locale    string
-	SessionID string
-	Token     string
+	UserID        int64
+	Username      string
+	Locale        string
+	Role          string
+	TOTPEnabled   bool
+	SessionID     string
+	Token         string
+	ElevatedUntil int64 // Unix seconds; step-up valid while in the future
 }
 
 // PrincipalFrom returns the request's principal, if authenticated.
@@ -143,18 +149,38 @@ func NewRouter(auth Authenticator, log *slog.Logger) *Router {
 // RouteOption customizes a route.
 type RouteOption func(*routeConfig)
 
-type routeConfig struct{ public bool }
+type routeConfig struct {
+	public bool
+	perm   authz.Permission
+	stepUp bool
+}
 
 // Public marks a route as reachable without a session.
 func Public() RouteOption { return func(c *routeConfig) { c.public = true } }
 
+// Require sets the permission a route needs. Every non-public route must
+// declare one; registration panics otherwise (default deny).
+func Require(p authz.Permission) RouteOption { return func(c *routeConfig) { c.perm = p } }
+
+// StepUp additionally requires a recent re-authentication of the session.
+func StepUp() RouteOption { return func(c *routeConfig) { c.stepUp = true } }
+
+// Authorization errors.
+var (
+	ErrForbidden      = NewError(http.StatusForbidden, "auth.forbidden", nil)
+	ErrStepUpRequired = NewError(http.StatusForbidden, "auth.step_up_required", nil)
+)
+
 // Handle registers pattern ("METHOD /api/v1/path") with h. Routes require a
-// session unless Public is given. State-changing methods always pass the CSRF
-// check.
+// session and a permission unless Public is given. State-changing methods
+// always pass the CSRF check.
 func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 	var cfg routeConfig
 	for _, o := range opts {
 		o(&cfg)
+	}
+	if !cfg.public && cfg.perm == "" {
+		panic("api: route " + pattern + " declares no permission")
 	}
 	method, _, _ := strings.Cut(pattern, " ")
 	rt.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +195,14 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 			p, err := rt.auth(r)
 			if err != nil {
 				writeError(w, r, rt.log, err)
+				return
+			}
+			if !authz.Allows(p.Role, cfg.perm) {
+				writeError(w, r, rt.log, ErrForbidden)
+				return
+			}
+			if cfg.stepUp && p.ElevatedUntil <= time.Now().Unix() {
+				writeError(w, r, rt.log, ErrStepUpRequired)
 				return
 			}
 			r = r.WithContext(WithPrincipal(r.Context(), p))

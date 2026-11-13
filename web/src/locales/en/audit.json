@@ -1,0 +1,59 @@
+{
+  "title": "Audit log",
+  "noUser": "System",
+  "filter": {
+    "user": "Filter by username",
+    "category": "All actions"
+  },
+  "category": {
+    "auth": "Sign-in and account",
+    "users": "User management",
+    "settings": "Panel settings"
+  },
+  "column": {
+    "time": "Time",
+    "user": "User",
+    "action": "Action",
+    "result": "Result",
+    "source": "Source",
+    "remote": "IP address"
+  },
+  "result": {
+    "ok": "Succeeded"
+  },
+  "source": {
+    "web": "Web",
+    "cli": "Command line"
+  },
+  "detail": {
+    "role": "Role: {role}",
+    "disabled": "Disabled",
+    "enabled": "Enabled"
+  },
+  "action": {
+    "auth": {
+      "setup": "Completed the initial setup",
+      "login": "Signed in",
+      "login_mfa": "Signed in with two-factor authentication",
+      "logout": "Signed out",
+      "elevate": "Confirmed identity for sensitive actions",
+      "change_password": "Changed own password",
+      "reset_password": "Reset the password of {username}",
+      "reset_2fa": "Reset two-factor authentication for {username}",
+      "totp_enable": "Turned on two-factor authentication",
+      "totp_disable": "Turned off two-factor authentication",
+      "recovery_codes": "Generated new recovery codes",
+      "session_revoke": "Signed out {count} session | Signed out {count} sessions"
+    },
+    "users": {
+      "create": "Added user {username} as {role}",
+      "update": "Updated user {username}",
+      "set_password": "Set a new password for {username}",
+      "reset_totp": "Reset two-factor authentication for {username}",
+      "delete": "Deleted user {username}"
+    },
+    "settings": {
+      "default_locale": "Changed the default language to {locale}"
+    }
+  }
+}

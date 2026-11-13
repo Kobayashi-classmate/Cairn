@@ -1,0 +1,77 @@
+{
+  "title": "设置",
+  "tabs": {
+    "account": "账号",
+    "security": "安全",
+    "sessions": "会话",
+    "panel": "面板"
+  },
+  "account": {
+    "profile": "个人信息",
+    "language": "语言",
+    "languageHint": "立即生效，并保存到你的账号。",
+    "password": "修改密码",
+    "passwordHint": "修改后，你的其他会话都会被退出登录。",
+    "passwordSubmit": "修改密码",
+    "passwordChanged": "密码已修改，其他会话已退出登录。"
+  },
+  "security": {
+    "title": "两步验证",
+    "description": "除密码外，再使用身份验证器应用生成的一次性验证码保护你的账号。",
+    "enable": "设置两步验证",
+    "disable": "关闭",
+    "regenerate": "生成新的恢复码",
+    "enabled": "两步验证已开启。",
+    "disabled": "两步验证已关闭。",
+    "enroll": {
+      "scan": "1. 使用身份验证器应用扫描此二维码。",
+      "qrLabel": "身份验证器应用的二维码",
+      "manual": "无法扫描？请在应用中手动输入以下密钥：",
+      "enterCode": "2. 输入应用中显示的 6 位验证码。",
+      "submit": "开启"
+    },
+    "confirmDisable": {
+      "title": "关闭两步验证？",
+      "content": "关闭后，你的账号将只受密码保护。"
+    },
+    "confirmRegenerate": {
+      "title": "生成新的恢复码？",
+      "content": "现有的恢复码将全部失效。"
+    }
+  },
+  "recoveryCodes": {
+    "warningTitle": "请立即保存恢复码",
+    "warning": "如果无法使用身份验证器应用，每个恢复码可以用于登录一次。恢复码只显示这一次。",
+    "copied": "已复制恢复码。",
+    "copyFailed": "复制失败，请手动选择并复制恢复码。",
+    "saved": "我已保存",
+    "fileHeader": "{username} 在 {host} 上的 Cairn 恢复码。每个恢复码只能使用一次。"
+  },
+  "sessions": {
+    "title": "活动会话",
+    "description": "已登录你账号的浏览器和设备。",
+    "column": {
+      "device": "浏览器",
+      "remote": "IP 地址",
+      "created": "登录时间",
+      "lastSeen": "最近活动"
+    },
+    "current": "当前浏览器",
+    "unknownDevice": "未知浏览器",
+    "revoke": "退出登录",
+    "revoked": "该会话已退出登录。",
+    "revokeOthers": "退出其他所有会话",
+    "revokedOthers": "已退出 {count} 个会话。",
+    "confirmOthers": {
+      "title": "退出其他所有会话？",
+      "content": "其他已登录你账号的浏览器都需要重新登录。"
+    }
+  },
+  "panel": {
+    "title": "面板",
+    "defaultLocale": "默认语言",
+    "defaultLocaleHint": "用于登录页面，以及尚未选择语言的用户。",
+    "readOnly": "你的角色可以查看这些设置，但不能修改。",
+    "saved": "设置已保存。"
+  }
+}

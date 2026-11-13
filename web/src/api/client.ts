@@ -50,15 +50,40 @@ export interface RequestOptions {
    * 401 is an expected answer (login, session probe, logout).
    */
   skipAuthRedirect?: boolean
+  /**
+   * Do not offer re-authentication when the server answers
+   * `auth.step_up_required`. Used by the re-authentication call itself.
+   */
+  skipStepUp?: boolean
+}
+
+/** Error code of a 403 response asking the user to confirm their identity again. */
+export const STEP_UP_REQUIRED = 'auth.step_up_required'
+
+/** True when an error is a step-up request the user declined (or that could not be offered). */
+export function isStepUpRequired(err: unknown): boolean {
+  return err instanceof ApiError && err.code === STEP_UP_REQUIRED
 }
 
 type UnauthorizedHandler = (error: ApiError) => void
 
+/**
+ * Asks the user to re-authenticate. Resolves once the session is elevated;
+ * rejects (with the given error) when the user cancels.
+ */
+type StepUpHandler = (error: ApiError) => Promise<void>
+
 let unauthorizedHandler: UnauthorizedHandler | null = null
+let stepUpHandler: StepUpHandler | null = null
 
 /** Registers the callback invoked when an authenticated request returns 401. */
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
   unauthorizedHandler = handler
+}
+
+/** Registers the re-authentication prompt used for `auth.step_up_required`. */
+export function setStepUpHandler(handler: StepUpHandler | null): void {
+  stepUpHandler = handler
 }
 
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -108,6 +133,14 @@ async function request<T>(
   const error = await readError(response)
   if (response.status === 401 && !options.skipAuthRedirect) {
     unauthorizedHandler?.(error)
+  }
+  if (response.status === 403 && error.code === STEP_UP_REQUIRED && !options.skipStepUp) {
+    if (stepUpHandler) {
+      // Rejects when the user cancels, which fails the original call.
+      await stepUpHandler(error)
+      // Retry exactly once; a second step-up request is returned as an error.
+      return request<T>(method, path, body, { ...options, skipStepUp: true })
+    }
   }
   throw error
 }

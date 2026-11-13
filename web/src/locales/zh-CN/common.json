@@ -4,11 +4,21 @@
     "pageTitle": "{page} · {app}"
   },
   "nav": {
-    "overview": "概览"
+    "overview": "概览",
+    "users": "用户",
+    "audit": "审计日志",
+    "settings": "设置",
+    "account": "账号设置"
   },
   "action": {
     "signOut": "退出登录",
-    "retry": "重试"
+    "retry": "重试",
+    "cancel": "取消",
+    "confirm": "确认",
+    "save": "保存",
+    "copy": "复制",
+    "download": "下载",
+    "loadMore": "加载更多"
   },
   "language": {
     "label": "语言"
@@ -18,7 +28,12 @@
     "password": "密码",
     "passwordConfirm": "确认密码",
     "token": "初始化令牌",
-    "locale": "语言"
+    "locale": "语言",
+    "role": "角色",
+    "currentPassword": "当前密码",
+    "newPassword": "新密码",
+    "code": "验证码",
+    "recoveryCode": "恢复码"
   },
   "boot": {
     "failed": "无法加载面板"
@@ -26,5 +41,18 @@
   "format": {
     "bytes": "{value} {unit}",
     "rate": "{value}/s"
+  },
+  "role": {
+    "admin": "管理员",
+    "operator": "运维人员",
+    "auditor": "审计员"
+  },
+  "status": {
+    "on": "已开启",
+    "off": "未开启"
+  },
+  "elevated": {
+    "label": "已验证",
+    "tooltip": "身份验证有效期至 {time}。在此之前，敏感操作不会再次要求输入密码。"
   }
 }

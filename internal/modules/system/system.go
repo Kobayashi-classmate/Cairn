@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
+	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 )
 
@@ -23,5 +24,5 @@ func (m *Module) ID() string { return "system" }
 func (m *Module) Routes(r *api.Router) {
 	r.Handle("GET /api/v1/system/overview", func(w http.ResponseWriter, _ *http.Request) error {
 		return api.WriteJSON(w, http.StatusOK, m.Metrics.Overview())
-	})
+	}, api.Require(authz.SystemRead))
 }

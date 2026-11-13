@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
 // Package core is the always-on module: instance metadata, first-run setup,
-// sign-in and sign-out, and language preferences.
+// sign-in (with an optional TOTP second step), step-up re-authentication,
+// the user's own account, and panel settings.
 package core
 
 import (
@@ -14,11 +15,13 @@ import (
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
-	"github.com/Kobayashi-classmate/Cairn/internal/audit"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
+	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/buildinfo"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
+	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 )
 
 // Settings holds runtime-adjustable values read from the config file.
@@ -55,6 +58,7 @@ type Module struct {
 	DB       *sql.DB
 	Settings *Settings
 	Helper   Helper
+	Box      *secrets.Box
 	Log      *slog.Logger
 }
 
@@ -63,13 +67,28 @@ func (m *Module) ID() string { return "core" }
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
+	self := api.Require(authz.Self)
+
 	r.Handle("GET /api/v1/meta", m.meta, api.Public())
 	r.Handle("POST /api/v1/setup", m.setup, api.Public())
 	r.Handle("POST /api/v1/auth/login", m.login, api.Public())
-	r.Handle("POST /api/v1/auth/logout", m.logout)
-	r.Handle("GET /api/v1/auth/me", m.me)
-	r.Handle("PUT /api/v1/me/locale", m.setMyLocale)
-	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale)
+	r.Handle("POST /api/v1/auth/login/mfa", m.loginMFA, api.Public())
+	r.Handle("POST /api/v1/auth/logout", m.logout, self)
+	r.Handle("GET /api/v1/auth/me", m.me, self)
+	r.Handle("POST /api/v1/auth/elevate", m.elevate, self)
+
+	r.Handle("PUT /api/v1/me/locale", m.setMyLocale, self)
+	r.Handle("PUT /api/v1/me/password", m.changePassword, self)
+	r.Handle("GET /api/v1/me/sessions", m.listSessions, self)
+	r.Handle("DELETE /api/v1/me/sessions/{id}", m.revokeSession, self)
+	r.Handle("DELETE /api/v1/me/sessions", m.revokeOtherSessions, self)
+	r.Handle("POST /api/v1/me/totp/begin", m.beginTOTP, self, api.StepUp())
+	r.Handle("POST /api/v1/me/totp/confirm", m.confirmTOTP, self)
+	r.Handle("DELETE /api/v1/me/totp", m.disableTOTP, self, api.StepUp())
+	r.Handle("POST /api/v1/me/recovery-codes", m.regenerateRecoveryCodes, self, api.StepUp())
+
+	r.Handle("GET /api/v1/settings", m.getSettings, api.Require(authz.SettingsRead))
+	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale, api.Require(authz.SettingsManage))
 }
 
 // Authenticator resolves the session cookie to a principal.
@@ -86,8 +105,15 @@ func Authenticator(db *sql.DB) api.Authenticator {
 		if err != nil {
 			return nil, err
 		}
-		return &api.Principal{UserID: u.ID, Username: u.Username, Locale: u.Locale, SessionID: s.ID, Token: c.Value}, nil
+		return &api.Principal{
+			UserID: u.ID, Username: u.Username, Locale: u.Locale, Role: u.Role, TOTPEnabled: u.TOTPEnabled,
+			SessionID: s.ID, Token: c.Value, ElevatedUntil: s.ElevatedUntil,
+		}, nil
 	}
+}
+
+func (m *Module) audit(r *http.Request, who modutil.Actor, action, result string, params map[string]any) {
+	modutil.Audit(r, m.DB, m.Log, who, action, result, params)
 }
 
 type metaResponse struct {
@@ -111,7 +137,12 @@ func (m *Module) meta(w http.ResponseWriter, r *http.Request) error {
 }
 
 type userResponse struct {
-	User *auth.User `json:"user"`
+	User        *auth.User `json:"user"`
+	Permissions []string   `json:"permissions"`
+}
+
+func userBody(u *auth.User) userResponse {
+	return userResponse{User: u, Permissions: authz.PermissionsOf(u.Role)}
 }
 
 type setupRequest struct {
@@ -134,21 +165,30 @@ func (m *Module) setup(w http.ResponseWriter, r *http.Request) error {
 	case errors.Is(err, auth.ErrSetupDone):
 		return api.NewError(http.StatusConflict, "setup.already_completed", nil)
 	case errors.Is(err, auth.ErrSetupToken):
-		m.record(r, 0, req.Username, "auth.setup", "setup.invalid_token")
+		m.audit(r, modutil.Actor{Username: req.Username}, "auth.setup", "setup.invalid_token", nil)
 		return api.NewError(http.StatusBadRequest, "setup.invalid_token", nil)
 	case err != nil:
-		return fieldError(err)
+		return modutil.MapError(err, nil)
 	}
-	m.record(r, u.ID, u.Username, "auth.setup", "ok")
-	if err := m.startSession(w, r, u); err != nil {
+	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.setup", "ok", nil)
+	if err := m.signIn(w, r, u); err != nil {
 		return err
 	}
-	return api.WriteJSON(w, http.StatusOK, userResponse{User: u})
+	return api.WriteJSON(w, http.StatusOK, userBody(u))
 }
 
 type loginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+type mfaResponse struct {
+	MFARequired bool   `json:"mfaRequired"`
+	MFAToken    string `json:"mfaToken"`
+}
+
+func required(field string) error {
+	return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": field, "rule": "required"})
 }
 
 func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
@@ -157,39 +197,100 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	if req.Username == "" {
-		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "username", "rule": "required"})
+		return required("username")
 	}
 	if req.Password == "" {
-		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "password", "rule": "required"})
+		return required("password")
 	}
 	ctx := r.Context()
 	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(req.Username)}
-	wait, err := auth.LockedFor(ctx, m.DB, keys...)
-	if err != nil {
+	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
 		return err
-	}
-	if wait > 0 {
-		return rateLimited(wait)
+	} else if wait > 0 {
+		return modutil.RateLimited(wait)
 	}
 	u, err := auth.Authenticate(ctx, m.DB, req.Username, req.Password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
 		if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
 			return err
 		}
-		m.record(r, 0, req.Username, "auth.login", "auth.invalid_credentials")
+		m.audit(r, modutil.Actor{Username: req.Username}, "auth.login", "auth.invalid_credentials", nil)
 		return api.NewError(http.StatusUnauthorized, "auth.invalid_credentials", nil)
 	}
 	if err != nil {
 		return err
 	}
+	if u.TOTPEnabled {
+		// Password accepted; failures are reset only after the second step.
+		token, err := auth.CreateMFAChallenge(ctx, m.DB, u.ID, api.ClientIP(r))
+		if err != nil {
+			return err
+		}
+		return api.WriteJSON(w, http.StatusOK, mfaResponse{MFARequired: true, MFAToken: token})
+	}
 	if err := auth.ResetFailures(ctx, m.DB, keys...); err != nil {
 		return err
 	}
-	m.record(r, u.ID, u.Username, "auth.login", "ok")
-	if err := m.startSession(w, r, u); err != nil {
+	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login", "ok", nil)
+	if err := m.signIn(w, r, u); err != nil {
 		return err
 	}
-	return api.WriteJSON(w, http.StatusOK, userResponse{User: u})
+	return api.WriteJSON(w, http.StatusOK, userBody(u))
+}
+
+type loginMFARequest struct {
+	MFAToken     string `json:"mfaToken"`
+	Code         string `json:"code"`
+	RecoveryCode string `json:"recoveryCode"`
+}
+
+func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
+	var req loginMFARequest
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	ctx := r.Context()
+	userID, err := auth.MFAChallengeUser(ctx, m.DB, req.MFAToken)
+	if err != nil {
+		return modutil.MapError(err, nil)
+	}
+	u, err := auth.UserByID(ctx, m.DB, userID)
+	if err != nil || u.Disabled {
+		return modutil.MapError(auth.ErrMFAChallengeExpired, nil)
+	}
+	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(u.Username)}
+	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
+		return err
+	} else if wait > 0 {
+		return modutil.RateLimited(wait)
+	}
+	method := "totp"
+	if req.Code == "" {
+		method = "recovery"
+	}
+	err = auth.VerifySecondFactor(ctx, m.DB, m.Box, u.ID, req.Code, req.RecoveryCode)
+	if errors.Is(err, auth.ErrMFAInvalidCode) || errors.Is(err, auth.ErrMFARequired) {
+		_ = auth.FailMFAChallenge(ctx, m.DB, req.MFAToken)
+		if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+			return err
+		}
+		m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login_mfa", modutil.ErrorCode(err), map[string]any{"method": method})
+		return modutil.MapError(err, nil)
+	}
+	if err != nil {
+		return err
+	}
+	if err := auth.EndMFAChallenge(ctx, m.DB, req.MFAToken); err != nil {
+		return err
+	}
+	if err := auth.ResetFailures(ctx, m.DB, keys...); err != nil {
+		return err
+	}
+	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login_mfa", "ok", map[string]any{"method": method})
+	if err := m.signIn(w, r, u); err != nil {
+		return err
+	}
+	return api.WriteJSON(w, http.StatusOK, userBody(u))
 }
 
 func (m *Module) logout(w http.ResponseWriter, r *http.Request) error {
@@ -197,10 +298,15 @@ func (m *Module) logout(w http.ResponseWriter, r *http.Request) error {
 	if err := auth.DeleteSession(r.Context(), m.DB, p.Token); err != nil {
 		return err
 	}
-	m.record(r, p.UserID, p.Username, "auth.logout", "ok")
-	http.SetCookie(w, &http.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	m.audit(r, modutil.ActorOf(r), "auth.logout", "ok", nil)
+	clearCookie(w)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+type meResponse struct {
+	userResponse
+	ElevatedUntil int64 `json:"elevatedUntil"`
 }
 
 func (m *Module) me(w http.ResponseWriter, r *http.Request) error {
@@ -209,62 +315,76 @@ func (m *Module) me(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return api.WriteJSON(w, http.StatusOK, userResponse{User: u})
+	until := p.ElevatedUntil
+	if until <= time.Now().Unix() {
+		until = 0
+	}
+	return api.WriteJSON(w, http.StatusOK, meResponse{userResponse: userBody(u), ElevatedUntil: until})
 }
 
-type localeRequest struct {
-	Locale string `json:"locale"`
+type elevateRequest struct {
+	Password string `json:"password"`
+	Code     string `json:"code"`
 }
 
-func (m *Module) setMyLocale(w http.ResponseWriter, r *http.Request) error {
-	var req localeRequest
+type elevateResponse struct {
+	ElevatedUntil int64 `json:"elevatedUntil"`
+}
+
+// elevate re-authenticates the session for sensitive operations: password,
+// plus a TOTP code when two-step sign-in is enabled.
+func (m *Module) elevate(w http.ResponseWriter, r *http.Request) error {
+	var req elevateRequest
 	if err := api.DecodeJSON(r, &req); err != nil {
 		return err
 	}
-	if !i18n.IsSupported(req.Locale) {
-		return localeError(req.Locale)
-	}
-	p, _ := api.PrincipalFrom(r.Context())
-	if err := auth.SetLocale(r.Context(), m.DB, p.UserID, req.Locale); err != nil {
+	ctx := r.Context()
+	p, _ := api.PrincipalFrom(ctx)
+	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(p.Username)}
+	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
 		return err
+	} else if wait > 0 {
+		return modutil.RateLimited(wait)
 	}
-	w.WriteHeader(http.StatusNoContent)
-	return nil
-}
-
-// setDefaultLocale changes the panel-wide default. The config file belongs to
-// root, so the change goes through the helper.
-func (m *Module) setDefaultLocale(w http.ResponseWriter, r *http.Request) error {
-	var req localeRequest
-	if err := api.DecodeJSON(r, &req); err != nil {
-		return err
-	}
-	if !i18n.IsSupported(req.Locale) {
-		return localeError(req.Locale)
-	}
-	p, _ := api.PrincipalFrom(r.Context())
-	caller := helperapi.Caller{UserID: p.UserID, Username: p.Username, Remote: api.ClientIP(r), Source: "web"}
-	err := m.Helper.Call(r.Context(), helperapi.ActionSetDefaultLocale, caller, helperapi.SetDefaultLocaleRequest{Locale: req.Locale}, nil)
-	if he, ok := helperapi.AsError(err); ok {
-		m.record(r, p.UserID, p.Username, "settings.default_locale", he.Code)
-		status := http.StatusBadGateway
-		if he.Code == helperapi.CodeLocaleUnsupport {
-			status = http.StatusBadRequest
+	fail := func(err error) error {
+		if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+			return err
 		}
-		return api.NewError(status, he.Code, he.Params)
+		m.audit(r, modutil.ActorOf(r), "auth.elevate", modutil.ErrorCode(err), nil)
+		return modutil.MapError(err, nil)
 	}
+	if err := auth.CheckPassword(ctx, m.DB, p.UserID, req.Password); errors.Is(err, auth.ErrWrongPassword) {
+		return fail(err)
+	} else if err != nil {
+		return err
+	}
+	if p.TOTPEnabled {
+		if req.Code == "" {
+			return modutil.MapError(auth.ErrMFARequired, nil)
+		}
+		if err := auth.VerifySecondFactor(ctx, m.DB, m.Box, p.UserID, req.Code, ""); errors.Is(err, auth.ErrMFAInvalidCode) {
+			return fail(err)
+		} else if err != nil {
+			return err
+		}
+	}
+	until, err := auth.Elevate(ctx, m.DB, p.SessionID)
 	if err != nil {
 		return err
 	}
-	m.Settings.setDefaultLocale(req.Locale)
-	m.recordParams(r, p.UserID, p.Username, "settings.default_locale", "ok", map[string]any{"locale": req.Locale})
-	w.WriteHeader(http.StatusNoContent)
-	return nil
+	if err := auth.ResetFailures(ctx, m.DB, keys...); err != nil {
+		return err
+	}
+	m.audit(r, modutil.ActorOf(r), "auth.elevate", "ok", nil)
+	return api.WriteJSON(w, http.StatusOK, elevateResponse{ElevatedUntil: until})
 }
 
-func (m *Module) startSession(w http.ResponseWriter, r *http.Request, u *auth.User) error {
+func (m *Module) signIn(w http.ResponseWriter, r *http.Request, u *auth.User) error {
 	token, err := auth.CreateSession(r.Context(), m.DB, u.ID, api.ClientIP(r), r.UserAgent())
 	if err != nil {
+		return err
+	}
+	if err := auth.TouchLogin(r.Context(), m.DB, u.ID); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -274,41 +394,10 @@ func (m *Module) startSession(w http.ResponseWriter, r *http.Request, u *auth.Us
 	return nil
 }
 
-func (m *Module) record(r *http.Request, uid int64, username, action, result string) {
-	m.recordParams(r, uid, username, action, result, nil)
-}
-
-func (m *Module) recordParams(r *http.Request, uid int64, username, action, result string, params map[string]any) {
-	err := audit.Record(r.Context(), m.DB, audit.Entry{
-		UserID: uid, Username: username, Action: action, Params: params,
-		Result: result, Remote: api.ClientIP(r), Source: "web",
-	})
-	if err != nil {
-		m.Log.Error("audit write failed", "action", action, "err", err)
-	}
+func clearCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{Name: auth.CookieName, Value: "", Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 }
 
 func localeError(locale string) error {
 	return api.NewError(http.StatusBadRequest, "locale.unsupported", map[string]any{"locale": locale})
-}
-
-func rateLimited(wait time.Duration) error {
-	secs := int(wait.Round(time.Second) / time.Second)
-	return api.NewError(http.StatusTooManyRequests, "auth.rate_limited", map[string]any{"retryAfterSeconds": max(secs, 1)})
-}
-
-// fieldError maps validation failures to "validation.invalid".
-func fieldError(err error) error {
-	var fe *auth.FieldError
-	if !errors.As(err, &fe) {
-		return err
-	}
-	params := map[string]any{"field": fe.Field, "rule": fe.Rule}
-	if fe.Min > 0 {
-		params["min"] = fe.Min
-	}
-	if fe.Max > 0 {
-		params["max"] = fe.Max
-	}
-	return api.NewError(http.StatusBadRequest, "validation.invalid", params)
 }

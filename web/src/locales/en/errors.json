@@ -9,7 +9,15 @@
     "invalid_credentials": "Incorrect username or password.",
     "rate_limited": "Too many sign-in attempts. Try again in {retryAfter}.",
     "unauthenticated": "Please sign in to continue.",
-    "session_expired": "Your session has expired. Please sign in again."
+    "session_expired": "Your session has expired. Please sign in again.",
+    "forbidden": "You do not have permission to do this.",
+    "step_up_required": "Confirm your identity to continue.",
+    "wrong_password": "The password is incorrect.",
+    "mfa_required": "Enter the code from your authenticator app.",
+    "mfa_invalid_code": "The code is incorrect or has expired.",
+    "mfa_challenge_expired": "The sign-in attempt has expired. Enter your password again.",
+    "totp_not_pending": "Setting up two-factor authentication took too long. Start again.",
+    "totp_already_enabled": "Two-factor authentication is already turned on."
   },
   "setup": {
     "invalid_token": "The setup token is invalid or has expired. Use the latest setup link printed on the server.",
@@ -23,7 +31,8 @@
       "min_length": "{field} must be at least {min} character long. | {field} must be at least {min} characters long.",
       "max_length": "{field} must be at most {max} character long. | {field} must be at most {max} characters long.",
       "pattern": "{field} is not in the expected format.",
-      "mismatch": "{field} does not match."
+      "mismatch": "{field} does not match.",
+      "enum": "{field} is not one of the allowed values."
     }
   },
   "locale": {
@@ -39,5 +48,10 @@
   },
   "helper": {
     "unavailable": "The privileged helper service is not reachable. Check that cairn-helper.socket is running on the server."
+  },
+  "users": {
+    "username_taken": "This username is already taken.",
+    "last_admin": "This would leave the panel without an active administrator.",
+    "cannot_modify_self": "You cannot change the role of, disable or delete your own account."
   }
 }

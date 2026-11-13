@@ -34,6 +34,7 @@ Commands:
   version           print the version
   setup-link        print a one-time link for creating the administrator
   reset-password    reset a user's password and sign them out everywhere
+  reset-2fa         turn off a user's two-step sign-in (lost phone and codes)
 
 Run "cairn <command> -h" for the flags of a command.
 `
@@ -62,6 +63,14 @@ func main() {
 		})
 		if err == nil {
 			err = app.resetPassword(username)
+		}
+	case "reset-2fa":
+		var username string
+		app, err = newCLI("reset-2fa", args, func(f *flag.FlagSet) {
+			f.StringVar(&username, "username", "", "user whose two-step sign-in is turned off (optional if only one user exists)")
+		})
+		if err == nil {
+			err = app.reset2FA(username)
 		}
 	case "help", "-h", "--help":
 		fmt.Print(usage)
@@ -197,24 +206,50 @@ func (c *cli) setupLink() error {
 	return nil
 }
 
-func (c *cli) resetPassword(username string) error {
-	ctx := context.Background()
+// pickUser resolves --username, defaulting to the only user if there is one.
+func (c *cli) pickUser(ctx context.Context, username string) (*auth.User, error) {
 	if username == "" {
 		n, err := auth.CountUsers(ctx, c.db)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if n != 1 {
-			return errors.New(c.t("cli.reset_password.need_username", nil))
+			return nil, errors.New(c.t("cli.reset_password.need_username", nil))
 		}
 		if err := c.db.QueryRowContext(ctx, `SELECT username FROM users LIMIT 1`).Scan(&username); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	u, err := auth.UserByName(ctx, c.db, username)
 	if errors.Is(err, auth.ErrNotFound) {
-		return errors.New(c.t("cli.reset_password.no_user", map[string]any{"Username": username}))
+		return nil, errors.New(c.t("cli.reset_password.no_user", map[string]any{"Username": username}))
 	}
+	return u, err
+}
+
+func (c *cli) reset2FA(username string) error {
+	ctx := context.Background()
+	u, err := c.pickUser(ctx, username)
+	if err != nil {
+		return err
+	}
+	if err := auth.DisableTOTP(ctx, c.db, u.ID); err != nil {
+		return err
+	}
+	if err := auth.DeleteUserSessions(ctx, c.db, u.ID); err != nil {
+		return err
+	}
+	if err := audit.Record(ctx, c.db, audit.Entry{UserID: u.ID, Username: u.Username, Action: "auth.reset_2fa", Result: "ok", Source: "cli"}); err != nil {
+		return err
+	}
+	fmt.Println(c.t("cli.reset_2fa.done", map[string]any{"Username": u.Username}))
+	fmt.Println(c.t("cli.reset_password.sessions_revoked", nil))
+	return nil
+}
+
+func (c *cli) resetPassword(username string) error {
+	ctx := context.Background()
+	u, err := c.pickUser(ctx, username)
 	if err != nil {
 		return err
 	}

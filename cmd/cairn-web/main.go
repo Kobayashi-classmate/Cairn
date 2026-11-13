@@ -26,8 +26,11 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
+	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 	"github.com/Kobayashi-classmate/Cairn/internal/store"
 	"github.com/Kobayashi-classmate/Cairn/internal/tlsutil"
 	"github.com/Kobayashi-classmate/Cairn/internal/ui"
@@ -72,6 +75,10 @@ func run(cfgPath string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	box, err := secrets.LoadOrCreate(cfg.Paths.DataDir)
+	if err != nil {
+		return err
+	}
 
 	collector := metrics.NewCollector(5*time.Second, 720, log)
 	go collector.Run(ctx)
@@ -81,8 +88,10 @@ func run(cfgPath string, log *slog.Logger) error {
 
 	router := api.NewRouter(core.Authenticator(db), log)
 	modules := []module.Module{
-		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Log: log},
+		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Log: log},
 		&system.Module{Metrics: collector},
+		&users.Module{DB: db, Log: log},
+		&auditlog.Module{DB: db},
 	}
 	for _, m := range modules {
 		m.Routes(router)

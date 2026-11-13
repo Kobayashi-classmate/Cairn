@@ -1,11 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, watchEffect } from 'vue'
+import { computed, defineAsyncComponent, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterView, useRoute } from 'vue-router'
 import {
   NButton,
   NConfigProvider,
+  NDialogProvider,
   NGlobalStyle,
   NMessageProvider,
   NResult,
@@ -16,6 +17,9 @@ import {
 import { errorMessage } from '@/i18n/errors'
 import { naiveLocaleFor } from '@/i18n/naive'
 import { useSessionStore } from '@/stores/session'
+
+// Only signed-in users can be asked to re-authenticate; keep it out of the entry chunk.
+const StepUpDialog = defineAsyncComponent(() => import('@/components/StepUpDialog.vue'))
 
 const { t, locale } = useI18n()
 const route = useRoute()
@@ -41,21 +45,24 @@ function reload() {
   <NConfigProvider :theme="theme" :locale="naive.locale" :date-locale="naive.dateLocale">
     <NGlobalStyle />
     <NMessageProvider>
-      <div v-if="session.bootError" class="app-state">
-        <NResult
-          status="error"
-          :title="t('common.boot.failed')"
-          :description="errorMessage(session.bootError)"
-        >
-          <template #footer>
-            <NButton @click="reload">{{ t('common.action.retry') }}</NButton>
-          </template>
-        </NResult>
-      </div>
-      <div v-else-if="!session.initialized" class="app-state">
-        <NSpin />
-      </div>
-      <RouterView v-else />
+      <NDialogProvider>
+        <div v-if="session.bootError" class="app-state">
+          <NResult
+            status="error"
+            :title="t('common.boot.failed')"
+            :description="errorMessage(session.bootError)"
+          >
+            <template #footer>
+              <NButton @click="reload">{{ t('common.action.retry') }}</NButton>
+            </template>
+          </NResult>
+        </div>
+        <div v-else-if="!session.initialized" class="app-state">
+          <NSpin />
+        </div>
+        <RouterView v-else />
+        <StepUpDialog v-if="session.isAuthenticated" />
+      </NDialogProvider>
     </NMessageProvider>
   </NConfigProvider>
 </template>

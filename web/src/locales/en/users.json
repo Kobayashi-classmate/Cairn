@@ -1,0 +1,64 @@
+{
+  "title": "Users",
+  "you": "You",
+  "never": "Never",
+  "column": {
+    "status": "Status",
+    "totp": "Two-factor",
+    "created": "Created",
+    "lastLogin": "Last sign-in",
+    "actions": "Actions"
+  },
+  "status": {
+    "active": "Active",
+    "disabled": "Disabled"
+  },
+  "action": {
+    "changeRole": "Change role",
+    "disable": "Disable",
+    "enable": "Enable",
+    "resetPassword": "Set new password",
+    "resetTotp": "Reset two-factor authentication",
+    "delete": "Delete"
+  },
+  "roleHelp": {
+    "admin": "Full access, including users and panel settings.",
+    "operator": "Views the system status and panel settings.",
+    "auditor": "Views the system status, panel settings and the audit log."
+  },
+  "create": {
+    "title": "Add user",
+    "submit": "Add user",
+    "done": "User {username} was added."
+  },
+  "role": {
+    "title": "Change the role of {username}",
+    "done": "The role of {username} was changed."
+  },
+  "password": {
+    "title": "Set a new password for {username}",
+    "hint": "{username} will be signed out of all sessions.",
+    "submit": "Set password",
+    "done": "The password of {username} was changed."
+  },
+  "confirm": {
+    "disable": {
+      "title": "Disable {username}?",
+      "content": "{username} will be signed out and cannot sign in until the account is enabled again."
+    },
+    "resetTotp": {
+      "title": "Reset two-factor authentication for {username}?",
+      "content": "{username} will be able to sign in with the password alone and can set up two-factor authentication again."
+    },
+    "delete": {
+      "title": "Delete {username}?",
+      "content": "The account is deleted permanently. Its entries in the audit log are kept."
+    }
+  },
+  "done": {
+    "disabled": "{username} was disabled.",
+    "enabled": "{username} was enabled.",
+    "totpReset": "Two-factor authentication was reset for {username}.",
+    "deleted": "{username} was deleted."
+  }
+}

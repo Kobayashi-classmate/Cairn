@@ -91,6 +91,21 @@ code=$(api -o /dev/null -w '%{http_code}' -X POST "$base/api/v1/auth/login" -d '
 api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$newpw\"}" | grep -q '"username":"admin"' || fail "login with reset password"
 step "cairn reset-password works, old password rejected"
 
+newop='{"username":"ops","password":"smoke-operator-password","role":"operator"}'
+api -X POST "$base/api/v1/users" -d "$newop" | grep -q '"auth.step_up_required"' || fail "creating a user without step-up"
+api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$newpw\"}" | grep -q '"elevatedUntil"' || fail "elevate"
+api -X POST "$base/api/v1/users" -d "$newop" | grep -q '"role":"operator"' || fail "create operator"
+opjar=/tmp/opjar
+curl -sk -c "$opjar" -b "$opjar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' -X POST "$base/api/v1/auth/login" \
+	-d '{"username":"ops","password":"smoke-operator-password"}' | grep -q '"system.read"' || fail "operator login"
+curl -sk -b "$opjar" "$base/api/v1/users" | grep -q '"auth.forbidden"' || fail "operator reached user management"
+api "$base/api/v1/audit?action=users.create" | grep -q '"username":"ops"' || fail "audit entry for users.create"
+step "roles enforced: step-up for user management, operator denied, change audited"
+
+cairn reset-2fa --username admin --lang en | grep -q "turned off" || fail "cairn reset-2fa"
+[ "$(stat -c '%U:%G %a' /var/lib/cairn/master.key)" = "cairn:cairn 600" ] || fail "master key ownership/mode"
+step "cairn reset-2fa works; master key is cairn-only (0600)"
+
 pkill -f /usr/bin/cairn-web || true
 pkill -f /usr/lib/cairn/cairn-helper || true
 sleep 0.5

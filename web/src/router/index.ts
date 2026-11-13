@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import { createRouter, createWebHistory, type Router, type RouteRecordRaw } from 'vue-router'
 import { setUnauthorizedHandler } from '@/api/client'
+import type { Permission } from '@/auth/permissions'
+import { homeLocation } from '@/layouts/navigation'
 import { useSessionStore } from '@/stores/session'
 
 declare module 'vue-router' {
@@ -11,6 +13,8 @@ declare module 'vue-router' {
     titleKey?: string
     /** Key of the sider entry to highlight. */
     navKey?: string
+    /** Permission needed to open the page. */
+    permission?: Permission
   }
 }
 
@@ -36,7 +40,48 @@ const routes: RouteRecordRaw[] = [
         path: '',
         name: 'overview',
         component: () => import('@/views/DashboardView.vue'),
-        meta: { titleKey: 'dashboard.title', navKey: 'overview' },
+        meta: { titleKey: 'dashboard.title', navKey: 'overview', permission: 'system.read' },
+      },
+      {
+        path: 'users',
+        name: 'users',
+        component: () => import('@/views/UsersView.vue'),
+        meta: { titleKey: 'users.title', navKey: 'users', permission: 'users.manage' },
+      },
+      {
+        path: 'audit',
+        name: 'audit',
+        component: () => import('@/views/AuditView.vue'),
+        meta: { titleKey: 'audit.title', navKey: 'audit', permission: 'audit.read' },
+      },
+      {
+        path: 'settings',
+        component: () => import('@/views/SettingsView.vue'),
+        meta: { titleKey: 'settings.title', navKey: 'settings' },
+        children: [
+          { path: '', name: 'settings', redirect: { name: 'settings-account' } },
+          {
+            path: 'account',
+            name: 'settings-account',
+            component: () => import('@/views/settings/AccountSettings.vue'),
+          },
+          {
+            path: 'security',
+            name: 'settings-security',
+            component: () => import('@/views/settings/SecuritySettings.vue'),
+          },
+          {
+            path: 'sessions',
+            name: 'settings-sessions',
+            component: () => import('@/views/settings/SessionsSettings.vue'),
+          },
+          {
+            path: 'panel',
+            name: 'settings-panel',
+            component: () => import('@/views/settings/PanelSettings.vue'),
+            meta: { permission: 'settings.read' },
+          },
+        ],
       },
     ],
   },
@@ -66,13 +111,17 @@ export function createAppRouter(): Router {
       return { name: 'setup', query: typeof token === 'string' ? { token } : {} }
     }
     if (to.name === 'setup') {
-      return session.isAuthenticated ? { name: 'overview' } : { name: 'login' }
+      return session.isAuthenticated ? homeLocation(session.can) : { name: 'login' }
     }
     if (to.meta.requiresAuth && !session.isAuthenticated) {
       return loginLocation(to.fullPath)
     }
     if (to.name === 'login' && session.isAuthenticated) {
-      return { name: 'overview' }
+      return homeLocation(session.can)
+    }
+    // Pages the role may not open lead to the first page it may.
+    if (to.meta.permission && !session.can(to.meta.permission)) {
+      return homeLocation(session.can)
     }
     return true
   })

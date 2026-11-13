@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 )
 
 // SetupTokenTTL bounds how long a setup link stays valid.
@@ -66,7 +68,7 @@ func CompleteSetup(ctx context.Context, db *sql.DB, token, username, password, l
 	if err != nil {
 		return nil, err
 	}
-	u, err := CreateUser(ctx, tx, username, password, locale)
+	u, err := CreateUser(ctx, tx, username, password, locale, string(authz.Admin))
 	if err != nil {
 		return nil, err
 	}
