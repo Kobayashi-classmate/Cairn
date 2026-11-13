@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# CentOS Linux 8 and CentOS Stream 8 have both reached end of life.
+inherits = "el"
+unsupported = "CentOS 8 has reached end of life"

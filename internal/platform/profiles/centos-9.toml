@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# CentOS Stream is tier 2, unlike the RHEL rebuilds.
+inherits = "el-9"
+tier = 2

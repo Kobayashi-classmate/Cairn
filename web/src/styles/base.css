@@ -1,0 +1,12 @@
+/* SPDX-License-Identifier: AGPL-3.0-only */
+
+/* Body colours and fonts come from Naive UI's NGlobalStyle. */
+html,
+body {
+  margin: 0;
+}
+
+#app {
+  min-block-size: 100vh;
+  min-block-size: 100dvh;
+}

@@ -1,0 +1,70 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Builds the .deb and .rpm packages. Run through `make package`, which sets
+# VERSION and ARCH (Go architecture names: amd64, arm64, loong64).
+name: cairn
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: none
+release: "1"
+section: admin
+priority: optional
+maintainer: Cairn maintainers <107290433+Kobayashi-classmate@users.noreply.github.com>
+vendor: Cairn
+homepage: https://github.com/Kobayashi-classmate/Cairn
+license: AGPL-3.0-only
+description: |-
+  Open-source control panel for Linux servers.
+  Manages websites, certificates, databases, files, scheduled tasks and more
+  from a web interface. The web process runs unprivileged; privileged work is
+  done by a small root helper with a fixed set of actions.
+
+contents:
+  - src: dist/${ARCH}/cairn-web
+    dst: /usr/bin/cairn-web
+    file_info:
+      mode: 0755
+  - src: dist/${ARCH}/cairn
+    dst: /usr/bin/cairn
+    file_info:
+      mode: 0755
+  - src: dist/${ARCH}/cairn-helper
+    dst: /usr/lib/cairn/cairn-helper
+    file_info:
+      mode: 0755
+  - src: packaging/systemd/cairn-web.service
+    dst: /usr/lib/systemd/system/cairn-web.service
+    file_info:
+      mode: 0644
+  - src: packaging/systemd/cairn-helper.service
+    dst: /usr/lib/systemd/system/cairn-helper.service
+    file_info:
+      mode: 0644
+  - src: packaging/systemd/cairn-helper.socket
+    dst: /usr/lib/systemd/system/cairn-helper.socket
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/cairn/copyright
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/licenses/cairn/LICENSE
+    packager: rpm
+    file_info:
+      mode: 0644
+
+# The maintainer scripts create the cairn account with useradd/groupadd.
+overrides:
+  deb:
+    depends:
+      - passwd
+  rpm:
+    depends:
+      - shadow-utils
+
+scripts:
+  postinstall: packaging/scripts/postinstall.sh
+  preremove: packaging/scripts/preremove.sh
+  postremove: packaging/scripts/postremove.sh

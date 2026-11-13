@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Package system serves the overview page: host information, live resource
+// usage and the recent history.
+package system
+
+import (
+	"net/http"
+
+	"github.com/Kobayashi-classmate/Cairn/internal/api"
+	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
+)
+
+// Module implements module.Module.
+type Module struct {
+	Metrics *metrics.Collector
+}
+
+// ID implements module.Module.
+func (m *Module) ID() string { return "system" }
+
+// Routes implements module.Module.
+func (m *Module) Routes(r *api.Router) {
+	r.Handle("GET /api/v1/system/overview", func(w http.ResponseWriter, _ *http.Request) error {
+		return api.WriteJSON(w, http.StatusOK, m.Metrics.Overview())
+	})
+}

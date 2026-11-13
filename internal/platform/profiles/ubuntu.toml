@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Ubuntu ships ufw (inactive by default) and enables AppArmor.
+inherits = "debian"
+min_version = "22.04"
+firewall = "ufw"

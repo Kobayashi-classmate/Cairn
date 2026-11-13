@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Base profile for Enterprise Linux: RHEL, Rocky Linux, AlmaLinux, CentOS Stream.
+family = "el"
+min_version = "8"
+package_manager = "dnf"
+web_user = "nginx"
+firewall = "firewalld"
+mac = "selinux"
+
+[services]
+ssh = "sshd"
+cron = "crond"
+nginx = "nginx"

@@ -30,6 +30,7 @@
 # ---- Still ignored inside allowed directories ----
 # Build output and dependencies
 /web/dist/
+/internal/ui/dist/
 node_modules/
 
 # Local data and runtime files

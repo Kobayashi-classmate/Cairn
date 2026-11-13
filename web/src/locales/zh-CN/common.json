@@ -1,0 +1,30 @@
+{
+  "app": {
+    "name": "Cairn",
+    "pageTitle": "{page} · {app}"
+  },
+  "nav": {
+    "overview": "概览"
+  },
+  "action": {
+    "signOut": "退出登录",
+    "retry": "重试"
+  },
+  "language": {
+    "label": "语言"
+  },
+  "field": {
+    "username": "用户名",
+    "password": "密码",
+    "passwordConfirm": "确认密码",
+    "token": "初始化令牌",
+    "locale": "语言"
+  },
+  "boot": {
+    "failed": "无法加载面板"
+  },
+  "format": {
+    "bytes": "{value} {unit}",
+    "rate": "{value}/s"
+  }
+}

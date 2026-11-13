@@ -1,0 +1,30 @@
+{
+  "app": {
+    "name": "Cairn",
+    "pageTitle": "{page} · {app}"
+  },
+  "nav": {
+    "overview": "Overview"
+  },
+  "action": {
+    "signOut": "Sign out",
+    "retry": "Retry"
+  },
+  "language": {
+    "label": "Language"
+  },
+  "field": {
+    "username": "Username",
+    "password": "Password",
+    "passwordConfirm": "Confirm password",
+    "token": "Setup token",
+    "locale": "Language"
+  },
+  "boot": {
+    "failed": "Cannot load the panel"
+  },
+  "format": {
+    "bytes": "{value} {unit}",
+    "rate": "{value}/s"
+  }
+}

@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The only privileged part of Cairn. Started on demand through
+# cairn-helper.socket; it never listens on the network.
+[Unit]
+Description=Cairn root helper
+Documentation=https://github.com/Kobayashi-classmate/Cairn
+Requires=cairn-helper.socket
+After=cairn-helper.socket
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/cairn/cairn-helper
+Restart=on-failure
+RestartSec=2
+PrivateTmp=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native

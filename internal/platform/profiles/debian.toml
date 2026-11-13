@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Base profile for Debian and its derivatives.
+family = "debian"
+min_version = "12"
+package_manager = "apt"
+web_user = "www-data"
+firewall = "none"
+mac = "apparmor"
+
+[services]
+ssh = "ssh"
+cron = "cron"
+nginx = "nginx"

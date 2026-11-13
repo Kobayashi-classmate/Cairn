@@ -1,0 +1,43 @@
+{
+  "unknown": "Something went wrong. Please try again.",
+  "client": {
+    "network_error": "Cannot reach the server. Check your network connection and try again.",
+    "http_error": "The server returned an unexpected response (HTTP {status}).",
+    "bad_response": "The server's response could not be read."
+  },
+  "auth": {
+    "invalid_credentials": "Incorrect username or password.",
+    "rate_limited": "Too many sign-in attempts. Try again in {retryAfter}.",
+    "unauthenticated": "Please sign in to continue.",
+    "session_expired": "Your session has expired. Please sign in again."
+  },
+  "setup": {
+    "invalid_token": "The setup token is invalid or has expired. Use the latest setup link printed on the server.",
+    "already_completed": "Setup has already been completed. Sign in with the administrator account."
+  },
+  "validation": {
+    "invalid": "Some of the submitted values are invalid.",
+    "field": "{field} is invalid.",
+    "rule": {
+      "required": "{field} is required.",
+      "min_length": "{field} must be at least {min} character long. | {field} must be at least {min} characters long.",
+      "max_length": "{field} must be at most {max} character long. | {field} must be at most {max} characters long.",
+      "pattern": "{field} is not in the expected format.",
+      "mismatch": "{field} does not match."
+    }
+  },
+  "locale": {
+    "unsupported": "This language is not supported."
+  },
+  "request": {
+    "csrf_failed": "The request failed a security check. Reload the page and try again.",
+    "invalid_json": "The server could not read the request.",
+    "not_found": "The requested resource does not exist."
+  },
+  "internal": {
+    "error": "An internal server error occurred. Check the panel logs for details."
+  },
+  "helper": {
+    "unavailable": "The privileged helper service is not reachable. Check that cairn-helper.socket is running on the server."
+  }
+}

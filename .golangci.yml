@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - bodyclose
+    - forbidigo
+    - gosec
+  settings:
+    errcheck:
+      # Cleanup calls on deferred or error paths, where there is nothing
+      # useful to do with a failure. Writes are always checked explicitly.
+      exclude-functions:
+        - (*database/sql.DB).Close
+        - (*database/sql.Tx).Rollback
+        - (*os.File).Close
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (net.Listener).Close
+        - (net.Conn).Close
+        - (*net.UnixConn).Close
+    gosec:
+      excludes:
+        # Unchecked errors are covered by errcheck and its curated exclusions;
+        # G104 would report the same lines without honoring them.
+        - G104
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^exec\.(Command|CommandContext)$
+          pkg: ^os/exec$
+          msg: run external commands through internal/execx (argv only, never a shell)
+        - pattern: ^os\.StartProcess$
+          msg: run external commands through internal/execx
+        - pattern: ^syscall\.(Exec|ForkExec|StartProcess)$
+          msg: run external commands through internal/execx
+  exclusions:
+    rules:
+      # execx is the single place allowed to start processes.
+      - path: ^internal/execx/
+        linters:
+          - forbidigo
+          - gosec
+
+formatters:
+  enable:
+    - gofmt

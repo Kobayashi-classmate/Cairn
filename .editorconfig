@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.go]
+indent_style = tab
+
+[{Makefile,*.mk}]
+indent_style = tab
+
+[*.{ts,vue,js,mjs,json,yml,yaml,toml,css}]
+indent_style = space
+indent_size = 2
+
+[*.sh]
+indent_style = tab
