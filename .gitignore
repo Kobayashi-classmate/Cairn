@@ -1,0 +1,51 @@
+# This repository tracks program-related content only, using an allowlist:
+# ignore everything at the root first, then explicitly re-include program
+# directories and the required repository files.
+# Any new top-level file or directory must be re-included here, otherwise
+# it will never be committed.
+/*
+
+# ---- Allow: source code, build and tests ----
+!/cmd/
+!/internal/
+!/web/
+!/catalog/
+!/packaging/
+!/test/
+!/scripts/
+!/go.mod
+!/go.sum
+!/Makefile
+
+# ---- Allow: repository files and tool configuration ----
+!/.gitignore
+!/.gitattributes
+!/.editorconfig
+!/.golangci.yml
+!/.github/
+!/LICENSE
+!/README.md
+!/README.*.md
+
+# ---- Still ignored inside allowed directories ----
+# Build output and dependencies
+/web/dist/
+node_modules/
+
+# Local data and runtime files
+*.db
+*.db-shm
+*.db-wal
+*.log
+.env
+.env.*
+
+# Tests and coverage
+coverage.*
+*.out
+
+# Editors and OS files
+.idea/
+.vscode/
+*.swp
+.DS_Store
