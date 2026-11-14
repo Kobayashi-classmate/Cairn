@@ -85,10 +85,28 @@
   },
   "pkg": {
     "busy": "另一个软件包操作正在进行，请在其完成后重试。",
-    "unsupported": "此系统不支持软件包管理。"
+    "unsupported": "此系统不支持软件包管理。",
+    "not_available": "此版本无法在此系统上安装。",
+    "not_installed": "此版本未安装。",
+    "key_download_failed": "无法下载软件源的签名密钥。",
+    "key_mismatch": "软件源的签名密钥与预置的指纹不一致，未做任何更改。",
+    "stream_conflict": "该模块已启用了另一个版本。",
+    "version_unknown": "无法确定要安装的确切版本。",
+    "version_mismatch": "安装的版本与预期不一致。",
+    "service_failed": "安装后有服务无法启动。"
   },
   "module": {
     "disabled": "此功能已在模块设置中关闭。",
     "not_optional": "该模块属于核心部分，无法关闭。"
+  },
+  "detailed": {
+    "pkg": {
+      "not_available": "此版本无法在此系统上安装。{reasonText}",
+      "key_download_failed": "无法从 {url} 下载软件源的签名密钥。",
+      "stream_conflict": "模块 {module} 已启用版本 {enabled}，而此版本线需要 {wanted}。未做任何更改。",
+      "version_unknown": "无法确定 {package} 在版本线 {line} 中的确切版本。",
+      "version_mismatch": "{package} 安装的版本为 {got}，预期为 {want}。",
+      "service_failed": "安装后以下服务无法启动：{units}。"
+    }
   }
 }

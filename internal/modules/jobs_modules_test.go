@@ -4,6 +4,7 @@ package modules_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -363,5 +364,87 @@ func TestJobPagingAndCancelAudit(t *testing.T) {
 	_ = e.db.QueryRow(`SELECT params FROM audit_log WHERE action = 'job.cancel' ORDER BY id DESC LIMIT 1`).Scan(&params)
 	if !strings.Contains(params, `"kind":"test.page"`) || !strings.Contains(params, all[0]) {
 		t.Fatalf("cancel audit params: %s", params)
+	}
+}
+
+func TestSoftwareInstallAndRemove(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	result, _ := json.Marshal(helperapi.InstallResult{Software: "php", Line: "8.4", Method: "system",
+		Packages: []helperapi.InstalledPackage{{Name: "php8.4-fpm", Version: "8.4.27-1~deb13u1"}}})
+	e.helper.respond(helperapi.ActionPkgInstall, helperapi.OpRef{ID: opID})
+	e.helper.respond(helperapi.ActionPkgRemove, helperapi.OpRef{ID: opID})
+	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpSucceeded, Result: result}})
+
+	r := admin.expect(admin.do("POST", "/api/v1/software/php/install", map[string]any{"line": "8.4"}), 202, "")
+	job := r.obj("job")
+	if job["kind"] != "software.install" || job["params"].(map[string]any)["name"] != "PHP" {
+		t.Fatalf("job: %v", job)
+	}
+	final, log := waitJob(t, admin, job["id"].(string))
+	if final["state"] != jobs.Succeeded || !strings.Contains(log, "php8.4-fpm 8.4.27-1~deb13u1") {
+		t.Fatalf("install job: %v %q", final, log)
+	}
+	// The helper is told only which entry and line, nothing else.
+	e.helper.mu.Lock()
+	sent := string(e.helper.requests[helperapi.ActionPkgInstall])
+	e.helper.mu.Unlock()
+	if sent != `{"software":"php","line":"8.4"}` {
+		t.Fatalf("sent to the helper: %s", sent)
+	}
+
+	for _, tc := range []struct {
+		path, line string
+		status     int
+		code       string
+		reason     any
+	}{
+		{"/api/v1/software/php/install", "7.4", 409, helperapi.CodePkgNotAvailable, "end_of_life"},
+		{"/api/v1/software/nodejs/install", "24", 409, helperapi.CodePkgNotAvailable, "standalone"},
+		{"/api/v1/software/php/install", "9.9", 404, "request.not_found", nil},
+		{"/api/v1/software/nope/install", "1", 404, "request.not_found", nil},
+	} {
+		r := admin.expect(admin.do("POST", tc.path, map[string]any{"line": tc.line}), tc.status, tc.code)
+		if tc.reason != nil && r.params()["reason"] != tc.reason {
+			t.Errorf("%s %s: params %v", tc.path, tc.line, r.params())
+		}
+	}
+
+	// Removing needs a recent re-authentication.
+	admin.expect(admin.do("POST", "/api/v1/software/php/remove", map[string]any{"line": "8.4"}), 403, "auth.step_up_required")
+	admin.elevate("")
+	id := admin.expect(admin.do("POST", "/api/v1/software/php/remove", map[string]any{"line": "8.4"}), 202, "").obj("job")["id"].(string)
+	if final, _ := waitJob(t, admin, id); final["state"] != jobs.Succeeded || final["kind"] != "software.remove" {
+		t.Fatalf("remove job: %v", final)
+	}
+	var audited int
+	_ = e.db.QueryRow(`SELECT count(*) FROM audit_log WHERE action IN ('software.install', 'software.remove') AND result = 'ok'`).Scan(&audited)
+	if audited != 2 {
+		t.Fatalf("audited %d software actions", audited)
+	}
+
+	// Installed lines come from the helper's status.
+	e.helper.respond(helperapi.ActionPkgStatus, helperapi.SoftwareStatus{Installed: map[string]map[string][]helperapi.InstalledPackage{
+		"php": {"8.4": {{Name: "php8.4-fpm", Version: "8.4.27-1~deb13u1"}}}}})
+	list := admin.expect(admin.do("GET", "/api/v1/software", nil), 200, "")
+	installed := map[string]bool{}
+	for _, sw := range list.body["software"].([]any) {
+		if sw.(map[string]any)["id"] != "php" {
+			continue
+		}
+		for _, o := range sw.(map[string]any)["offers"].([]any) {
+			if o.(map[string]any)["installed"] == true {
+				installed[o.(map[string]any)["line"].(string)] = true
+			}
+		}
+	}
+	if list.body["statusAvailable"] != true || len(installed) != 1 || !installed["8.4"] {
+		t.Fatalf("installed state: %v %v", list.body["statusAvailable"], installed)
+	}
+	e.helper.mu.Lock()
+	e.helper.errs = map[string]error{helperapi.ActionPkgStatus: &helperapi.Error{Code: helperapi.CodeUnavailable}}
+	e.helper.mu.Unlock()
+	if r := admin.expect(admin.do("GET", "/api/v1/software", nil), 200, ""); r.body["statusAvailable"] != false {
+		t.Fatalf("helper down: %v", r.body["statusAvailable"])
 	}
 }

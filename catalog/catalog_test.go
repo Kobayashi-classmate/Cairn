@@ -164,14 +164,14 @@ lines = [{ version = "1" }]
 `
 	for name, files := range map[string]map[string]string{
 		"unapproved repository": {
-			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = false\nreleases = [\"el-9\"]\n",
+			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = false\nreleases = [\"el-9\"]\n[dnf]\nrelease_package = \"r-release\"\n",
 			"software/x.toml": base,
 		},
 		"unknown line": {
 			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"2\"]\npackages = [\"x\"]\n",
 		},
 		"repository not serving the release": {
-			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n",
+			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n[dnf]\nrelease_package = \"r-release\"\n",
 			"software/x.toml": base + "[[sources]]\nmethod = \"vendor\"\nrepo = \"r\"\nreleases = [\"el-10\"]\nlines = [\"1\"]\npackages = [\"x\"]\n",
 		},
 		"unknown placeholder": {
@@ -182,6 +182,18 @@ lines = [{ version = "1" }]
 		},
 		"file name mismatch": {
 			"software/y.toml": base,
+		},
+		"key over http": {
+			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n[dnf]\nbaseurl = \"https://r.example/\"\nkey = { url = \"http://r.example/key\", fingerprints = [\"B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8\"] }\n",
+			"software/x.toml": base,
+		},
+		"bad fingerprint": {
+			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n[dnf]\nbaseurl = \"https://r.example/\"\nkey = { url = \"https://r.example/key\", fingerprints = [\"ACCC4CF8\"] }\n",
+			"software/x.toml": base,
+		},
+		"repository without install details": {
+			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n",
+			"software/x.toml": base,
 		},
 	} {
 		fsys := fstest.MapFS{}

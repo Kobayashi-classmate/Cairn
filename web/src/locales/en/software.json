@@ -21,7 +21,8 @@
   "reason": {
     "end_of_life": "Upstream support has ended; it will be offered as a container in a later version.",
     "not_built": "No package is available for this system.",
-    "unknown": "Not available on this system."
+    "unknown": "Not available on this system.",
+    "standalone": "Prebuilt builds cannot be installed yet; this comes in a later version."
   },
   "advanced": {
     "title": "Advanced information",
@@ -31,6 +32,30 @@
     "stream": "Module stream",
     "eol": "End of upstream support",
     "eolEnded": "{date} (ended)",
-    "unofficialRepo": "{repo} is not the official repository of {software}; it was reviewed and approved for this purpose."
+    "unofficialRepo": "{repo} is not the official repository of {software}; it was reviewed and approved for this purpose.",
+    "installedPackages": "Installed packages",
+    "services": "Services",
+    "comingSoon": "Installing prebuilt builds will be available soon."
+  },
+  "installed": "Installed",
+  "statusUnavailable": "The panel could not find out which software is installed, so no version is marked as installed.",
+  "failed": "{task} failed",
+  "viewOutput": "View output",
+  "action": {
+    "install": "Install",
+    "remove": "Uninstall"
+  },
+  "progress": {
+    "install": "Installing…",
+    "remove": "Removing…"
+  },
+  "done": {
+    "installed": "{name} {line} was installed.",
+    "removed": "{name} {line} was uninstalled.",
+    "ended": "{task}: {state}"
+  },
+  "confirmRemove": {
+    "title": "Uninstall {name} {line}?",
+    "content": "The packages of {name} {line} will be removed. Configuration files and data are kept."
   }
 }

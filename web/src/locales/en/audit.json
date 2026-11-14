@@ -81,7 +81,9 @@
       "cancel": "Canceled task: {kind}"
     },
     "software": {
-      "refresh": "Started refreshing the package indexes"
+      "refresh": "Started refreshing the package indexes",
+      "install": "Started installing {software} {line}",
+      "remove": "Started uninstalling {software} {line}"
     },
     "module": {
       "enable": "Turned on module {module}",

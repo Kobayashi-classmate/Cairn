@@ -20,18 +20,21 @@ method = "system"
 releases = ["debian-12", "ubuntu-24.04", "el-10"]
 lines = ["10.11"]
 packages = ["mariadb-server"]
+services = ["mariadb"]
 
 [[sources]]
 method = "system"
 releases = ["debian-13", "ubuntu-26.04"]
 lines = ["11.8"]
 packages = ["mariadb-server"]
+services = ["mariadb"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-22.04"]
 lines = ["10.6"]
 packages = ["mariadb-server"]
+services = ["mariadb"]
 
 [[sources]]
 method = "system"
@@ -39,9 +42,11 @@ releases = ["el-9"]
 lines = ["11.8", "10.11"]
 packages = ["mariadb-server"]
 stream = "mariadb:{line}"
+services = ["mariadb"]
 
 [[sources]]
 method = "system"
 releases = ["el-9"]
 lines = ["10.5"]
 packages = ["mariadb-server"]
+services = ["mariadb"]

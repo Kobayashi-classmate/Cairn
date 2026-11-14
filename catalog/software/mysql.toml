@@ -16,12 +16,14 @@ method = "system"
 releases = ["ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.0"]
 packages = ["mysql-server"]
+services = ["mysql"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-26.04"]
 lines = ["8.4"]
 packages = ["mysql-server"]
+services = ["mysql"]
 
 [[sources]]
 method = "system"
@@ -29,18 +31,21 @@ releases = ["el-9"]
 lines = ["8.4"]
 packages = ["mysql-server"]
 stream = "mysql:{line}"
+services = ["mysqld"]
 
 [[sources]]
 method = "system"
 releases = ["el-9"]
 lines = ["8.0"]
 packages = ["mysql-server"]
+services = ["mysqld"]
 
 [[sources]]
 method = "system"
 releases = ["el-10"]
 lines = ["8.4"]
 packages = ["mysql8.4-server"]
+services = ["mysqld"]
 
 [[sources]]
 method = "vendor"
@@ -48,3 +53,4 @@ repo = "mysql"
 releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.4"]
 packages = ["mysql-server"]
+services = ["mysql"]

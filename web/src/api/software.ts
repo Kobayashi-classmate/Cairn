@@ -28,6 +28,17 @@ export interface Offer {
   endOfLife: boolean
   /** Why the line is not available: "end_of_life" or "not_built". */
   reason?: string
+  /** systemd units started after installation. */
+  services?: string[]
+  /** Whether the line is installed (always false when the status is unknown). */
+  installed: boolean
+  /** Exact installed versions of the line's packages. */
+  installedPackages?: InstalledPackage[]
+}
+
+export interface InstalledPackage {
+  name: string
+  version: string
 }
 
 export interface SoftwareEntry {
@@ -52,6 +63,8 @@ export interface SoftwareCatalog {
   release: string
   arch: string
   supported: boolean
+  /** False when the panel could not find out what is installed; nothing is then marked installed. */
+  statusAvailable: boolean
   software: SoftwareEntry[]
   repos: Repository[]
 }
@@ -79,6 +92,24 @@ const PROVIDER_NAMES: Record<string, string> = {
 
 export function providerName(provider: string): string {
   return PROVIDER_NAMES[provider] ?? provider
+}
+
+/** Starts installing a line (`software.manage`); follow the returned job. */
+export async function installSoftware(id: string, line: string): Promise<Job> {
+  return (await api.post<{ job: Job }>(`/software/${encodeURIComponent(id)}/install`, { line })).job
+}
+
+/**
+ * Starts uninstalling a line (`software.manage`, step-up). Packages are
+ * removed, not purged: configuration and data are kept.
+ */
+export async function removeSoftware(id: string, line: string): Promise<Job> {
+  return (await api.post<{ job: Job }>(`/software/${encodeURIComponent(id)}/remove`, { line })).job
+}
+
+/** Lines the panel can install or remove itself (prebuilt runtimes come later). */
+export function isManageable(offer: Offer): boolean {
+  return offer.method === 'system' || offer.method === 'vendor'
 }
 
 /** True when the line can be installed on this system. */

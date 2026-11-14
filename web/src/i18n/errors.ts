@@ -65,8 +65,25 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
     if (typeof field !== 'string' || field === '') return t('errors.validation.invalid')
     return validationMessage(field, typeof rule === 'string' ? rule : '', decorate(params))
   }
+  // Codes whose message names its parameters have two texts: `errors.<code>`
+  // reads well on its own (the audit log only has the code), and
+  // `errors.detailed.<code>` is used when the parameters are at hand.
+  const detailed = `errors.detailed.${code}`
+  if (Object.keys(params).length > 0 && te(detailed)) {
+    return t(detailed, decorateFor(code, params))
+  }
   const key = `errors.${code}`
   return te(key) ? t(key, decorate(params)) : null
+}
+
+/** Parameters with code-specific additions, such as a translated `reason`. */
+function decorateFor(code: string, params: ErrorParams): NamedParams {
+  const named = decorate(params)
+  if (code === 'pkg.not_available' && typeof params.reason === 'string') {
+    const key = `software.reason.${params.reason}`
+    named.reasonText = i18n.global.te(key) ? i18n.global.t(key) : params.reason
+  }
+  return named
 }
 
 /** Turns anything thrown by an API call into a message in the current language. */

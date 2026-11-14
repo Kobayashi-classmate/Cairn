@@ -20,7 +20,9 @@
   },
   "kind": {
     "software": {
-      "refresh": "刷新软件包索引"
+      "refresh": "刷新软件包索引",
+      "install": "安装 {name} {line}",
+      "remove": "卸载 {name} {line}"
     }
   },
   "detail": {
@@ -33,5 +35,11 @@
     "log": "输出",
     "trimmed": "为节省内存，较早的输出已被丢弃，只显示最近的部分。",
     "noLog": "该任务没有输出。"
+  },
+  "kindName": {
+    "software": {
+      "install": "安装软件",
+      "remove": "卸载软件"
+    }
   }
 }

@@ -4,3 +4,17 @@ name = "PostgreSQL repository (PGDG)"
 homepage = "https://www.postgresql.org/download/"
 official = true
 releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "el-9", "el-10"]
+
+[apt]
+uri = "https://apt.postgresql.org/pub/repos/apt"
+suite = "{codename}-pgdg"
+components = ["main"]
+key = { url = "https://www.postgresql.org/media/keys/ACCC4CF8.asc", fingerprints = ["B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8"] }
+# Its servers need its newer client library and cluster tools (checked
+# 2026-11-14).
+prefer = ["libpq5", "postgresql-common", "postgresql-client-common"]
+
+# One repository per major version on EL.
+[dnf]
+baseurl = "https://download.postgresql.org/pub/repos/yum/{line}/redhat/rhel-{major}-$basearch"
+key = { url = "https://download.postgresql.org/pub/repos/yum/keys/PGDG-RPM-GPG-KEY-RHEL", fingerprints = ["D4BF08AE67A0B4C7A1DBCCD240BCA2B408B40D20"] }

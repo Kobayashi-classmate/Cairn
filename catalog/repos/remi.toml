@@ -9,3 +9,9 @@ official = false
 approved = "2026-11-14"
 releases = ["el-9", "el-10"]
 requires = ["epel"]
+
+# remi-safe holds the parallel-installable packages. One key per EL major
+# version, both checked against package signatures on 2026-11-14.
+[dnf]
+baseurl = "https://rpms.remirepo.net/enterprise/{major}/safe/$basearch/"
+key = { url = "https://rpms.remirepo.net/enterprise/{major}/RPM-GPG-KEY-remi", fingerprints = ["B1ABF71E14C9D74897E198A8B19527F1478F8947", "CF1DF0057CE85DFF5B2F2A37C2FD3B2C2A0948E4"] }

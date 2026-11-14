@@ -82,6 +82,8 @@ type Source struct {
 	Stream string `toml:"stream"`
 	// Arch limits the source to these Go architectures; empty means all.
 	Arch []string `toml:"arch"`
+	// Services are the systemd units (templates) started after install.
+	Services []string `toml:"services"`
 }
 
 // Repo is an additional package repository.
@@ -97,6 +99,39 @@ type Repo struct {
 	Releases []string `toml:"releases" json:"-"`
 	// Requires lists repositories this one depends on (Remi needs EPEL).
 	Requires []string `toml:"requires" json:"-"`
+	// APT and DNF say how to add the repository. Templates may use
+	// {distro} (os-release ID), {codename}, {major} (major version) and
+	// {line}; dnf variables such as $basearch are passed through.
+	APT *APTRepo `toml:"apt" json:"-"`
+	DNF *DNFRepo `toml:"dnf" json:"-"`
+}
+
+// APTRepo is a deb822 repository. Its packages are pinned below the
+// system's (priority 100), so system packages stay the distribution's own
+// builds; Prefer lists shared packages the vendor's builds need in the
+// vendor's newer version (pinned above the system's).
+type APTRepo struct {
+	URI        string   `toml:"uri"`
+	Suite      string   `toml:"suite"`
+	Components []string `toml:"components"`
+	Key        Key      `toml:"key"`
+	Prefer     []string `toml:"prefer"`
+}
+
+// DNFRepo is a dnf repository, or a release package from the system
+// repositories that configures it (EPEL).
+type DNFRepo struct {
+	BaseURL        string `toml:"baseurl"`
+	Key            Key    `toml:"key"`
+	ReleasePackage string `toml:"release_package"`
+}
+
+// Key is a repository signing key: where to download it and the primary
+// key fingerprints it may contain. A downloaded key whose primary keys are
+// not all listed is refused.
+type Key struct {
+	URL          string   `toml:"url"`
+	Fingerprints []string `toml:"fingerprints"`
 }
 
 // Catalog is the loaded catalog.
@@ -107,12 +142,17 @@ type Catalog struct {
 
 var (
 	idPattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	fprPattern  = regexp.MustCompile(`^[0-9A-F]{40}$`)
 	datePattern = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	placeholder = regexp.MustCompile(`\{[^}]*\}`)
 )
 
 // Load parses and checks the embedded catalog.
 func Load() (*Catalog, error) { return load(files) }
+
+// LoadFS parses and checks a catalog laid out like the embedded one
+// (software/*.toml, repos/*.toml); tests use it.
+func LoadFS(fsys fs.FS) (*Catalog, error) { return load(fsys) }
 
 func load(fsys fs.FS) (*Catalog, error) {
 	c := &Catalog{Repos: map[string]Repo{}}
@@ -130,6 +170,9 @@ func load(fsys fs.FS) (*Catalog, error) {
 		}
 		if !r.Official && !datePattern.MatchString(r.Approved) {
 			return nil, fmt.Errorf("catalog: repository %s is not official and has no recorded approval", r.ID)
+		}
+		if err := checkRepo(r); err != nil {
+			return nil, fmt.Errorf("catalog: repository %s: %w", r.ID, err)
 		}
 		c.Repos[r.ID] = r
 	}
@@ -151,6 +194,44 @@ func load(fsys fs.FS) (*Catalog, error) {
 		c.Software = append(c.Software, s)
 	}
 	return c, nil
+}
+
+func checkKey(k Key) error {
+	if !strings.HasPrefix(k.URL, "https://") || len(k.Fingerprints) == 0 {
+		return fmt.Errorf("key needs an https URL and fingerprints")
+	}
+	for _, f := range k.Fingerprints {
+		if !fprPattern.MatchString(f) {
+			return fmt.Errorf("bad fingerprint %q", f)
+		}
+	}
+	return nil
+}
+
+func checkRepo(r Repo) error {
+	if r.APT == nil && r.DNF == nil {
+		return fmt.Errorf("neither apt nor dnf details")
+	}
+	if a := r.APT; a != nil {
+		if !strings.HasPrefix(a.URI, "https://") || a.Suite == "" || len(a.Components) == 0 {
+			return fmt.Errorf("apt: uri (https), suite and components are required")
+		}
+		if err := checkKey(a.Key); err != nil {
+			return fmt.Errorf("apt: %w", err)
+		}
+	}
+	if d := r.DNF; d != nil {
+		switch {
+		case d.ReleasePackage != "" && d.BaseURL == "":
+		case d.ReleasePackage == "" && strings.HasPrefix(d.BaseURL, "https://"):
+			if err := checkKey(d.Key); err != nil {
+				return fmt.Errorf("dnf: %w", err)
+			}
+		default:
+			return fmt.Errorf("dnf: either an https baseurl with a key or a release package")
+		}
+	}
+	return nil
 }
 
 func decode(fsys fs.FS, name string, v any) error {
@@ -200,7 +281,7 @@ func (c *Catalog) checkSource(src Source, versions []string) error {
 			return fmt.Errorf("unknown line %q", l)
 		}
 	}
-	for _, p := range append(slices.Clone(src.Packages), src.Stream) {
+	for _, p := range append(append(slices.Clone(src.Packages), src.Services...), src.Stream) {
 		for _, ph := range placeholder.FindAllString(p, -1) {
 			if ph != "{line}" && ph != "{line_nodot}" {
 				return fmt.Errorf("unknown placeholder %s", ph)
@@ -256,6 +337,7 @@ type Offer struct {
 	Provider    string   `json:"provider,omitempty"`
 	Packages    []string `json:"packages,omitempty"`
 	Stream      string   `json:"stream,omitempty"`
+	Services    []string `json:"services,omitempty"`
 	Recommended bool     `json:"recommended"`
 	LTS         bool     `json:"lts"`
 	EOL         string   `json:"eol,omitempty"`
@@ -311,6 +393,9 @@ func (sw *Software) Offers(sys System) []Offer {
 			}
 			if src.Stream != "" {
 				o.Stream = expand(src.Stream, l.Version)
+			}
+			for _, u := range src.Services {
+				o.Services = append(o.Services, expand(u, l.Version))
 			}
 			if src.Method == MethodSystem {
 				o.EndOfLife = false

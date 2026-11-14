@@ -20,7 +20,9 @@
   },
   "kind": {
     "software": {
-      "refresh": "Refresh package indexes"
+      "refresh": "Refresh package indexes",
+      "install": "Install {name} {line}",
+      "remove": "Uninstall {name} {line}"
     }
   },
   "detail": {
@@ -33,5 +35,11 @@
     "log": "Output",
     "trimmed": "Earlier output was dropped to save memory; only the most recent part is shown.",
     "noLog": "This task produced no output."
+  },
+  "kindName": {
+    "software": {
+      "install": "Install software",
+      "remove": "Uninstall software"
+    }
   }
 }

@@ -4,3 +4,14 @@ name = "MySQL repository (Oracle)"
 homepage = "https://dev.mysql.com/downloads/repo/"
 official = true
 releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "el-9", "el-10"]
+
+# The 2023 key file at repo.mysql.com expired on 2025-10-22; the same key
+# with a renewed expiry (2027-10-23) is published as RPM-GPG-KEY-mysql-2025.
+[apt]
+uri = "https://repo.mysql.com/apt/{distro}"
+suite = "{codename}"
+components = ["mysql-{line}-lts"]
+key = { url = "https://repo.mysql.com/RPM-GPG-KEY-mysql-2025", fingerprints = ["BCA43417C3B485DD128EC6D4B7B3B788A8D3785C"] }
+# Its server needs its own mysql-common and mysql-client; the systems have
+# packages of the same names (checked 2026-11-14).
+prefer = ["mysql-common", "mysql-client"]

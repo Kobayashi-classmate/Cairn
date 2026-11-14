@@ -85,10 +85,28 @@
   },
   "pkg": {
     "busy": "Another package operation is running; try again when it has finished.",
-    "unsupported": "Package management is not supported on this system."
+    "unsupported": "Package management is not supported on this system.",
+    "not_available": "This version cannot be installed on this system.",
+    "not_installed": "This version is not installed.",
+    "key_download_failed": "The repository's signing key could not be downloaded.",
+    "key_mismatch": "The repository's signing key does not match the pinned fingerprint. Nothing was changed.",
+    "stream_conflict": "Another version of this module is already enabled.",
+    "version_unknown": "The exact version to install could not be determined.",
+    "version_mismatch": "The installed version differs from the expected one.",
+    "service_failed": "A service could not be started after the installation."
   },
   "module": {
     "disabled": "This feature is turned off in the module settings.",
     "not_optional": "This module is part of the core and cannot be turned off."
+  },
+  "detailed": {
+    "pkg": {
+      "not_available": "This version cannot be installed on this system. {reasonText}",
+      "key_download_failed": "The repository's signing key could not be downloaded from {url}.",
+      "stream_conflict": "Module {module} already has version {enabled} enabled; this line needs {wanted}. Nothing was changed.",
+      "version_unknown": "The exact version of {package} for line {line} could not be determined.",
+      "version_mismatch": "{package} was installed as version {got}, but {want} was expected.",
+      "service_failed": "These services could not be started after the installation: {units}."
+    }
   }
 }

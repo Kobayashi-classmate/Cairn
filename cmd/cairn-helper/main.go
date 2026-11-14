@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"syscall"
 
+	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/buildinfo"
 	"github.com/Kobayashi-classmate/Cairn/internal/config"
 	"github.com/Kobayashi-classmate/Cairn/internal/helper"
@@ -101,6 +102,11 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	helper.RegisterOpActions(reg, ops)
 	format, manager := packageTools(log)
 	helper.RegisterPkg(reg, ops, manager)
+	software, err := softwareEngine(manager, log)
+	if err != nil {
+		return err
+	}
+	helper.RegisterSoftware(reg, ops, software)
 	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,
@@ -123,6 +129,26 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	}
 	log.Info("cairn-helper ready", "version", buildinfo.Version, "actions", len(reg.Actions()), "web_uid", webUID)
 	return srv.Serve(ctx, l)
+}
+
+// softwareEngine prepares catalog installs for the running platform; on an
+// unsupported platform every request answers pkg.not_available.
+func softwareEngine(manager string, log *slog.Logger) (*helper.Software, error) {
+	cat, err := catalog.Load()
+	if err != nil {
+		return nil, err
+	}
+	s := &helper.Software{Catalog: cat, Manager: manager, Arch: runtime.GOARCH, Log: log}
+	p, osr, err := platform.Detect()
+	if err != nil {
+		return s, nil //nolint:nilerr // unsupported platforms install nothing; already logged by packageTools
+	}
+	s.OS = osr
+	if s.Chain, err = platform.Chain(p.Name); err != nil {
+		log.Warn("platform profile chain unavailable; software installation disabled", "err", err)
+		s.Manager = ""
+	}
+	return s, nil
 }
 
 // packageTools returns the package format (for updates) and the package

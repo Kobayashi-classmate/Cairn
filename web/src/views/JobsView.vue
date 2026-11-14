@@ -109,7 +109,7 @@ const columns = computed<DataTableColumns<Job>>(() => [
     minWidth: 220,
     render: (job) =>
       h(RouterLink, { to: { name: 'job', params: { id: job.id } }, class: 'link' }, () =>
-        jobKindLabel(job.kind),
+        jobKindLabel(job.kind, job.params),
       ),
   },
   {

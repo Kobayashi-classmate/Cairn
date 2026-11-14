@@ -20,30 +20,35 @@ method = "system"
 releases = ["debian-12"]
 lines = ["1.22"]
 packages = ["nginx", "libnginx-mod-stream"]
+services = ["nginx"]
 
 [[sources]]
 method = "system"
 releases = ["debian-13"]
 lines = ["1.26"]
 packages = ["nginx", "libnginx-mod-stream"]
+services = ["nginx"]
 
 [[sources]]
 method = "system"
 releases = ["el-10"]
 lines = ["1.26"]
 packages = ["nginx", "nginx-mod-stream"]
+services = ["nginx"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-22.04"]
 lines = ["1.18"]
 packages = ["nginx", "libnginx-mod-stream"]
+services = ["nginx"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-24.04"]
 lines = ["1.24"]
 packages = ["nginx", "libnginx-mod-stream"]
+services = ["nginx"]
 
 [[sources]]
 method = "system"
@@ -52,15 +57,19 @@ lines = ["1.28"]
 packages = ["nginx", "libnginx-mod-stream"]
 
 # EL 9: AppStream module streams; only one can be enabled at a time.
+services = ["nginx"]
+
 [[sources]]
 method = "system"
 releases = ["el-9"]
 lines = ["1.26", "1.24", "1.22"]
 packages = ["nginx", "nginx-mod-stream"]
 stream = "nginx:{line}"
+services = ["nginx"]
 
 [[sources]]
 method = "system"
 releases = ["el-9"]
 lines = ["1.20"]
 packages = ["nginx", "nginx-mod-stream"]
+services = ["nginx"]

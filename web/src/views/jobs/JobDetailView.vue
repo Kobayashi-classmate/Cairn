@@ -192,7 +192,7 @@ function jobErrorText(code: string, errorParams: Record<string, string | number 
     <NSpin :show="!job && !loadError">
       <template v-if="job">
         <header class="job__header">
-          <NH2 class="job__title">{{ jobKindLabel(job.kind) }}</NH2>
+          <NH2 class="job__title">{{ jobKindLabel(job.kind, job.params) }}</NH2>
           <JobStateTag :state="job.state" />
           <NTag v-if="reconnecting" size="small" :bordered="false" type="warning">
             {{ t('jobs.detail.reconnecting') }}

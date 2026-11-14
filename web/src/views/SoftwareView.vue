@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import {
   NAlert,
   NButton,
@@ -15,21 +15,29 @@ import {
   NSpin,
   NTag,
   NText,
+  useMessage,
 } from 'naive-ui'
 import { OpenOutline, RefreshOutline } from '@vicons/ionicons5'
+import type { Job } from '@/api/jobs'
 import {
   fetchSoftware,
+  installSoftware,
   isAvailable,
+  isManageable,
   providerName,
   refreshPackageIndexes,
+  removeSoftware,
   type Offer,
   type Repository,
   type SoftwareCatalog,
   type SoftwareEntry,
 } from '@/api/software'
+import { useConfirm } from '@/composables/useConfirm'
 import { useErrorToast } from '@/composables/useErrorToast'
-import { errorMessage } from '@/i18n/errors'
+import { useSoftwareJobs } from '@/composables/useSoftwareJobs'
+import { errorMessage, errorText } from '@/i18n/errors'
 import { formatIsoDate } from '@/i18n/format'
+import { jobKindLabel, jobStateLabel } from '@/jobs/labels'
 import { safeHttpsUrl } from '@/markdown/parse'
 import { useSessionStore } from '@/stores/session'
 
@@ -38,22 +46,54 @@ const CATEGORY_ORDER = ['web', 'runtime', 'database', 'cache']
 
 const { t, te } = useI18n()
 const router = useRouter()
+const message = useMessage()
+const confirm = useConfirm()
 const session = useSessionStore()
 const showError = useErrorToast()
 
 const catalog = ref<SoftwareCatalog | null>(null)
 const loadError = ref<unknown>(null)
 const refreshing = ref(false)
+/** "<software>/<line>" while its install or remove request is being sent. */
+const starting = ref<string | null>(null)
+/** The last install or remove job that failed, shown until dismissed. */
+const failure = ref<{ jobId: string; task: string; text: string } | null>(null)
 
 const canManage = computed(() => session.can('software.manage'))
 
-onMounted(async () => {
+async function loadCatalog() {
   try {
     catalog.value = await fetchSoftware()
+    loadError.value = null
   } catch (err) {
     loadError.value = err
   }
-})
+}
+
+onMounted(loadCatalog)
+
+/** A software job ended: reload what is installed and tell the user. */
+function onJobFinished(job: Job) {
+  void loadCatalog()
+  const name = String(job.params.name ?? job.params.software ?? '')
+  const line = String(job.params.line ?? '')
+  if (job.state === 'succeeded') {
+    const key = job.kind === 'software.remove' ? 'software.done.removed' : 'software.done.installed'
+    message.success(t(key, { name, line }))
+  } else if (job.state === 'failed') {
+    failure.value = {
+      jobId: job.id,
+      task: jobKindLabel(job.kind, job.params),
+      text: job.error ? (errorText(job.error.code, job.error.params) ?? job.error.code) : '',
+    }
+  } else {
+    message.warning(
+      t('software.done.ended', { task: jobKindLabel(job.kind, job.params), state: jobStateLabel(job.state) }),
+    )
+  }
+}
+
+const { track, runningFor } = useSoftwareJobs(onJobFinished)
 
 const repos = computed(() => new Map((catalog.value?.repos ?? []).map((repo) => [repo.id, repo])))
 
@@ -111,6 +151,55 @@ function reasonText(offer: Offer): string {
     : t('software.reason.unknown')
 }
 
+/** Exact installed version of the line's first package, for example "8.4.27-1~deb13u1". */
+function installedVersion(offer: Offer): string {
+  return offer.installedPackages?.[0]?.version ?? ''
+}
+
+/** Whether buttons of this entry are locked by a running or starting job. */
+function busy(entry: SoftwareEntry): boolean {
+  return runningFor(entry.id) !== null || starting.value?.startsWith(`${entry.id}/`) === true
+}
+
+/** The running job acting on this line, if any. */
+function runningOn(entry: SoftwareEntry, offer: Offer) {
+  const job = runningFor(entry.id)
+  return job && job.line === offer.line ? job : null
+}
+
+async function install(entry: SoftwareEntry, offer: Offer) {
+  starting.value = `${entry.id}/${offer.line}`
+  failure.value = null
+  try {
+    track(await installSoftware(entry.id, offer.line))
+  } catch (err) {
+    showError(err)
+  } finally {
+    starting.value = null
+  }
+}
+
+async function uninstall(entry: SoftwareEntry, offer: Offer) {
+  const named = { name: entry.name, line: offer.line }
+  const ok = await confirm({
+    title: t('software.confirmRemove.title', named),
+    content: t('software.confirmRemove.content', named),
+    confirmText: t('software.action.remove'),
+    danger: true,
+  })
+  if (!ok) return
+  starting.value = `${entry.id}/${offer.line}`
+  failure.value = null
+  try {
+    // Step-up protected: the client asks for the password and retries.
+    track(await removeSoftware(entry.id, offer.line))
+  } catch (err) {
+    showError(err)
+  } finally {
+    starting.value = null
+  }
+}
+
 async function refresh() {
   refreshing.value = true
   try {
@@ -150,6 +239,22 @@ async function refresh() {
         <NAlert v-if="!catalog.supported" type="warning" class="software__block">
           {{ t('software.unsupported') }}
         </NAlert>
+        <NAlert v-else-if="!catalog.statusAvailable" type="info" class="software__block">
+          {{ t('software.statusUnavailable') }}
+        </NAlert>
+        <NAlert
+          v-if="failure"
+          type="error"
+          closable
+          :title="t('software.failed', { task: failure.task })"
+          class="software__block"
+          @close="failure = null"
+        >
+          <div v-if="failure.text">{{ failure.text }}</div>
+          <RouterLink :to="{ name: 'job', params: { id: failure.jobId } }">
+            {{ t('software.viewOutput') }}
+          </RouterLink>
+        </NAlert>
 
         <section v-for="group in groups" :key="group.category" class="software__group">
           <NH3 class="software__category">{{ label('software.category', group.category) }}</NH3>
@@ -172,12 +277,52 @@ async function refresh() {
               </template>
 
               <div v-if="available(entry).length > 0" class="lines">
-                <span v-for="offer in available(entry)" :key="offer.line" class="line">
+                <div v-for="offer in available(entry)" :key="offer.line" class="line">
                   <span class="line__version" dir="ltr">{{ offer.line }}</span>
                   <NTag v-if="offer.recommended" type="success" size="small" :bordered="false">
                     {{ t('software.recommended') }}
                   </NTag>
-                </span>
+                  <NTag v-if="offer.installed" type="info" size="small" :bordered="false">
+                    {{ t('software.installed') }}
+                  </NTag>
+                  <NText v-if="offer.installed && installedVersion(offer)" depth="3" class="mono version" dir="ltr">
+                    {{ installedVersion(offer) }}
+                  </NText>
+                  <span v-if="canManage && isManageable(offer)" class="line__actions">
+                    <span v-if="runningOn(entry, offer)" class="line__progress">
+                      <NSpin :size="14" />
+                      {{
+                        runningOn(entry, offer)?.kind === 'software.remove'
+                          ? t('software.progress.remove')
+                          : t('software.progress.install')
+                      }}
+                      <RouterLink :to="{ name: 'job', params: { id: runningOn(entry, offer)?.id } }">
+                        {{ t('software.viewOutput') }}
+                      </RouterLink>
+                    </span>
+                    <NButton
+                      v-else-if="offer.installed"
+                      size="tiny"
+                      type="error"
+                      ghost
+                      :disabled="busy(entry)"
+                      :loading="starting === `${entry.id}/${offer.line}`"
+                      @click="uninstall(entry, offer)"
+                    >
+                      {{ t('software.action.remove') }}
+                    </NButton>
+                    <NButton
+                      v-else
+                      size="tiny"
+                      type="primary"
+                      :disabled="busy(entry)"
+                      :loading="starting === `${entry.id}/${offer.line}`"
+                      @click="install(entry, offer)"
+                    >
+                      {{ t('software.action.install') }}
+                    </NButton>
+                  </span>
+                </div>
               </div>
               <NText v-else depth="3">{{ t('software.noLines') }}</NText>
 
@@ -200,6 +345,18 @@ async function refresh() {
                           <dt>{{ t('software.advanced.stream') }}</dt>
                           <dd class="mono" dir="ltr">{{ offer.stream }}</dd>
                         </template>
+                        <template v-if="offer.installedPackages?.length">
+                          <dt>{{ t('software.advanced.installedPackages') }}</dt>
+                          <dd class="mono" dir="ltr">
+                            <div v-for="pkg in offer.installedPackages" :key="pkg.name">
+                              {{ pkg.name }} {{ pkg.version }}
+                            </div>
+                          </dd>
+                        </template>
+                        <template v-if="offer.services?.length">
+                          <dt>{{ t('software.advanced.services') }}</dt>
+                          <dd class="mono" dir="ltr">{{ offer.services.join(', ') }}</dd>
+                        </template>
                         <template v-if="offer.eol">
                           <dt>{{ t('software.advanced.eol') }}</dt>
                           <dd>
@@ -212,6 +369,14 @@ async function refresh() {
                         </template>
                       </dl>
                       <NText v-else depth="3" tag="p" class="offer__reason">{{ reasonText(offer) }}</NText>
+                      <NText
+                        v-if="isAvailable(offer) && !isManageable(offer)"
+                        depth="3"
+                        tag="p"
+                        class="offer__note"
+                      >
+                        {{ t('software.advanced.comingSoon') }}
+                      </NText>
                       <NText
                         v-if="isAvailable(offer) && repoOf(offer) && !repoOf(offer)?.official"
                         depth="3"
@@ -290,14 +455,33 @@ async function refresh() {
 
 .lines {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px 16px;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-block-size: 28px;
+}
+
+.line__actions {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: auto;
+}
+
+.line__progress {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-size: 13px;
+}
+
+.version {
+  font-size: 12px;
 }
 
 .line__version {

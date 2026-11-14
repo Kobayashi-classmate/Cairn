@@ -81,7 +81,9 @@
       "cancel": "取消了任务：{kind}"
     },
     "software": {
-      "refresh": "开始刷新软件包索引"
+      "refresh": "开始刷新软件包索引",
+      "install": "开始安装 {software} {line}",
+      "remove": "开始卸载 {software} {line}"
     },
     "module": {
       "enable": "开启了模块 {module}",

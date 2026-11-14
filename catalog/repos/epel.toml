@@ -5,3 +5,8 @@ name = "EPEL"
 homepage = "https://docs.fedoraproject.org/en-US/epel/"
 official = true
 releases = ["el-9", "el-10"]
+
+# Rocky and Alma ship epel-release in their own repositories, signed by the
+# distribution; it installs the EPEL repository and key.
+[dnf]
+release_package = "epel-release"

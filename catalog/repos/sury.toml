@@ -7,3 +7,12 @@ homepage = "https://deb.sury.org/"
 official = false
 approved = "2026-11-14"
 releases = ["debian-12", "debian-13"]
+
+# Key and fingerprint checked 2026-11-14.
+[apt]
+uri = "https://packages.sury.org/php/"
+suite = "{codename}"
+components = ["main"]
+key = { url = "https://packages.sury.org/php/apt.gpg", fingerprints = ["15058500A0235D97F5D10063B188E2B695BD4743"] }
+# Their PHP builds need their newer php-common (checked 2026-11-14).
+prefer = ["php-common"]

@@ -19,18 +19,21 @@ method = "system"
 releases = ["debian-13", "ubuntu-26.04"]
 lines = ["8.0"]
 packages = ["redis-server"]
+services = ["redis-server"]
 
 [[sources]]
 method = "system"
 releases = ["debian-12", "ubuntu-24.04"]
 lines = ["7.0"]
 packages = ["redis-server"]
+services = ["redis-server"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-22.04"]
 lines = ["6.0"]
 packages = ["redis-server"]
+services = ["redis-server"]
 
 [[sources]]
 method = "system"
@@ -38,9 +41,11 @@ releases = ["el-9"]
 lines = ["7.2"]
 packages = ["redis"]
 stream = "redis:7"
+services = ["redis"]
 
 [[sources]]
 method = "system"
 releases = ["el-9"]
 lines = ["6.2"]
 packages = ["redis"]
+services = ["redis"]

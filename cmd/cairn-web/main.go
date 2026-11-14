@@ -130,7 +130,7 @@ func run(cfgPath string, log *slog.Logger) error {
 	registry.Add(
 		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: collector},
-		&softwaremod.Module{Catalog: software, Jobs: jobManager, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
+		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},

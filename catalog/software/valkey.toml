@@ -18,21 +18,25 @@ method = "system"
 releases = ["ubuntu-26.04"]
 lines = ["9.0"]
 packages = ["valkey-server"]
+services = ["valkey-server"]
 
 [[sources]]
 method = "system"
 releases = ["debian-13"]
 lines = ["8.1"]
 packages = ["valkey-server"]
+services = ["valkey-server"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-24.04"]
 lines = ["7.2"]
 packages = ["valkey-server"]
+services = ["valkey-server"]
 
 [[sources]]
 method = "system"
 releases = ["el-9", "el-10"]
 lines = ["8.0"]
 packages = ["valkey"]
+services = ["valkey"]

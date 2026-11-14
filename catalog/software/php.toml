@@ -22,24 +22,28 @@ method = "system"
 releases = ["debian-12"]
 lines = ["8.2"]
 packages = ["php{line}-fpm", "php{line}-cli"]
+services = ["php{line}-fpm"]
 
 [[sources]]
 method = "system"
 releases = ["debian-13"]
 lines = ["8.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
+services = ["php{line}-fpm"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-22.04"]
 lines = ["8.1"]
 packages = ["php{line}-fpm", "php{line}-cli"]
+services = ["php{line}-fpm"]
 
 [[sources]]
 method = "system"
 releases = ["ubuntu-24.04"]
 lines = ["8.3"]
 packages = ["php{line}-fpm", "php{line}-cli"]
+services = ["php{line}-fpm"]
 
 [[sources]]
 method = "system"
@@ -49,18 +53,22 @@ packages = ["php{line}-fpm", "php{line}-cli"]
 
 # EL 9: the php:8.3 module stream is the system version; other lines come
 # from Remi's parallel-installable packages instead of further streams.
+services = ["php{line}-fpm"]
+
 [[sources]]
 method = "system"
 releases = ["el-9"]
 lines = ["8.3"]
 packages = ["php-fpm", "php-cli"]
 stream = "php:{line}"
+services = ["php-fpm"]
 
 [[sources]]
 method = "system"
 releases = ["el-10"]
 lines = ["8.3"]
 packages = ["php-fpm", "php-cli"]
+services = ["php-fpm"]
 
 [[sources]]
 method = "vendor"
@@ -68,6 +76,7 @@ repo = "sury"
 releases = ["debian-12", "debian-13"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
+services = ["php{line}-fpm"]
 
 [[sources]]
 method = "vendor"
@@ -75,6 +84,7 @@ repo = "ondrej-php"
 releases = ["ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
+services = ["php{line}-fpm"]
 
 [[sources]]
 method = "vendor"
@@ -82,3 +92,4 @@ repo = "remi"
 releases = ["el-9", "el-10"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line_nodot}-php-fpm", "php{line_nodot}-php-cli"]
+services = ["php{line_nodot}-php-fpm"]

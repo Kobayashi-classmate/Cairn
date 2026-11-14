@@ -9,10 +9,23 @@ export function isFinalState(state: string): boolean {
   return FINAL_STATES.has(state)
 }
 
-/** Translated job type; a kind this build does not know is shown as is. */
-export function jobKindLabel(kind: string): string {
-  const key = `jobs.kind.${kind}`
-  return i18n.global.te(key) ? i18n.global.t(key) : kind
+/**
+ * Translated job type. With the job's params the label can name what it acts
+ * on ("Install PHP 8.4"); without them a short name is used where the full
+ * label needs params. A kind this build does not know is shown as is.
+ */
+export function jobKindLabel(kind: string, params?: Record<string, unknown>): string {
+  const { t, te } = i18n.global
+  const named: Record<string, string | number | boolean> = {}
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      named[key] = value
+    }
+  }
+  const short = `jobs.kindName.${kind}`
+  if (Object.keys(named).length === 0 && te(short)) return t(short)
+  const full = `jobs.kind.${kind}`
+  return te(full) ? t(full, named) : kind
 }
 
 export function jobStateLabel(state: string): string {

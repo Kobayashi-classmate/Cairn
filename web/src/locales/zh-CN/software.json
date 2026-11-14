@@ -21,7 +21,8 @@
   "reason": {
     "end_of_life": "上游已停止支持，后续版本将以容器方式提供。",
     "not_built": "没有适用于此系统的软件包。",
-    "unknown": "此系统上不可用。"
+    "unknown": "此系统上不可用。",
+    "standalone": "暂不支持安装预编译版本，将在后续版本中提供。"
   },
   "advanced": {
     "title": "高级信息",
@@ -31,6 +32,30 @@
     "stream": "模块流",
     "eol": "上游支持结束",
     "eolEnded": "{date}（已结束）",
-    "unofficialRepo": "{repo} 不是 {software} 的官方软件源，已经过审核并被批准用于此用途。"
+    "unofficialRepo": "{repo} 不是 {software} 的官方软件源，已经过审核并被批准用于此用途。",
+    "installedPackages": "已安装的软件包",
+    "services": "服务",
+    "comingSoon": "预编译版本的安装功能即将推出。"
+  },
+  "installed": "已安装",
+  "statusUnavailable": "面板无法确定已安装的软件，因此所有版本都未标记为已安装。",
+  "failed": "{task}失败",
+  "viewOutput": "查看输出",
+  "action": {
+    "install": "安装",
+    "remove": "卸载"
+  },
+  "progress": {
+    "install": "正在安装…",
+    "remove": "正在卸载…"
+  },
+  "done": {
+    "installed": "已安装 {name} {line}。",
+    "removed": "已卸载 {name} {line}。",
+    "ended": "{task}：{state}"
+  },
+  "confirmRemove": {
+    "title": "卸载 {name} {line}？",
+    "content": "将移除 {name} {line} 的软件包，配置文件和数据会保留。"
   }
 }

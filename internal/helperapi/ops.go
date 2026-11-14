@@ -119,3 +119,67 @@ func (r OpCancelRequest) Validate() error {
 // ActionPkgRefresh refreshes the system package indexes (apt-get update or
 // dnf makecache). It is an operation and takes the package manager lock.
 const ActionPkgRefresh = "pkg.refresh"
+
+// Software actions. The web process names only a catalog entry and a version
+// line; the helper resolves packages, repository, signing key and pinned
+// fingerprint from its own copy of the catalog, so a compromised web process
+// cannot install arbitrary packages or add arbitrary repositories.
+const (
+	ActionPkgStatus  = "pkg.status"  // synchronous: what is installed
+	ActionPkgInstall = "pkg.install" // operation
+	ActionPkgRemove  = "pkg.remove"  // operation; configuration and data are kept
+)
+
+// Software error codes.
+const (
+	CodePkgNotAvailable    = "pkg.not_available"
+	CodePkgNotInstalled    = "pkg.not_installed"
+	CodePkgKeyDownload     = "pkg.key_download_failed"
+	CodePkgKeyMismatch     = "pkg.key_mismatch"
+	CodePkgStreamConflict  = "pkg.stream_conflict"
+	CodePkgVersionUnknown  = "pkg.version_unknown"
+	CodePkgVersionMismatch = "pkg.version_mismatch"
+	CodePkgServiceFailed   = "pkg.service_failed"
+)
+
+var (
+	softwareIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+	linePattern       = regexp.MustCompile(`^[0-9][0-9.]{0,15}$`)
+)
+
+// SoftwareRequest names a catalog entry and one of its lines.
+type SoftwareRequest struct {
+	Software string `json:"software"`
+	Line     string `json:"line"`
+}
+
+// Validate implements the helper's request validation hook.
+func (r SoftwareRequest) Validate() error {
+	if !softwareIDPattern.MatchString(r.Software) || !linePattern.MatchString(r.Line) {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "software", "rule": "catalog"}}
+	}
+	return nil
+}
+
+// InstalledPackage is a package with its exact installed version.
+type InstalledPackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// InstallResult is the result of a pkg.install operation.
+type InstallResult struct {
+	Software string             `json:"software"`
+	Line     string             `json:"line"`
+	Method   string             `json:"method"`
+	Repo     string             `json:"repo,omitempty"`
+	Packages []InstalledPackage `json:"packages"`
+	// Services were enabled and started (false without systemd).
+	Services        []string `json:"services,omitempty"`
+	ServicesStarted bool     `json:"servicesStarted"`
+}
+
+// SoftwareStatus lists the installed lines: software -> line -> packages.
+type SoftwareStatus struct {
+	Installed map[string]map[string][]InstalledPackage `json:"installed"`
+}

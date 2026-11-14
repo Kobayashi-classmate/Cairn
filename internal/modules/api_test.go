@@ -145,7 +145,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	registry.Add(
 		&core.Module{DB: db, Settings: core.NewSettings("en"), Helper: h, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)},
-		&softwaremod.Module{Catalog: software, Jobs: jobManager, DB: db, Log: log,
+		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log,
 			Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
