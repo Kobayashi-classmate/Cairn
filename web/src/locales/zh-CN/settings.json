@@ -4,7 +4,10 @@
     "account": "账号",
     "security": "安全",
     "sessions": "会话",
-    "panel": "面板"
+    "panel": "面板",
+    "tokens": "API 令牌",
+    "notifications": "通知",
+    "api": "API"
   },
   "account": {
     "profile": "个人信息",
@@ -42,8 +45,6 @@
   "recoveryCodes": {
     "warningTitle": "请立即保存恢复码",
     "warning": "如果无法使用身份验证器应用，每个恢复码可以用于登录一次。恢复码只显示这一次。",
-    "copied": "已复制恢复码。",
-    "copyFailed": "复制失败，请手动选择并复制恢复码。",
     "saved": "我已保存",
     "fileHeader": "{username} 在 {host} 上的 Cairn 恢复码。每个恢复码只能使用一次。"
   },

@@ -8,7 +8,8 @@
   "category": {
     "auth": "登录与账号",
     "users": "用户管理",
-    "settings": "面板设置"
+    "settings": "面板设置",
+    "notify": "通知"
   },
   "column": {
     "time": "时间",
@@ -23,7 +24,8 @@
   },
   "source": {
     "web": "网页",
-    "cli": "命令行"
+    "cli": "命令行",
+    "api": "API"
   },
   "detail": {
     "role": "角色：{role}",
@@ -43,7 +45,9 @@
       "totp_enable": "开启了两步验证",
       "totp_disable": "关闭了两步验证",
       "recovery_codes": "生成了新的恢复码",
-      "session_revoke": "退出了 {count} 个会话"
+      "session_revoke": "退出了 {count} 个会话",
+      "token_create": "创建了 API 令牌 {name}",
+      "token_revoke": "吊销了 API 令牌 {name}"
     },
     "users": {
       "create": "添加了用户 {username}，角色为{role}",
@@ -54,6 +58,12 @@
     },
     "settings": {
       "default_locale": "将默认语言改为 {locale}"
+    },
+    "notify": {
+      "channel_create": "添加了通知渠道 {name}",
+      "channel_update": "修改了通知渠道 {name}",
+      "channel_delete": "删除了通知渠道 {name}",
+      "test": "向 {name} 发送了测试消息"
     }
   }
 }

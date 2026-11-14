@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
 	"time"
 
@@ -117,6 +118,27 @@ type Principal struct {
 	SessionID     string
 	Token         string
 	ElevatedUntil int64 // Unix seconds; step-up valid while in the future
+	// Scopes is non-nil for API-token requests: the token's permissions,
+	// already intersected with the owner's role.
+	Scopes []string
+	// Source is "web" for browser sessions and "api" for tokens (auditing).
+	Source string
+}
+
+// Can reports whether p may use permission perm, honoring token scopes.
+func (p *Principal) Can(perm authz.Permission) bool {
+	if !authz.Allows(p.Role, perm) {
+		return false
+	}
+	if p.Scopes == nil || perm == authz.Self {
+		return true
+	}
+	for _, s := range p.Scopes {
+		if s == string(perm) {
+			return true
+		}
+	}
+	return false
 }
 
 // PrincipalFrom returns the request's principal, if authenticated.
@@ -134,11 +156,13 @@ func WithPrincipal(ctx context.Context, p *Principal) context.Context {
 type Authenticator func(r *http.Request) (*Principal, error)
 
 // Router registers routes explicitly and wraps them with the standard
-// middleware chain.
+// middleware chain. It also keeps the registry the OpenAPI document is
+// generated from.
 type Router struct {
-	mux  *http.ServeMux
-	auth Authenticator
-	log  *slog.Logger
+	mux    *http.ServeMux
+	auth   Authenticator
+	log    *slog.Logger
+	routes []Route
 }
 
 // NewRouter returns a router using auth for non-public routes.
@@ -146,13 +170,56 @@ func NewRouter(auth Authenticator, log *slog.Logger) *Router {
 	return &Router{mux: http.NewServeMux(), auth: auth, log: log}
 }
 
+// Route describes a registered endpoint.
+type Route struct {
+	Method     string
+	Path       string
+	Public     bool
+	Permission authz.Permission
+	StepUp     bool
+	Tag        string
+	Summary    string
+	Request    reflect.Type         // nil: no JSON body
+	Responses  map[int]reflect.Type // nil type: no body
+}
+
+// Routes returns the registered endpoints in registration order.
+func (rt *Router) Routes() []Route { return rt.routes }
+
 // RouteOption customizes a route.
 type RouteOption func(*routeConfig)
 
 type routeConfig struct {
-	public bool
-	perm   authz.Permission
-	stepUp bool
+	public    bool
+	perm      authz.Permission
+	stepUp    bool
+	tag       string
+	summary   string
+	request   reflect.Type
+	responses map[int]reflect.Type
+}
+
+// Doc documents a route for the OpenAPI document.
+func Doc(tag, summary string) RouteOption {
+	return func(c *routeConfig) { c.tag, c.summary = tag, summary }
+}
+
+// Body documents the JSON request body type (pass a zero value).
+func Body(v any) RouteOption { return func(c *routeConfig) { c.request = reflect.TypeOf(v) } }
+
+// Returns documents a response; v is a zero value of the body type, or nil
+// for an empty body.
+func Returns(status int, v any) RouteOption {
+	return func(c *routeConfig) {
+		if c.responses == nil {
+			c.responses = map[int]reflect.Type{}
+		}
+		var t reflect.Type
+		if v != nil {
+			t = reflect.TypeOf(v)
+		}
+		c.responses[status] = t
+	}
 }
 
 // Public marks a route as reachable without a session.
@@ -182,7 +249,11 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 	if !cfg.public && cfg.perm == "" {
 		panic("api: route " + pattern + " declares no permission")
 	}
-	method, _, _ := strings.Cut(pattern, " ")
+	method, path, _ := strings.Cut(pattern, " ")
+	rt.routes = append(rt.routes, Route{
+		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp,
+		Tag: cfg.tag, Summary: cfg.summary, Request: cfg.request, Responses: cfg.responses,
+	})
 	rt.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if isStateChanging(method) {
@@ -197,7 +268,7 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 				writeError(w, r, rt.log, err)
 				return
 			}
-			if !authz.Allows(p.Role, cfg.perm) {
+			if !p.Can(cfg.perm) {
 				writeError(w, r, rt.log, ErrForbidden)
 				return
 			}
@@ -230,12 +301,27 @@ func isStateChanging(method string) bool {
 	return true
 }
 
+// IsBearer reports whether the request authenticates with an API token.
+func IsBearer(r *http.Request) bool {
+	return strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+}
+
+// BearerToken returns the token of an Authorization: Bearer header.
+func BearerToken(r *http.Request) string {
+	return strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+}
+
 // CSRFHeader must be present on every state-changing request. Browsers cannot
 // add custom headers to cross-site requests without a CORS preflight, which
 // the panel never grants; SameSite=Strict cookies are a second layer.
 const CSRFHeader = "X-Cairn-Request"
 
 func checkCSRF(r *http.Request) error {
+	// Bearer tokens are not sent automatically by browsers, so token requests
+	// cannot be forged cross-site; the authenticator ignores cookies on them.
+	if IsBearer(r) {
+		return nil
+	}
 	if r.Header.Get(CSRFHeader) != "1" {
 		return ErrCSRF
 	}

@@ -21,15 +21,20 @@ import (
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
+	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/buildinfo"
 	"github.com/Kobayashi-classmate/Cairn/internal/config"
+	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
+	"github.com/Kobayashi-classmate/Cairn/internal/notify"
 	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 	"github.com/Kobayashi-classmate/Cairn/internal/store"
 	"github.com/Kobayashi-classmate/Cairn/internal/tlsutil"
@@ -86,16 +91,29 @@ func run(cfgPath string, log *slog.Logger) error {
 	helper := helperapi.NewClient(cfg.Paths.HelperSocket)
 	pingHelper(ctx, helper, log)
 
+	catalog, err := i18n.NewCatalog()
+	if err != nil {
+		return err
+	}
+	bus := &events.Bus{}
+	notifyStore := &notify.Store{DB: db, Box: box}
+	notifier := notify.New(notifyStore, catalog, log)
+	bus.Subscribe(notifier.Handle)
+	go notifier.Run(ctx)
+
 	router := api.NewRouter(core.Authenticator(db), log)
 	modules := []module.Module{
-		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Log: log},
+		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log},
 		&system.Module{Metrics: collector},
-		&users.Module{DB: db, Log: log},
+		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
+		&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log},
 	}
 	for _, m := range modules {
 		m.Routes(router)
 	}
+	router.Handle("GET /api/v1/openapi.json", router.ServeOpenAPI("Cairn API", buildinfo.Version),
+		api.Require(authz.Self), api.Doc("meta", "This OpenAPI document"))
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", router)

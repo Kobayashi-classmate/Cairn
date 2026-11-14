@@ -18,6 +18,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/buildinfo"
+	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
@@ -59,6 +60,7 @@ type Module struct {
 	Settings *Settings
 	Helper   Helper
 	Box      *secrets.Box
+	Events   *events.Bus // may be nil
 	Log      *slog.Logger
 }
 
@@ -68,32 +70,62 @@ func (m *Module) ID() string { return "core" }
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
 	self := api.Require(authz.Self)
+	authDoc := func(s string) api.RouteOption { return api.Doc("auth", s) }
+	accountDoc := func(s string) api.RouteOption { return api.Doc("account", s) }
+	settingsDoc := func(s string) api.RouteOption { return api.Doc("settings", s) }
+	noContent := api.Returns(http.StatusNoContent, nil)
 
-	r.Handle("GET /api/v1/meta", m.meta, api.Public())
-	r.Handle("POST /api/v1/setup", m.setup, api.Public())
-	r.Handle("POST /api/v1/auth/login", m.login, api.Public())
-	r.Handle("POST /api/v1/auth/login/mfa", m.loginMFA, api.Public())
-	r.Handle("POST /api/v1/auth/logout", m.logout, self)
-	r.Handle("GET /api/v1/auth/me", m.me, self)
-	r.Handle("POST /api/v1/auth/elevate", m.elevate, self)
+	r.Handle("GET /api/v1/meta", m.meta, api.Public(), api.Doc("meta", "Instance metadata and supported languages"), api.Returns(200, metaResponse{}))
+	r.Handle("POST /api/v1/setup", m.setup, api.Public(), authDoc("Create the first administrator with the setup token"),
+		api.Body(setupRequest{}), api.Returns(200, userResponse{}))
+	r.Handle("POST /api/v1/auth/login", m.login, api.Public(), authDoc("Sign in; may answer with a second-step challenge"),
+		api.Body(loginRequest{}), api.Returns(200, loginResponse{}))
+	r.Handle("POST /api/v1/auth/login/mfa", m.loginMFA, api.Public(), authDoc("Complete sign-in with a TOTP or recovery code"),
+		api.Body(loginMFARequest{}), api.Returns(200, userResponse{}))
+	r.Handle("POST /api/v1/auth/logout", m.logout, self, authDoc("Sign out this session"), noContent)
+	r.Handle("GET /api/v1/auth/me", m.me, self, authDoc("Current user, permissions and step-up state"), api.Returns(200, meResponse{}))
+	r.Handle("POST /api/v1/auth/elevate", m.elevate, self, authDoc("Re-authenticate for sensitive actions (step-up)"),
+		api.Body(elevateRequest{}), api.Returns(200, elevateResponse{}))
 
-	r.Handle("PUT /api/v1/me/locale", m.setMyLocale, self)
-	r.Handle("PUT /api/v1/me/password", m.changePassword, self)
-	r.Handle("GET /api/v1/me/sessions", m.listSessions, self)
-	r.Handle("DELETE /api/v1/me/sessions/{id}", m.revokeSession, self)
-	r.Handle("DELETE /api/v1/me/sessions", m.revokeOtherSessions, self)
-	r.Handle("POST /api/v1/me/totp/begin", m.beginTOTP, self, api.StepUp())
-	r.Handle("POST /api/v1/me/totp/confirm", m.confirmTOTP, self)
-	r.Handle("DELETE /api/v1/me/totp", m.disableTOTP, self, api.StepUp())
-	r.Handle("POST /api/v1/me/recovery-codes", m.regenerateRecoveryCodes, self, api.StepUp())
+	r.Handle("PUT /api/v1/me/locale", m.setMyLocale, self, accountDoc("Set my language"), api.Body(localeRequest{}), noContent)
+	r.Handle("PUT /api/v1/me/password", m.changePassword, self, accountDoc("Change my password; signs out other sessions"),
+		api.Body(changePasswordRequest{}), noContent)
+	r.Handle("GET /api/v1/me/sessions", m.listSessions, self, accountDoc("List my sessions"), api.Returns(200, sessionsResponse{}))
+	r.Handle("DELETE /api/v1/me/sessions/{id}", m.revokeSession, self, accountDoc("Revoke one of my sessions"), noContent)
+	r.Handle("DELETE /api/v1/me/sessions", m.revokeOtherSessions, self, accountDoc("Revoke all my other sessions"), api.Returns(200, revokedResponse{}))
+	r.Handle("POST /api/v1/me/totp/begin", m.beginTOTP, self, api.StepUp(), accountDoc("Start two-step sign-in enrollment"),
+		api.Returns(200, totpBeginResponse{}))
+	r.Handle("POST /api/v1/me/totp/confirm", m.confirmTOTP, self, accountDoc("Confirm enrollment and get recovery codes"),
+		api.Body(codeRequest{}), api.Returns(200, recoveryCodesResponse{}))
+	r.Handle("DELETE /api/v1/me/totp", m.disableTOTP, self, api.StepUp(), accountDoc("Turn off two-step sign-in"), noContent)
+	r.Handle("POST /api/v1/me/recovery-codes", m.regenerateRecoveryCodes, self, api.StepUp(), accountDoc("Replace my recovery codes"),
+		api.Returns(200, recoveryCodesResponse{}))
+	r.Handle("GET /api/v1/me/tokens", m.listTokens, self, accountDoc("List my API tokens"), api.Returns(200, tokensResponse{}))
+	r.Handle("POST /api/v1/me/tokens", m.createToken, self, api.StepUp(), accountDoc("Create an API token (shown once)"),
+		api.Body(createTokenRequest{}), api.Returns(201, createTokenResponse{}))
+	r.Handle("DELETE /api/v1/me/tokens/{id}", m.deleteToken, self, accountDoc("Revoke one of my API tokens"), noContent)
 
-	r.Handle("GET /api/v1/settings", m.getSettings, api.Require(authz.SettingsRead))
-	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale, api.Require(authz.SettingsManage))
+	r.Handle("GET /api/v1/settings", m.getSettings, api.Require(authz.SettingsRead), settingsDoc("Panel settings"),
+		api.Returns(200, settingsResponse{}))
+	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale, api.Require(authz.SettingsManage),
+		settingsDoc("Change the panel default language"), api.Body(localeRequest{}), noContent)
 }
 
-// Authenticator resolves the session cookie to a principal.
+// loginResponse documents both shapes of a successful POST /auth/login.
+type loginResponse struct {
+	userResponse
+	MFARequired bool   `json:"mfaRequired,omitempty"`
+	MFAToken    string `json:"mfaToken,omitempty"`
+}
+
+// Authenticator resolves the session cookie, or an API token presented as
+// "Authorization: Bearer", to a principal. Token requests never consult
+// cookies.
 func Authenticator(db *sql.DB) api.Authenticator {
 	return func(r *http.Request) (*api.Principal, error) {
+		if api.IsBearer(r) {
+			return tokenPrincipal(r, db)
+		}
 		c, err := r.Cookie(auth.CookieName)
 		if err != nil || c.Value == "" {
 			return nil, api.ErrUnauthenticated
@@ -107,9 +139,59 @@ func Authenticator(db *sql.DB) api.Authenticator {
 		}
 		return &api.Principal{
 			UserID: u.ID, Username: u.Username, Locale: u.Locale, Role: u.Role, TOTPEnabled: u.TOTPEnabled,
-			SessionID: s.ID, Token: c.Value, ElevatedUntil: s.ElevatedUntil,
+			SessionID: s.ID, Token: c.Value, ElevatedUntil: s.ElevatedUntil, Source: "web",
 		}, nil
 	}
+}
+
+// tokenPrincipal authenticates an API token; repeated bad tokens from one
+// address are throttled like failed sign-ins.
+func tokenPrincipal(r *http.Request, db *sql.DB) (*api.Principal, error) {
+	ctx := r.Context()
+	key := auth.IPKey(api.ClientIP(r))
+	if wait, err := auth.LockedFor(ctx, db, key); err != nil {
+		return nil, err
+	} else if wait > 0 {
+		return nil, modutil.RateLimited(wait)
+	}
+	t, u, err := auth.LookupToken(ctx, db, api.BearerToken(r), api.ClientIP(r))
+	if errors.Is(err, auth.ErrTokenInvalid) {
+		if err := auth.RecordFailure(ctx, db, key); err != nil {
+			return nil, err
+		}
+		return nil, modutil.MapError(err, nil)
+	}
+	if err != nil {
+		return nil, err
+	}
+	scopes := append([]string{}, t.Permissions...) // non-nil marks a token principal
+	return &api.Principal{
+		UserID: u.ID, Username: u.Username, Locale: u.Locale, Role: u.Role, TOTPEnabled: u.TOTPEnabled,
+		Scopes: scopes, Source: "api",
+	}, nil
+}
+
+// recordFailure counts a failed credential check and announces a lockout
+// when this failure triggered one.
+func (m *Module) recordFailure(r *http.Request, username string, keys ...string) error {
+	ctx := r.Context()
+	if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+		return err
+	}
+	wait, err := auth.LockedFor(ctx, m.DB, keys...)
+	if err == nil && wait > 0 {
+		ip := api.ClientIP(r)
+		m.Events.Publish(events.Event{
+			Type: events.SecurityLockout, Level: events.Warning, DedupeKey: "lockout:" + username + ":" + ip,
+			Params: map[string]any{"username": username, "ip": ip, "minutes": int(wait.Round(time.Minute) / time.Minute)},
+		})
+	}
+	return nil
+}
+
+func (m *Module) announceLogin(r *http.Request, u *auth.User) {
+	m.Events.Publish(events.Event{Type: events.SecurityLogin, Level: events.Info,
+		Params: map[string]any{"username": u.Username, "ip": api.ClientIP(r)}})
 }
 
 func (m *Module) audit(r *http.Request, who modutil.Actor, action, result string, params map[string]any) {
@@ -211,7 +293,7 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 	}
 	u, err := auth.Authenticate(ctx, m.DB, req.Username, req.Password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
-		if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+		if err := m.recordFailure(r, req.Username, keys...); err != nil {
 			return err
 		}
 		m.audit(r, modutil.Actor{Username: req.Username}, "auth.login", "auth.invalid_credentials", nil)
@@ -232,6 +314,7 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login", "ok", nil)
+	m.announceLogin(r, u)
 	if err := m.signIn(w, r, u); err != nil {
 		return err
 	}
@@ -271,7 +354,7 @@ func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
 	err = auth.VerifySecondFactor(ctx, m.DB, m.Box, u.ID, req.Code, req.RecoveryCode)
 	if errors.Is(err, auth.ErrMFAInvalidCode) || errors.Is(err, auth.ErrMFARequired) {
 		_ = auth.FailMFAChallenge(ctx, m.DB, req.MFAToken)
-		if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+		if err := m.recordFailure(r, u.Username, keys...); err != nil {
 			return err
 		}
 		m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login_mfa", modutil.ErrorCode(err), map[string]any{"method": method})
@@ -287,6 +370,7 @@ func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login_mfa", "ok", map[string]any{"method": method})
+	m.announceLogin(r, u)
 	if err := m.signIn(w, r, u); err != nil {
 		return err
 	}
@@ -340,6 +424,10 @@ func (m *Module) elevate(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	p, _ := api.PrincipalFrom(ctx)
+	if p.Source == "api" {
+		// Step-up belongs to interactive sessions; tokens cannot elevate.
+		return api.ErrForbidden
+	}
 	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(p.Username)}
 	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
 		return err
@@ -347,7 +435,7 @@ func (m *Module) elevate(w http.ResponseWriter, r *http.Request) error {
 		return modutil.RateLimited(wait)
 	}
 	fail := func(err error) error {
-		if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+		if err := m.recordFailure(r, p.Username, keys...); err != nil {
 			return err
 		}
 		m.audit(r, modutil.ActorOf(r), "auth.elevate", modutil.ErrorCode(err), nil)

@@ -1,0 +1,86 @@
+{
+  "channels": {
+    "title": "通知渠道",
+    "description": "面板发送安全、账号和系统相关消息的目的地。"
+  },
+  "type": {
+    "email": "电子邮件",
+    "webhook": "Webhook"
+  },
+  "level": {
+    "info": "信息",
+    "warning": "警告",
+    "critical": "严重"
+  },
+  "status": {
+    "pending": "等待发送",
+    "sent": "已发送",
+    "failed": "失败"
+  },
+  "category": {
+    "security": {
+      "label": "安全",
+      "description": "登录锁定、登录，以及两步验证被关闭。"
+    },
+    "users": {
+      "label": "用户",
+      "description": "账号变更。"
+    },
+    "system": {
+      "label": "系统",
+      "description": "系统消息，包括测试消息。"
+    }
+  },
+  "event": {
+    "security": {
+      "lockout": "登录被锁定",
+      "login": "登录",
+      "totp_disabled": "两步验证被关闭"
+    },
+    "users": {
+      "change": "账号变更"
+    },
+    "system": {
+      "test": "测试消息"
+    }
+  },
+  "channel": {
+    "createTitle": "添加渠道",
+    "editTitle": "编辑渠道",
+    "enabled": "启用",
+    "locale": "消息语言",
+    "saved": "已保存渠道 {name}。",
+    "deleted": "已删除渠道 {name}。",
+    "confirmDelete": {
+      "title": "删除渠道 {name}？",
+      "content": "删除后将不再通过此渠道发送消息。"
+    }
+  },
+  "email": {
+    "securityMode": {
+      "starttls": "STARTTLS",
+      "tls": "TLS（直接加密）",
+      "none": "无（不加密）"
+    }
+  },
+  "webhook": {
+    "payload": "每个事件都以 HTTP POST 请求发送，请求体为 JSON。",
+    "signature": "设置签名密钥后，{signatureHeader} 请求头会携带用该密钥对 {signedContent} 计算的 HMAC-SHA256。"
+  },
+  "test": {
+    "send": "发送测试",
+    "sent": "已向 {name} 发送测试消息。",
+    "failed": "向 {name} 发送测试消息失败"
+  },
+  "delivery": {
+    "title": "最近的发送记录",
+    "created": "时间",
+    "channel": "渠道",
+    "event": "事件",
+    "level": "级别",
+    "status": "状态",
+    "attempts": "尝试次数",
+    "sent": "发送时间",
+    "lastError": "最近错误"
+  }
+}

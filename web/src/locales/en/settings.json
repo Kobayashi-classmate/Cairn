@@ -4,7 +4,10 @@
     "account": "Account",
     "security": "Security",
     "sessions": "Sessions",
-    "panel": "Panel"
+    "panel": "Panel",
+    "tokens": "API tokens",
+    "notifications": "Notifications",
+    "api": "API"
   },
   "account": {
     "profile": "Profile",
@@ -42,8 +45,6 @@
   "recoveryCodes": {
     "warningTitle": "Save your recovery codes now",
     "warning": "If you lose access to your authenticator app, each of these codes lets you sign in once. They are shown only this time.",
-    "copied": "Recovery codes copied.",
-    "copyFailed": "Could not copy. Select the codes and copy them manually.",
     "saved": "I have saved them",
     "fileHeader": "Cairn recovery codes for {username} on {host}. Each code can be used once."
   },

@@ -17,7 +17,8 @@
     "mfa_invalid_code": "The code is incorrect or has expired.",
     "mfa_challenge_expired": "The sign-in attempt has expired. Enter your password again.",
     "totp_not_pending": "Setting up two-factor authentication took too long. Start again.",
-    "totp_already_enabled": "Two-factor authentication is already turned on."
+    "totp_already_enabled": "Two-factor authentication is already turned on.",
+    "token_invalid": "The API token is invalid, has expired, or is not allowed from this address."
   },
   "setup": {
     "invalid_token": "The setup token is invalid or has expired. Use the latest setup link printed on the server.",
@@ -32,7 +33,12 @@
       "max_length": "{field} must be at most {max} character long. | {field} must be at most {max} characters long.",
       "pattern": "{field} is not in the expected format.",
       "mismatch": "{field} does not match.",
-      "enum": "{field} is not one of the allowed values."
+      "enum": "{field} is not one of the allowed values.",
+      "email": "Check {field}: each entry must be a valid email address.",
+      "url": "{field} must be an http:// or https:// URL.",
+      "range": "{field} must be between {min} and {max}.",
+      "subset": "{field} includes permissions your role does not have.",
+      "ip": "Check {field}: each entry must be an IP address or a CIDR range."
     }
   },
   "locale": {
@@ -53,5 +59,8 @@
     "username_taken": "This username is already taken.",
     "last_admin": "This would leave the panel without an active administrator.",
     "cannot_modify_self": "You cannot change the role of, disable or delete your own account."
+  },
+  "notify": {
+    "delivery_failed": "The message could not be delivered."
   }
 }

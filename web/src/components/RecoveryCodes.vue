@@ -1,15 +1,17 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import { NAlert, NButton, NIcon, useMessage } from 'naive-ui'
+import { NAlert, NButton, NIcon } from 'naive-ui'
 import { CopyOutline, DownloadOutline } from '@vicons/ionicons5'
+import { useCopy } from '@/composables/useCopy'
 import { useSessionStore } from '@/stores/session'
+import { downloadText } from '@/utils/download'
 
 const props = defineProps<{ codes: string[] }>()
 const emit = defineEmits<{ done: [] }>()
 
 const { t } = useI18n()
-const message = useMessage()
+const copyText = useCopy()
 const session = useSessionStore()
 
 function fileText(): string {
@@ -20,23 +22,12 @@ function fileText(): string {
   return `${header}\n\n${props.codes.join('\n')}\n`
 }
 
-async function copy() {
-  try {
-    await navigator.clipboard.writeText(props.codes.join('\n'))
-    message.success(t('settings.recoveryCodes.copied'))
-  } catch {
-    message.error(t('settings.recoveryCodes.copyFailed'))
-  }
+function copy() {
+  return copyText(props.codes.join('\n'))
 }
 
 function download() {
-  const blob = new Blob([fileText()], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `cairn-recovery-codes-${session.user?.username ?? 'user'}.txt`
-  link.click()
-  URL.revokeObjectURL(url)
+  downloadText(`cairn-recovery-codes-${session.user?.username ?? 'user'}.txt`, fileText())
 }
 </script>
 

@@ -1,0 +1,86 @@
+{
+  "channels": {
+    "title": "Notification channels",
+    "description": "Where the panel sends messages about security, accounts and the system."
+  },
+  "type": {
+    "email": "Email",
+    "webhook": "Webhook"
+  },
+  "level": {
+    "info": "Info",
+    "warning": "Warning",
+    "critical": "Critical"
+  },
+  "status": {
+    "pending": "Pending",
+    "sent": "Sent",
+    "failed": "Failed"
+  },
+  "category": {
+    "security": {
+      "label": "Security",
+      "description": "Sign-in lockouts, sign-ins, and two-step sign-in being turned off."
+    },
+    "users": {
+      "label": "Users",
+      "description": "Changes to accounts."
+    },
+    "system": {
+      "label": "System",
+      "description": "System messages, including test messages."
+    }
+  },
+  "event": {
+    "security": {
+      "lockout": "Sign-in locked out",
+      "login": "Sign-in",
+      "totp_disabled": "Two-step sign-in turned off"
+    },
+    "users": {
+      "change": "Account changed"
+    },
+    "system": {
+      "test": "Test message"
+    }
+  },
+  "channel": {
+    "createTitle": "Add channel",
+    "editTitle": "Edit channel",
+    "enabled": "Enabled",
+    "locale": "Message language",
+    "saved": "Channel {name} was saved.",
+    "deleted": "Channel {name} was deleted.",
+    "confirmDelete": {
+      "title": "Delete channel {name}?",
+      "content": "No more messages will be sent through this channel."
+    }
+  },
+  "email": {
+    "securityMode": {
+      "starttls": "STARTTLS",
+      "tls": "TLS (implicit)",
+      "none": "None (unencrypted)"
+    }
+  },
+  "webhook": {
+    "payload": "Each event is sent as an HTTP POST request with a JSON body.",
+    "signature": "When a signing secret is set, the {signatureHeader} header carries an HMAC-SHA256 of {signedContent}, computed with the secret."
+  },
+  "test": {
+    "send": "Send test",
+    "sent": "A test message was sent to {name}.",
+    "failed": "The test message to {name} failed"
+  },
+  "delivery": {
+    "title": "Recent deliveries",
+    "created": "Time",
+    "channel": "Channel",
+    "event": "Event",
+    "level": "Level",
+    "status": "Status",
+    "attempts": "Attempts",
+    "sent": "Sent at",
+    "lastError": "Last error"
+  }
+}

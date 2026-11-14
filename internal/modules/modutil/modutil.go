@@ -51,6 +51,8 @@ func MapError(err error, rename map[string]string) error {
 		return api.NewError(http.StatusConflict, "auth.totp_already_enabled", nil)
 	case errors.Is(err, auth.ErrUsernameTaken):
 		return api.NewError(http.StatusConflict, "users.username_taken", nil)
+	case errors.Is(err, auth.ErrTokenInvalid):
+		return api.NewError(http.StatusUnauthorized, "auth.token_invalid", nil)
 	}
 	return err
 }
@@ -74,12 +76,13 @@ func RateLimited(wait time.Duration) error {
 type Actor struct {
 	UserID   int64
 	Username string
+	Source   string // web | api; empty means web
 }
 
 // ActorOf returns the request's principal as an Actor.
 func ActorOf(r *http.Request) Actor {
 	if p, ok := api.PrincipalFrom(r.Context()); ok {
-		return Actor{UserID: p.UserID, Username: p.Username}
+		return Actor{UserID: p.UserID, Username: p.Username, Source: p.Source}
 	}
 	return Actor{}
 }
@@ -87,9 +90,13 @@ func ActorOf(r *http.Request) Actor {
 // Audit records an action. Failures are logged, not returned: the action
 // already happened and must not be reported as failed to the client.
 func Audit(r *http.Request, db *sql.DB, log *slog.Logger, who Actor, action, result string, params map[string]any) {
+	src := who.Source
+	if src == "" {
+		src = "web"
+	}
 	err := audit.Record(r.Context(), db, audit.Entry{
 		UserID: who.UserID, Username: who.Username, Action: action, Params: params,
-		Result: result, Remote: api.ClientIP(r), Source: "web",
+		Result: result, Remote: api.ClientIP(r), Source: src,
 	})
 	if err != nil {
 		log.Error("audit write failed", "action", action, "err", err)

@@ -76,10 +76,26 @@ const routes: RouteRecordRaw[] = [
             component: () => import('@/views/settings/SessionsSettings.vue'),
           },
           {
+            path: 'tokens',
+            name: 'settings-tokens',
+            component: () => import('@/views/settings/TokenSettings.vue'),
+          },
+          {
             path: 'panel',
             name: 'settings-panel',
             component: () => import('@/views/settings/PanelSettings.vue'),
             meta: { permission: 'settings.read' },
+          },
+          {
+            path: 'notifications',
+            name: 'settings-notifications',
+            component: () => import('@/views/settings/NotificationSettings.vue'),
+            meta: { permission: 'notify.manage' },
+          },
+          {
+            path: 'api',
+            name: 'settings-api',
+            component: () => import('@/views/settings/ApiReference.vue'),
           },
         ],
       },

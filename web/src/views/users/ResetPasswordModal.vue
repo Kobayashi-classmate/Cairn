@@ -15,7 +15,7 @@ import {
 } from 'naive-ui'
 import { isStepUpRequired } from '@/api/client'
 import { setUserPassword, type ManagedUser } from '@/api/users'
-import { confirmPasswordRules, newPasswordRules } from '@/auth/rules'
+import { confirmPasswordRules, newPasswordRules } from '@/forms/rules'
 import { errorMessage } from '@/i18n/errors'
 
 const show = defineModel<boolean>('show', { required: true })

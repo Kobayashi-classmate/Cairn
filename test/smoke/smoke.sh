@@ -102,6 +102,13 @@ curl -sk -b "$opjar" "$base/api/v1/users" | grep -q '"auth.forbidden"' || fail "
 api "$base/api/v1/audit?action=users.create" | grep -q '"username":"ops"' || fail "audit entry for users.create"
 step "roles enforced: step-up for user management, operator denied, change audited"
 
+tok=$(api -X POST "$base/api/v1/me/tokens" -d '{"name":"smoke","permissions":["system.read"],"expiresInDays":1}' | sed -n 's/.*"token":"\(cairn_[A-Za-z0-9_-]*\)".*/\1/p')
+[ -n "$tok" ] || fail "create API token"
+curl -sk -H "Authorization: Bearer $tok" "$base/api/v1/system/overview" | grep -q '"cpuCores"' || fail "token within scope"
+curl -sk -H "Authorization: Bearer $tok" "$base/api/v1/users" | grep -q '"auth.forbidden"' || fail "token outside scope"
+api "$base/api/v1/openapi.json" | grep -q '"openapi":"3.1.0"' || fail "openapi document"
+step "API token scoped to system.read works; OpenAPI document served"
+
 cairn reset-2fa --username admin --lang en | grep -q "turned off" || fail "cairn reset-2fa"
 [ "$(stat -c '%U:%G %a' /var/lib/cairn/master.key)" = "cairn:cairn 600" ] || fail "master key ownership/mode"
 step "cairn reset-2fa works; master key is cairn-only (0600)"

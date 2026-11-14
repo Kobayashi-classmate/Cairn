@@ -24,5 +24,5 @@ func (m *Module) ID() string { return "system" }
 func (m *Module) Routes(r *api.Router) {
 	r.Handle("GET /api/v1/system/overview", func(w http.ResponseWriter, _ *http.Request) error {
 		return api.WriteJSON(w, http.StatusOK, m.Metrics.Overview())
-	}, api.Require(authz.SystemRead))
+	}, api.Require(authz.SystemRead), api.Doc("system", "Host information, live usage and recent history"), api.Returns(200, metrics.Overview{}))
 }

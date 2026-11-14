@@ -1,0 +1,13 @@
+{
+  "title": "API reference",
+  "description": "Operations this panel offers, read from its OpenAPI description. Call them with an API token.",
+  "download": "Download openapi.json",
+  "filter": "Filter by path or summary",
+  "empty": "No operations match.",
+  "untagged": "Other",
+  "operations": "{count} operation | {count} operations",
+  "stepUp": "Re-authentication",
+  "requestBody": "Request body",
+  "noBody": "No JSON body.",
+  "responses": "Responses"
+}

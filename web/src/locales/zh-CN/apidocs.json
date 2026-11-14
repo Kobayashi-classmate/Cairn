@@ -1,0 +1,13 @@
+{
+  "title": "API 参考",
+  "description": "本面板提供的接口，读取自面板的 OpenAPI 描述。请使用 API 令牌调用。",
+  "download": "下载 openapi.json",
+  "filter": "按路径或摘要筛选",
+  "empty": "没有匹配的接口。",
+  "untagged": "其他",
+  "operations": "{count} 个接口",
+  "stepUp": "需重新验证",
+  "requestBody": "请求体",
+  "noBody": "没有 JSON 请求体。",
+  "responses": "响应"
+}

@@ -30,7 +30,7 @@ NODE_RUN = docker run --rm \
 	-v cairn-npm-cache:/root/.npm \
 	$(NODE_IMAGE)
 
-.PHONY: all build web go go-noui test vet fmt lint check-cjk check package clean
+.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo smoke repo-test clean
 
 all: check build
 
@@ -80,5 +80,18 @@ package:
 			package --config $(DIST)/nfpm-$(ARCH).yaml --packager $$p --target $(DIST)/ || exit 1; \
 	done
 
+## repo: build the signed apt/dnf repository into repo/
+# Needs CAIRN_SIGNING_KEY and CAIRN_REPO_URL; see scripts/build-repo.sh.
+repo:
+	sh scripts/build-repo.sh
+
+## smoke: install the packages on every tier-1 distribution (containers)
+smoke:
+	bash test/smoke/run.sh
+
+## repo-test: build a repository with a throwaway key and run install.sh against it
+repo-test:
+	bash test/repo/run.sh
+
 clean:
-	rm -rf $(DIST) internal/ui/dist web/dist
+	rm -rf $(DIST) internal/ui/dist web/dist repo

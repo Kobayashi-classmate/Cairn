@@ -23,7 +23,7 @@ import {
   newPasswordRules,
   requiredRule,
   usernameRules,
-} from '@/auth/rules'
+} from '@/forms/rules'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import { homeLocation } from '@/layouts/navigation'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'

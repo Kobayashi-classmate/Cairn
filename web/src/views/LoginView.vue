@@ -14,7 +14,7 @@ import {
   type InputInst,
 } from 'naive-ui'
 import { isApiError } from '@/api/client'
-import { requiredRule, totpCodeRules } from '@/auth/rules'
+import { requiredRule, totpCodeRules } from '@/forms/rules'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import { homeLocation } from '@/layouts/navigation'
 import { errorMessage } from '@/i18n/errors'

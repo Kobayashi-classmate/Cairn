@@ -18,7 +18,10 @@
     "save": "Save",
     "copy": "Copy",
     "download": "Download",
-    "loadMore": "Load more"
+    "loadMore": "Load more",
+    "edit": "Edit",
+    "delete": "Delete",
+    "refresh": "Refresh"
   },
   "language": {
     "label": "Language"
@@ -33,7 +36,21 @@
     "currentPassword": "Current password",
     "newPassword": "New password",
     "code": "Verification code",
-    "recoveryCode": "Recovery code"
+    "recoveryCode": "Recovery code",
+    "name": "Name",
+    "type": "Type",
+    "events": "Events",
+    "minLevel": "Minimum level",
+    "host": "SMTP server",
+    "port": "Port",
+    "security": "Encryption",
+    "from": "Sender address",
+    "to": "Recipients",
+    "url": "URL",
+    "secret": "Signing secret",
+    "permissions": "Permissions",
+    "allowedIps": "Allowed IP addresses",
+    "expiresInDays": "Expires"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -54,5 +71,34 @@
   "elevated": {
     "label": "Verified",
     "tooltip": "Identity confirmed until {time}. Sensitive actions will not ask for your password again until then."
+  },
+  "permission": {
+    "system": {
+      "read": "View system status"
+    },
+    "audit": {
+      "read": "View the audit log"
+    },
+    "users": {
+      "manage": "Manage users"
+    },
+    "settings": {
+      "read": "View panel settings",
+      "manage": "Change panel settings"
+    },
+    "notify": {
+      "manage": "Manage notifications"
+    }
+  },
+  "copy": {
+    "done": "Copied to the clipboard.",
+    "failed": "Could not copy. Select the text and copy it manually."
+  },
+  "secret": {
+    "set": "Set",
+    "notSet": "Not set",
+    "keep": "Keep",
+    "replace": "Replace",
+    "clear": "Remove"
   }
 }

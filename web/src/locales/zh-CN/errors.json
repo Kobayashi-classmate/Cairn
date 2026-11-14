@@ -17,7 +17,8 @@
     "mfa_invalid_code": "验证码错误或已过期。",
     "mfa_challenge_expired": "本次登录已超时，请重新输入密码。",
     "totp_not_pending": "两步验证设置已超时，请重新开始。",
-    "totp_already_enabled": "两步验证已经开启。"
+    "totp_already_enabled": "两步验证已经开启。",
+    "token_invalid": "API 令牌无效、已过期，或不允许从当前地址使用。"
   },
   "setup": {
     "invalid_token": "初始化令牌无效或已过期。请使用服务器上最新打印的初始化链接。",
@@ -32,7 +33,12 @@
       "max_length": "{field}最多 {max} 个字符。",
       "pattern": "{field}格式不正确。",
       "mismatch": "{field}不匹配。",
-      "enum": "{field}的取值无效。"
+      "enum": "{field}的取值无效。",
+      "email": "请检查{field}：每一项都必须是有效的电子邮件地址。",
+      "url": "{field}必须是以 http:// 或 https:// 开头的网址。",
+      "range": "{field}必须在 {min} 到 {max} 之间。",
+      "subset": "{field}包含了你的角色不具备的权限。",
+      "ip": "请检查{field}：每一项都必须是 IP 地址或 CIDR 网段。"
     }
   },
   "locale": {
@@ -53,5 +59,8 @@
     "username_taken": "该用户名已被使用。",
     "last_admin": "此操作会导致面板没有可用的管理员。",
     "cannot_modify_self": "不能修改自己账号的角色，也不能停用或删除自己的账号。"
+  },
+  "notify": {
+    "delivery_failed": "消息发送失败。"
   }
 }

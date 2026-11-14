@@ -23,7 +23,14 @@ const allTabs: SettingsTab[] = [
   { name: 'settings-account', labelKey: 'settings.tabs.account' },
   { name: 'settings-security', labelKey: 'settings.tabs.security' },
   { name: 'settings-sessions', labelKey: 'settings.tabs.sessions' },
+  { name: 'settings-tokens', labelKey: 'settings.tabs.tokens' },
   { name: 'settings-panel', labelKey: 'settings.tabs.panel', permission: 'settings.read' },
+  {
+    name: 'settings-notifications',
+    labelKey: 'settings.tabs.notifications',
+    permission: 'notify.manage',
+  },
+  { name: 'settings-api', labelKey: 'settings.tabs.api' },
 ]
 
 const tabs = computed(() => allTabs.filter((tab) => !tab.permission || session.can(tab.permission)))
@@ -48,7 +55,7 @@ function open(name: string | number) {
 
 <style scoped>
 .settings {
-  max-inline-size: 960px;
+  max-inline-size: 1100px;
 }
 
 .settings__title {

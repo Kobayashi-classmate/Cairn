@@ -20,6 +20,7 @@ const (
 	UsersManage    Permission = "users.manage"
 	SettingsRead   Permission = "settings.read"
 	SettingsManage Permission = "settings.manage"
+	NotifyManage   Permission = "notify.manage"
 )
 
 // Role is a named set of permissions.
@@ -46,7 +47,7 @@ var grants = map[Role]map[Permission]bool{
 }
 
 // All lists every permission, for administrators and the UI.
-var All = []Permission{SystemRead, AuditRead, UsersManage, SettingsRead, SettingsManage}
+var All = []Permission{SystemRead, AuditRead, UsersManage, SettingsRead, SettingsManage, NotifyManage}
 
 // ValidRole reports whether role is a built-in role.
 func ValidRole(role string) bool {

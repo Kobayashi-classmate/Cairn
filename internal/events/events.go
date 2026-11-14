@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+
+// Package events is the in-process event bus. Modules publish what happened
+// (a lockout, an account change, ...); the notification center and, later,
+// triggers subscribe. Events carry structured parameters, never secrets.
+package events
+
+import (
+	"sync"
+	"time"
+)
+
+// Level orders events by urgency.
+type Level string
+
+// Levels, lowest first.
+const (
+	Info     Level = "info"
+	Warning  Level = "warning"
+	Critical Level = "critical"
+)
+
+// Rank returns a comparable number for l; unknown levels rank lowest.
+func (l Level) Rank() int {
+	switch l {
+	case Warning:
+		return 1
+	case Critical:
+		return 2
+	}
+	return 0
+}
+
+// ValidLevel reports whether s is a known level.
+func ValidLevel(s string) bool {
+	switch Level(s) {
+	case Info, Warning, Critical:
+		return true
+	}
+	return false
+}
+
+// Event types published in P0. Notification rules match on prefixes such as
+// "security." or "users.".
+const (
+	SecurityLockout      = "security.lockout"
+	SecurityLogin        = "security.login"
+	SecurityTOTPDisabled = "security.totp_disabled"
+	UsersChange          = "users.change"
+	SystemTest           = "system.test"
+)
+
+// Categories are the prefixes a notification channel can subscribe to.
+var Categories = []string{"security.", "users.", "system."}
+
+// Event is something that happened.
+type Event struct {
+	Type   string
+	Level  Level
+	Params map[string]any
+	// DedupeKey suppresses repeats of the same occurrence for a while
+	// (for example one lockout message per user and address).
+	DedupeKey string
+	TS        int64
+}
+
+// Bus delivers events to subscribers. The zero value is ready to use and a
+// nil *Bus drops events, which keeps tests and optional wiring simple.
+type Bus struct {
+	mu   sync.RWMutex
+	subs []func(Event)
+}
+
+// Subscribe registers fn for every published event. fn must be quick; slow
+// work belongs in the subscriber's own queue.
+func (b *Bus) Subscribe(fn func(Event)) {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	b.subs = append(b.subs, fn)
+	b.mu.Unlock()
+}
+
+// Publish stamps e and hands it to every subscriber.
+func (b *Bus) Publish(e Event) {
+	if b == nil {
+		return
+	}
+	if e.TS == 0 {
+		e.TS = time.Now().Unix()
+	}
+	if e.Level == "" {
+		e.Level = Info
+	}
+	b.mu.RLock()
+	subs := make([]func(Event), len(b.subs))
+	copy(subs, b.subs)
+	b.mu.RUnlock()
+	for _, fn := range subs {
+		fn(e)
+	}
+}

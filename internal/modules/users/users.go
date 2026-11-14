@@ -14,13 +14,15 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
+	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 )
 
 // Module implements module.Module.
 type Module struct {
-	DB  *sql.DB
-	Log *slog.Logger
+	DB     *sql.DB
+	Events *events.Bus // may be nil
+	Log    *slog.Logger
 }
 
 // ID implements module.Module.
@@ -29,12 +31,28 @@ func (m *Module) ID() string { return "users" }
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
 	manage := api.Require(authz.UsersManage)
-	r.Handle("GET /api/v1/users", m.list, manage)
-	r.Handle("POST /api/v1/users", m.create, manage, api.StepUp())
-	r.Handle("PATCH /api/v1/users/{id}", m.update, manage, api.StepUp())
-	r.Handle("PUT /api/v1/users/{id}/password", m.setPassword, manage, api.StepUp())
-	r.Handle("DELETE /api/v1/users/{id}/totp", m.resetTOTP, manage, api.StepUp())
-	r.Handle("DELETE /api/v1/users/{id}", m.delete, manage, api.StepUp())
+	doc := func(s string) api.RouteOption { return api.Doc("users", s) }
+	noContent := api.Returns(http.StatusNoContent, nil)
+	r.Handle("GET /api/v1/users", m.list, manage, doc("List accounts"), api.Returns(200, listResponse{}))
+	r.Handle("POST /api/v1/users", m.create, manage, api.StepUp(), doc("Create an account"),
+		api.Body(createRequest{}), api.Returns(201, userResponse{}))
+	r.Handle("PATCH /api/v1/users/{id}", m.update, manage, api.StepUp(), doc("Change role or disable/enable an account"),
+		api.Body(updateRequest{}), api.Returns(200, userResponse{}))
+	r.Handle("PUT /api/v1/users/{id}/password", m.setPassword, manage, api.StepUp(), doc("Set a new password and sign the user out"),
+		api.Body(passwordRequest{}), noContent)
+	r.Handle("DELETE /api/v1/users/{id}/totp", m.resetTOTP, manage, api.StepUp(), doc("Turn off an account's two-step sign-in"), noContent)
+	r.Handle("DELETE /api/v1/users/{id}", m.delete, manage, api.StepUp(), doc("Delete an account"), noContent)
+}
+
+// changed announces an account change made by the current user.
+func (m *Module) changed(r *http.Request, action, username string) {
+	actor := modutil.ActorOf(r).Username
+	m.Events.Publish(events.Event{Type: events.UsersChange, Level: events.Info,
+		Params: map[string]any{"actor": actor, "action": action, "username": username}})
+	if action == "reset_totp" {
+		m.Events.Publish(events.Event{Type: events.SecurityTOTPDisabled, Level: events.Warning,
+			Params: map[string]any{"actor": actor, "username": username}})
+	}
 }
 
 var (
@@ -77,6 +95,7 @@ func (m *Module) create(w http.ResponseWriter, r *http.Request) error {
 		return modutil.MapError(err, nil)
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "users.create", "ok", map[string]any{"username": u.Username, "role": u.Role})
+	m.changed(r, "create", u.Username)
 	return api.WriteJSON(w, http.StatusCreated, userResponse{User: u})
 }
 
@@ -159,6 +178,7 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "users.update", "ok", params)
+	m.changed(r, "update", u.Username)
 	u, err = auth.UserByID(ctx, m.DB, id)
 	if err != nil {
 		return err
@@ -194,6 +214,7 @@ func (m *Module) setPassword(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "users.set_password", "ok", map[string]any{"username": u.Username})
+	m.changed(r, "set_password", u.Username)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -211,6 +232,7 @@ func (m *Module) resetTOTP(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "users.reset_totp", "ok", map[string]any{"username": u.Username})
+	m.changed(r, "reset_totp", u.Username)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
@@ -248,6 +270,7 @@ func (m *Module) delete(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "users.delete", "ok", map[string]any{"username": u.Username})
+	m.changed(r, "delete", u.Username)
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

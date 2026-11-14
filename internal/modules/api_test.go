@@ -22,12 +22,17 @@ import (
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
+	"github.com/Kobayashi-classmate/Cairn/internal/authz"
+	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
+	"github.com/Kobayashi-classmate/Cairn/internal/notify"
 	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 	"github.com/Kobayashi-classmate/Cairn/internal/store"
 )
@@ -43,10 +48,12 @@ func (f *fakeHelper) Call(_ context.Context, action string, _ helperapi.Caller, 
 }
 
 type env struct {
-	t      *testing.T
-	srv    *httptest.Server
-	db     *sql.DB
-	helper *fakeHelper
+	t        *testing.T
+	srv      *httptest.Server
+	db       *sql.DB
+	helper   *fakeHelper
+	router   *api.Router
+	notifier *notify.Notifier
 }
 
 func newEnv(t *testing.T) *env {
@@ -66,14 +73,31 @@ func newEnv(t *testing.T) *env {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &fakeHelper{}
+	catalog, err := i18n.NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wired like cmd/cairn-web.
+	bus := &events.Bus{}
+	notifyStore := &notify.Store{DB: db, Box: box}
+	notifier := notify.New(notifyStore, catalog, log)
+	bus.Subscribe(notifier.Handle)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { notifier.Run(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+
 	router := api.NewRouter(core.Authenticator(db), log)
-	(&core.Module{DB: db, Settings: core.NewSettings("en"), Helper: h, Box: box, Log: log}).Routes(router)
+	(&core.Module{DB: db, Settings: core.NewSettings("en"), Helper: h, Box: box, Events: bus, Log: log}).Routes(router)
 	(&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)}).Routes(router)
-	(&users.Module{DB: db, Log: log}).Routes(router)
+	(&users.Module{DB: db, Events: bus, Log: log}).Routes(router)
 	(&auditlog.Module{DB: db}).Routes(router)
+	(&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log}).Routes(router)
+	router.Handle("GET /api/v1/openapi.json", router.ServeOpenAPI("Cairn API", "test"),
+		api.Require(authz.Self), api.Doc("meta", "This OpenAPI document"))
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, db: db, helper: h}
+	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier}
 }
 
 // client is one browser with its own cookie jar.

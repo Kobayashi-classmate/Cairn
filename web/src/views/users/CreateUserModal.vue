@@ -22,7 +22,7 @@ import {
   newPasswordRules,
   requiredRule,
   usernameRules,
-} from '@/auth/rules'
+} from '@/forms/rules'
 import { errorMessage } from '@/i18n/errors'
 
 const show = defineModel<boolean>('show', { required: true })

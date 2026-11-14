@@ -5,9 +5,11 @@ package core
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
+	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 )
@@ -53,7 +55,7 @@ func (m *Module) changePassword(w http.ResponseWriter, r *http.Request) error {
 		return modutil.RateLimited(wait)
 	}
 	if err := auth.CheckPassword(ctx, m.DB, p.UserID, req.CurrentPassword); errors.Is(err, auth.ErrWrongPassword) {
-		if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+		if err := m.recordFailure(r, p.Username, keys...); err != nil {
 			return err
 		}
 		m.audit(r, modutil.ActorOf(r), "auth.change_password", "auth.wrong_password", nil)
@@ -166,6 +168,68 @@ func (m *Module) disableTOTP(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	m.audit(r, modutil.ActorOf(r), "auth.totp_disable", "ok", nil)
+	m.Events.Publish(events.Event{Type: events.SecurityTOTPDisabled, Level: events.Warning,
+		Params: map[string]any{"username": p.Username, "actor": p.Username}})
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+type tokensResponse struct {
+	Tokens []*auth.Token `json:"tokens"`
+}
+
+func (m *Module) listTokens(w http.ResponseWriter, r *http.Request) error {
+	p, _ := api.PrincipalFrom(r.Context())
+	list, err := auth.ListTokens(r.Context(), m.DB, p.UserID)
+	if err != nil {
+		return err
+	}
+	return api.WriteJSON(w, http.StatusOK, tokensResponse{Tokens: list})
+}
+
+type createTokenRequest struct {
+	Name          string   `json:"name"`
+	Permissions   []string `json:"permissions"`
+	ExpiresInDays int      `json:"expiresInDays"`
+	AllowedIPs    []string `json:"allowedIps"`
+}
+
+type createTokenResponse struct {
+	Token string      `json:"token"`
+	Info  *auth.Token `json:"info"`
+}
+
+func (m *Module) createToken(w http.ResponseWriter, r *http.Request) error {
+	var req createTokenRequest
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	p, _ := api.PrincipalFrom(r.Context())
+	u, err := auth.UserByID(r.Context(), m.DB, p.UserID)
+	if err != nil {
+		return err
+	}
+	token, info, err := auth.CreateToken(r.Context(), m.DB, u, auth.TokenRequest{
+		Name: req.Name, Permissions: req.Permissions, ExpiresInDays: req.ExpiresInDays, AllowedIPs: req.AllowedIPs,
+	})
+	if err != nil {
+		return modutil.MapError(err, nil)
+	}
+	m.audit(r, modutil.ActorOf(r), "auth.token_create", "ok", map[string]any{"name": info.Name})
+	return api.WriteJSON(w, http.StatusCreated, createTokenResponse{Token: token, Info: info})
+}
+
+func (m *Module) deleteToken(w http.ResponseWriter, r *http.Request) error {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		return api.ErrNotFound
+	}
+	p, _ := api.PrincipalFrom(r.Context())
+	name, err := auth.DeleteToken(r.Context(), m.DB, p.UserID, id)
+	if err != nil {
+		return modutil.MapError(err, nil)
+	}
+	m.audit(r, modutil.ActorOf(r), "auth.token_revoke", "ok", map[string]any{"name": name})
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

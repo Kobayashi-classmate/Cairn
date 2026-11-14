@@ -8,7 +8,8 @@
   "category": {
     "auth": "Sign-in and account",
     "users": "User management",
-    "settings": "Panel settings"
+    "settings": "Panel settings",
+    "notify": "Notifications"
   },
   "column": {
     "time": "Time",
@@ -23,7 +24,8 @@
   },
   "source": {
     "web": "Web",
-    "cli": "Command line"
+    "cli": "Command line",
+    "api": "API"
   },
   "detail": {
     "role": "Role: {role}",
@@ -43,7 +45,9 @@
       "totp_enable": "Turned on two-factor authentication",
       "totp_disable": "Turned off two-factor authentication",
       "recovery_codes": "Generated new recovery codes",
-      "session_revoke": "Signed out {count} session | Signed out {count} sessions"
+      "session_revoke": "Signed out {count} session | Signed out {count} sessions",
+      "token_create": "Created API token {name}",
+      "token_revoke": "Revoked API token {name}"
     },
     "users": {
       "create": "Added user {username} as {role}",
@@ -54,6 +58,12 @@
     },
     "settings": {
       "default_locale": "Changed the default language to {locale}"
+    },
+    "notify": {
+      "channel_create": "Added notification channel {name}",
+      "channel_update": "Updated notification channel {name}",
+      "channel_delete": "Deleted notification channel {name}",
+      "test": "Sent a test message to {name}"
     }
   }
 }

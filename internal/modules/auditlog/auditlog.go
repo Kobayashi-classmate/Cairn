@@ -24,7 +24,8 @@ func (m *Module) ID() string { return "auditlog" }
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
-	r.Handle("GET /api/v1/audit", m.list, api.Require(authz.AuditRead))
+	r.Handle("GET /api/v1/audit", m.list, api.Require(authz.AuditRead),
+		api.Doc("audit", "Audit trail, newest first (query: limit, before, user, action prefix)"), api.Returns(200, listResponse{}))
 }
 
 type listResponse struct {

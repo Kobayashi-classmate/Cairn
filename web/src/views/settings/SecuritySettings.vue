@@ -23,7 +23,7 @@ import {
   type TotpEnrollment,
 } from '@/api/account'
 import { isApiError, isStepUpRequired } from '@/api/client'
-import { totpCodeRules } from '@/auth/rules'
+import { totpCodeRules } from '@/forms/rules'
 import RecoveryCodes from '@/components/RecoveryCodes.vue'
 import TotpQrCode from '@/components/TotpQrCode.vue'
 import { useConfirm } from '@/composables/useConfirm'

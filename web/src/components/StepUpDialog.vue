@@ -14,7 +14,7 @@ import {
   type FormRules,
 } from 'naive-ui'
 import { isApiError } from '@/api/client'
-import { requiredRule, totpCodeRules } from '@/auth/rules'
+import { requiredRule, totpCodeRules } from '@/forms/rules'
 import { finishStepUp, stepUpOpen } from '@/auth/stepUp'
 import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'

@@ -18,7 +18,10 @@
     "save": "保存",
     "copy": "复制",
     "download": "下载",
-    "loadMore": "加载更多"
+    "loadMore": "加载更多",
+    "edit": "编辑",
+    "delete": "删除",
+    "refresh": "刷新"
   },
   "language": {
     "label": "语言"
@@ -33,7 +36,21 @@
     "currentPassword": "当前密码",
     "newPassword": "新密码",
     "code": "验证码",
-    "recoveryCode": "恢复码"
+    "recoveryCode": "恢复码",
+    "name": "名称",
+    "type": "类型",
+    "events": "事件",
+    "minLevel": "最低级别",
+    "host": "SMTP 服务器",
+    "port": "端口",
+    "security": "加密方式",
+    "from": "发件地址",
+    "to": "收件人",
+    "url": "网址",
+    "secret": "签名密钥",
+    "permissions": "权限",
+    "allowedIps": "允许的 IP 地址",
+    "expiresInDays": "有效期"
   },
   "boot": {
     "failed": "无法加载面板"
@@ -54,5 +71,34 @@
   "elevated": {
     "label": "已验证",
     "tooltip": "身份验证有效期至 {time}。在此之前，敏感操作不会再次要求输入密码。"
+  },
+  "permission": {
+    "system": {
+      "read": "查看系统状态"
+    },
+    "audit": {
+      "read": "查看审计日志"
+    },
+    "users": {
+      "manage": "管理用户"
+    },
+    "settings": {
+      "read": "查看面板设置",
+      "manage": "修改面板设置"
+    },
+    "notify": {
+      "manage": "管理通知"
+    }
+  },
+  "copy": {
+    "done": "已复制到剪贴板。",
+    "failed": "复制失败，请手动选择文本并复制。"
+  },
+  "secret": {
+    "set": "已设置",
+    "notSet": "未设置",
+    "keep": "保留",
+    "replace": "更换",
+    "clear": "移除"
   }
 }

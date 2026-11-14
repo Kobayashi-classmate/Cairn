@@ -17,7 +17,7 @@ import {
 } from 'naive-ui'
 import { changePassword } from '@/api/account'
 import { roleLabel } from '@/auth/permissions'
-import { confirmPasswordRules, newPasswordRules, requiredRule } from '@/auth/rules'
+import { confirmPasswordRules, newPasswordRules, requiredRule } from '@/forms/rules'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'

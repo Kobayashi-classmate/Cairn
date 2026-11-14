@@ -21,6 +21,7 @@ linters:
         - (net.Listener).Close
         - (net.Conn).Close
         - (*net.UnixConn).Close
+        - (*net/smtp.Client).Close
     gosec:
       excludes:
         # Unchecked errors are covered by errcheck and its curated exclusions;
@@ -43,6 +44,11 @@ linters:
         linters:
           - forbidigo
           - gosec
+      # Tests use fake credentials on purpose.
+      - path: _test\.go$
+        linters:
+          - gosec
+        text: G101
 
 formatters:
   enable:

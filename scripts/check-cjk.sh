@@ -3,7 +3,9 @@
 #
 # Fails when CJK characters appear in program files. All program text must be
 # English; user-facing text lives in locale files. Exempt: locale directories,
-# testdata, and localized READMEs (README.md links to them by native name).
+# testdata, localized READMEs (README.md links to them by native name), and
+# packaging/install.sh, which must work as a single downloaded file and so
+# carries its own translated messages in one marked block.
 set -eu
 
 cd "$(git rev-parse --show-toplevel)"
@@ -14,7 +16,7 @@ pattern='[\x{3000}-\x{303F}\x{3040}-\x{30FF}\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x
 found=0
 # Tracked files plus untracked files that are not ignored.
 git ls-files -z --cached --others --exclude-standard |
-	grep -zvE '(^|/)(locales|testdata)/|^README(\.[^/]+)?\.md$|^web/package-lock\.json$' |
+	grep -zvE '(^|/)(locales|testdata)/|^README(\.[^/]+)?\.md$|^web/package-lock\.json$|^packaging/install\.sh$' |
 	xargs -0 -r grep -nP "$pattern" -- >/tmp/cairn-cjk.$$ 2>/dev/null || true
 
 if [ -s /tmp/cairn-cjk.$$ ]; then

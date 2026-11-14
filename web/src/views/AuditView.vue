@@ -35,7 +35,7 @@ const userFilter = ref('')
 const categoryFilter = ref<string | null>(null)
 
 // Action code prefixes the server filters on.
-const categories = ['auth', 'users', 'settings'] as const
+const categories = ['auth', 'users', 'settings', 'notify'] as const
 const categoryOptions = computed(() =>
   categories.map((c) => ({ value: `${c}.`, label: t(`audit.category.${c}`) })),
 )
@@ -99,8 +99,13 @@ function describe(entry: AuditEntry): string {
   return typeof params.count === 'number' ? t(key, params, params.count) : t(key, params)
 }
 
-/** Changed attributes of a user update, shown as tags next to the description. */
+/** Extra attributes shown as tags next to the description. */
 function details(entry: AuditEntry): string[] {
+  const type = entry.params.type
+  if (entry.action.startsWith('notify.') && typeof type === 'string') {
+    const key = `notify.type.${type}`
+    return [te(key) ? t(key) : type]
+  }
   if (entry.action !== 'users.update') return []
   const list: string[] = []
   if (typeof entry.params.role === 'string') {
