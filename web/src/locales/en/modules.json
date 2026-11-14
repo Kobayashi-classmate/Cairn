@@ -1,0 +1,18 @@
+{
+  "title": "Modules",
+  "intro": "Features of the panel. Optional modules can be turned off; their pages and API routes are then unavailable.",
+  "core": "Part of the core",
+  "coreTooltip": "This module is part of the core and cannot be turned off.",
+  "enabled": "{name} is turned on.",
+  "disabled": "{name} is turned off.",
+  "name": {
+    "core": "Core",
+    "system": "System status",
+    "software": "Software",
+    "jobs": "Task center",
+    "users": "Users",
+    "auditlog": "Audit log",
+    "notifications": "Notifications",
+    "cloud": "Cloud service"
+  }
+}

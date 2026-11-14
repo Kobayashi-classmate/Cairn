@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Valkey, the Redis-compatible fork; the only option on EL 10. Checked
+# 2026-11-14.
+id = "valkey"
+name = "Valkey"
+category = "cache"
+homepage = "https://valkey.io/"
+
+lines = [
+  { version = "9.0" },
+  { version = "8.1" },
+  { version = "8.0" },
+  { version = "7.2" },
+]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-26.04"]
+lines = ["9.0"]
+packages = ["valkey-server"]
+
+[[sources]]
+method = "system"
+releases = ["debian-13"]
+lines = ["8.1"]
+packages = ["valkey-server"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-24.04"]
+lines = ["7.2"]
+packages = ["valkey-server"]
+
+[[sources]]
+method = "system"
+releases = ["el-9", "el-10"]
+lines = ["8.0"]
+packages = ["valkey"]

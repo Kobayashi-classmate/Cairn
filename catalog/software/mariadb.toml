@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# MariaDB from the system repositories (checked 2026-11-14). The official
+# MariaDB repositories are added with the installer, once verified per
+# release.
+id = "mariadb"
+name = "MariaDB"
+category = "database"
+homepage = "https://mariadb.org/"
+
+lines = [
+  { version = "11.8", lts = true },
+  { version = "11.4", lts = true, eol = "2029-05-29" },
+  { version = "10.11", lts = true, eol = "2028-02-16" },
+  { version = "10.6", lts = true, eol = "2026-07-06" },
+  { version = "10.5", eol = "2025-06-24" },
+]
+
+[[sources]]
+method = "system"
+releases = ["debian-12", "ubuntu-24.04", "el-10"]
+lines = ["10.11"]
+packages = ["mariadb-server"]
+
+[[sources]]
+method = "system"
+releases = ["debian-13", "ubuntu-26.04"]
+lines = ["11.8"]
+packages = ["mariadb-server"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-22.04"]
+lines = ["10.6"]
+packages = ["mariadb-server"]
+
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["11.8", "10.11"]
+packages = ["mariadb-server"]
+stream = "mariadb:{line}"
+
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["10.5"]
+packages = ["mariadb-server"]

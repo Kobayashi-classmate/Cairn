@@ -4,23 +4,22 @@ import { i18n } from '@/i18n'
 export const ROLES = ['admin', 'operator', 'auditor'] as const
 export type Role = (typeof ROLES)[number]
 
-export type Permission =
+/** Permissions built into the panel core. */
+export type KnownPermission =
   | 'system.read'
   | 'audit.read'
   | 'users.manage'
   | 'settings.read'
   | 'settings.manage'
   | 'notify.manage'
+  | 'software.read'
+  | 'software.manage'
 
-/** Every permission this build knows, in display order. */
-export const PERMISSIONS: readonly Permission[] = [
-  'system.read',
-  'audit.read',
-  'users.manage',
-  'settings.read',
-  'settings.manage',
-  'notify.manage',
-]
+/**
+ * A permission name. Modules define their own at startup, so any string the
+ * server sends is valid; the known names only help with autocompletion.
+ */
+export type Permission = KnownPermission | (string & {})
 
 /** Translated role name; a role this build does not know is shown as is. */
 export function roleLabel(role: string): string {

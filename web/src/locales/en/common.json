@@ -9,7 +9,9 @@
     "audit": "Audit log",
     "settings": "Settings",
     "account": "Account settings",
-    "messages": "Messages"
+    "messages": "Messages",
+    "software": "Software",
+    "jobs": "Tasks"
   },
   "action": {
     "signOut": "Sign out",
@@ -91,6 +93,10 @@
     },
     "notify": {
       "manage": "Manage notifications"
+    },
+    "software": {
+      "read": "View software",
+      "manage": "Manage software"
     }
   },
   "copy": {

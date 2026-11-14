@@ -3,6 +3,7 @@
 package platform
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -131,5 +132,18 @@ func TestCompareVersions(t *testing.T) {
 		if got := compareVersions(c.a, c.b); got != c.want {
 			t.Errorf("compareVersions(%q,%q)=%d want %d", c.a, c.b, got, c.want)
 		}
+	}
+}
+
+func TestChain(t *testing.T) {
+	got, err := Chain("el-9")
+	if err != nil || strings.Join(got, ",") != "el-9,el" {
+		t.Fatalf("chain: %v %v", got, err)
+	}
+	if _, err := Chain("nope"); err == nil {
+		t.Fatal("unknown profile accepted")
+	}
+	if !slices.Contains(Names(), "ubuntu-26.04") {
+		t.Fatalf("names: %v", Names())
 	}
 }

@@ -19,51 +19,17 @@ cd "$(git rev-parse --show-toplevel)"
 
 work=$(mktemp -d)
 net=cairn-updatetest
-out=dist/update-test
 cleanup() {
 	docker rm -f cairn-rel >/dev/null 2>&1 || true
 	docker network rm $net >/dev/null 2>&1 || true
-	rm -rf "$work" "$out" dist/release dist/feed
+	rm -rf "$work" dist/update-test dist/release dist/feed
 }
 trap cleanup EXIT
-mkdir -p "$out"
 
-echo "== packages 0.1.0, 0.2.0 and an uninstallable 0.3.0"
-for v in 0.1.0 0.2.0 0.3.0; do
-	make -s go-noui VERSION=$v DIST=$out/$v >/dev/null
-done
-make -s package VERSION=0.1.0 DIST=$out/0.1.0 >/dev/null
-make -s package VERSION=0.2.0 DIST=$out/0.2.0 >/dev/null
-sed -e "s|\${ARCH}|amd64|g" -e "s|\${VERSION}|0.3.0|g" -e "s|\${DIST}|$out/0.3.0|g" \
-	-e 's|^      - passwd$|      - passwd\n      - cairn-test-missing-dependency|' \
-	-e 's|^      - shadow-utils$|      - shadow-utils\n      - cairn-test-missing-dependency|' \
-	packaging/nfpm.yaml >$out/0.3.0/nfpm.yaml
-[ "$(grep -c cairn-test-missing-dependency $out/0.3.0/nfpm.yaml)" -eq 2 ]
-for p in deb rpm; do
-	docker run --rm -v "$PWD:/src" -w /src goreleaser/nfpm:v2.49.0 \
-		package --config $out/0.3.0/nfpm.yaml --packager $p --target $out/0.3.0/ >/dev/null
-done
-
-echo "== throwaway key and signed releases"
-docker run --rm -v "$PWD:/src" -w /src -v "$work:/k" \
-	-v cairn-gomod:/go/pkg/mod -v cairn-gocache:/root/.cache/go-build -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
-	golang:1.27.3 sh -euc 'go run ./tools/release keygen -out /k/test.key >/dev/null; go run ./tools/release pubkey -key /k/test.key >/k/keys.txt'
+echo "== signed test releases 0.1.0, 0.2.0 and an uninstallable 0.3.0 (throwaway key)"
+bash test/lib/release-fixture.sh "$work" http://cairn-rel
 pub=$(awk '{print $1}' "$work/keys.txt")
 srv=$work/srv/releases
-mkdir -p "$srv/download/feed"
-feed=""
-for v in 0.1.0 0.2.0 0.3.0; do
-	VERSION=$v PKG_DIR=$out/$v CAIRN_RELEASE_KEY="$work/test.key" CAIRN_TRUSTED_KEYS="$work/keys.txt" \
-		ASSETS_URL=http://cairn-rel/releases/download/v$v FEED_IN=$feed sh scripts/release.sh >/dev/null
-	mkdir -p "$srv/download/v$v" "$work/feed-$v"
-	cp dist/release/* "$srv/download/v$v/"
-	cp dist/feed/* "$work/feed-$v/"
-	feed=$work/feed-$v/releases.json
-done
-cp "$work"/feed-0.3.0/* "$srv/download/feed/"
-# At install time the latest release is 0.1.0.
-mkdir -p "$srv/latest"
-cp -r "$srv/download/v0.1.0" "$srv/latest/download"
 
 # Broken mirrors for the installer's refusals.
 bad=$work/srv

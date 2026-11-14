@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Official Node.js builds (nodejs.org), checked against SHASUMS256 and its
+# signature, unpacked under /opt/cairn/runtimes/node/<version>. Odd-numbered
+# lines are short-lived and not offered.
+id = "nodejs"
+name = "Node.js"
+category = "runtime"
+homepage = "https://nodejs.org/"
+
+lines = [
+  { version = "26", lts = true, eol = "2029-04-30" },
+  { version = "24", lts = true, eol = "2028-04-30" },
+  { version = "22", lts = true, eol = "2027-04-30" },
+  { version = "20", lts = true, eol = "2026-04-30" },
+]
+
+[[sources]]
+method = "standalone"
+provider = "nodejs"
+releases = ["*"]
+lines = ["26", "24", "22", "20"]
+arch = ["amd64", "arm64"]

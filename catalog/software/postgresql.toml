@@ -1,0 +1,79 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# PostgreSQL: the system version, other lines from the official PGDG
+# repository. Support ends five years after each major release.
+id = "postgresql"
+name = "PostgreSQL"
+category = "database"
+homepage = "https://www.postgresql.org/"
+
+lines = [
+  { version = "18", eol = "2030-11-14" },
+  { version = "17", eol = "2029-11-08" },
+  { version = "16", eol = "2028-11-09" },
+  { version = "15", eol = "2027-11-11" },
+  { version = "14", eol = "2026-11-12" },
+  { version = "13", eol = "2025-11-13" },
+]
+
+[[sources]]
+method = "system"
+releases = ["debian-12"]
+lines = ["15"]
+packages = ["postgresql-{line}"]
+
+[[sources]]
+method = "system"
+releases = ["debian-13"]
+lines = ["17"]
+packages = ["postgresql-{line}"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-22.04"]
+lines = ["14"]
+packages = ["postgresql-{line}"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-24.04"]
+lines = ["16"]
+packages = ["postgresql-{line}"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-26.04"]
+lines = ["18"]
+packages = ["postgresql-{line}"]
+
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["18", "16", "15"]
+packages = ["postgresql-server"]
+stream = "postgresql:{line}"
+
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["13"]
+packages = ["postgresql-server"]
+
+[[sources]]
+method = "system"
+releases = ["el-10"]
+lines = ["16"]
+packages = ["postgresql-server"]
+
+[[sources]]
+method = "vendor"
+repo = "pgdg"
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04"]
+lines = ["18", "17", "16", "15", "14", "13"]
+packages = ["postgresql-{line}"]
+
+[[sources]]
+method = "vendor"
+repo = "pgdg"
+releases = ["el-9", "el-10"]
+lines = ["18", "17", "16", "15", "14", "13"]
+packages = ["postgresql{line}-server"]

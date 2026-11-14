@@ -21,6 +21,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
+	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 )
@@ -62,10 +63,19 @@ type Module struct {
 	Box      *secrets.Box
 	Events   *events.Bus // may be nil
 	Log      *slog.Logger
+	// Modules is the registry of the running panel (menu, module switches).
+	Modules *module.Registry
 }
 
 // ID implements module.Module.
 func (m *Module) ID() string { return "core" }
+
+// Info implements module.Describer.
+func (m *Module) Info() module.Info {
+	return module.Info{Nav: []module.NavItem{
+		{Key: "settings", LabelKey: "common.nav.settings", Icon: "settings", Route: "settings", Order: 100},
+	}}
+}
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
@@ -109,6 +119,13 @@ func (m *Module) Routes(r *api.Router) {
 		api.Returns(200, settingsResponse{}))
 	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale, api.Require(authz.SettingsManage),
 		settingsDoc("Change the panel default language"), api.Body(localeRequest{}), noContent)
+
+	r.Handle("GET /api/v1/ui/nav", m.nav, self, api.Doc("meta", "Menu entries of the enabled modules the caller may open"),
+		api.Returns(200, navResponse{}))
+	r.Handle("GET /api/v1/modules", m.listModules, api.Require(authz.SettingsRead), settingsDoc("Modules and whether they are on"),
+		api.Returns(200, modulesResponse{}))
+	r.Handle("PUT /api/v1/modules/{id}", m.setModule, api.Require(authz.SettingsManage), api.StepUp(),
+		settingsDoc("Turn an optional module on or off"), api.Body(moduleRequest{}), api.Returns(200, moduleResponse{}))
 }
 
 // loginResponse documents both shapes of a successful POST /auth/login.

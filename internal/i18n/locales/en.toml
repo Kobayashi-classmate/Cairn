@@ -23,6 +23,8 @@
 "notify.users.change.body" = "{{.actor}}: {{.actionText}} ({{.username}})."
 "notify.system.test.title" = "[Cairn] Test message from {{.host}}"
 "notify.system.test.body" = "This is a test message sent by {{.actor}}. If you can read it, the channel works."
+"notify.system.job_failed.title" = "[Cairn] Background task failed on {{.host}}"
+"notify.system.job_failed.body" = "The background task {{.kind}} ({{.id}}) failed with {{.code}}. Open the task center in the panel for its log."
 "notify.action.create" = "account created"
 "notify.action.update" = "role or status changed"
 "notify.action.set_password" = "password reset"

@@ -1,0 +1,18 @@
+{
+  "title": "模块",
+  "intro": "面板的功能模块。可选模块可以关闭，关闭后其页面和 API 接口将不可用。",
+  "core": "核心部分",
+  "coreTooltip": "该模块属于核心部分，无法关闭。",
+  "enabled": "已开启 {name}。",
+  "disabled": "已关闭 {name}。",
+  "name": {
+    "core": "核心",
+    "system": "系统状态",
+    "software": "软件",
+    "jobs": "任务中心",
+    "users": "用户",
+    "auditlog": "审计日志",
+    "notifications": "通知",
+    "cloud": "云服务"
+  }
+}

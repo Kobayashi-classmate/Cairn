@@ -25,9 +25,10 @@ import { pickLocalized } from '@/i18n'
 import { errorMessage } from '@/i18n/errors'
 import { useAnnouncementsStore } from '@/stores/announcements'
 import { useSessionStore } from '@/stores/session'
-import { homeLocation, visibleNavItems } from './navigation'
+import { useNavStore } from '@/stores/nav'
+import { homeLocation, resolveNav } from './navigation'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
@@ -40,12 +41,14 @@ useAnnouncementPolling()
 const collapsed = ref(window.matchMedia('(max-width: 768px)').matches)
 const signingOut = ref(false)
 
-const home = computed(() => homeLocation(session.can))
+const nav = useNavStore()
+const home = computed(() => homeLocation(router))
 
 const menuOptions = computed<MenuOption[]>(() =>
-  visibleNavItems(session.can).map((item) => ({
+  resolveNav(nav.entries, router).map((item) => ({
     key: item.key,
-    label: () => h(RouterLink, { to: item.to }, () => t(item.labelKey)),
+    // A label key this build lacks shows the entry's key rather than the raw i18n key.
+    label: () => h(RouterLink, { to: item.to }, () => (te(item.labelKey) ? t(item.labelKey) : item.key)),
     icon: () => h(NIcon, null, () => h(item.icon)),
   })),
 )

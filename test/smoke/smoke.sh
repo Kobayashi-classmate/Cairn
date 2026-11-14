@@ -109,6 +109,20 @@ curl -sk -H "Authorization: Bearer $tok" "$base/api/v1/users" | grep -q '"auth.f
 api "$base/api/v1/openapi.json" | grep -q '"openapi":"3.1.0"' || fail "openapi document"
 step "API token scoped to system.read works; OpenAPI document served"
 
+api "$base/api/v1/ui/nav" | grep -q '"key":"software"' || fail "menu from the modules"
+api "$base/api/v1/software" | grep -q '"supported":true' || fail "software catalog not resolved for this system"
+job=$(api -X POST "$base/api/v1/software/refresh" | sed -n 's/.*"job":{"id":"\([0-9a-f]*\)".*/\1/p')
+[ -n "$job" ] || fail "refresh job not started"
+state=""
+for _ in $(seq 150); do
+	state=$(api "$base/api/v1/jobs/$job" | grep -o '"state":"[a-z]*"' | head -1 | cut -d'"' -f4)
+	case "$state" in succeeded | failed | canceled | interrupted) break ;; esac
+	sleep 2
+done
+[ "$state" = succeeded ] || fail "package index refresh job ended '$state'"
+api "$base/api/v1/jobs/$job/log" | grep -qE '\$ (apt-get update|dnf makecache)' || fail "job log"
+step "menu from the enabled modules; catalog resolved; package index refresh ran as a helper operation"
+
 cairn reset-2fa --username admin --lang en | grep -q "turned off" || fail "cairn reset-2fa"
 [ "$(stat -c '%U:%G %a' /var/lib/cairn/master.key)" = "cairn:cairn 600" ] || fail "master key ownership/mode"
 step "cairn reset-2fa works; master key is cairn-only (0600)"

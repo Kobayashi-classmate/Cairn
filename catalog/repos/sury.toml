@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# PHP builds for Debian by the Debian PHP package maintainer. PHP publishes no
+# official Linux repository; the project owner approved this one.
+id = "sury"
+name = "packages.sury.org"
+homepage = "https://deb.sury.org/"
+official = false
+approved = "2026-11-14"
+releases = ["debian-12", "debian-13"]

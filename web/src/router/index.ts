@@ -43,6 +43,24 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'dashboard.title', navKey: 'overview', permission: 'system.read' },
       },
       {
+        path: 'software',
+        name: 'software',
+        component: () => import('@/views/SoftwareView.vue'),
+        meta: { titleKey: 'software.title', navKey: 'software', permission: 'software.read' },
+      },
+      {
+        path: 'jobs',
+        name: 'jobs',
+        component: () => import('@/views/JobsView.vue'),
+        meta: { titleKey: 'jobs.title', navKey: 'jobs' },
+      },
+      {
+        path: 'jobs/:id',
+        name: 'job',
+        component: () => import('@/views/jobs/JobDetailView.vue'),
+        meta: { titleKey: 'jobs.detail.title', navKey: 'jobs' },
+      },
+      {
         path: 'users',
         name: 'users',
         component: () => import('@/views/UsersView.vue'),
@@ -99,6 +117,12 @@ const routes: RouteRecordRaw[] = [
             meta: { permission: 'settings.read' },
           },
           {
+            path: 'modules',
+            name: 'settings-modules',
+            component: () => import('@/views/settings/ModuleSettings.vue'),
+            meta: { permission: 'settings.read' },
+          },
+          {
             path: 'notifications',
             name: 'settings-notifications',
             component: () => import('@/views/settings/NotificationSettings.vue'),
@@ -139,17 +163,17 @@ export function createAppRouter(): Router {
       return { name: 'setup', query: typeof token === 'string' ? { token } : {} }
     }
     if (to.name === 'setup') {
-      return session.isAuthenticated ? homeLocation(session.can) : { name: 'login' }
+      return session.isAuthenticated ? homeLocation(router) : { name: 'login' }
     }
     if (to.meta.requiresAuth && !session.isAuthenticated) {
       return loginLocation(to.fullPath)
     }
     if (to.name === 'login' && session.isAuthenticated) {
-      return homeLocation(session.can)
+      return homeLocation(router)
     }
     // Pages the role may not open lead to the first page it may.
     if (to.meta.permission && !session.can(to.meta.permission)) {
-      return homeLocation(session.can)
+      return homeLocation(router)
     }
     return true
   })

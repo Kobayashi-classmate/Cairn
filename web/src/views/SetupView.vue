@@ -71,7 +71,7 @@ async function submit() {
       password: form.password,
       locale: locale.value,
     })
-    await router.replace(homeLocation(session.can))
+    await router.replace(homeLocation(router))
   } catch (err) {
     if (isApiError(err) && err.code === 'setup.already_completed') {
       session.setupAlreadyCompleted(err)

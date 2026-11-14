@@ -1,0 +1,37 @@
+{
+  "title": "任务",
+  "intro": "由你或面板启动的后台任务，以及它们的实时输出。",
+  "empty": "暂无任务。",
+  "notStarted": "等待中",
+  "column": {
+    "task": "任务",
+    "state": "状态",
+    "startedBy": "发起者",
+    "started": "开始时间",
+    "duration": "耗时"
+  },
+  "state": {
+    "queued": "排队中",
+    "running": "运行中",
+    "succeeded": "成功",
+    "failed": "失败",
+    "canceled": "已取消",
+    "interrupted": "已中断"
+  },
+  "kind": {
+    "software": {
+      "refresh": "刷新软件包索引"
+    }
+  },
+  "detail": {
+    "title": "任务",
+    "cancel": "取消任务",
+    "cancelRequested": "已请求取消。",
+    "reconnecting": "正在重新连接…",
+    "created": "创建时间",
+    "finished": "结束时间",
+    "log": "输出",
+    "trimmed": "为节省内存，较早的输出已被丢弃，只显示最近的部分。",
+    "noLog": "该任务没有输出。"
+  }
+}

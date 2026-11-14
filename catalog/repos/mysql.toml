@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+id = "mysql"
+name = "MySQL repository (Oracle)"
+homepage = "https://dev.mysql.com/downloads/repo/"
+official = true
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "el-9", "el-10"]

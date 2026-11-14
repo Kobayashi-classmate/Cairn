@@ -44,6 +44,9 @@ func (rt *Router) OpenAPI(title, version string) map[string]any {
 			op["x-cairn-permission"] = string(r.Permission)
 			op["security"] = []any{map[string]any{"session": []any{}}, map[string]any{"bearer": []any{}}}
 		}
+		if r.Module != "" {
+			op["x-cairn-module"] = r.Module
+		}
 		var params []any
 		for _, m := range pathParam.FindAllStringSubmatch(r.Path, -1) {
 			params = append(params, map[string]any{"name": m[1], "in": "path", "required": true, "schema": map[string]any{"type": "string"}})

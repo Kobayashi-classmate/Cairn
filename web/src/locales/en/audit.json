@@ -10,7 +10,10 @@
     "users": "User management",
     "settings": "Panel settings",
     "notify": "Notifications",
-    "update": "Updates"
+    "update": "Updates",
+    "software": "Software",
+    "job": "Tasks",
+    "module": "Modules"
   },
   "column": {
     "time": "Time",
@@ -26,7 +29,8 @@
   "source": {
     "web": "Web",
     "cli": "Command line",
-    "api": "API"
+    "api": "API",
+    "system": "System"
   },
   "detail": {
     "role": "Role: {role}",
@@ -71,6 +75,17 @@
     "update": {
       "apply": "Started the update to version {version}",
       "finish": "Finished the update to version {version}"
+    },
+    "job": {
+      "finish": "Task finished: {kind}",
+      "cancel": "Canceled task: {kind}"
+    },
+    "software": {
+      "refresh": "Started refreshing the package indexes"
+    },
+    "module": {
+      "enable": "Turned on module {module}",
+      "disable": "Turned off module {module}"
     }
   }
 }

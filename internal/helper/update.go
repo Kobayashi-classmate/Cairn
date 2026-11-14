@@ -52,8 +52,18 @@ type Updater struct {
 	// to systemd-run when systemd is running, otherwise an in-process
 	// goroutine (containers and tests).
 	Detach func(file, version, previous string) error
+	// Ops, when set, coordinates with package operations: an update does not
+	// start while one holds the package manager lock.
+	Ops *Ops
 
 	mu sync.Mutex
+}
+
+// Running reports whether an update is in progress (not stale). Package
+// operations wait while it is.
+func (u *Updater) Running() bool {
+	job := u.Status()
+	return job.State == "running" && time.Since(time.Unix(job.StartedAt, 0)) < staleJobAfter
 }
 
 func (u *Updater) statusPath() string  { return filepath.Join(u.StateDir, "update-status.json") }
@@ -99,8 +109,16 @@ func (u *Updater) Start(ctx context.Context, version string) (helperapi.UpdateJo
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	if job := u.Status(); job.State == "running" && time.Since(time.Unix(job.StartedAt, 0)) < staleJobAfter {
-		return job, apiErr(helperapi.CodeUpdateInProgress, "")
+	if u.Running() {
+		return u.Status(), apiErr(helperapi.CodeUpdateInProgress, "")
+	}
+	if u.Ops != nil {
+		release, ok := u.Ops.TryLock(LockPkg)
+		if !ok {
+			return helperapi.UpdateJob{}, apiErr(helperapi.CodePkgBusy, "another package operation is running")
+		}
+		// Held while preparing; the detached run is covered by Running.
+		defer release()
 	}
 	current, err := semver.Parse(u.Version)
 	if err != nil {

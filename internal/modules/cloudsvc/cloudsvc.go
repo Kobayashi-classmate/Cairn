@@ -24,6 +24,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/config"
 	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 	"github.com/Kobayashi-classmate/Cairn/internal/semver"
 )
@@ -86,6 +87,13 @@ type Module struct {
 
 // ID implements module.Module.
 func (m *Module) ID() string { return "cloud" }
+
+// Info implements module.Describer.
+func (m *Module) Info() module.Info {
+	return module.Info{Nav: []module.NavItem{
+		{Key: "messages", LabelKey: "common.nav.messages", Icon: "megaphone", Route: "messages", Order: 85},
+	}}
+}
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
@@ -465,7 +473,7 @@ func (m *Module) applyUpdate(w http.ResponseWriter, r *http.Request) error {
 		modutil.Audit(r, m.DB, m.Log, who, "update.apply", he.Code, map[string]any{"version": req.Version})
 		status := http.StatusBadGateway
 		switch he.Code {
-		case helperapi.CodeUpdateNotAvailable, helperapi.CodeUpdateInProgress:
+		case helperapi.CodeUpdateNotAvailable, helperapi.CodeUpdateInProgress, helperapi.CodePkgBusy:
 			status = http.StatusConflict
 		}
 		return api.NewError(status, he.Code, he.Params)

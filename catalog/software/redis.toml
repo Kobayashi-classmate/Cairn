@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Redis from the system repositories. EL 10 ships Valkey instead (see
+# valkey.toml). Checked 2026-11-14.
+id = "redis"
+name = "Redis"
+category = "cache"
+homepage = "https://redis.io/"
+
+lines = [
+  { version = "8.0" },
+  { version = "7.2" },
+  { version = "7.0" },
+  { version = "6.2" },
+  { version = "6.0" },
+]
+
+[[sources]]
+method = "system"
+releases = ["debian-13", "ubuntu-26.04"]
+lines = ["8.0"]
+packages = ["redis-server"]
+
+[[sources]]
+method = "system"
+releases = ["debian-12", "ubuntu-24.04"]
+lines = ["7.0"]
+packages = ["redis-server"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-22.04"]
+lines = ["6.0"]
+packages = ["redis-server"]
+
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["7.2"]
+packages = ["redis"]
+stream = "redis:7"
+
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["6.2"]
+packages = ["redis"]

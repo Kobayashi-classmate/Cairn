@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Eclipse Temurin JDK builds (Adoptium), long-term support lines only.
+id = "java"
+name = "Java (Eclipse Temurin)"
+category = "runtime"
+homepage = "https://adoptium.net/"
+
+lines = [
+  { version = "25", lts = true },
+  { version = "21", lts = true },
+  { version = "17", lts = true },
+  { version = "11", lts = true },
+  { version = "8", lts = true },
+]
+
+[[sources]]
+method = "standalone"
+provider = "temurin"
+releases = ["*"]
+lines = ["25", "21", "17", "11", "8"]
+arch = ["amd64", "arm64"]

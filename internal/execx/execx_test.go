@@ -77,3 +77,15 @@ func TestEnvironmentIsReset(t *testing.T) {
 		}
 	}
 }
+
+func TestOutputIsStreamed(t *testing.T) {
+	var live strings.Builder
+	res, err := Run(context.Background(), Cmd{Name: "printf", Args: []string{"one\ntwo\n"}, Output: &live, MaxOutput: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The live copy is complete even when the captured copy is capped.
+	if live.String() != "one\ntwo\n" || string(res.Stdout) != "one\n" || !res.Truncated {
+		t.Fatalf("live %q, captured %q, truncated %v", live.String(), res.Stdout, res.Truncated)
+	}
+}

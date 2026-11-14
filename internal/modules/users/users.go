@@ -15,6 +15,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/events"
+	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 )
 
@@ -27,6 +28,13 @@ type Module struct {
 
 // ID implements module.Module.
 func (m *Module) ID() string { return "users" }
+
+// Info implements module.Describer.
+func (m *Module) Info() module.Info {
+	return module.Info{Nav: []module.NavItem{
+		{Key: "users", LabelKey: "common.nav.users", Icon: "people", Route: "users", Permission: authz.UsersManage, Order: 80},
+	}}
+}
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {

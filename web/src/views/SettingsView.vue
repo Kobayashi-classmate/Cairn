@@ -26,6 +26,7 @@ const allTabs: SettingsTab[] = [
   { name: 'settings-tokens', labelKey: 'settings.tabs.tokens' },
   { name: 'settings-panel', labelKey: 'settings.tabs.panel', permission: 'settings.read' },
   { name: 'settings-updates', labelKey: 'settings.tabs.updates', permission: 'settings.read' },
+  { name: 'settings-modules', labelKey: 'settings.tabs.modules', permission: 'settings.read' },
   {
     name: 'settings-notifications',
     labelKey: 'settings.tabs.notifications',

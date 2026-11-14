@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# PHP builds for EL by a PHP core contributor; the parallel-installable
+# phpXY-php-* packages of remi-safe are used, not module streams. Approved by
+# the project owner.
+id = "remi"
+name = "Remi's RPM repository"
+homepage = "https://rpms.remirepo.net/"
+official = false
+approved = "2026-11-14"
+releases = ["el-9", "el-10"]
+requires = ["epel"]

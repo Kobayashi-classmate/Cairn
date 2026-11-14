@@ -56,7 +56,7 @@ const subtitle = computed(() => {
 })
 
 async function finish() {
-  await router.replace(safeRedirect(route.query.redirect) ?? homeLocation(session.can))
+  await router.replace(safeRedirect(route.query.redirect) ?? homeLocation(router))
 }
 
 async function submitPassword() {

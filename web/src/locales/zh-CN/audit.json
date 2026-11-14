@@ -10,7 +10,10 @@
     "users": "用户管理",
     "settings": "面板设置",
     "notify": "通知",
-    "update": "更新"
+    "update": "更新",
+    "software": "软件",
+    "job": "任务",
+    "module": "模块"
   },
   "column": {
     "time": "时间",
@@ -26,7 +29,8 @@
   "source": {
     "web": "网页",
     "cli": "命令行",
-    "api": "API"
+    "api": "API",
+    "system": "系统"
   },
   "detail": {
     "role": "角色：{role}",
@@ -71,6 +75,17 @@
     "update": {
       "apply": "开始更新到版本 {version}",
       "finish": "完成更新到版本 {version}"
+    },
+    "job": {
+      "finish": "任务结束：{kind}",
+      "cancel": "取消了任务：{kind}"
+    },
+    "software": {
+      "refresh": "开始刷新软件包索引"
+    },
+    "module": {
+      "enable": "开启了模块 {module}",
+      "disable": "关闭了模块 {module}"
     }
   }
 }

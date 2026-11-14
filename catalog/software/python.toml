@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Python builds from python-build-standalone (the builds uv uses), checked
+# against their published SHA256 sums, unpacked under
+# /opt/cairn/runtimes/python/<version>. python.org publishes no Linux builds.
+id = "python"
+name = "Python"
+category = "runtime"
+homepage = "https://www.python.org/"
+
+lines = [
+  { version = "3.14", eol = "2030-10-31" },
+  { version = "3.13", eol = "2029-10-31" },
+  { version = "3.12", eol = "2028-10-31" },
+  { version = "3.11", eol = "2027-10-31" },
+  { version = "3.10", eol = "2026-10-31" },
+]
+
+[[sources]]
+method = "standalone"
+provider = "python-build-standalone"
+releases = ["*"]
+lines = ["3.14", "3.13", "3.12", "3.11", "3.10"]
+arch = ["amd64", "arm64"]

@@ -23,6 +23,7 @@ import {
 } from '@/i18n'
 import { matchLocale } from '@/i18n/negotiate'
 import { readStoredLocale, storeLocale } from '@/i18n/preference'
+import { useNavStore } from './nav'
 
 /** Panel metadata, the signed-in user and the UI language that follows from them. */
 export const useSessionStore = defineStore('session', () => {
@@ -54,6 +55,7 @@ export const useSessionStore = defineStore('session', () => {
     user.value = null
     permissions.value = []
     elevatedUntil.value = 0
+    useNavStore().clear()
   }
   const setupRequired = computed(() => meta.value?.setupRequired === true)
 
@@ -105,6 +107,7 @@ export const useSessionStore = defineStore('session', () => {
         if (!meta.value.setupRequired) {
           try {
             applySession(await sessionApi.fetchSession())
+            await useNavStore().load()
           } catch (err) {
             if (!(isApiError(err) && err.status === 401)) throw err
           }
@@ -120,6 +123,8 @@ export const useSessionStore = defineStore('session', () => {
 
   async function finishSignIn(info: SessionInfo): Promise<void> {
     applySession(info)
+    // The menu decides where the user lands, so load it before navigating.
+    await useNavStore().load()
     notice.value = null
     await applyPreferredLocale()
   }
@@ -144,6 +149,7 @@ export const useSessionStore = defineStore('session', () => {
     const info = await sessionApi.completeSetup(body)
     if (meta.value) meta.value.setupRequired = false
     applySession(info)
+    await useNavStore().load()
     await applyPreferredLocale()
   }
 

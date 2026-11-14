@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# One nginx per system, from the system repositories (stream module included
+# for TCP/UDP proxying). System versions checked 2026-11-14.
+id = "nginx"
+name = "nginx"
+category = "web"
+homepage = "https://nginx.org/"
+
+lines = [
+  { version = "1.28" },
+  { version = "1.26" },
+  { version = "1.24" },
+  { version = "1.22" },
+  { version = "1.20" },
+  { version = "1.18" },
+]
+
+[[sources]]
+method = "system"
+releases = ["debian-12"]
+lines = ["1.22"]
+packages = ["nginx", "libnginx-mod-stream"]
+
+[[sources]]
+method = "system"
+releases = ["debian-13"]
+lines = ["1.26"]
+packages = ["nginx", "libnginx-mod-stream"]
+
+[[sources]]
+method = "system"
+releases = ["el-10"]
+lines = ["1.26"]
+packages = ["nginx", "nginx-mod-stream"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-22.04"]
+lines = ["1.18"]
+packages = ["nginx", "libnginx-mod-stream"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-24.04"]
+lines = ["1.24"]
+packages = ["nginx", "libnginx-mod-stream"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-26.04"]
+lines = ["1.28"]
+packages = ["nginx", "libnginx-mod-stream"]
+
+# EL 9: AppStream module streams; only one can be enabled at a time.
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["1.26", "1.24", "1.22"]
+packages = ["nginx", "nginx-mod-stream"]
+stream = "nginx:{line}"
+
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["1.20"]
+packages = ["nginx", "nginx-mod-stream"]

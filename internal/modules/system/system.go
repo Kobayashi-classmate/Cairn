@@ -10,6 +10,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
+	"github.com/Kobayashi-classmate/Cairn/internal/module"
 )
 
 // Module implements module.Module.
@@ -19,6 +20,13 @@ type Module struct {
 
 // ID implements module.Module.
 func (m *Module) ID() string { return "system" }
+
+// Info implements module.Describer.
+func (m *Module) Info() module.Info {
+	return module.Info{Nav: []module.NavItem{
+		{Key: "overview", LabelKey: "common.nav.overview", Icon: "speedometer", Route: "overview", Permission: authz.SystemRead, Order: 10},
+	}}
+}
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {

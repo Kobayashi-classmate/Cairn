@@ -12,6 +12,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/audit"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
+	"github.com/Kobayashi-classmate/Cairn/internal/module"
 )
 
 // Module implements module.Module.
@@ -21,6 +22,13 @@ type Module struct {
 
 // ID implements module.Module.
 func (m *Module) ID() string { return "auditlog" }
+
+// Info implements module.Describer.
+func (m *Module) Info() module.Info {
+	return module.Info{Nav: []module.NavItem{
+		{Key: "audit", LabelKey: "common.nav.audit", Icon: "document-text", Route: "audit", Permission: authz.AuditRead, Order: 90},
+	}}
+}
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {

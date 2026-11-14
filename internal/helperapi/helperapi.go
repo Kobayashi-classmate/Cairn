@@ -138,6 +138,8 @@ const (
 	CodeUpdateInProgress   = "update.in_progress"
 	CodeUpdateVerification = "update.verification_failed"
 	CodeUpdateDownload     = "update.download_failed"
+	// CodePkgBusy means another operation holds the package manager.
+	CodePkgBusy = "pkg.busy"
 )
 
 // UpdateRequest is the body of ActionUpdate.

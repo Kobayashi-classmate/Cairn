@@ -45,7 +45,8 @@
       "change": "Account changed"
     },
     "system": {
-      "test": "Test message"
+      "test": "Test message",
+      "job_failed": "Task failed"
     },
     "cloud": {
       "announcement": "Official message"

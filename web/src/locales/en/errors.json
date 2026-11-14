@@ -70,5 +70,25 @@
     "verification_failed": "The update package failed signature verification and was not installed.",
     "download_failed": "The update package could not be downloaded.",
     "install_failed": "The update could not be installed. See the update log in Settings → Updates."
+  },
+  "job": {
+    "not_cancelable": "This task can no longer be canceled.",
+    "interrupted": "The task was interrupted because the panel restarted.",
+    "canceled": "The task was canceled."
+  },
+  "op": {
+    "failed": "The operation failed.",
+    "canceled": "The operation was canceled.",
+    "interrupted": "The operation was interrupted.",
+    "not_found": "The operation no longer exists.",
+    "not_cancelable": "This operation cannot be canceled."
+  },
+  "pkg": {
+    "busy": "Another package operation is running; try again when it has finished.",
+    "unsupported": "Package management is not supported on this system."
+  },
+  "module": {
+    "disabled": "This feature is turned off in the module settings.",
+    "not_optional": "This module is part of the core and cannot be turned off."
   }
 }

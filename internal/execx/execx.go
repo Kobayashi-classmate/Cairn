@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -59,6 +60,10 @@ type Cmd struct {
 	Timeout time.Duration
 	// MaxOutput caps stdout and stderr each, in bytes; zero means 1 MiB.
 	MaxOutput int
+	// Output, when set, also receives stdout and stderr as they are produced,
+	// interleaved (live logs of long operations). Its errors are ignored and
+	// it does not count against MaxOutput.
+	Output io.Writer
 }
 
 // Result is the outcome of a finished command.
@@ -120,6 +125,11 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 	cmd.Stdin = c.Stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
+	if c.Output != nil {
+		live := &lockedWriter{w: c.Output}
+		cmd.Stdout = io.MultiWriter(stdout, live)
+		cmd.Stderr = io.MultiWriter(stderr, live)
+	}
 	// Run in its own process group so a timeout kills every descendant.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
@@ -237,3 +247,17 @@ func (c *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func (c *cappedBuffer) Bytes() []byte { return c.buf.Bytes() }
+
+// lockedWriter serializes the stdout and stderr copies into one writer and
+// swallows its errors, so a failing log never stops the command.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_, _ = l.w.Write(p)
+	return len(p), nil
+}

@@ -8,7 +8,8 @@
     "tokens": "API 令牌",
     "notifications": "通知",
     "api": "API",
-    "updates": "更新"
+    "updates": "更新",
+    "modules": "模块"
   },
   "account": {
     "profile": "个人信息",

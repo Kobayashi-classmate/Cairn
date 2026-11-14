@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Official .NET builds (Microsoft release metadata, checked against their
+# SHA-512 hashes).
+id = "dotnet"
+name = ".NET"
+category = "runtime"
+homepage = "https://dotnet.microsoft.com/"
+
+lines = [
+  { version = "10", lts = true, eol = "2028-11-14" },
+  { version = "9", eol = "2026-11-10" },
+  { version = "8", lts = true, eol = "2026-11-10" },
+]
+
+[[sources]]
+method = "standalone"
+provider = "dotnet"
+releases = ["*"]
+lines = ["10", "9", "8"]
+arch = ["amd64", "arm64"]

@@ -21,7 +21,7 @@ import {
 import { CopyOutline } from '@vicons/ionicons5'
 import { isStepUpRequired } from '@/api/client'
 import { createToken, type ApiToken } from '@/api/tokens'
-import { PERMISSIONS, permissionLabel, type Permission } from '@/auth/permissions'
+import { permissionLabel, type Permission } from '@/auth/permissions'
 import { useCopy } from '@/composables/useCopy'
 import { isIpOrCidr, listRule, requiredListRule, requiredRule } from '@/forms/rules'
 import { errorMessage } from '@/i18n/errors'
@@ -59,8 +59,8 @@ watch(show, (open) => {
   error.value = null
 })
 
-// A token can only carry permissions its owner has.
-const grantable = computed(() => PERMISSIONS.filter((p) => session.can(p)))
+// A token can only carry permissions its owner has; module permissions appear automatically.
+const grantable = computed(() => session.permissions)
 
 const expiryOptions = computed(() =>
   EXPIRY_DAYS.map((days) => ({

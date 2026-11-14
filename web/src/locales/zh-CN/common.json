@@ -9,7 +9,9 @@
     "audit": "审计日志",
     "settings": "设置",
     "account": "账号设置",
-    "messages": "消息"
+    "messages": "消息",
+    "software": "软件",
+    "jobs": "任务"
   },
   "action": {
     "signOut": "退出登录",
@@ -91,6 +93,10 @@
     },
     "notify": {
       "manage": "管理通知"
+    },
+    "software": {
+      "read": "查看软件",
+      "manage": "管理软件"
     }
   },
   "copy": {

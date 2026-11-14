@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Official Go builds (go.dev). Each release is supported until the second
+# newer one comes out, so no fixed dates are announced.
+id = "go"
+name = "Go"
+category = "runtime"
+homepage = "https://go.dev/"
+
+lines = [
+  { version = "1.27" },
+  { version = "1.26" },
+]
+
+[[sources]]
+method = "standalone"
+provider = "go"
+releases = ["*"]
+lines = ["1.27", "1.26"]
+arch = ["amd64", "arm64"]

@@ -1,0 +1,37 @@
+{
+  "title": "Tasks",
+  "intro": "Background tasks started by you or by the panel, with their live output.",
+  "empty": "No tasks yet.",
+  "notStarted": "Waiting",
+  "column": {
+    "task": "Task",
+    "state": "Status",
+    "startedBy": "Started by",
+    "started": "Started",
+    "duration": "Duration"
+  },
+  "state": {
+    "queued": "Queued",
+    "running": "Running",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "canceled": "Canceled",
+    "interrupted": "Interrupted"
+  },
+  "kind": {
+    "software": {
+      "refresh": "Refresh package indexes"
+    }
+  },
+  "detail": {
+    "title": "Task",
+    "cancel": "Cancel task",
+    "cancelRequested": "Cancellation requested.",
+    "reconnecting": "Reconnecting…",
+    "created": "Created",
+    "finished": "Finished",
+    "log": "Output",
+    "trimmed": "Earlier output was dropped to save memory; only the most recent part is shown.",
+    "noLog": "This task produced no output."
+  }
+}

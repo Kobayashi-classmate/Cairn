@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
@@ -212,4 +213,41 @@ func mergeMaps(dst, src map[string]any) map[string]any {
 func (p *Profile) Service(logical string) (string, bool) {
 	unit, ok := p.Services[logical]
 	return unit, ok
+}
+
+// Chain returns name followed by the profiles it inherits from, nearest
+// first (for example "el-9", "el"). Data keyed by release, such as the
+// software catalog, matches against this chain.
+func Chain(name string) ([]string, error) {
+	var chain []string
+	for name != "" {
+		if slices.Contains(chain, name) {
+			return nil, fmt.Errorf("platform: profile inheritance cycle at %s", name)
+		}
+		data, err := profileFS.ReadFile(profilePath(name))
+		if err != nil {
+			return nil, fmt.Errorf("platform: profile %s: %w", name, err)
+		}
+		var own struct {
+			Inherits string `toml:"inherits"`
+		}
+		if err := toml.Unmarshal(data, &own); err != nil {
+			return nil, fmt.Errorf("platform: parse profile %s: %w", name, err)
+		}
+		chain = append(chain, name)
+		name = own.Inherits
+	}
+	return chain, nil
+}
+
+// Names lists every profile name.
+func Names() []string {
+	entries, _ := fs.ReadDir(profileFS, "profiles")
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if n, ok := strings.CutSuffix(e.Name(), ".toml"); ok {
+			names = append(names, n)
+		}
+	}
+	return names
 }

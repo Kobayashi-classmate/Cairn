@@ -70,5 +70,25 @@
     "verification_failed": "更新包未通过签名校验，未安装。",
     "download_failed": "无法下载更新包。",
     "install_failed": "更新安装失败。请在 设置 → 更新 中查看更新日志。"
+  },
+  "job": {
+    "not_cancelable": "该任务已无法取消。",
+    "interrupted": "面板重启，任务被中断。",
+    "canceled": "任务已取消。"
+  },
+  "op": {
+    "failed": "操作失败。",
+    "canceled": "操作已取消。",
+    "interrupted": "操作被中断。",
+    "not_found": "该操作已不存在。",
+    "not_cancelable": "该操作无法取消。"
+  },
+  "pkg": {
+    "busy": "另一个软件包操作正在进行，请在其完成后重试。",
+    "unsupported": "此系统不支持软件包管理。"
+  },
+  "module": {
+    "disabled": "此功能已在模块设置中关闭。",
+    "not_optional": "该模块属于核心部分，无法关闭。"
   }
 }

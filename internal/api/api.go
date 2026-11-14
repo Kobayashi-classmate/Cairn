@@ -159,6 +159,13 @@ type Authenticator func(r *http.Request) (*Principal, error)
 // middleware chain. It also keeps the registry the OpenAPI document is
 // generated from.
 type Router struct {
+	*routerState
+	// module and gate are set on the views ForModule returns.
+	module string
+	gate   func() error
+}
+
+type routerState struct {
 	mux    *http.ServeMux
 	auth   Authenticator
 	log    *slog.Logger
@@ -167,7 +174,15 @@ type Router struct {
 
 // NewRouter returns a router using auth for non-public routes.
 func NewRouter(auth Authenticator, log *slog.Logger) *Router {
-	return &Router{mux: http.NewServeMux(), auth: auth, log: log}
+	return &Router{routerState: &routerState{mux: http.NewServeMux(), auth: auth, log: log}}
+}
+
+// ForModule returns a view of the router for one module: routes registered
+// through it are tagged with the module ID, and gate (when not nil) is
+// checked after authorization on every request; its error is returned
+// instead of running the handler (a module that is turned off).
+func (rt *Router) ForModule(id string, gate func() error) *Router {
+	return &Router{routerState: rt.routerState, module: id, gate: gate}
 }
 
 // Route describes a registered endpoint.
@@ -179,6 +194,7 @@ type Route struct {
 	StepUp     bool
 	Tag        string
 	Summary    string
+	Module     string               // registering module, if any
 	Request    reflect.Type         // nil: no JSON body
 	NoBody     bool                 // explicitly documented as taking no body
 	Responses  map[int]reflect.Type // nil type: no body
@@ -254,11 +270,15 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 	if !cfg.public && cfg.perm == "" {
 		panic("api: route " + pattern + " declares no permission")
 	}
+	if !cfg.public && !authz.Defined(cfg.perm) {
+		panic("api: route " + pattern + " needs undefined permission " + string(cfg.perm))
+	}
 	method, path, _ := strings.Cut(pattern, " ")
 	rt.routes = append(rt.routes, Route{
 		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp,
-		Tag: cfg.tag, Summary: cfg.summary, Request: cfg.request, NoBody: cfg.noBody, Responses: cfg.responses,
+		Tag: cfg.tag, Summary: cfg.summary, Module: rt.module, Request: cfg.request, NoBody: cfg.noBody, Responses: cfg.responses,
 	})
+	gate := rt.gate
 	rt.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if isStateChanging(method) {
@@ -282,6 +302,12 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 				return
 			}
 			r = r.WithContext(WithPrincipal(r.Context(), p))
+		}
+		if gate != nil {
+			if err := gate(); err != nil {
+				writeError(w, r, rt.log, err)
+				return
+			}
 		}
 		if err := h(w, r); err != nil {
 			writeError(w, r, rt.log, err)

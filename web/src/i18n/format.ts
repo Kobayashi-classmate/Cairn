@@ -108,3 +108,14 @@ export function formatDateTime(unixSeconds: number): string {
     unixSeconds * 1000,
   )
 }
+
+/** Formats a calendar date given as YYYY-MM-DD; other text is returned unchanged. */
+export function formatIsoDate(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)
+  if (!match) return date
+  const [, year, month, day] = match.map(Number) as [number, number, number, number]
+  const options: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeZone: 'UTC' }
+  return cached('date', options, (locale) => new Intl.DateTimeFormat(locale, options)).format(
+    Date.UTC(year, month - 1, day),
+  )
+}

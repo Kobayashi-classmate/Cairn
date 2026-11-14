@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -93,10 +94,19 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	if err := os.MkdirAll(stateDir, 0o700); err != nil {
 		return err
 	}
-	helper.RegisterUpdate(reg, &helper.Updater{
+	ops, err := helper.NewOps(filepath.Join(stateDir, "ops"), log)
+	if err != nil {
+		return err
+	}
+	helper.RegisterOpActions(reg, ops)
+	format, manager := packageTools(log)
+	helper.RegisterPkg(reg, ops, manager)
+	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
-		Format: packageFormat(log), Arch: runtime.GOARCH, Executable: exe, Log: log,
-	})
+		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,
+	}
+	ops.Busy = map[string]func() bool{helper.LockPkg: updater.Running}
+	helper.RegisterUpdate(reg, updater)
 
 	l, err := helper.Listen(cfg.Paths.HelperSocket, gid)
 	if err != nil {
@@ -115,19 +125,20 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	return srv.Serve(ctx, l)
 }
 
-// packageFormat maps the platform family onto the package format, or ""
-// when the platform is not supported (updates are then unavailable).
-func packageFormat(log *slog.Logger) string {
+// packageTools returns the package format (for updates) and the package
+// manager (for package operations) of the platform; both are empty when the
+// platform is not supported, which disables those features.
+func packageTools(log *slog.Logger) (format, manager string) {
 	p, _, err := platform.Detect()
 	if err != nil {
-		log.Warn("platform detection failed; online update disabled", "err", err)
-		return ""
+		log.Warn("platform detection failed; online update and package operations disabled", "err", err)
+		return "", ""
 	}
 	switch p.Family {
 	case "debian":
-		return "deb"
+		format = "deb"
 	case "el":
-		return "rpm"
+		format = "rpm"
 	}
-	return ""
+	return format, p.PackageManager
 }

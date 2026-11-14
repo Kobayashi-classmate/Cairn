@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# PHP: the system version where there is one, other lines from the approved
+# PHP repositories (sury, ondrej, Remi). Lines past upstream support are not
+# installed natively. Checked 2026-11-14; 8.6 is still a release candidate.
+id = "php"
+name = "PHP"
+category = "runtime"
+homepage = "https://www.php.net/"
+
+lines = [
+  { version = "8.5", eol = "2029-12-31" },
+  { version = "8.4", eol = "2028-12-31" },
+  { version = "8.3", eol = "2027-12-31" },
+  { version = "8.2", eol = "2026-12-31" },
+  { version = "8.1", eol = "2025-12-31" },
+  { version = "8.0", eol = "2023-11-26" },
+  { version = "7.4", eol = "2022-11-28" },
+]
+
+[[sources]]
+method = "system"
+releases = ["debian-12"]
+lines = ["8.2"]
+packages = ["php{line}-fpm", "php{line}-cli"]
+
+[[sources]]
+method = "system"
+releases = ["debian-13"]
+lines = ["8.4"]
+packages = ["php{line}-fpm", "php{line}-cli"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-22.04"]
+lines = ["8.1"]
+packages = ["php{line}-fpm", "php{line}-cli"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-24.04"]
+lines = ["8.3"]
+packages = ["php{line}-fpm", "php{line}-cli"]
+
+[[sources]]
+method = "system"
+releases = ["ubuntu-26.04"]
+lines = ["8.5"]
+packages = ["php{line}-fpm", "php{line}-cli"]
+
+# EL 9: the php:8.3 module stream is the system version; other lines come
+# from Remi's parallel-installable packages instead of further streams.
+[[sources]]
+method = "system"
+releases = ["el-9"]
+lines = ["8.3"]
+packages = ["php-fpm", "php-cli"]
+stream = "php:{line}"
+
+[[sources]]
+method = "system"
+releases = ["el-10"]
+lines = ["8.3"]
+packages = ["php-fpm", "php-cli"]
+
+[[sources]]
+method = "vendor"
+repo = "sury"
+releases = ["debian-12", "debian-13"]
+lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
+packages = ["php{line}-fpm", "php{line}-cli"]
+
+[[sources]]
+method = "vendor"
+repo = "ondrej-php"
+releases = ["ubuntu-22.04", "ubuntu-24.04"]
+lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
+packages = ["php{line}-fpm", "php{line}-cli"]
+
+[[sources]]
+method = "vendor"
+repo = "remi"
+releases = ["el-9", "el-10"]
+lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
+packages = ["php{line_nodot}-php-fpm", "php{line_nodot}-php-cli"]

@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
@@ -28,12 +29,15 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
+	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
+	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
 	"github.com/Kobayashi-classmate/Cairn/internal/notify"
@@ -94,35 +98,49 @@ func run(cfgPath string, log *slog.Logger) error {
 	helper := helperapi.NewClient(cfg.Paths.HelperSocket)
 	pingHelper(ctx, helper, log)
 
-	catalog, err := i18n.NewCatalog()
+	messages, err := i18n.NewCatalog()
+	if err != nil {
+		return err
+	}
+	software, err := catalog.Load()
 	if err != nil {
 		return err
 	}
 	bus := &events.Bus{}
 	notifyStore := &notify.Store{DB: db, Box: box}
-	notifier := notify.New(notifyStore, catalog, log)
+	notifier := notify.New(notifyStore, messages, log)
 	bus.Subscribe(notifier.Handle)
 	go notifier.Run(ctx)
 
-	family, format := platformFormat(log)
+	jobManager := &jobs.Manager{DB: db, Dir: filepath.Join(cfg.Paths.DataDir, "jobs"), Helper: helper, Events: bus, Log: log}
+	if err := jobManager.Init(ctx); err != nil {
+		return err
+	}
+	go jobManager.RunPruner(ctx)
+
+	plat := detectPlatform(log)
 	cloudMod := &cloudsvc.Module{
 		DB: db, Helper: helper, Events: bus, Settings: cloudsvc.NewSettings(cfg.Cloud), Log: log,
-		Version: buildinfo.Version, Family: family, Format: format, Arch: runtime.GOARCH,
+		Version: buildinfo.Version, Family: plat.family, Format: plat.format, Arch: runtime.GOARCH,
 	}
 	go cloudMod.Run(ctx)
 
 	router := api.NewRouter(core.Authenticator(db), log)
-	modules := []module.Module{
-		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log},
+	registry := module.NewRegistry(db)
+	registry.Add(
+		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: collector},
+		&softwaremod.Module{Catalog: software, Jobs: jobManager, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
+		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
 		&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log},
 		cloudMod,
+	)
+	if err := registry.Load(ctx); err != nil {
+		return err
 	}
-	for _, m := range modules {
-		m.Routes(router)
-	}
+	registry.Mount(router)
 	router.Handle("GET /api/v1/openapi.json", router.ServeOpenAPI("Cairn API", buildinfo.Version),
 		api.Require(authz.Self), api.Doc("meta", "This OpenAPI document"))
 
@@ -166,21 +184,33 @@ func pingHelper(ctx context.Context, h *helperapi.Client, log *slog.Logger) {
 	log.Info("root helper reachable", "version", pong.Version)
 }
 
-// platformFormat returns the distribution family and package format used to
-// pick update packages; both are empty on unsupported platforms.
-func platformFormat(log *slog.Logger) (family, format string) {
+type platformInfo struct {
+	release string   // profile name, such as "debian-13"
+	chain   []string // profile chain for the software catalog
+	family  string   // debian | el
+	format  string   // package format for updates: deb | rpm
+}
+
+// detectPlatform describes the running system; everything is empty on
+// unsupported platforms, which disables updates and software installation.
+func detectPlatform(log *slog.Logger) platformInfo {
 	p, _, err := platform.Detect()
 	if err != nil {
-		log.Warn("platform detection failed; online update disabled", "err", err)
-		return "", ""
+		log.Warn("platform detection failed; online update and software installation disabled", "err", err)
+		return platformInfo{}
 	}
+	info := platformInfo{release: p.Name, family: p.Family}
 	switch p.Family {
 	case "debian":
-		return p.Family, "deb"
+		info.format = "deb"
 	case "el":
-		return p.Family, "rpm"
+		info.format = "rpm"
 	}
-	return p.Family, ""
+	if info.chain, err = platform.Chain(p.Name); err != nil {
+		log.Warn("platform profile chain unavailable", "err", err)
+		info.release = ""
+	}
+	return info
 }
 
 // purgeSessions deletes expired sessions once an hour.

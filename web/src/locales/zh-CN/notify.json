@@ -45,7 +45,8 @@
       "change": "账号变更"
     },
     "system": {
-      "test": "测试消息"
+      "test": "测试消息",
+      "job_failed": "任务失败"
     },
     "cloud": {
       "announcement": "官方消息"

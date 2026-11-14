@@ -16,11 +16,13 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
@@ -28,11 +30,15 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
+	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
+	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
+	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
 	"github.com/Kobayashi-classmate/Cairn/internal/notify"
@@ -48,6 +54,13 @@ type fakeHelper struct {
 	calls     []string
 	requests  map[string]json.RawMessage
 	responses map[string]any
+	errs      map[string]error // per-action failures
+}
+
+func (f *fakeHelper) called(action string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Contains(f.calls, action)
 }
 
 func (f *fakeHelper) Call(_ context.Context, action string, _ helperapi.Caller, req, resp any) error {
@@ -60,6 +73,9 @@ func (f *fakeHelper) Call(_ context.Context, action string, _ helperapi.Caller, 
 	f.requests[action], _ = json.Marshal(req)
 	if f.err != nil {
 		return f.err
+	}
+	if err := f.errs[action]; err != nil {
+		return err
 	}
 	if v, ok := f.responses[action]; ok && resp != nil {
 		b, _ := json.Marshal(v)
@@ -77,9 +93,12 @@ type env struct {
 	notifier *notify.Notifier
 	bus      *events.Bus
 	cloud    *cloudsvc.Module
+	modules  *module.Registry
+	jobs     *jobs.Manager
 }
 
-func newEnv(t *testing.T) *env {
+// newEnv wires the panel like cmd/cairn-web; extra modules are added last.
+func newEnv(t *testing.T, extra ...module.Module) *env {
 	t.Helper()
 	dir := t.TempDir()
 	db, err := store.Open(filepath.Join(dir, "cairn.db"))
@@ -96,34 +115,55 @@ func newEnv(t *testing.T) *env {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	h := &fakeHelper{}
-	catalog, err := i18n.NewCatalog()
+	messages, err := i18n.NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	software, err := catalog.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Wired like cmd/cairn-web.
 	bus := &events.Bus{}
 	notifyStore := &notify.Store{DB: db, Box: box}
-	notifier := notify.New(notifyStore, catalog, log)
+	notifier := notify.New(notifyStore, messages, log)
 	bus.Subscribe(notifier.Handle)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { notifier.Run(ctx); close(done) }()
 	t.Cleanup(func() { cancel(); <-done })
 
+	jobManager := &jobs.Manager{DB: db, Dir: filepath.Join(dir, "jobs"), Helper: h, Events: bus, Log: log}
+	if err := jobManager.Init(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
 	router := api.NewRouter(core.Authenticator(db), log)
-	(&core.Module{DB: db, Settings: core.NewSettings("en"), Helper: h, Box: box, Events: bus, Log: log}).Routes(router)
-	(&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)}).Routes(router)
-	(&users.Module{DB: db, Events: bus, Log: log}).Routes(router)
-	(&auditlog.Module{DB: db}).Routes(router)
-	(&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log}).Routes(router)
+	registry := module.NewRegistry(db)
 	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),
 		Log: log, Version: "0.1.0", Family: "debian", Format: "deb", Arch: "amd64"}
-	cloudMod.Routes(router)
+	registry.Add(
+		&core.Module{DB: db, Settings: core.NewSettings("en"), Helper: h, Box: box, Events: bus, Log: log, Modules: registry},
+		&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)},
+		&softwaremod.Module{Catalog: software, Jobs: jobManager, DB: db, Log: log,
+			Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"},
+		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
+		&users.Module{DB: db, Events: bus, Log: log},
+		&auditlog.Module{DB: db},
+		&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log},
+		cloudMod,
+	)
+	registry.Add(extra...)
+	if err := registry.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	registry.Mount(router)
 	router.Handle("GET /api/v1/openapi.json", router.ServeOpenAPI("Cairn API", "test"),
 		api.Require(authz.Self), api.Doc("meta", "This OpenAPI document"))
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod}
+	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod,
+		modules: registry, jobs: jobManager}
 }
 
 // client is one browser with its own cookie jar.

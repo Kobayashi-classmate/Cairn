@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# PHP builds for Ubuntu by the same maintainer as sury. Approved by the
+# project owner. Ubuntu 26.04 is not served yet (checked 2026-11-14).
+id = "ondrej-php"
+name = "ppa:ondrej/php"
+homepage = "https://launchpad.net/~ondrej/+archive/ubuntu/php"
+official = false
+approved = "2026-11-14"
+releases = ["ubuntu-22.04", "ubuntu-24.04"]

@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Extra Packages for Enterprise Linux, maintained by the Fedora Project.
+id = "epel"
+name = "EPEL"
+homepage = "https://docs.fedoraproject.org/en-US/epel/"
+official = true
+releases = ["el-9", "el-10"]

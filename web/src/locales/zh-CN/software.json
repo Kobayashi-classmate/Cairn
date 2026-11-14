@@ -1,0 +1,36 @@
+{
+  "title": "软件",
+  "intro": "可以在此系统上安装的软件，按版本线列出。",
+  "refresh": "刷新软件包索引",
+  "unsupported": "此系统暂不支持安装软件。",
+  "homepage": "官网",
+  "recommended": "推荐",
+  "noLines": "此系统上没有可用的版本。",
+  "category": {
+    "web": "Web 服务器",
+    "runtime": "语言运行环境",
+    "database": "数据库",
+    "cache": "缓存"
+  },
+  "method": {
+    "system": "系统软件源",
+    "vendor": "附加软件源：{repo}",
+    "standalone": "预编译版本",
+    "standaloneFrom": "预编译版本：{provider}"
+  },
+  "reason": {
+    "end_of_life": "上游已停止支持，后续版本将以容器方式提供。",
+    "not_built": "没有适用于此系统的软件包。",
+    "unknown": "此系统上不可用。"
+  },
+  "advanced": {
+    "title": "高级信息",
+    "notAvailable": "不可用",
+    "method": "安装方式",
+    "packages": "软件包",
+    "stream": "模块流",
+    "eol": "上游支持结束",
+    "eolEnded": "{date}（已结束）",
+    "unofficialRepo": "{repo} 不是 {software} 的官方软件源，已经过审核并被批准用于此用途。"
+  }
+}

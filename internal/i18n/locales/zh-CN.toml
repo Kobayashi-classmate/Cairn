@@ -21,6 +21,8 @@
 "notify.users.change.body" = "{{.actor}}：{{.actionText}}（{{.username}}）。"
 "notify.system.test.title" = "[Cairn] 来自 {{.host}} 的测试消息"
 "notify.system.test.body" = "这是 {{.actor}} 发送的测试消息。能看到这条消息，说明该渠道工作正常。"
+"notify.system.job_failed.title" = "[Cairn] {{.host}} 上的后台任务失败"
+"notify.system.job_failed.body" = "后台任务 {{.kind}}（{{.id}}）失败，错误代码 {{.code}}。请在面板的任务中心查看日志。"
 "notify.action.create" = "创建了账号"
 "notify.action.update" = "修改了角色或状态"
 "notify.action.set_password" = "重置了密码"
