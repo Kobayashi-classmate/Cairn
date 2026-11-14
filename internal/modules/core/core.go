@@ -82,7 +82,7 @@ func (m *Module) Routes(r *api.Router) {
 		api.Body(loginRequest{}), api.Returns(200, loginResponse{}))
 	r.Handle("POST /api/v1/auth/login/mfa", m.loginMFA, api.Public(), authDoc("Complete sign-in with a TOTP or recovery code"),
 		api.Body(loginMFARequest{}), api.Returns(200, userResponse{}))
-	r.Handle("POST /api/v1/auth/logout", m.logout, self, authDoc("Sign out this session"), noContent)
+	r.Handle("POST /api/v1/auth/logout", m.logout, self, authDoc("Sign out this session"), api.NoBody(), noContent)
 	r.Handle("GET /api/v1/auth/me", m.me, self, authDoc("Current user, permissions and step-up state"), api.Returns(200, meResponse{}))
 	r.Handle("POST /api/v1/auth/elevate", m.elevate, self, authDoc("Re-authenticate for sensitive actions (step-up)"),
 		api.Body(elevateRequest{}), api.Returns(200, elevateResponse{}))
@@ -93,12 +93,12 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("GET /api/v1/me/sessions", m.listSessions, self, accountDoc("List my sessions"), api.Returns(200, sessionsResponse{}))
 	r.Handle("DELETE /api/v1/me/sessions/{id}", m.revokeSession, self, accountDoc("Revoke one of my sessions"), noContent)
 	r.Handle("DELETE /api/v1/me/sessions", m.revokeOtherSessions, self, accountDoc("Revoke all my other sessions"), api.Returns(200, revokedResponse{}))
-	r.Handle("POST /api/v1/me/totp/begin", m.beginTOTP, self, api.StepUp(), accountDoc("Start two-step sign-in enrollment"),
+	r.Handle("POST /api/v1/me/totp/begin", m.beginTOTP, self, api.StepUp(), accountDoc("Start two-step sign-in enrollment"), api.NoBody(),
 		api.Returns(200, totpBeginResponse{}))
 	r.Handle("POST /api/v1/me/totp/confirm", m.confirmTOTP, self, accountDoc("Confirm enrollment and get recovery codes"),
 		api.Body(codeRequest{}), api.Returns(200, recoveryCodesResponse{}))
 	r.Handle("DELETE /api/v1/me/totp", m.disableTOTP, self, api.StepUp(), accountDoc("Turn off two-step sign-in"), noContent)
-	r.Handle("POST /api/v1/me/recovery-codes", m.regenerateRecoveryCodes, self, api.StepUp(), accountDoc("Replace my recovery codes"),
+	r.Handle("POST /api/v1/me/recovery-codes", m.regenerateRecoveryCodes, self, api.StepUp(), accountDoc("Replace my recovery codes"), api.NoBody(),
 		api.Returns(200, recoveryCodesResponse{}))
 	r.Handle("GET /api/v1/me/tokens", m.listTokens, self, accountDoc("List my API tokens"), api.Returns(200, tokensResponse{}))
 	r.Handle("POST /api/v1/me/tokens", m.createToken, self, api.StepUp(), accountDoc("Create an API token (shown once)"),

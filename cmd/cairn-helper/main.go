@@ -15,23 +15,50 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"runtime"
 	"strconv"
 	"syscall"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/buildinfo"
 	"github.com/Kobayashi-classmate/Cairn/internal/config"
 	"github.com/Kobayashi-classmate/Cairn/internal/helper"
+	"github.com/Kobayashi-classmate/Cairn/internal/platform"
 )
 
+// stateDir holds the helper's own state (update packages and status).
+const stateDir = "/var/lib/cairn-helper"
+
 func main() {
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	if len(os.Args) > 1 && os.Args[1] == "run-update" {
+		if err := runUpdate(os.Args[2:], log); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	cfgPath := flag.String("config", config.DefaultPath, "configuration file")
 	account := flag.String("user", "cairn", "account of the unprivileged web process")
 	flag.Parse()
-	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if err := run(*cfgPath, *account, log); err != nil {
 		log.Error("cairn-helper stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+// runUpdate is the body of the transient systemd unit started for an update.
+// It runs outside cairn-helper.service so restarting the service during the
+// package upgrade does not interrupt it.
+func runUpdate(args []string, log *slog.Logger) error {
+	set := flag.NewFlagSet("run-update", flag.ExitOnError)
+	dir := set.String("state-dir", stateDir, "helper state directory")
+	file := set.String("file", "", "verified package file to install")
+	version := set.String("version", "", "version being installed")
+	previous := set.String("previous", "", "package file of the running version, for rollback")
+	_ = set.Parse(args)
+	if os.Geteuid() != 0 || *file == "" {
+		return errors.New("run-update must run as root with --file")
+	}
+	return helper.RunUpdate(*dir, *file, *version, *previous, log)
 }
 
 func run(cfgPath, account string, log *slog.Logger) error {
@@ -59,6 +86,18 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	reg := helper.NewRegistry()
 	helper.RegisterCore(reg, helper.Deps{ConfigPath: cfgPath, ConfigGID: gid, Log: log})
 
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		return err
+	}
+	helper.RegisterUpdate(reg, &helper.Updater{
+		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
+		Format: packageFormat(log), Arch: runtime.GOARCH, Executable: exe, Log: log,
+	})
+
 	l, err := helper.Listen(cfg.Paths.HelperSocket, gid)
 	if err != nil {
 		return err
@@ -74,4 +113,21 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	}
 	log.Info("cairn-helper ready", "version", buildinfo.Version, "actions", len(reg.Actions()), "web_uid", webUID)
 	return srv.Serve(ctx, l)
+}
+
+// packageFormat maps the platform family onto the package format, or ""
+// when the platform is not supported (updates are then unavailable).
+func packageFormat(log *slog.Logger) string {
+	p, _, err := platform.Detect()
+	if err != nil {
+		log.Warn("platform detection failed; online update disabled", "err", err)
+		return ""
+	}
+	switch p.Family {
+	case "debian":
+		return "deb"
+	case "el":
+		return "rpm"
+	}
+	return ""
 }

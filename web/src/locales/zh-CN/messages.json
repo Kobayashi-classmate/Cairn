@@ -1,0 +1,19 @@
+{
+  "title": "消息",
+  "intro": "Cairn 项目发布的官方消息，例如版本发布、安全公告和维护通知，仅供参考。",
+  "empty": "暂无消息。",
+  "unread": "未读",
+  "markRead": "标为已读",
+  "markAllRead": "全部标为已读",
+  "viewAll": "查看全部消息",
+  "view": "查看消息",
+  "learnMore": "了解详情",
+  "expired": "已过期",
+  "bell": "消息，{count} 条未读",
+  "category": {
+    "release": "版本发布",
+    "security": "安全",
+    "maintenance": "维护",
+    "general": "一般"
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "title": "面板更新",
+  "scope": "在线更新只安装 Cairn 面板本身的新版本，不会改动这台服务器上的其他软件。",
+  "check": "检查更新",
+  "current": "已安装版本",
+  "checkedAt": "上次检查",
+  "never": "从未",
+  "upToDate": "当前已是最新版本。",
+  "available": "有新版本 {version} 可用",
+  "securityRelease": "安全更新",
+  "install": "安装 {version}",
+  "confirm": {
+    "title": "安装版本 {version}？",
+    "content": "更新期间面板会重启，短时间内无法访问。如果更新失败，会尽可能自动恢复到之前的版本。"
+  },
+  "reason": {
+    "dev_build": "这是开发版本，无法在线更新。",
+    "cloud_disabled": "云服务已在下方关闭，因此不会检查更新。",
+    "no_trusted_key": "尚未配置发布签名密钥，无法校验更新。",
+    "fetch_failed": "无法下载版本信息。请检查服务地址和服务器的网络连接。",
+    "verification_failed": "版本信息未通过签名校验，已忽略。",
+    "unknown": "暂时无法更新（{reason}）。"
+  },
+  "channel": {
+    "stable": "稳定版",
+    "beta": "测试版"
+  },
+  "job": {
+    "running": "正在安装版本 {version}…",
+    "restarting": "面板正在重启…",
+    "timeoutTitle": "面板没有恢复响应",
+    "timeout": "3 分钟内没有响应。请检查服务器上的 Cairn 服务，然后重新检查。",
+    "checkAgain": "重新检查",
+    "failedTitle": "更新到版本 {version} 失败",
+    "log": "更新日志",
+    "succeeded": "Cairn 已更新到版本 {version}。",
+    "reloadHint": "请刷新页面以加载新版本的界面。",
+    "reload": "刷新页面"
+  },
+  "cloud": {
+    "title": "云服务",
+    "enabled": "连接 Cairn 云服务",
+    "helpDownloadOnly": "面板只会从此地址下载经过签名的公开数据，例如官方消息和版本信息，不会上传任何内容。",
+    "helpDisable": "关闭后，官方消息和更新检查也会随之关闭。",
+    "helpMirror": "此地址可以指向自建的镜像。"
+  }
+}

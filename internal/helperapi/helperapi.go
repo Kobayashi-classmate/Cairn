@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/url"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
 )
@@ -99,4 +100,57 @@ func (r SetDefaultLocaleRequest) Validate() error {
 		return &Error{Code: CodeLocaleUnsupport, Params: map[string]any{"locale": r.Locale}}
 	}
 	return nil
+}
+
+// ActionSetCloud changes the [cloud] section of the root-owned config.
+const ActionSetCloud = "config.set_cloud"
+
+// SetCloudRequest is the body of ActionSetCloud.
+type SetCloudRequest struct {
+	Enabled bool   `json:"enabled"`
+	BaseURL string `json:"baseUrl"`
+	Channel string `json:"channel"`
+}
+
+// Validate implements the helper's request validation hook.
+func (r SetCloudRequest) Validate() error {
+	if r.Channel != "stable" && r.Channel != "beta" {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "channel", "rule": "enum"}}
+	}
+	u, err := url.Parse(r.BaseURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "baseUrl", "rule": "url"}}
+	}
+	return nil
+}
+
+// Update actions. The web process only names a version: the helper fetches
+// and verifies the signed release index itself, so a compromised web process
+// cannot make it install an arbitrary package.
+const (
+	ActionUpdate       = "panel.update"
+	ActionUpdateStatus = "panel.update_status"
+)
+
+// Update error codes.
+const (
+	CodeUpdateNotAvailable = "update.not_available"
+	CodeUpdateInProgress   = "update.in_progress"
+	CodeUpdateVerification = "update.verification_failed"
+	CodeUpdateDownload     = "update.download_failed"
+)
+
+// UpdateRequest is the body of ActionUpdate.
+type UpdateRequest struct {
+	Version string `json:"version"`
+}
+
+// UpdateJob describes the last update attempt.
+type UpdateJob struct {
+	State      string `json:"state"` // idle | running | succeeded | failed
+	Version    string `json:"version"`
+	StartedAt  int64  `json:"startedAt"`
+	FinishedAt int64  `json:"finishedAt"`
+	Error      string `json:"error"`
+	Log        string `json:"log"`
 }

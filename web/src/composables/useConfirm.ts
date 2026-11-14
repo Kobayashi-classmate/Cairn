@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import type { VNodeChild } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useDialog } from 'naive-ui'
 
 export interface ConfirmOptions {
   title: string
-  content: string
+  /** Text, or a render function for richer content. */
+  content: string | (() => VNodeChild)
   /** Label of the confirming button. */
   confirmText: string
   /** Style the confirming button as destructive. */

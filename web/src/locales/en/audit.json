@@ -9,7 +9,8 @@
     "auth": "Sign-in and account",
     "users": "User management",
     "settings": "Panel settings",
-    "notify": "Notifications"
+    "notify": "Notifications",
+    "update": "Updates"
   },
   "column": {
     "time": "Time",
@@ -30,7 +31,8 @@
   "detail": {
     "role": "Role: {role}",
     "disabled": "Disabled",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "channel": "Channel: {channel}"
   },
   "action": {
     "auth": {
@@ -57,13 +59,18 @@
       "delete": "Deleted user {username}"
     },
     "settings": {
-      "default_locale": "Changed the default language to {locale}"
+      "default_locale": "Changed the default language to {locale}",
+      "cloud": "Changed the cloud service settings"
     },
     "notify": {
       "channel_create": "Added notification channel {name}",
       "channel_update": "Updated notification channel {name}",
       "channel_delete": "Deleted notification channel {name}",
       "test": "Sent a test message to {name}"
+    },
+    "update": {
+      "apply": "Started the update to version {version}",
+      "finish": "Finished the update to version {version}"
     }
   }
 }

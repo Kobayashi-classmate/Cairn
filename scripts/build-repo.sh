@@ -9,8 +9,9 @@
 #   repo/rpm/<arch>/              dnf repository per architecture: signed
 #                                 packages and a signed repomd.xml
 #   repo/cairn-archive-keyring.*  public key (.pgp binary for apt, .asc for dnf)
-#   repo/install.sh(.asc)         online installer with the URL and key
-#                                 fingerprint filled in, plus its signature
+#   repo/install.sh(.asc)         online installer in repository mode, with
+#                                 the URL and key fingerprint filled in, plus
+#                                 its signature
 #
 # Environment:
 #   CAIRN_SIGNING_KEY  path to the ASCII-armored private signing key, without a
@@ -68,8 +69,10 @@ docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/packaging:/packaging:ro" -v "$o
 	# Fill in only the two assignment lines: the placeholders also appear in the
 	# checks that detect an unpublished script, and those must stay intact.
 	sed -e "s|^REPO_URL_DEFAULT=\"@REPO_URL@\"\$|REPO_URL_DEFAULT=\"$REPO_URL\"|" \
-		-e "s|^KEY_FINGERPRINT=\"@KEY_FINGERPRINT@\"\$|KEY_FINGERPRINT=\"$fpr\"|" /packaging/install.sh >/out/install.sh
+		-e "s|^KEY_FINGERPRINT=\"@KEY_FINGERPRINT@\"\$|KEY_FINGERPRINT=\"$fpr\"|" \
+		-e "s|^MODE=\"release\"\$|MODE=\"repo\"|" /packaging/install.sh >/out/install.sh
 	grep -q "^REPO_URL_DEFAULT=\"$REPO_URL\"\$" /out/install.sh && grep -q "^KEY_FINGERPRINT=\"$fpr\"\$" /out/install.sh
+	grep -q "^MODE=\"repo\"\$" /out/install.sh
 	[ "$(grep -c "@REPO_URL@" /out/install.sh)" -eq 1 ] && [ "$(grep -c "@KEY_FINGERPRINT@" /out/install.sh)" -eq 1 ]
 	sign --detach-sign --armor -o /out/install.sh.asc /out/install.sh
 	echo "$fpr" >/out/KEY_FINGERPRINT

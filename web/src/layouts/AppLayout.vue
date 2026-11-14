@@ -4,6 +4,7 @@ import { computed, h, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import {
+  NAlert,
   NButton,
   NIcon,
   NLayout,
@@ -15,9 +16,14 @@ import {
   type MenuOption,
 } from 'naive-ui'
 import { LogOutOutline, PersonCircleOutline } from '@vicons/ionicons5'
+import type { Announcement } from '@/api/announcements'
 import ElevationBadge from '@/components/ElevationBadge.vue'
 import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
+import MessageBell from '@/components/MessageBell.vue'
+import { useAnnouncementPolling } from '@/composables/useAnnouncementPolling'
+import { pickLocalized } from '@/i18n'
 import { errorMessage } from '@/i18n/errors'
+import { useAnnouncementsStore } from '@/stores/announcements'
 import { useSessionStore } from '@/stores/session'
 import { homeLocation, visibleNavItems } from './navigation'
 
@@ -25,7 +31,10 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
+const announcements = useAnnouncementsStore()
 const message = useMessage()
+
+useAnnouncementPolling()
 
 // Start collapsed on narrow screens.
 const collapsed = ref(window.matchMedia('(max-width: 768px)').matches)
@@ -42,6 +51,14 @@ const menuOptions = computed<MenuOption[]>(() =>
 )
 
 const activeKey = computed(() => route.meta.navKey ?? null)
+
+async function markBannerRead(item: Announcement) {
+  try {
+    await announcements.markRead(item.id)
+  } catch (err) {
+    message.error(errorMessage(err))
+  }
+}
 
 async function signOut() {
   signingOut.value = true
@@ -62,6 +79,7 @@ async function signOut() {
       <RouterLink :to="home" class="shell__brand">{{ t('common.app.name') }}</RouterLink>
       <div class="shell__actions">
         <ElevationBadge />
+        <MessageBell />
         <LocaleSwitcher />
         <RouterLink
           v-if="session.user"
@@ -99,6 +117,25 @@ async function signOut() {
         />
       </NLayoutSider>
       <NLayoutContent :native-scrollbar="false" content-class="shell__content">
+        <!-- Unread critical official messages stay visible until read or dismissed. -->
+        <NAlert
+          v-for="item in announcements.banners"
+          :key="item.id"
+          type="error"
+          closable
+          :title="pickLocalized(item.title)"
+          class="shell__banner"
+          @close="announcements.dismiss(item.id)"
+        >
+          <div class="shell__banner-actions">
+            <RouterLink :to="{ name: 'messages', query: { id: item.id } }">
+              {{ t('messages.view') }}
+            </RouterLink>
+            <NButton text size="small" @click="markBannerRead(item)">
+              {{ t('messages.markRead') }}
+            </NButton>
+          </div>
+        </NAlert>
         <RouterView />
       </NLayoutContent>
     </NLayout>
@@ -148,6 +185,16 @@ async function signOut() {
 
 .shell__body :deep(.shell__content) {
   padding: 24px;
+}
+
+.shell__banner {
+  margin-block-end: 16px;
+}
+
+.shell__banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 @media (max-width: 640px) {

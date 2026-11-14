@@ -9,7 +9,8 @@
     "auth": "登录与账号",
     "users": "用户管理",
     "settings": "面板设置",
-    "notify": "通知"
+    "notify": "通知",
+    "update": "更新"
   },
   "column": {
     "time": "时间",
@@ -30,7 +31,8 @@
   "detail": {
     "role": "角色：{role}",
     "disabled": "已停用",
-    "enabled": "已启用"
+    "enabled": "已启用",
+    "channel": "通道：{channel}"
   },
   "action": {
     "auth": {
@@ -57,13 +59,18 @@
       "delete": "删除了用户 {username}"
     },
     "settings": {
-      "default_locale": "将默认语言改为 {locale}"
+      "default_locale": "将默认语言改为 {locale}",
+      "cloud": "修改了云服务设置"
     },
     "notify": {
       "channel_create": "添加了通知渠道 {name}",
       "channel_update": "修改了通知渠道 {name}",
       "channel_delete": "删除了通知渠道 {name}",
       "test": "向 {name} 发送了测试消息"
+    },
+    "update": {
+      "apply": "开始更新到版本 {version}",
+      "finish": "完成更新到版本 {version}"
     }
   }
 }

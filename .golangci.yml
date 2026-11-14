@@ -44,11 +44,16 @@ linters:
         linters:
           - forbidigo
           - gosec
-      # Tests use fake credentials on purpose.
+      # Maintainer tools read and write the files named on their command line.
+      - path: ^tools/
+        linters:
+          - gosec
+        text: G304|G306|G703
+      # Tests use fake credentials and read their own temporary files.
       - path: _test\.go$
         linters:
           - gosec
-        text: G101
+        text: G101|G304|G703
 
 formatters:
   enable:

@@ -1,0 +1,19 @@
+{
+  "title": "Messages",
+  "intro": "Official messages from the Cairn project, such as releases, security advisories and maintenance notices. They are for information only.",
+  "empty": "No messages.",
+  "unread": "Unread",
+  "markRead": "Mark as read",
+  "markAllRead": "Mark all as read",
+  "viewAll": "View all messages",
+  "view": "View message",
+  "learnMore": "Learn more",
+  "expired": "Expired",
+  "bell": "Messages, {count} unread",
+  "category": {
+    "release": "Release",
+    "security": "Security",
+    "maintenance": "Maintenance",
+    "general": "General"
+  }
+}

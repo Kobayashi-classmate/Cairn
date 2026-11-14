@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Builds the .deb and .rpm packages. Run through `make package`, which sets
-# VERSION and ARCH (Go architecture names: amd64, arm64, loong64).
+# VERSION, ARCH (Go architecture names: amd64, arm64, loong64) and DIST.
 name: cairn
 arch: ${ARCH}
 platform: linux
@@ -20,15 +20,15 @@ description: |-
   done by a small root helper with a fixed set of actions.
 
 contents:
-  - src: dist/${ARCH}/cairn-web
+  - src: ${DIST}/${ARCH}/cairn-web
     dst: /usr/bin/cairn-web
     file_info:
       mode: 0755
-  - src: dist/${ARCH}/cairn
+  - src: ${DIST}/${ARCH}/cairn
     dst: /usr/bin/cairn
     file_info:
       mode: 0755
-  - src: dist/${ARCH}/cairn-helper
+  - src: ${DIST}/${ARCH}/cairn-helper
     dst: /usr/lib/cairn/cairn-helper
     file_info:
       mode: 0755

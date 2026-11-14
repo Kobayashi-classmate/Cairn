@@ -3,6 +3,7 @@ import type { Component } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import {
   DocumentTextOutline,
+  MegaphoneOutline,
   PeopleOutline,
   SettingsOutline,
   SpeedometerOutline,
@@ -36,6 +37,7 @@ export const navItems: NavItem[] = [
     to: { name: 'users' },
     permission: 'users.manage',
   },
+  { key: 'messages', labelKey: 'common.nav.messages', icon: MegaphoneOutline, to: { name: 'messages' } },
   {
     key: 'audit',
     labelKey: 'common.nav.audit',

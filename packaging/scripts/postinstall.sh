@@ -47,6 +47,8 @@ fi
 
 install -d -m 0750 -o root -g cairn /etc/cairn
 install -d -m 0700 -o cairn -g cairn /var/lib/cairn
+# Root helper state: update status and the packages kept for rollback.
+install -d -m 0700 -o root -g root /var/lib/cairn-helper
 
 if [ ! -f /etc/cairn/config.toml ]; then
 	locale=$(pick_locale)

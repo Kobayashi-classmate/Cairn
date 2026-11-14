@@ -1,0 +1,105 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Publishes a release when a version tag is pushed (vX.Y.Z, or vX.Y.Z-pre for
+# the beta channel): builds the packages for amd64 and arm64, signs them with
+# the CAIRN_RELEASE_KEY secret, creates the GitHub release and adds it to the
+# signed release index that every panel reads (the "feed" release).
+#
+# Release notes are the annotated tag's message. A line "Security: yes" in it
+# marks a release that fixes a security problem; panels then highlight it.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+# The feed must be updated by one release at a time.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GOPROXY: https://proxy.golang.org,direct
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Version and notes
+        id: meta
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' ||
+            { echo "::error::tag $GITHUB_REF_NAME is not vX.Y.Z[-pre]"; exit 1; }
+          # actions/checkout may store the tag as a lightweight one.
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ] ||
+            { echo "::error::use an annotated tag; its message becomes the release notes"; exit 1; }
+          git tag -l --format='%(contents:subject)%0a%0a%(contents:body)' "$GITHUB_REF_NAME" >"$RUNNER_TEMP/notes.raw"
+          security=0
+          grep -qi '^Security: *yes$' "$RUNNER_TEMP/notes.raw" && security=1
+          grep -vi '^Security: *yes$' "$RUNNER_TEMP/notes.raw" >"$RUNNER_TEMP/notes.en" || true
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+          {
+            echo "version=$version"
+            echo "security=$security"
+            echo "prerelease=$prerelease"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Check
+        run: make check GOPROXY="$GOPROXY"
+
+      - name: Build
+        run: |
+          make web
+          for arch in amd64 arm64; do
+            make go package ARCH=$arch VERSION=${{ steps.meta.outputs.version }} GOPROXY="$GOPROXY"
+          done
+
+      - name: Current release index
+        run: |
+          mkdir -p "$RUNNER_TEMP/feed"
+          if gh release view feed >/dev/null 2>&1; then
+            gh release download feed -p 'releases.json' -p 'releases.json.sig' -D "$RUNNER_TEMP/feed" || true
+          fi
+          ls -l "$RUNNER_TEMP/feed"
+
+      - name: Sign
+        env:
+          RELEASE_KEY: ${{ secrets.CAIRN_RELEASE_KEY }}
+        run: |
+          [ -n "$RELEASE_KEY" ] || { echo "::error::the CAIRN_RELEASE_KEY secret is not set"; exit 1; }
+          install -d -m 0700 "$RUNNER_TEMP/key"
+          printf '%s\n' "$RELEASE_KEY" >"$RUNNER_TEMP/key/release.key"
+          chmod 0600 "$RUNNER_TEMP/key/release.key"
+          if [ -f "$RUNNER_TEMP/feed/releases.json" ]; then export FEED_IN="$RUNNER_TEMP/feed/releases.json"; fi
+          status=0
+          VERSION=${{ steps.meta.outputs.version }} SECURITY=${{ steps.meta.outputs.security }} \
+            NOTES_EN="$RUNNER_TEMP/notes.en" CAIRN_RELEASE_KEY="$RUNNER_TEMP/key/release.key" \
+            sh scripts/release.sh || status=$?
+          rm -f "$RUNNER_TEMP/key/release.key"
+          exit $status
+
+      - name: Publish the release
+        run: |
+          set -- --verify-tag --title "Cairn $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.en"
+          if [ "${{ steps.meta.outputs.prerelease }}" = true ]; then set -- "$@" --prerelease; else set -- "$@" --latest; fi
+          gh release create "$GITHUB_REF_NAME" "$@" dist/release/*
+
+      - name: Update the feed
+        run: |
+          if ! gh release view feed >/dev/null 2>&1; then
+            gh release create feed --prerelease --target "$GITHUB_SHA" --title "Cairn feed" \
+              --notes "Signed data read by Cairn panels (release index, official messages). Not a release."
+          fi
+          # The index goes up before its signature: until both are replaced, a
+          # panel that checks in between sees a mismatch and simply retries later.
+          gh release upload feed dist/feed/releases.json dist/feed/releases.json.sig --clobber

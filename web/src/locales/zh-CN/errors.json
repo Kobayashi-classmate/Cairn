@@ -38,7 +38,8 @@
       "url": "{field}必须是以 http:// 或 https:// 开头的网址。",
       "range": "{field}必须在 {min} 到 {max} 之间。",
       "subset": "{field}包含了你的角色不具备的权限。",
-      "ip": "请检查{field}：每一项都必须是 IP 地址或 CIDR 网段。"
+      "ip": "请检查{field}：每一项都必须是 IP 地址或 CIDR 网段。",
+      "https": "{field}必须是以 https:// 开头的地址。"
     }
   },
   "locale": {
@@ -62,5 +63,12 @@
   },
   "notify": {
     "delivery_failed": "消息发送失败。"
+  },
+  "update": {
+    "not_available": "该版本无法安装。",
+    "in_progress": "已有更新正在进行。",
+    "verification_failed": "更新包未通过签名校验，未安装。",
+    "download_failed": "无法下载更新包。",
+    "install_failed": "更新安装失败。请在 设置 → 更新 中查看更新日志。"
   }
 }

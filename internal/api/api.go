@@ -180,6 +180,7 @@ type Route struct {
 	Tag        string
 	Summary    string
 	Request    reflect.Type         // nil: no JSON body
+	NoBody     bool                 // explicitly documented as taking no body
 	Responses  map[int]reflect.Type // nil type: no body
 }
 
@@ -196,6 +197,7 @@ type routeConfig struct {
 	tag       string
 	summary   string
 	request   reflect.Type
+	noBody    bool
 	responses map[int]reflect.Type
 }
 
@@ -206,6 +208,9 @@ func Doc(tag, summary string) RouteOption {
 
 // Body documents the JSON request body type (pass a zero value).
 func Body(v any) RouteOption { return func(c *routeConfig) { c.request = reflect.TypeOf(v) } }
+
+// NoBody documents that a state-changing route takes no request body.
+func NoBody() RouteOption { return func(c *routeConfig) { c.noBody = true } }
 
 // Returns documents a response; v is a zero value of the body type, or nil
 // for an empty body.
@@ -252,7 +257,7 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 	method, path, _ := strings.Cut(pattern, " ")
 	rt.routes = append(rt.routes, Route{
 		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp,
-		Tag: cfg.tag, Summary: cfg.summary, Request: cfg.request, Responses: cfg.responses,
+		Tag: cfg.tag, Summary: cfg.summary, Request: cfg.request, NoBody: cfg.noBody, Responses: cfg.responses,
 	})
 	rt.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

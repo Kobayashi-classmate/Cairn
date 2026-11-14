@@ -39,4 +39,17 @@ func RegisterCore(r *Registry, d Deps) {
 		d.Log.Info("default locale changed", "from", old, "to", req.Locale, "user", c.Username)
 		return helperapi.Empty{}, nil
 	})
+
+	Register(r, helperapi.ActionSetCloud, func(_ context.Context, c helperapi.Caller, req helperapi.SetCloudRequest) (helperapi.Empty, error) {
+		cfg, err := config.Load(d.ConfigPath)
+		if err != nil {
+			return helperapi.Empty{}, err
+		}
+		cfg.Cloud.Enabled, cfg.Cloud.BaseURL, cfg.Cloud.Channel = req.Enabled, req.BaseURL, req.Channel
+		if err := config.Save(d.ConfigPath, cfg, 0o640, 0, d.ConfigGID); err != nil {
+			return helperapi.Empty{}, err
+		}
+		d.Log.Info("cloud settings changed", "enabled", req.Enabled, "base_url", req.BaseURL, "channel", req.Channel, "user", c.Username)
+		return helperapi.Empty{}, nil
+	})
 }

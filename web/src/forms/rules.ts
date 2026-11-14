@@ -32,6 +32,11 @@ export function isHttpUrl(value: string): boolean {
   }
 }
 
+/** An absolute https:// URL. */
+export function isHttpsUrl(value: string): boolean {
+  return isHttpUrl(value) && value.trim().toLowerCase().startsWith('https://')
+}
+
 /** An IPv4/IPv6 address, optionally with a CIDR prefix length. IPv6 is checked loosely. */
 export function isIpOrCidr(value: string): boolean {
   const [address = '', prefix, extra] = value.split('/')

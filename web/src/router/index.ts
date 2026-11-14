@@ -49,6 +49,12 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'users.title', navKey: 'users', permission: 'users.manage' },
       },
       {
+        path: 'messages',
+        name: 'messages',
+        component: () => import('@/views/MessagesView.vue'),
+        meta: { titleKey: 'messages.title', navKey: 'messages' },
+      },
+      {
         path: 'audit',
         name: 'audit',
         component: () => import('@/views/AuditView.vue'),
@@ -84,6 +90,12 @@ const routes: RouteRecordRaw[] = [
             path: 'panel',
             name: 'settings-panel',
             component: () => import('@/views/settings/PanelSettings.vue'),
+            meta: { permission: 'settings.read' },
+          },
+          {
+            path: 'updates',
+            name: 'settings-updates',
+            component: () => import('@/views/settings/UpdateSettings.vue'),
             meta: { permission: 'settings.read' },
           },
           {

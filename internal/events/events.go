@@ -48,10 +48,11 @@ const (
 	SecurityTOTPDisabled = "security.totp_disabled"
 	UsersChange          = "users.change"
 	SystemTest           = "system.test"
+	CloudAnnouncement    = "cloud.announcement"
 )
 
 // Categories are the prefixes a notification channel can subscribe to.
-var Categories = []string{"security.", "users.", "system."}
+var Categories = []string{"security.", "users.", "system.", "cloud."}
 
 // Event is something that happened.
 type Event struct {

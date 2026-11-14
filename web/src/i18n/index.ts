@@ -119,3 +119,12 @@ export async function activateLocale(locale: string): Promise<void> {
   i18n.global.locale.value = locale
   document.documentElement.lang = locale
 }
+
+/**
+ * Picks the text for the current UI language from per-locale content sent by
+ * the server: the current locale, then English, then any non-empty entry.
+ */
+export function pickLocalized(texts: Record<string, string> | null | undefined): string {
+  if (!texts) return ''
+  return texts[currentLocale()] || texts[SOURCE_LOCALE] || Object.values(texts).find(Boolean) || ''
+}

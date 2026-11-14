@@ -205,6 +205,15 @@ func (n *Notifier) Render(locale string, e events.Event) Message {
 	if a, ok := e.Params["action"].(string); ok {
 		data["actionText"] = n.Catalog.T(locale, "notify.action."+a, nil)
 	}
+	// Multilingual texts (official messages) are reduced to the channel's
+	// language, falling back to English.
+	if titles, ok := e.Params["titles"].(map[string]any); ok {
+		title, _ := titles[locale].(string)
+		if title == "" {
+			title, _ = titles["en"].(string)
+		}
+		data["title"] = title
+	}
 	return Message{
 		Event: e.Type, Level: string(e.Level), TS: e.TS, Params: e.Params, Host: n.Host,
 		Title: n.Catalog.T(locale, "notify."+e.Type+".title", data),

@@ -29,6 +29,10 @@
     "system": {
       "label": "系统",
       "description": "系统消息，包括测试消息。"
+    },
+    "cloud": {
+      "label": "官方消息",
+      "description": "Cairn 项目发布的消息。"
     }
   },
   "event": {
@@ -42,6 +46,9 @@
     },
     "system": {
       "test": "测试消息"
+    },
+    "cloud": {
+      "announcement": "官方消息"
     }
   },
   "channel": {

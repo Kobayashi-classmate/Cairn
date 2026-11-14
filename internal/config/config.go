@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -25,7 +26,22 @@ type Config struct {
 	Server Server `toml:"server"`
 	UI     UI     `toml:"ui"`
 	Paths  Paths  `toml:"paths"`
+	Cloud  Cloud  `toml:"cloud"`
 }
+
+// Cloud configures access to the project's signed public data (official
+// messages, release information). Nothing is ever uploaded.
+type Cloud struct {
+	Enabled bool   `toml:"enabled"`
+	BaseURL string `toml:"base_url"`
+	Channel string `toml:"channel"` // stable | beta
+	// TrustedKeys adds ed25519 public keys (base64) to the built-in release
+	// keys, for self-hosted mirrors and tests.
+	TrustedKeys []string `toml:"trusted_keys"`
+}
+
+// DefaultCloudURL serves the signed feed until the Cairn cloud is online.
+const DefaultCloudURL = "https://github.com/Kobayashi-classmate/Cairn/releases/download/feed"
 
 // Server configures the HTTPS listener.
 type Server struct {
@@ -52,7 +68,17 @@ func Default() Config {
 		Server: Server{Listen: "0.0.0.0:28443"},
 		UI:     UI{DefaultLocale: i18n.Default},
 		Paths:  Paths{DataDir: "/var/lib/cairn", HelperSocket: "/run/cairn/helper.sock"},
+		Cloud:  Cloud{Enabled: true, BaseURL: DefaultCloudURL, Channel: "stable"},
 	}
+}
+
+// ValidateCloudURL accepts absolute http(s) URLs without credentials.
+func ValidateCloudURL(s string) error {
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+		return fmt.Errorf("config: cloud.base_url %q must be an absolute http(s) URL", s)
+	}
+	return nil
 }
 
 // Load reads path over the defaults. A missing file returns the defaults
@@ -80,7 +106,10 @@ func (c Config) Validate() error {
 	if !filepath.IsAbs(c.Paths.DataDir) || !filepath.IsAbs(c.Paths.HelperSocket) {
 		return errors.New("config: paths must be absolute")
 	}
-	return nil
+	if c.Cloud.Channel != "stable" && c.Cloud.Channel != "beta" {
+		return fmt.Errorf("config: cloud.channel %q must be stable or beta", c.Cloud.Channel)
+	}
+	return ValidateCloudURL(c.Cloud.BaseURL)
 }
 
 const header = "# SPDX-License-Identifier: AGPL-3.0-only\n# Cairn configuration. Managed by Cairn; edit with care.\n\n"

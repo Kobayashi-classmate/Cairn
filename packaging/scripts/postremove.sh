@@ -11,7 +11,7 @@ set -e
 
 case "$1" in
 	purge)
-		rm -rf /etc/cairn /var/lib/cairn
+		rm -rf /etc/cairn /var/lib/cairn /var/lib/cairn-helper
 		;;
 esac
 

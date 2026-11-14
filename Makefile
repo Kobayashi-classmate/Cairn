@@ -30,7 +30,7 @@ NODE_RUN = docker run --rm \
 	-v cairn-npm-cache:/root/.npm \
 	$(NODE_IMAGE)
 
-.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo smoke repo-test clean
+.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test clean
 
 all: check build
 
@@ -74,7 +74,8 @@ check: vet test check-cjk
 # nfpm does not expand variables in file sources, so render the config first.
 package:
 	mkdir -p $(DIST)
-	sed -e 's|$${ARCH}|$(ARCH)|g' -e 's|$${VERSION}|$(VERSION)|g' packaging/nfpm.yaml > $(DIST)/nfpm-$(ARCH).yaml
+	sed -e 's|$${ARCH}|$(ARCH)|g' -e 's|$${VERSION}|$(VERSION)|g' -e 's|$${DIST}|$(DIST)|g' \
+		packaging/nfpm.yaml > $(DIST)/nfpm-$(ARCH).yaml
 	for p in deb rpm; do \
 		docker run --rm -v $(CURDIR):/src -w /src $(NFPM_IMAGE) \
 			package --config $(DIST)/nfpm-$(ARCH).yaml --packager $$p --target $(DIST)/ || exit 1; \
@@ -85,6 +86,23 @@ package:
 repo:
 	sh scripts/build-repo.sh
 
+## release-keygen: create the release signing key at KEY, outside this repository
+# Prints the public key for internal/cloud/trusted_keys.txt. Never overwrites.
+release-keygen:
+	@test -n "$(KEY)" || { echo "usage: make release-keygen KEY=/path/outside/the/repo/cairn-release.key" >&2; exit 2; }
+	@case "$(abspath $(KEY))" in "$(CURDIR)"/*) echo "KEY must be outside the repository" >&2; exit 2 ;; esac
+	mkdir -p $(dir $(abspath $(KEY)))
+	docker run --rm -v $(CURDIR):/src -w /src -v $(dir $(abspath $(KEY))):/key \
+		-v cairn-gomod:/go/pkg/mod -v cairn-gocache:/root/.cache/go-build \
+		-e GOPROXY=$(GOPROXY) -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false \
+		$(GO_IMAGE) go run ./tools/release keygen -out /key/$(notdir $(KEY))
+	@echo "(/key/ above is $(dir $(abspath $(KEY))) on this machine)"
+
+## release: sign the assets of VERSION into dist/release and dist/feed
+# Needs CAIRN_RELEASE_KEY; see scripts/release.sh. CI does this on a tag push.
+release:
+	VERSION=$(VERSION) sh scripts/release.sh
+
 ## smoke: install the packages on every tier-1 distribution (containers)
 smoke:
 	bash test/smoke/run.sh
@@ -92,6 +110,10 @@ smoke:
 ## repo-test: build a repository with a throwaway key and run install.sh against it
 repo-test:
 	bash test/repo/run.sh
+
+## update-test: publish test releases, install with install.sh, update online and roll back
+update-test:
+	bash test/update/run.sh
 
 clean:
 	rm -rf $(DIST) internal/ui/dist web/dist repo

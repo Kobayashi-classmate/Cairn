@@ -26,3 +26,5 @@
 "notify.action.set_password" = "重置了密码"
 "notify.action.reset_totp" = "重置了两步验证"
 "notify.action.delete" = "删除了账号"
+"notify.cloud.announcement.title" = "[Cairn] 官方消息：{{.title}}"
+"notify.cloud.announcement.body" = "Cairn 官方为 {{.host}} 发布了新消息：{{.title}}。请在面板的消息中心查看全文。{{.link}}"

@@ -38,7 +38,7 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("PATCH /api/v1/notify/channels/{id}", m.update, manage, api.StepUp(), doc("Update a channel; omitted fields are kept"),
 		api.Body(channelRequest{}), api.Returns(200, channelResponse{}))
 	r.Handle("DELETE /api/v1/notify/channels/{id}", m.delete, manage, api.StepUp(), doc("Delete a channel"), api.Returns(204, nil))
-	r.Handle("POST /api/v1/notify/channels/{id}/test", m.test, manage, doc("Send a test message now"), api.Returns(204, nil))
+	r.Handle("POST /api/v1/notify/channels/{id}/test", m.test, manage, doc("Send a test message now"), api.NoBody(), api.Returns(204, nil))
 	r.Handle("GET /api/v1/notify/deliveries", m.deliveries, manage, doc("Recent deliveries, newest first"), api.Returns(200, deliveriesResponse{}))
 }
 

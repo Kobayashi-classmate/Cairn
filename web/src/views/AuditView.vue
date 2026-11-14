@@ -35,7 +35,7 @@ const userFilter = ref('')
 const categoryFilter = ref<string | null>(null)
 
 // Action code prefixes the server filters on.
-const categories = ['auth', 'users', 'settings', 'notify'] as const
+const categories = ['auth', 'users', 'settings', 'notify', 'update'] as const
 const categoryOptions = computed(() =>
   categories.map((c) => ({ value: `${c}.`, label: t(`audit.category.${c}`) })),
 )
@@ -105,6 +105,17 @@ function details(entry: AuditEntry): string[] {
   if (entry.action.startsWith('notify.') && typeof type === 'string') {
     const key = `notify.type.${type}`
     return [te(key) ? t(key) : type]
+  }
+  if (entry.action === 'settings.cloud') {
+    const list: string[] = []
+    if (typeof entry.params.enabled === 'boolean') {
+      list.push(t(entry.params.enabled ? 'audit.detail.enabled' : 'audit.detail.disabled'))
+    }
+    if (typeof entry.params.channel === 'string') {
+      const key = `updates.channel.${entry.params.channel}`
+      list.push(t('audit.detail.channel', { channel: te(key) ? t(key) : entry.params.channel }))
+    }
+    return list
   }
   if (entry.action !== 'users.update') return []
   const list: string[] = []

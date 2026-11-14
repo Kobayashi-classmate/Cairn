@@ -1,0 +1,47 @@
+{
+  "title": "Panel update",
+  "scope": "Online update installs new versions of the Cairn panel only. No other software on this server is changed.",
+  "check": "Check for updates",
+  "current": "Installed version",
+  "checkedAt": "Last checked",
+  "never": "Never",
+  "upToDate": "You are running the latest version.",
+  "available": "Version {version} is available",
+  "securityRelease": "Security update",
+  "install": "Install {version}",
+  "confirm": {
+    "title": "Install version {version}?",
+    "content": "The panel restarts during the update and is unreachable for a short time. If the update fails, the previous version is restored automatically where possible."
+  },
+  "reason": {
+    "dev_build": "This is a development build, which cannot be updated online.",
+    "cloud_disabled": "Update checks are off because the cloud service is turned off below.",
+    "no_trusted_key": "No release signing key is configured yet, so updates cannot be verified.",
+    "fetch_failed": "The release information could not be downloaded. Check the service address and the server's network connection.",
+    "verification_failed": "The release information failed signature verification and was ignored.",
+    "unknown": "Updates are unavailable ({reason})."
+  },
+  "channel": {
+    "stable": "Stable",
+    "beta": "Beta"
+  },
+  "job": {
+    "running": "Installing version {version}…",
+    "restarting": "The panel is restarting…",
+    "timeoutTitle": "The panel did not come back",
+    "timeout": "There was no answer for 3 minutes. Check the Cairn service on the server, then check again.",
+    "checkAgain": "Check again",
+    "failedTitle": "The update to version {version} failed",
+    "log": "Update log",
+    "succeeded": "Cairn was updated to version {version}.",
+    "reloadHint": "Reload the page to load the new version of the interface.",
+    "reload": "Reload page"
+  },
+  "cloud": {
+    "title": "Cloud service",
+    "enabled": "Connect to the Cairn cloud service",
+    "helpDownloadOnly": "The panel only downloads signed public data from this address, such as official messages and release information. It never uploads anything.",
+    "helpDisable": "Turning it off also turns off official messages and update checks.",
+    "helpMirror": "The address can point to a self-hosted mirror."
+  }
+}

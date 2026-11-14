@@ -1,0 +1,4 @@
+# Release signing keys trusted by every Cairn build and by the published
+# installer. One base64 raw ed25519 public key per line, as printed by
+# `make release-keygen`; text after the key is ignored. Lines starting with #
+# are comments. Removing a key revokes it for builds made afterwards.

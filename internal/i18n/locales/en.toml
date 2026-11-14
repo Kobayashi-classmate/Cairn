@@ -28,3 +28,5 @@
 "notify.action.set_password" = "password reset"
 "notify.action.reset_totp" = "two-step sign-in reset"
 "notify.action.delete" = "account deleted"
+"notify.cloud.announcement.title" = "[Cairn] Official message: {{.title}}"
+"notify.cloud.announcement.body" = "A new official message was published for your Cairn installation on {{.host}}: {{.title}}. Open the message center in the panel to read it. {{.link}}"

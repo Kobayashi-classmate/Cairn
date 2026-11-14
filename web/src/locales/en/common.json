@@ -8,7 +8,8 @@
     "users": "Users",
     "audit": "Audit log",
     "settings": "Settings",
-    "account": "Account settings"
+    "account": "Account settings",
+    "messages": "Messages"
   },
   "action": {
     "signOut": "Sign out",
@@ -50,7 +51,9 @@
     "secret": "Signing secret",
     "permissions": "Permissions",
     "allowedIps": "Allowed IP addresses",
-    "expiresInDays": "Expires"
+    "expiresInDays": "Expires",
+    "baseUrl": "Service address",
+    "channel": "Release channel"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -100,5 +103,10 @@
     "keep": "Keep",
     "replace": "Replace",
     "clear": "Remove"
+  },
+  "externalLink": {
+    "title": "Open an external link?",
+    "content": "This link leads to a website outside the panel:",
+    "open": "Open link"
   }
 }

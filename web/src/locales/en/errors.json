@@ -38,7 +38,8 @@
       "url": "{field} must be an http:// or https:// URL.",
       "range": "{field} must be between {min} and {max}.",
       "subset": "{field} includes permissions your role does not have.",
-      "ip": "Check {field}: each entry must be an IP address or a CIDR range."
+      "ip": "Check {field}: each entry must be an IP address or a CIDR range.",
+      "https": "{field} must be an https:// address."
     }
   },
   "locale": {
@@ -62,5 +63,12 @@
   },
   "notify": {
     "delivery_failed": "The message could not be delivered."
+  },
+  "update": {
+    "not_available": "This version is not available for installation.",
+    "in_progress": "An update is already running.",
+    "verification_failed": "The update package failed signature verification and was not installed.",
+    "download_failed": "The update package could not be downloaded.",
+    "install_failed": "The update could not be installed. See the update log in Settings → Updates."
   }
 }

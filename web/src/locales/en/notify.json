@@ -29,6 +29,10 @@
     "system": {
       "label": "System",
       "description": "System messages, including test messages."
+    },
+    "cloud": {
+      "label": "Official messages",
+      "description": "Messages published by the Cairn project."
     }
   },
   "event": {
@@ -42,6 +46,9 @@
     },
     "system": {
       "test": "Test message"
+    },
+    "cloud": {
+      "announcement": "Official message"
     }
   },
   "channel": {

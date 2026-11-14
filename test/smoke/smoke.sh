@@ -141,7 +141,7 @@ fi
 
 if [ "$family" = deb ]; then
 	apt-get purge -y cairn >/dev/null 2>&1 || fail "apt purge"
-	[ ! -e /usr/bin/cairn-web ] && [ ! -e /etc/cairn ] && [ ! -e /var/lib/cairn ] || fail "purge left files behind"
+	[ ! -e /usr/bin/cairn-web ] && [ ! -e /etc/cairn ] && [ ! -e /var/lib/cairn ] && [ ! -e /var/lib/cairn-helper ] || fail "purge left files behind"
 	step "purged: binaries, configuration and data removed"
 else
 	dnf remove -y cairn >/dev/null 2>&1 || fail "dnf remove"

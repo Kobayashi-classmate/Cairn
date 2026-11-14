@@ -17,17 +17,20 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
+	"github.com/Kobayashi-classmate/Cairn/internal/config"
 	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
@@ -37,14 +40,32 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/store"
 )
 
+// fakeHelper stands in for the root helper: it records calls and requests
+// and answers with canned responses.
 type fakeHelper struct {
-	err   error
-	calls []string
+	mu        sync.Mutex
+	err       error
+	calls     []string
+	requests  map[string]json.RawMessage
+	responses map[string]any
 }
 
-func (f *fakeHelper) Call(_ context.Context, action string, _ helperapi.Caller, _, _ any) error {
+func (f *fakeHelper) Call(_ context.Context, action string, _ helperapi.Caller, req, resp any) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, action)
-	return f.err
+	if f.requests == nil {
+		f.requests = map[string]json.RawMessage{}
+	}
+	f.requests[action], _ = json.Marshal(req)
+	if f.err != nil {
+		return f.err
+	}
+	if v, ok := f.responses[action]; ok && resp != nil {
+		b, _ := json.Marshal(v)
+		return json.Unmarshal(b, resp)
+	}
+	return nil
 }
 
 type env struct {
@@ -54,6 +75,8 @@ type env struct {
 	helper   *fakeHelper
 	router   *api.Router
 	notifier *notify.Notifier
+	bus      *events.Bus
+	cloud    *cloudsvc.Module
 }
 
 func newEnv(t *testing.T) *env {
@@ -93,11 +116,14 @@ func newEnv(t *testing.T) *env {
 	(&users.Module{DB: db, Events: bus, Log: log}).Routes(router)
 	(&auditlog.Module{DB: db}).Routes(router)
 	(&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log}).Routes(router)
+	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),
+		Log: log, Version: "0.1.0", Family: "debian", Format: "deb", Arch: "amd64"}
+	cloudMod.Routes(router)
 	router.Handle("GET /api/v1/openapi.json", router.ServeOpenAPI("Cairn API", "test"),
 		api.Require(authz.Self), api.Doc("meta", "This OpenAPI document"))
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier}
+	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod}
 }
 
 // client is one browser with its own cookie jar.

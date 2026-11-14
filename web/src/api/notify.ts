@@ -11,7 +11,7 @@ export const LEVELS = ['info', 'warning', 'critical'] as const
 export type Level = (typeof LEVELS)[number]
 
 /** Event categories a channel can subscribe to, sent as prefixes with the trailing dot. */
-export const EVENT_CATEGORIES = ['security.', 'users.', 'system.'] as const
+export const EVENT_CATEGORIES = ['security.', 'users.', 'system.', 'cloud.'] as const
 
 export const EMAIL_SECURITY = ['starttls', 'tls', 'none'] as const
 export type EmailSecurity = (typeof EMAIL_SECURITY)[number]

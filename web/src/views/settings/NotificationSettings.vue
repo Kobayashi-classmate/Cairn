@@ -33,6 +33,7 @@ import { useErrorToast } from '@/composables/useErrorToast'
 import { localeNativeName } from '@/i18n'
 import { errorMessage } from '@/i18n/errors'
 import { formatDateTime, formatNumber } from '@/i18n/format'
+import LevelTag from '@/components/LevelTag.vue'
 import ChannelModal from '@/views/notify/ChannelModal.vue'
 
 const { t, te } = useI18n()
@@ -163,17 +164,8 @@ function eventLabel(event: string): string {
   return te(key) ? t(key) : event
 }
 
-const LEVEL_TAG: Record<Level, 'info' | 'warning' | 'error'> = {
-  info: 'info',
-  warning: 'warning',
-  critical: 'error',
-}
-
 function levelTag(level: Level) {
-  const key = `notify.level.${level}`
-  return h(NTag, { size: 'small', bordered: false, type: LEVEL_TAG[level] ?? 'default' }, () =>
-    te(key) ? t(key) : level,
-  )
+  return h(LevelTag, { level })
 }
 
 const STATUS_TAG = { pending: 'default', sent: 'success', failed: 'error' } as const

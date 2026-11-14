@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -30,11 +31,13 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
 	"github.com/Kobayashi-classmate/Cairn/internal/notify"
+	"github.com/Kobayashi-classmate/Cairn/internal/platform"
 	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 	"github.com/Kobayashi-classmate/Cairn/internal/store"
 	"github.com/Kobayashi-classmate/Cairn/internal/tlsutil"
@@ -101,6 +104,13 @@ func run(cfgPath string, log *slog.Logger) error {
 	bus.Subscribe(notifier.Handle)
 	go notifier.Run(ctx)
 
+	family, format := platformFormat(log)
+	cloudMod := &cloudsvc.Module{
+		DB: db, Helper: helper, Events: bus, Settings: cloudsvc.NewSettings(cfg.Cloud), Log: log,
+		Version: buildinfo.Version, Family: family, Format: format, Arch: runtime.GOARCH,
+	}
+	go cloudMod.Run(ctx)
+
 	router := api.NewRouter(core.Authenticator(db), log)
 	modules := []module.Module{
 		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log},
@@ -108,6 +118,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
 		&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log},
+		cloudMod,
 	}
 	for _, m := range modules {
 		m.Routes(router)
@@ -153,6 +164,23 @@ func pingHelper(ctx context.Context, h *helperapi.Client, log *slog.Logger) {
 		return
 	}
 	log.Info("root helper reachable", "version", pong.Version)
+}
+
+// platformFormat returns the distribution family and package format used to
+// pick update packages; both are empty on unsupported platforms.
+func platformFormat(log *slog.Logger) (family, format string) {
+	p, _, err := platform.Detect()
+	if err != nil {
+		log.Warn("platform detection failed; online update disabled", "err", err)
+		return "", ""
+	}
+	switch p.Family {
+	case "debian":
+		return p.Family, "deb"
+	case "el":
+		return p.Family, "rpm"
+	}
+	return p.Family, ""
 }
 
 // purgeSessions deletes expired sessions once an hour.
