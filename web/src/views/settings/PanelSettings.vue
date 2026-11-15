@@ -19,7 +19,9 @@ import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { errorMessage } from '@/i18n/errors'
 import { useNavStore } from '@/stores/nav'
 import { useSessionStore } from '@/stores/session'
+import { certsAvailable } from '@/certs/useCertChoices'
 import DownloadPolicySettings from './DownloadPolicySettings.vue'
+import PanelCertSettings from './PanelCertSettings.vue'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -32,6 +34,9 @@ const canManage = computed(() => session.can('settings.manage'))
 // The menu only lists the software page when its module is on and the user
 // may read it, which is exactly when its download policy is worth showing.
 const nav = useNavStore()
+// Only when the certificates module is on and the user may read certificates.
+const showPanelCert = computed(() => certsAvailable())
+
 const showDownloadPolicy = computed(
   () => session.can('software.read') && nav.entries.some((entry) => entry.route === 'software'),
 )
@@ -104,6 +109,7 @@ async function save() {
     </NSpin>
   </NCard>
 
+  <PanelCertSettings v-if="showPanelCert" />
   <DownloadPolicySettings v-if="showDownloadPolicy" />
 </template>
 

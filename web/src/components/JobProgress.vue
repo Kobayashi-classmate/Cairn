@@ -44,10 +44,12 @@ const failure = computed(() => {
   return error ? (errorText(error.code, error.params) ?? error.code) : ''
 })
 
-/** Program output that explains a failure, such as `nginx -t` messages. */
-const output = computed(() => {
-  const value = job.value?.error?.params?.output
-  return typeof value === 'string' ? value : ''
+/** Technical details of a failure (`reason`, program `output` such as `nginx -t`), shown as is. */
+const details = computed(() => {
+  const params = job.value?.error?.params ?? {}
+  return ['reason', 'output']
+    .map((key) => params[key])
+    .filter((value): value is string => typeof value === 'string' && value !== '')
 })
 </script>
 
@@ -71,7 +73,9 @@ const output = computed(() => {
       </NProgress>
       <NAlert v-if="final && failure" type="error">
         <div>{{ failure }}</div>
-        <pre v-if="output" class="job-progress__output" dir="ltr">{{ output }}</pre>
+        <pre v-for="(detail, index) in details" :key="index" class="job-progress__output" dir="ltr">{{
+          detail
+        }}</pre>
       </NAlert>
       <pre v-if="tail" class="job-progress__log" dir="ltr">{{ tail }}</pre>
     </template>

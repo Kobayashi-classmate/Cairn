@@ -12,7 +12,8 @@
     "messages": "消息",
     "software": "软件",
     "jobs": "任务",
-    "sites": "网站"
+    "sites": "网站",
+    "certs": "证书"
   },
   "action": {
     "signOut": "退出登录",
@@ -69,7 +70,25 @@
     "php": "PHP 版本",
     "rewrite": "伪静态规则",
     "kind": "日志类型",
-    "offset": "位置"
+    "offset": "位置",
+    "ca": {
+      "self": "证书颁发机构",
+      "directory": "ACME 目录地址",
+      "eab": "EAB 凭据",
+      "email": "联系邮箱",
+      "name": "证书颁发机构",
+      "rootPem": "根证书"
+    },
+    "dnsAccount": "DNS 账号",
+    "keyType": "密钥类型",
+    "challenge": "验证方式",
+    "certPem": "证书（PEM）",
+    "keyPem": "私钥（PEM）",
+    "zone": "域名区域",
+    "defaultCa": "默认颁发机构",
+    "email": "邮箱",
+    "provider": "DNS 服务商",
+    "certificate": "证书"
   },
   "boot": {
     "failed": "无法加载面板"
@@ -116,6 +135,10 @@
     "sites": {
       "read": "查看网站",
       "manage": "管理网站"
+    },
+    "certs": {
+      "read": "查看证书",
+      "manage": "管理证书"
     }
   },
   "copy": {

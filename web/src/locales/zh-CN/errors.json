@@ -53,7 +53,16 @@
       "proxy_fields": "反向代理网站不能设置网站根目录、PHP、伪静态规则、默认首页或可写目录。",
       "static_fields": "静态网站不能设置 PHP 或可写目录。",
       "line": "{field}不是有效的版本线。",
-      "integer": "{field}必须是整数。"
+      "integer": "{field}必须是整数。",
+      "cert_id": "{field}不是有效的证书。",
+      "wildcard_needs_dns": "通配符域名需要使用 DNS 验证（DNS-01）并选择 DNS 账号。",
+      "https_url": "{field}必须是以 https:// 开头的地址。",
+      "pem": "{field}必须是 PEM 格式。",
+      "custom_fields": "只有自定义颁发机构才能设置目录地址和根证书。",
+      "pair": "{field}：请同时填写两项，或都不填。",
+      "printable": "{field}只能包含可打印字符。",
+      "max": "{field}过长。",
+      "size": "{field}过大。"
     }
   },
   "locale": {
@@ -146,7 +155,16 @@
       "code_taken": "网站代号 {code} 已被使用。",
       "config_invalid": "{check} 检查拒绝了新配置，未做任何更改。",
       "reload_failed": "重新加载 {service} 失败，已恢复之前的配置。",
-      "rewrite_unknown": "伪静态规则 {rewrite} 不存在，或不适用于此类网站。"
+      "rewrite_unknown": "伪静态规则 {rewrite} 不存在，或不适用于此类网站。",
+      "cert_missing": "证书 {cert} 不在这台服务器上。",
+      "cert_coverage": "证书 {cert} 没有覆盖 {domains}。"
+    },
+    "cert": {
+      "invalid": "证书或私钥无效：{reason}",
+      "domains_not_covered": "该证书没有覆盖网站 {site} 的 {domains}。"
+    },
+    "dns": {
+      "account_in_use": "以下证书仍通过该 DNS 账号进行验证：{certs}。"
     }
   },
   "software": {
@@ -161,6 +179,26 @@
     "config_invalid": "nginx 或 PHP-FPM 拒绝了新配置，未做任何更改。",
     "reload_failed": "重新加载 Web 服务失败，已恢复之前的配置。",
     "not_found": "该网站不存在。",
-    "rewrite_unknown": "该伪静态规则不存在，或不适用于此类网站。"
+    "rewrite_unknown": "该伪静态规则不存在，或不适用于此类网站。",
+    "cert_missing": "该网站使用的证书不在这台服务器上。",
+    "cert_coverage": "该证书没有覆盖网站的所有域名。"
+  },
+  "cert": {
+    "not_found": "该证书不存在。",
+    "in_use": "该证书仍被网站或面板使用，请先将其切换到其他证书。",
+    "invalid": "证书或私钥无效。",
+    "expired": "证书已过期。",
+    "acme_failed": "证书颁发机构拒绝了请求，或验证失败。",
+    "account_failed": "无法在证书颁发机构注册账号。",
+    "http01_unavailable": "无法进行 HTTP 验证：nginx 未运行，且 80 端口已被占用。",
+    "domains_not_covered": "该证书没有覆盖网站的所有域名。",
+    "not_acme": "只有通过 ACME 签发的证书才能续期。",
+    "not_valid": "只能使用有效的证书。"
+  },
+  "dns": {
+    "credentials_invalid": "DNS 服务商不接受这些凭据。",
+    "request_failed": "向 DNS 服务商发出的请求失败。",
+    "account_not_found": "该 DNS 账号不存在。",
+    "account_in_use": "仍有证书通过该 DNS 账号进行验证。"
   }
 }

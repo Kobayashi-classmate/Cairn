@@ -12,12 +12,23 @@ type NamedParams = Record<string, string | number | boolean>
 const UNKNOWN_KEY = 'errors.unknown'
 
 /** Field names the server shares between forms, labelled by the rule that failed. */
-const FIELD_BY_RULE: Record<string, string> = { site_code: 'siteCode' }
+const FIELD_BY_RULE: Record<string, string> = { site_code: 'siteCode', cert_id: 'certificate' }
 
-/** Translated label of a form field; unknown fields are shown by name. */
+/**
+ * Translated label of a form field; unknown fields are shown by name.
+ * A field that also groups sub-fields ("ca" next to "ca.directory") keeps
+ * its own label under `.self`; DNS credential fields have labels of their own.
+ */
 export function fieldLabel(field: string): string {
-  const key = `common.field.${field}`
-  return i18n.global.te(key) ? i18n.global.t(key) : field
+  const { t, te } = i18n.global
+  for (const key of [
+    `common.field.${field}`,
+    `common.field.${field}.self`,
+    `dns.field.${field.replace(/^fields\./, '')}`,
+  ]) {
+    if (te(key)) return t(key)
+  }
+  return field
 }
 
 /**

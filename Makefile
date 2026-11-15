@@ -30,7 +30,7 @@ NODE_RUN = docker run --rm \
 	-v cairn-npm-cache:/root/.npm \
 	$(NODE_IMAGE)
 
-.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test vm-test clean
+.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test certs-test vm-test clean
 
 all: check build
 
@@ -122,6 +122,10 @@ software-test:
 ## sites-test: create sites through the API with the real nginx and PHP-FPM (Debian/Ubuntu containers)
 sites-test:
 	bash test/sites/run.sh
+
+## certs-test: issue certificates against Pebble (Let's Encrypt's test CA) with a local DNS server (containers)
+certs-test:
+	bash test/certs/run.sh
 
 ## vm-test: the same in a real VM with systemd (QEMU in a container); VM=debian-13|debian-12
 vm-test:

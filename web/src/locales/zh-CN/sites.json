@@ -73,7 +73,16 @@
     "rootPlaceholder": "public",
     "rootHint": "相对于网站目录，例如 Laravel 使用 public。留空则直接使用网站目录。",
     "indexHint": "请求目录时依次尝试的文件名。留空使用默认值。",
-    "writableHint": "网站可以写入的目录，相对于网站目录（上传、缓存等）。其他内容对网站都是只读的。"
+    "writableHint": "网站可以写入的目录，相对于网站目录（上传、缓存等）。其他内容对网站都是只读的。",
+    "https": "HTTPS",
+    "certificate": "证书",
+    "noTls": "无（仅 HTTP）",
+    "certHint": "只列出覆盖网站所有域名的有效证书。",
+    "certNotCovering": "该证书没有覆盖网站的所有域名。",
+    "redirect": "将 HTTP 重定向到 HTTPS",
+    "redirectHint": "通过 HTTP 访问的访客会被转到 HTTPS。",
+    "hsts": "HSTS",
+    "hstsHint": "开启后，浏览器会在很长一段时间内拒绝以普通 HTTP 访问该网站，即使之后关闭了 HTTPS 也是如此。请仅在确定长期使用 HTTPS 时开启。"
   },
   "settings": {
     "apply": "应用更改"

@@ -175,7 +175,15 @@ func TestNotificationsEndToEnd(t *testing.T) {
 	if !rc.saw("security.lockout") {
 		t.Fatalf("lockout not delivered; got %v", rc.events)
 	}
-	ds := admin.expect(admin.do("GET", "/api/v1/notify/deliveries", nil), 200, "").body["deliveries"].([]any)
+	// The receiver may answer before the sender records the delivery.
+	var ds []any
+	for time.Now().Before(deadline) {
+		ds = admin.expect(admin.do("GET", "/api/v1/notify/deliveries", nil), 200, "").body["deliveries"].([]any)
+		if len(ds) >= 2 && ds[0].(map[string]any)["status"] == "sent" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 	if len(ds) < 2 || ds[0].(map[string]any)["status"] != "sent" {
 		t.Fatalf("deliveries: %v", ds)
 	}

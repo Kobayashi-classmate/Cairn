@@ -16,6 +16,8 @@ import {
 } from 'naive-ui'
 import { isAbortError } from '@/api/client'
 import { fetchAudit, type AuditEntry } from '@/api/audit'
+import { fetchDnsProviders } from '@/api/dns'
+import { certsAvailable } from '@/certs/useCertChoices'
 import { roleLabel } from '@/auth/permissions'
 import { localeNativeName } from '@/i18n'
 import { errorMessage, errorText } from '@/i18n/errors'
@@ -37,7 +39,7 @@ const userFilter = ref('')
 const categoryFilter = ref<string | null>(null)
 
 // Action code prefixes the server filters on.
-const categories = ['auth', 'users', 'settings', 'notify', 'update', 'software', 'site', 'job', 'module', 'setup'] as const
+const categories = ['auth', 'users', 'settings', 'notify', 'update', 'software', 'site', 'cert', 'dns', 'job', 'module', 'setup'] as const
 const categoryOptions = computed(() =>
   categories.map((c) => ({ value: `${c}.`, label: t(`audit.category.${c}`) })),
 )
@@ -75,6 +77,18 @@ async function load(reset: boolean) {
 }
 
 onMounted(() => load(true))
+
+/** DNS provider product names by id; entries show the id until (or unless) they are known. */
+const providerNames = ref<Record<string, string>>({})
+
+onMounted(async () => {
+  if (!certsAvailable()) return
+  try {
+    providerNames.value = Object.fromEntries((await fetchDnsProviders()).map((p) => [p.id, p.name]))
+  } catch {
+    // Provider ids remain readable on their own.
+  }
+})
 onBeforeUnmount(() => controller?.abort())
 
 let filterTimer: ReturnType<typeof setTimeout> | undefined
@@ -102,6 +116,20 @@ function displayParams(entry: AuditEntry): Record<string, string | number | bool
   if (entry.action.startsWith('software.') && typeof params.name !== 'string') {
     params.name = String(params.software ?? '')
   }
+  // Certificates and DNS accounts are named; older entries only carry their id.
+  if (entry.action === 'cert.panel') {
+    const name = typeof params.name === 'string' ? params.name : ''
+    params.name = name || (params.cert ? String(params.cert) : t('certs.panel.selfSigned'))
+  } else if (entry.action.startsWith('cert.') && !params.name && params.cert) {
+    params.name = String(params.cert)
+  }
+  if (entry.action.startsWith('dns.')) {
+    if (!params.name && params.account) params.name = String(params.account)
+    if (typeof params.provider === 'string') params.provider = providerNames.value[params.provider] ?? params.provider
+  }
+  // Domain lists read as text.
+  const domains = (entry.params as Record<string, unknown>).domains
+  if (Array.isArray(domains)) params.domains = domains.join(', ')
   // Install sets list their lines ("PHP 8.4, nginx 1.26").
   const names = itemNames((entry.params as Record<string, unknown>).items)
   if (names !== null) params.names = names

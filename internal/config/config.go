@@ -27,6 +27,7 @@ type Config struct {
 	UI     UI     `toml:"ui"`
 	Paths  Paths  `toml:"paths"`
 	Cloud  Cloud  `toml:"cloud"`
+	ACME   ACME   `toml:"acme"`
 }
 
 // Cloud configures access to the project's signed public data (official
@@ -70,6 +71,16 @@ func Default() Config {
 		Paths:  Paths{DataDir: "/var/lib/cairn", HelperSocket: "/run/cairn/helper.sock"},
 		Cloud:  Cloud{Enabled: true, BaseURL: DefaultCloudURL, Channel: "stable"},
 	}
+}
+
+// ACME holds optional ACME settings of the root helper.
+type ACME struct {
+	// Resolvers are the DNS servers ("host:port") that DNS-01 validation
+	// checks propagation with, for split-horizon or internal DNS: when set,
+	// they alone decide that the record is visible (the zone's own servers
+	// are not asked). Empty uses the system's resolvers and the zone's
+	// authoritative servers.
+	Resolvers []string `toml:"resolvers"`
 }
 
 // ValidateCloudURL accepts absolute http(s) URLs without credentials.

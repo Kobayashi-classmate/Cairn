@@ -15,7 +15,9 @@
     "job": "任务",
     "module": "模块",
     "setup": "初始化",
-    "site": "网站"
+    "site": "网站",
+    "cert": "证书",
+    "dns": "DNS"
   },
   "column": {
     "time": "时间",
@@ -105,6 +107,20 @@
       "start": "启动了网站 {site}",
       "stop": "停用了网站 {site}",
       "delete": "删除了网站 {site}"
+    },
+    "cert": {
+      "issue": "为 {domains} 申请了证书",
+      "renew": "申请了证书 {name} 的续期",
+      "upload": "上传了证书 {name}",
+      "update": "修改了证书 {name}",
+      "delete": "删除了证书 {name}",
+      "panel": "将面板证书更换为 {name}",
+      "settings": "修改了 ACME 设置"
+    },
+    "dns": {
+      "account_create": "添加了 DNS 账号 {name}（{provider}）",
+      "account_update": "修改了 DNS 账号 {name}（{provider}）",
+      "account_delete": "删除了 DNS 账号 {name}（{provider}）"
     }
   }
 }

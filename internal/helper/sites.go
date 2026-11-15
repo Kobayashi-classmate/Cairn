@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
+	"github.com/Kobayashi-classmate/Cairn/internal/execx"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 )
 
@@ -185,9 +186,11 @@ func (st *Sites) states() (map[string]helperapi.SiteState, error) {
 }
 
 // fileChange is one file of a configuration change; nil data removes it.
+// mode 0 means 0644.
 type fileChange struct {
 	path string
 	data []byte
+	mode os.FileMode
 }
 
 // reloader reloads a service after its files changed.
@@ -228,18 +231,23 @@ func (st *Sites) transact(ctx context.Context, log io.Writer, changes []fileChan
 	type backup struct {
 		path   string
 		data   []byte
+		mode   os.FileMode
 		exists bool
 	}
 	var backups []backup
 	for _, c := range changes {
 		p := st.path(c.path)
 		data, err := os.ReadFile(p) //nolint:gosec // G304: paths built from validated site codes.
-		backups = append(backups, backup{path: p, data: data, exists: err == nil})
+		b := backup{path: p, data: data, exists: err == nil, mode: 0o644}
+		if info, err := os.Stat(p); err == nil {
+			b.mode = info.Mode().Perm()
+		}
+		backups = append(backups, b)
 	}
 	restore := func() {
 		for _, b := range backups {
 			if b.exists {
-				_ = writeFile(b.path, b.data)
+				_ = writeFileMode(b.path, b.data, b.mode)
 			} else {
 				_ = os.Remove(b.path)
 			}
@@ -264,7 +272,11 @@ func (st *Sites) transact(ctx context.Context, log io.Writer, changes []fileChan
 			continue
 		}
 		logf("Writing %s\n", c.path)
-		if err := writeFile(b.path, c.data); err != nil {
+		mode := c.mode
+		if mode == 0 {
+			mode = 0o644
+		}
+		if err := writeFileMode(b.path, c.data, mode); err != nil {
 			restore()
 			return nil, err
 		}
@@ -324,6 +336,33 @@ func (st *Sites) reload(ctx context.Context, log io.Writer, r reloader) (bool, e
 	}
 	time.Sleep(300 * time.Millisecond) // let it re-read before the next step
 	return true, nil
+}
+
+// nginxVersion returns the installed nginx's version ("1.26.3"), or "".
+var nginxVersion = func(root string) string {
+	res, err := execx.Run(context.Background(), execx.Cmd{Name: filepath.Join(root, nginxBinary), Args: []string{"-v"}, Timeout: 10 * time.Second, MaxOutput: 4096})
+	if err != nil {
+		return ""
+	}
+	out := string(res.Stderr) + string(res.Stdout)
+	_, v, ok := strings.Cut(out, "nginx/")
+	if !ok {
+		return ""
+	}
+	return strings.Fields(v + " ")[0]
+}
+
+// http2Directive reports whether nginx takes "http2 on;" (1.25.1 and
+// later) rather than "listen ... http2", which it deprecates.
+func (st *Sites) http2Directive() bool {
+	parts := strings.SplitN(nginxVersion(st.Root), ".", 3)
+	if len(parts) < 3 {
+		return false
+	}
+	major, _ := strconv.Atoi(parts[0])
+	minor, _ := strconv.Atoi(parts[1])
+	patch, _ := strconv.Atoi(strings.TrimRightFunc(parts[2], func(r rune) bool { return r < '0' || r > '9' }))
+	return major > 1 || major == 1 && (minor > 25 || minor == 25 && patch >= 1)
 }
 
 func (st *Sites) unitActive(ctx context.Context, unit string) bool {
@@ -470,14 +509,23 @@ func (st *Sites) ensureDirs(log io.Writer, spec helperapi.SiteSpec) error {
 
 // site rendering ---------------------------------------------------------
 
-var siteTemplate = template.Must(template.New("site").Funcs(template.FuncMap{"join": strings.Join}).Parse(`# {{.Managed}}
-# Site {{.Code}} ({{.Type}})
-server {
-    listen 80;
-    listen [::]:80;
+// acmeLocation answers ACME HTTP-01 challenges from the shared webroot; it
+// is in every plain-HTTP server block, before anything that could take the
+// request.
+const acmeLocation = `# ACME HTTP-01 challenges, answered from the panel's webroot.
+location ^~ /.well-known/acme-challenge/ {
+    root ` + acmeWebroot + `;
+    default_type "text/plain";
+    try_files $uri =404;
+}`
+
+var siteTemplate = template.Must(template.New("site").Funcs(template.FuncMap{"join": strings.Join}).Parse(`
+{{- define "logs"}}
     server_name {{join .Domains " "}};
     access_log {{.LogDir}}/{{.Code}}.access.log cairn_json;
     error_log {{.LogDir}}/{{.Code}}.error.log warn;
+{{- end}}
+{{- define "body"}}
 {{- if not .Enabled}}
 
     # The site is stopped.
@@ -530,7 +578,45 @@ server {
     }
 {{- end}}
 {{- end}}
+{{- end -}}
+# {{.Managed}}
+# Site {{.Code}} ({{.Type}})
+server {
+    listen 80;
+    listen [::]:80;
+{{- template "logs" .}}
+
+{{.ACMELocation}}
+{{- if and .TLS .TLS.Redirect}}
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+{{- else}}
+{{- template "body" .}}
+{{- end}}
 }
+{{- if .TLS}}
+
+server {
+    listen 443 ssl{{if not .HTTP2On}} http2{{end}};
+    listen [::]:443 ssl{{if not .HTTP2On}} http2{{end}};
+{{- if .HTTP2On}}
+    http2 on;
+{{- end}}
+{{- template "logs" .}}
+    ssl_certificate {{.CertDir}}/{{.TLS.Cert}}.crt;
+    ssl_certificate_key {{.CertDir}}/{{.TLS.Cert}}.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:cairn_tls:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+{{- if .TLS.HSTS}}
+    add_header Strict-Transport-Security "max-age=31536000" always;
+{{- end}}
+{{- template "body" .}}
+}
+{{- end}}
 `))
 
 var poolTemplate = template.Must(template.New("pool").Parse(`; {{.Managed}}
@@ -619,7 +705,8 @@ func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM) ([]byte, []by
 	data := map[string]any{
 		"Managed": siteManaged, "Code": spec.Code, "Type": spec.Type, "Domains": spec.Domains, "LogDir": nginxLogDir,
 		"Enabled": spec.Enabled, "WebRoot": path.Join(dir, "app", spec.Root), "Index": index, "Rewrite": spec.Rewrite,
-		"RewriteBody": "", "Socket": "", "Proxy": nil,
+		"RewriteBody": "", "Socket": "", "Proxy": nil, "TLS": spec.TLS, "HTTP2On": st.http2Directive(),
+		"CertDir": nginxCertDir, "ACMELocation": indent(acmeLocation),
 	}
 	if spec.Type == helperapi.SiteProxy {
 		data["Proxy"] = spec.Proxy
@@ -681,6 +768,24 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		}
 		fpm = o.FPM
 	}
+	var certFiles []fileChange
+	if spec.TLS != nil {
+		info, ok := readCertInfo(st.Root, spec.TLS.Cert)
+		if !ok {
+			return nil, siteErr(helperapi.CodeSiteCertMissing, map[string]any{"cert": spec.TLS.Cert})
+		}
+		if miss := uncovered(spec.Domains, info.Domains); len(miss) > 0 {
+			return nil, siteErr(helperapi.CodeSiteCertCoverage, map[string]any{"cert": spec.TLS.Cert, "domains": strings.Join(miss, " ")})
+		}
+		certPEM, keyPEM, err := readCertFiles(st.Root, spec.TLS.Cert)
+		if err != nil {
+			return nil, siteErr(helperapi.CodeSiteCertMissing, map[string]any{"cert": spec.TLS.Cert})
+		}
+		certFiles = []fileChange{
+			{path: path.Join(nginxCertDir, spec.TLS.Cert+".crt"), data: certPEM},
+			{path: path.Join(nginxCertDir, spec.TLS.Cert+".key"), data: keyPEM, mode: 0o600},
+		}
+	}
 	conf, pool, err := st.render(spec, fpm)
 	if err != nil {
 		return nil, err
@@ -699,10 +804,9 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		return nil, err
 	}
 
-	changes := []fileChange{
-		{path: path.Join(nginxConfD, "cairn.conf"), data: []byte(globalNginx)},
-		{path: siteConfPath(spec.Code), data: conf},
-	}
+	changes := append(certFiles,
+		fileChange{path: path.Join(nginxConfD, "cairn.conf"), data: []byte(globalNginx)},
+		fileChange{path: siteConfPath(spec.Code), data: conf})
 	checks := []configCheck{}
 	reloads := []reloader{}
 	// The pool of a previous PHP line goes away when the line changes.

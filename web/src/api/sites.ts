@@ -11,6 +11,16 @@ export const SITE_TYPES: readonly SiteType[] = ['static', 'php', 'proxy']
 
 export type SiteState = 'applying' | 'active' | 'failed'
 
+/** HTTPS of a site: a stored certificate covering every domain. */
+export interface SiteTls {
+  /** Certificate id. */
+  cert: string
+  /** Send HTTP visitors to HTTPS. */
+  redirect?: boolean
+  /** Tell browsers to use HTTPS only (they remember it). */
+  hsts?: boolean
+}
+
 export interface ProxySpec {
   /** Upstream, http(s)://host[:port][/path]. */
   url: string
@@ -35,6 +45,7 @@ export interface SiteRequest {
   /** Directories (relative) the runtime user may write. */
   writable?: string[]
   proxy?: ProxySpec
+  tls?: SiteTls
 }
 
 export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>> {
@@ -45,6 +56,7 @@ export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>
   php?: string
   writable?: string[]
   proxy?: ProxySpec
+  tls?: SiteTls
   /** False keeps the site configured but answering 503. */
   enabled: boolean
   state: SiteState
@@ -152,5 +164,6 @@ export function requestOf(site: SiteView): SiteRequest {
     php: site.php,
     writable: site.writable,
     proxy: site.proxy,
+    tls: site.tls,
   }
 }

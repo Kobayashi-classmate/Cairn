@@ -53,7 +53,16 @@
       "proxy_fields": "A reverse proxy cannot have a web root, PHP, rewrite rules, index files or writable directories.",
       "static_fields": "A static site cannot have PHP or writable directories.",
       "line": "{field} is not a valid version line.",
-      "integer": "{field} must be a whole number."
+      "integer": "{field} must be a whole number.",
+      "cert_id": "{field} is not a valid certificate.",
+      "wildcard_needs_dns": "Wildcard names need DNS validation (DNS-01) and a DNS account.",
+      "https_url": "{field} must be an https:// address.",
+      "pem": "{field} must be in PEM format.",
+      "custom_fields": "Only the custom CA takes a directory URL and a root certificate.",
+      "pair": "{field}: enter both values or neither.",
+      "printable": "{field} may contain only printable characters.",
+      "max": "{field} is too long.",
+      "size": "{field} is too large."
     }
   },
   "locale": {
@@ -146,7 +155,16 @@
       "code_taken": "The site code {code} is already used.",
       "config_invalid": "The {check} check refused the new configuration. Nothing was changed.",
       "reload_failed": "Reloading {service} failed; the previous configuration was restored.",
-      "rewrite_unknown": "The rewrite rule {rewrite} does not exist or does not fit this site type."
+      "rewrite_unknown": "The rewrite rule {rewrite} does not exist or does not fit this site type.",
+      "cert_missing": "Certificate {cert} is not stored on this server.",
+      "cert_coverage": "Certificate {cert} does not cover {domains}."
+    },
+    "cert": {
+      "invalid": "The certificate or key is not valid: {reason}",
+      "domains_not_covered": "The certificate does not cover {domains} of site {site}."
+    },
+    "dns": {
+      "account_in_use": "Certificates still validate through this DNS account: {certs}."
     }
   },
   "software": {
@@ -161,6 +179,26 @@
     "config_invalid": "nginx or PHP-FPM refused the new configuration. Nothing was changed.",
     "reload_failed": "Reloading the web server failed; the previous configuration was restored.",
     "not_found": "The site does not exist.",
-    "rewrite_unknown": "The rewrite rule does not exist or does not fit this site type."
+    "rewrite_unknown": "The rewrite rule does not exist or does not fit this site type.",
+    "cert_missing": "The site's certificate is not stored on this server.",
+    "cert_coverage": "The certificate does not cover every domain of the site."
+  },
+  "cert": {
+    "not_found": "The certificate does not exist.",
+    "in_use": "The certificate is still used by sites or by the panel. Switch them to another certificate first.",
+    "invalid": "The certificate or key is not valid.",
+    "expired": "The certificate has expired.",
+    "acme_failed": "The certificate authority refused the request, or the validation failed.",
+    "account_failed": "The account could not be registered with the certificate authority.",
+    "http01_unavailable": "HTTP validation is not possible: nginx is not running and port 80 is in use.",
+    "domains_not_covered": "The certificate does not cover every domain of the site.",
+    "not_acme": "Only certificates issued through ACME can be renewed.",
+    "not_valid": "Only valid certificates can be used."
+  },
+  "dns": {
+    "credentials_invalid": "The DNS provider did not accept the credentials.",
+    "request_failed": "The request to the DNS provider failed.",
+    "account_not_found": "The DNS account does not exist.",
+    "account_in_use": "Certificates still validate through this DNS account."
   }
 }

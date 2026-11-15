@@ -18,7 +18,9 @@ import {
   type FormItemRule,
   type FormRules,
 } from 'naive-ui'
+import type { CertView } from '@/api/certs'
 import { SITE_TYPES, type RewriteRule, type SiteRequest, type SiteType, type SiteView } from '@/api/sites'
+import { certCovers } from '@/certs/labels'
 import { checkRule, listRule, requiredListRule, requiredRule } from '@/forms/rules'
 import { validationMessage } from '@/i18n/errors'
 import { rewriteLabel } from '@/sites/labels'
@@ -46,6 +48,8 @@ const props = defineProps<{
   /** Installed PHP lines with PHP-FPM. */
   phpLines: string[]
   rewrites: RewriteRule[]
+  /** Valid certificates for HTTPS; null hides the HTTPS section (no access to certificates). */
+  certs?: CertView[] | null
   disabled?: boolean
 }>()
 
@@ -64,6 +68,9 @@ const form = reactive({
   proxyUrl: '',
   webSocket: false,
   upstreamHost: false,
+  tlsCert: null as string | null,
+  tlsRedirect: true,
+  tlsHsts: false,
 })
 
 function reset() {
@@ -80,6 +87,9 @@ function reset() {
     proxyUrl: site?.proxy?.url ?? '',
     webSocket: site?.proxy?.webSocket ?? false,
     upstreamHost: site?.proxy?.upstreamHost ?? false,
+    tlsCert: site?.tls?.cert ?? null,
+    tlsRedirect: site?.tls ? site.tls.redirect === true : true,
+    tlsHsts: site?.tls?.hsts === true,
   })
   formRef.value?.restoreValidation()
 }
@@ -96,6 +106,18 @@ function onType(type: SiteType) {
   // A rewrite rule fits some types only.
   if (form.rewrite && !rewriteOptions.value.some((o) => o.value === form.rewrite)) form.rewrite = null
   formRef.value?.restoreValidation()
+}
+
+/** Certificates whose names cover every domain of the site (a wildcard covers one label). */
+const certOptions = computed(() => [
+  { value: '', label: t('sites.form.noTls') },
+  ...(props.certs ?? [])
+    .filter((cert) => form.domains.length > 0 && certCovers(cert, form.domains))
+    .map((cert) => ({ value: cert.id, label: `${cert.name} (${cert.domains.join(', ')})` })),
+])
+
+function onCert(value: string) {
+  form.tlsCert = value || null
 }
 
 const isProxy = computed(() => form.type === 'proxy')
@@ -135,6 +157,14 @@ const rules = computed<FormRules>(() => {
   const list: FormRules = {
     domains: [requiredListRule('domains'), listRule('domains', 'host', isSiteHost), maxRule('domains', MAX_DOMAINS)],
     code: [checkRule('siteCode', 'site_code', isSiteCode)],
+    tlsCert: [
+      {
+        trigger: 'change',
+        // The chosen certificate must still cover the domains after they changed.
+        validator: () => !form.tlsCert || certOptions.value.some((o) => o.value === form.tlsCert),
+        renderMessage: () => t('sites.form.certNotCovering'),
+      },
+    ],
   }
   if (form.type === 'proxy') {
     list.proxyUrl = [requiredRule('proxy'), checkRule('proxy', 'url', isProxyUrl)]
@@ -161,6 +191,14 @@ async function collect(): Promise<SiteRequest | null> {
   }
   const request: SiteRequest = { type: form.type, domains: form.domains }
   if (props.mode === 'create' && form.code.trim()) request.code = form.code.trim()
+  if (form.tlsCert) {
+    request.tls = { cert: form.tlsCert }
+    if (form.tlsRedirect) request.tls.redirect = true
+    if (form.tlsHsts) request.tls.hsts = true
+  } else if (!props.certs && props.initial?.tls) {
+    // Without access to certificates, keep the HTTPS settings as they are.
+    request.tls = props.initial.tls
+  }
   if (form.type === 'proxy') {
     request.proxy = { url: form.proxyUrl.trim() }
     if (form.webSocket) request.proxy.webSocket = true
@@ -276,6 +314,32 @@ defineExpose({ collect, reset })
         </div>
       </NFormItem>
     </template>
+
+    <template v-if="certs">
+      <div class="section">{{ t('sites.form.https') }}</div>
+      <NFormItem path="tlsCert" :label="t('sites.form.certificate')">
+        <div class="field">
+          <NSelect :value="form.tlsCert ?? ''" :options="certOptions" @update:value="onCert" />
+          <NText depth="3" class="hint">{{ t('sites.form.certHint') }}</NText>
+        </div>
+      </NFormItem>
+      <div v-if="form.tlsCert" class="switches">
+        <label class="switch">
+          <NSwitch v-model:value="form.tlsRedirect" />
+          <span>
+            {{ t('sites.form.redirect') }}
+            <NText depth="3" tag="div" class="hint">{{ t('sites.form.redirectHint') }}</NText>
+          </span>
+        </label>
+        <label class="switch">
+          <NSwitch v-model:value="form.tlsHsts" />
+          <span>
+            {{ t('sites.form.hsts') }}
+            <NText depth="3" tag="div" class="hint">{{ t('sites.form.hstsHint') }}</NText>
+          </span>
+        </label>
+      </div>
+    </template>
   </NForm>
 </template>
 
@@ -314,6 +378,13 @@ defineExpose({ collect, reset })
 
 .hint {
   font-size: 12px;
+}
+
+.section {
+  margin-block: 8px 12px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid rgb(128 128 128 / 15%);
+  font-weight: 600;
 }
 
 .switches {

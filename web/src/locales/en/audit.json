@@ -15,7 +15,9 @@
     "job": "Tasks",
     "module": "Modules",
     "setup": "Setup",
-    "site": "Sites"
+    "site": "Sites",
+    "cert": "Certificates",
+    "dns": "DNS"
   },
   "column": {
     "time": "Time",
@@ -105,6 +107,20 @@
       "start": "Started site {site}",
       "stop": "Stopped site {site}",
       "delete": "Deleted site {site}"
+    },
+    "cert": {
+      "issue": "Requested a certificate for {domains}",
+      "renew": "Requested the renewal of certificate {name}",
+      "upload": "Uploaded certificate {name}",
+      "update": "Changed certificate {name}",
+      "delete": "Deleted certificate {name}",
+      "panel": "Changed the panel certificate to {name}",
+      "settings": "Changed the ACME settings"
+    },
+    "dns": {
+      "account_create": "Added DNS account {name} ({provider})",
+      "account_update": "Changed DNS account {name} ({provider})",
+      "account_delete": "Deleted DNS account {name} ({provider})"
     }
   }
 }

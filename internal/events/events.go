@@ -49,10 +49,14 @@ const (
 	UsersChange          = "users.change"
 	SystemTest           = "system.test"
 	CloudAnnouncement    = "cloud.announcement"
+	// CertRenewFailed: an automatic renewal failed; CertExpiring: a
+	// certificate in use expires within a week.
+	CertRenewFailed = "cert.renew_failed"
+	CertExpiring    = "cert.expiring"
 )
 
 // Categories are the prefixes a notification channel can subscribe to.
-var Categories = []string{"security.", "users.", "system.", "cloud."}
+var Categories = []string{"security.", "users.", "system.", "cloud.", "cert."}
 
 // Event is something that happened.
 type Event struct {

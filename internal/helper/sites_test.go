@@ -228,7 +228,7 @@ func TestSiteCheckFailureRestoresEverything(t *testing.T) {
 	op, log = e.run(helperapi.ActionSiteApply, spec)
 	conf := e.read("/etc/nginx/cairn/sites/shop.conf")
 	if op.State != helperapi.OpSucceeded || !strings.Contains(conf, "proxy_pass http://127.0.0.1:3000;") ||
-		!strings.Contains(conf, "Connection $cairn_connection_upgrade") || strings.Contains(conf, "root ") {
+		!strings.Contains(conf, "Connection $cairn_connection_upgrade") || strings.Contains(conf, "root /srv/www") {
 		t.Fatalf("proxy: %+v\n%s\n%s", op.Error, log, conf)
 	}
 }

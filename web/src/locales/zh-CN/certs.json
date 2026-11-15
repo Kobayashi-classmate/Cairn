@@ -1,0 +1,106 @@
+{
+  "title": "证书",
+  "detail": {
+    "title": "证书",
+    "rename": "重命名",
+    "renew": "立即续期",
+    "failed": "签发失败",
+    "renewalFailed": "最近一次续期失败",
+    "validity": "有效期",
+    "issuer": "颁发者",
+    "serial": "序列号",
+    "fingerprint": "指纹（SHA-256）",
+    "chain": "证书链",
+    "chainIssuer": "由 {issuer} 签发，有效期至 {date}",
+    "unused": "未被使用"
+  },
+  "tabs": {
+    "certs": "证书",
+    "dns": "DNS 账号",
+    "acme": "ACME 设置"
+  },
+  "ca": {
+    "letsencrypt": "Let's Encrypt",
+    "letsencrypt-staging": "Let's Encrypt（测试环境）",
+    "zerossl": "ZeroSSL",
+    "google": "Google Trust Services",
+    "custom": "自定义 ACME 颁发机构"
+  },
+  "source": {
+    "upload": "已上传"
+  },
+  "column": {
+    "source": "来源",
+    "expires": "到期",
+    "autoRenew": "自动续期",
+    "usedBy": "使用者",
+    "state": "状态"
+  },
+  "state": {
+    "issuing": "签发中",
+    "valid": "有效",
+    "failed": "失败",
+    "expired": "已过期",
+    "renewalFailed": "续期失败"
+  },
+  "panelTag": "面板",
+  "statusUnavailable": "面板无法检查哪些网站在使用这些证书。",
+  "empty": {
+    "title": "还没有证书",
+    "text": "可以从 Let's Encrypt 等 ACME 证书颁发机构免费签发证书，也可以上传已有的证书。之后网站和面板本身都能通过 HTTPS 提供服务。"
+  },
+  "issue": {
+    "title": "签发证书",
+    "submit": "签发",
+    "domainsHint": "每输入一个名称按回车。通配符（*.example.com）需要 DNS 验证；不支持 IP 地址。",
+    "caNotReady": "{ca}（请先在 ACME 设置中配置）",
+    "agreement": "签发证书即表示接受该证书颁发机构的订户协议。",
+    "agreementLink": "查看协议",
+    "addAccount": "添加 DNS 账号",
+    "autoRenew": "自动续期",
+    "advanced": "高级选项"
+  },
+  "challenge": {
+    "http01": "HTTP 验证（HTTP-01）",
+    "http01Hint": "域名必须解析到这台服务器，并且 80 端口能从互联网访问。",
+    "dns01": "DNS 验证（DNS-01）",
+    "dns01Hint": "适用于通配符证书和无法通过 80 端口访问的服务器；需要 DNS 服务商的账号。"
+  },
+  "keyType": {
+    "ec256": "ECDSA P-256（推荐）",
+    "ec384": "ECDSA P-384",
+    "rsa2048": "RSA 2048",
+    "rsa4096": "RSA 4096"
+  },
+  "upload": {
+    "title": "上传证书",
+    "submit": "上传",
+    "intro": "粘贴 PEM 格式的证书链（先是证书本身，再是中间证书）及其私钥，或选择文件。"
+  },
+  "delete": {
+    "title": "删除证书 {name}？",
+    "content": "将从这台服务器上删除该证书及其私钥。删除前请确认网站和面板都没有在使用它。"
+  },
+  "acme": {
+    "intro": "证书从 ACME 证书颁发机构申请。联系邮箱会收到颁发机构发出的到期和账号通知。",
+    "emailHint": "可选，但建议填写。",
+    "ready": "可用",
+    "notReady": "未配置",
+    "customIntro": "自建的 ACME 颁发机构，例如 step-ca。根证书只用于信任该颁发机构自身的 HTTPS 地址。",
+    "rootHint": "为该颁发机构 HTTPS 地址签名的根证书（PEM）。",
+    "eabIntro": "该颁发机构需要外部账号绑定（EAB）：请在颁发机构的账号中创建 EAB 凭据并填写在这里。",
+    "eabKid": "EAB 密钥 ID",
+    "eabHmac": "EAB HMAC 密钥",
+    "clearHmac": "移除已保存的 HMAC 密钥"
+  },
+  "panel": {
+    "title": "面板证书",
+    "selfSigned": "自签名证书",
+    "current": "面板当前使用 {name}。",
+    "currentSelfSigned": "面板当前使用自己的自签名证书。",
+    "view": "查看",
+    "apply": "使用此证书",
+    "openBy": "之后请通过 {domain} 打开面板，浏览器才会接受该证书。",
+    "noRestart": "无需重启：面板会在几秒内启用新证书。"
+  }
+}

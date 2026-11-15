@@ -14,6 +14,7 @@
     "auditlog": "审计日志",
     "notifications": "通知",
     "cloud": "云服务",
-    "sites": "网站"
+    "sites": "网站",
+    "certs": "证书"
   }
 }

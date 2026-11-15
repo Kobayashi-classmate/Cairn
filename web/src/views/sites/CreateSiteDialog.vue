@@ -7,6 +7,7 @@ import { NAlert, NButton, NModal } from 'naive-ui'
 import { isStepUpRequired } from '@/api/client'
 import type { Job } from '@/api/jobs'
 import { createSite, type RewriteRule } from '@/api/sites'
+import { useCertChoices } from '@/certs/useCertChoices'
 import JobProgress from '@/components/JobProgress.vue'
 import { errorMessage } from '@/i18n/errors'
 import SiteForm from './SiteForm.vue'
@@ -17,6 +18,7 @@ const emit = defineEmits<{ changed: [] }>()
 
 const { t } = useI18n()
 const router = useRouter()
+const { certs, reload: reloadCerts } = useCertChoices()
 
 const formRef = ref<InstanceType<typeof SiteForm> | null>(null)
 const submitting = ref(false)
@@ -31,6 +33,7 @@ watch(show, (open) => {
   jobId.value = null
   finished.value = null
   formRef.value?.reset()
+  void reloadCerts()
 })
 
 async function submit() {
@@ -69,7 +72,14 @@ async function openSite() {
 <template>
   <NModal v-model:show="show" preset="card" :title="t('sites.create.title')" class="site-dialog">
     <template v-if="!jobId">
-      <SiteForm ref="formRef" mode="create" :php-lines="phpLines" :rewrites="rewrites" :disabled="submitting" />
+      <SiteForm
+        ref="formRef"
+        mode="create"
+        :php-lines="phpLines"
+        :rewrites="rewrites"
+        :certs="certs"
+        :disabled="submitting"
+      />
       <NAlert v-if="error" type="error" class="block">{{ errorMessage(error) }}</NAlert>
       <div class="actions">
         <NButton :disabled="submitting" @click="show = false">{{ t('common.action.cancel') }}</NButton>

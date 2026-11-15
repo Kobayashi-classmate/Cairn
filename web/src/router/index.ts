@@ -62,6 +62,18 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'sites.detail.title', navKey: 'sites', permission: 'sites.read' },
       },
       {
+        path: 'certs',
+        name: 'certs',
+        component: () => import('@/views/CertsView.vue'),
+        meta: { titleKey: 'certs.title', navKey: 'certs', permission: 'certs.read' },
+      },
+      {
+        path: 'certs/:id',
+        name: 'cert',
+        component: () => import('@/views/certs/CertDetailView.vue'),
+        meta: { titleKey: 'certs.detail.title', navKey: 'certs', permission: 'certs.read' },
+      },
+      {
         path: 'software',
         name: 'software',
         component: () => import('@/views/SoftwareView.vue'),

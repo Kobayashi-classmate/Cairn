@@ -1,0 +1,44 @@
+{
+  "intro": "Accounts at DNS providers, used to prove that you control a domain through DNS (DNS-01). DNS record management will use them too.",
+  "provider": "Provider",
+  "usedBy": "{count} certificate | {count} certificates",
+  "empty": "No DNS accounts yet.",
+  "dialog": {
+    "createTitle": "Add DNS account",
+    "editTitle": "Edit DNS account",
+    "providerSite": "{name} website",
+    "optional": "{field} (optional)",
+    "secretStored": "Stored — leave empty to keep"
+  },
+  "test": {
+    "button": "Test",
+    "title": "Test {name}",
+    "intro": "Lists the records of one zone with these credentials. Nothing is changed.",
+    "zonePlaceholder": "example.com",
+    "ok": "Found {count} record in {zone}. | Found {count} records in {zone}."
+  },
+  "delete": {
+    "title": "Delete DNS account {name}?",
+    "content": "Certificates that validate through this account could then no longer be renewed.",
+    "done": "{name} was deleted."
+  },
+  "field": {
+    "api_token": "API token",
+    "secret_id": "Secret ID",
+    "access_key_id": "Access key ID",
+    "server": "Server",
+    "key_name": "Key name",
+    "key_alg": "Key algorithm",
+    "region_id": "Region ID",
+    "username": "Username",
+    "api_password": "API password",
+    "api_key": "API key",
+    "api_secret": "API secret",
+    "zone_token": "Zone token",
+    "region": "Region",
+    "secret_key": "Secret key",
+    "secret_access_key": "Secret access key",
+    "access_key_secret": "Access key secret",
+    "key": "Key"
+  }
+}

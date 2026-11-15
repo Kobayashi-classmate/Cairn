@@ -101,6 +101,9 @@ type siteRequest struct {
 	PHP      string               `json:"php,omitempty"`
 	Writable []string             `json:"writable,omitempty"`
 	Proxy    *helperapi.ProxySpec `json:"proxy,omitempty"`
+	// TLS serves the site over HTTPS with a certificate (certs module); the
+	// helper checks that it covers every domain.
+	TLS *helperapi.SiteTLS `json:"tls,omitempty"`
 }
 
 type siteView struct {
@@ -260,7 +263,7 @@ func deriveCode(domain string) string {
 // spec turns a request into a complete spec and checks it.
 func (m *Module) spec(req siteRequest, code string, enabled bool) (helperapi.SiteSpec, error) {
 	s := helperapi.SiteSpec{Code: code, Type: req.Type, Root: req.Root, Index: req.Index, Rewrite: req.Rewrite,
-		PHP: req.PHP, Writable: req.Writable, Proxy: req.Proxy, Enabled: enabled}
+		PHP: req.PHP, Writable: req.Writable, Proxy: req.Proxy, TLS: req.TLS, Enabled: enabled}
 	for _, d := range req.Domains {
 		s.Domains = append(s.Domains, strings.ToLower(strings.TrimSpace(d)))
 	}

@@ -31,6 +31,13 @@
       "start": "启动网站 {site}",
       "stop": "停用网站 {site}",
       "delete": "删除网站 {site}"
+    },
+    "cert": {
+      "issue": "签发证书 {name}",
+      "renew": "续期证书 {name}",
+      "upload": "上传证书 {name}",
+      "delete": "删除证书 {name}",
+      "panel": "更换面板证书"
     }
   },
   "detail": {
@@ -56,6 +63,12 @@
       "start": "启动网站",
       "stop": "停用网站",
       "delete": "删除网站"
+    },
+    "cert": {
+      "issue": "签发证书",
+      "renew": "续期证书",
+      "upload": "上传证书",
+      "delete": "删除证书"
     }
   }
 }

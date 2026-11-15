@@ -33,6 +33,10 @@
     "cloud": {
       "label": "官方消息",
       "description": "Cairn 项目发布的消息。"
+    },
+    "cert": {
+      "label": "证书",
+      "description": "续期失败和即将过期的证书。"
     }
   },
   "event": {
@@ -50,6 +54,10 @@
     },
     "cloud": {
       "announcement": "官方消息"
+    },
+    "cert": {
+      "renew_failed": "证书续期失败",
+      "expiring": "证书即将过期"
     }
   },
   "channel": {

@@ -9,14 +9,18 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 )
 
@@ -101,4 +105,86 @@ func writePEM(path, typ string, der []byte, mode os.FileMode) error {
 		return errors.Join(err, f.Close(), os.Remove(path))
 	}
 	return f.Close()
+}
+
+// Holder serves the panel's certificate: the one the root helper deployed
+// for it (panel.crt and panel.key in the TLS directory) when present, the
+// self-signed one otherwise. It notices new files within a few seconds,
+// so a new or renewed certificate needs no restart.
+type Holder struct {
+	dir               string
+	selfCert, selfKey string
+	mu                sync.Mutex
+	cert              *tls.Certificate
+	stamp             string
+	checked           time.Time
+	CheckEvery        time.Duration
+}
+
+// NewHolder prepares the self-signed certificate in dir and loads the
+// current one.
+func NewHolder(dir string) (*Holder, error) {
+	certFile, keyFile, err := EnsureSelfSigned(dir)
+	if err != nil {
+		return nil, err
+	}
+	h := &Holder{dir: dir, selfCert: certFile, selfKey: keyFile, CheckEvery: 5 * time.Second}
+	if err := h.Reload(); err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// Files returns the certificate and key files in use.
+func (h *Holder) Files() (string, string) {
+	c, k := filepath.Join(h.dir, "panel.crt"), filepath.Join(h.dir, "panel.key")
+	if exists(c) && exists(k) {
+		return c, k
+	}
+	return h.selfCert, h.selfKey
+}
+
+func stampOf(files ...string) string {
+	var b strings.Builder
+	for _, f := range files {
+		if st, err := os.Stat(f); err == nil {
+			fmt.Fprintf(&b, "%s:%d:%d;", f, st.Size(), st.ModTime().UnixNano())
+		}
+	}
+	return b.String()
+}
+
+// Reload loads the certificate in use now. A deployed certificate that
+// does not load (a half-written file) keeps the previous one.
+func (h *Holder) Reload() error {
+	certFile, keyFile := h.Files()
+	stamp := stampOf(certFile, keyFile)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.checked = time.Now()
+	if stamp == h.stamp && h.cert != nil {
+		return nil
+	}
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+	if err != nil {
+		if h.cert != nil {
+			return nil
+		}
+		return err
+	}
+	h.cert, h.stamp = &cert, stamp
+	return nil
+}
+
+// GetCertificate implements tls.Config.GetCertificate.
+func (h *Holder) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	h.mu.Lock()
+	due := time.Since(h.checked) > h.CheckEvery
+	h.mu.Unlock()
+	if due {
+		_ = h.Reload()
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.cert, nil
 }

@@ -108,7 +108,9 @@ func run(cfgPath, account string, log *slog.Logger) error {
 		return err
 	}
 	helper.RegisterSoftware(reg, ops, software)
-	helper.RegisterSites(reg, ops, siteEngine(software))
+	sites := siteEngine(software)
+	helper.RegisterSites(reg, ops, sites)
+	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: sites, PanelUser: "cairn", Resolvers: cfg.ACME.Resolvers})
 	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,

@@ -1,0 +1,106 @@
+{
+  "title": "Certificates",
+  "detail": {
+    "title": "Certificate",
+    "rename": "Rename",
+    "renew": "Renew now",
+    "failed": "Issuing failed",
+    "renewalFailed": "The last renewal failed",
+    "validity": "Valid",
+    "issuer": "Issuer",
+    "serial": "Serial number",
+    "fingerprint": "Fingerprint (SHA-256)",
+    "chain": "Certificate chain",
+    "chainIssuer": "Issued by {issuer}, valid until {date}",
+    "unused": "Not used"
+  },
+  "tabs": {
+    "certs": "Certificates",
+    "dns": "DNS accounts",
+    "acme": "ACME settings"
+  },
+  "ca": {
+    "letsencrypt": "Let's Encrypt",
+    "letsencrypt-staging": "Let's Encrypt (staging)",
+    "zerossl": "ZeroSSL",
+    "google": "Google Trust Services",
+    "custom": "Custom ACME CA"
+  },
+  "source": {
+    "upload": "Uploaded"
+  },
+  "column": {
+    "source": "Source",
+    "expires": "Expires",
+    "autoRenew": "Auto-renew",
+    "usedBy": "Used by",
+    "state": "Status"
+  },
+  "state": {
+    "issuing": "Issuing",
+    "valid": "Valid",
+    "failed": "Failed",
+    "expired": "Expired",
+    "renewalFailed": "Renewal failed"
+  },
+  "panelTag": "Panel",
+  "statusUnavailable": "The panel could not check which sites use the certificates.",
+  "empty": {
+    "title": "No certificates yet",
+    "text": "Issue a free certificate from an ACME certificate authority such as Let's Encrypt, or upload one you already have. Sites and the panel itself can then serve HTTPS."
+  },
+  "issue": {
+    "title": "Issue certificate",
+    "submit": "Issue",
+    "domainsHint": "Press Enter after each name. Wildcards (*.example.com) need DNS validation; IP addresses are not allowed.",
+    "caNotReady": "{ca} (set it up under ACME settings first)",
+    "agreement": "Issuing a certificate means accepting the certificate authority's subscriber agreement.",
+    "agreementLink": "Read the agreement",
+    "addAccount": "Add a DNS account",
+    "autoRenew": "Renew automatically",
+    "advanced": "Advanced"
+  },
+  "challenge": {
+    "http01": "HTTP validation (HTTP-01)",
+    "http01Hint": "The domains must point at this server, and port 80 must be reachable from the internet.",
+    "dns01": "DNS validation (DNS-01)",
+    "dns01Hint": "Works for wildcards and for servers that are not reachable on port 80; needs an account at your DNS provider."
+  },
+  "keyType": {
+    "ec256": "ECDSA P-256 (recommended)",
+    "ec384": "ECDSA P-384",
+    "rsa2048": "RSA 2048",
+    "rsa4096": "RSA 4096"
+  },
+  "upload": {
+    "title": "Upload certificate",
+    "submit": "Upload",
+    "intro": "Paste the PEM certificate chain (the certificate first, then the intermediate certificates) and its private key, or choose the files."
+  },
+  "delete": {
+    "title": "Delete certificate {name}?",
+    "content": "The certificate and its private key are removed from this server. Sites and the panel must not be using it."
+  },
+  "acme": {
+    "intro": "Certificates are requested from an ACME certificate authority. The contact address receives expiry and account notices from the CA.",
+    "emailHint": "Optional, but recommended.",
+    "ready": "Ready",
+    "notReady": "Not set up",
+    "customIntro": "An ACME CA you run yourself, for example step-ca. The root certificate is only used to trust the CA's own HTTPS address.",
+    "rootHint": "PEM of the root certificate that signs the CA's HTTPS address.",
+    "eabIntro": "This CA needs External Account Binding: create EAB credentials in your account at the CA and enter them here.",
+    "eabKid": "EAB key ID",
+    "eabHmac": "EAB HMAC key",
+    "clearHmac": "Remove the stored HMAC key"
+  },
+  "panel": {
+    "title": "Panel certificate",
+    "selfSigned": "Self-signed certificate",
+    "current": "The panel serves {name}.",
+    "currentSelfSigned": "The panel serves its own self-signed certificate.",
+    "view": "View",
+    "apply": "Use this certificate",
+    "openBy": "Afterwards, open the panel at {domain} so the browser accepts the certificate.",
+    "noRestart": "No restart is needed: the panel picks up the new certificate within a few seconds."
+  }
+}

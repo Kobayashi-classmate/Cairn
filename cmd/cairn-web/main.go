@@ -33,6 +33,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
+	certsmod "github.com/Kobayashi-classmate/Cairn/internal/modules/certs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
@@ -84,7 +85,7 @@ func run(cfgPath string, log *slog.Logger) error {
 	if err := store.Migrate(ctx, db); err != nil {
 		return err
 	}
-	certFile, keyFile, err := tlsutil.EnsureSelfSigned(filepath.Join(cfg.Paths.DataDir, "tls"))
+	tlsHolder, err := tlsutil.NewHolder(filepath.Join(cfg.Paths.DataDir, "tls"))
 	if err != nil {
 		return err
 	}
@@ -126,6 +127,9 @@ func run(cfgPath string, log *slog.Logger) error {
 	}
 	go cloudMod.Run(ctx)
 
+	certsMod := &certsmod.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Events: bus, TLS: tlsHolder, Log: log}
+	go certsMod.Run(ctx)
+
 	router := api.NewRouter(core.Authenticator(db), log)
 	registry := module.NewRegistry(db)
 	registry.Add(
@@ -133,6 +137,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		&system.Module{Metrics: collector},
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
 		&sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log},
+		certsMod,
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
@@ -155,7 +160,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		Handler:           api.SecurityHeaders(api.Recover(log, mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
-		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12},
+		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: tlsHolder.GetCertificate},
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}
 
@@ -168,7 +173,7 @@ func run(cfgPath string, log *slog.Logger) error {
 	}()
 
 	log.Info("cairn-web listening", "addr", cfg.Server.Listen, "version", buildinfo.Version)
-	err = srv.ListenAndServeTLS(certFile, keyFile)
+	err = srv.ListenAndServeTLS("", "")
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

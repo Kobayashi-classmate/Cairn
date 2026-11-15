@@ -12,7 +12,8 @@
     "messages": "Messages",
     "software": "Software",
     "jobs": "Tasks",
-    "sites": "Sites"
+    "sites": "Sites",
+    "certs": "Certificates"
   },
   "action": {
     "signOut": "Sign out",
@@ -69,7 +70,25 @@
     "php": "PHP version",
     "rewrite": "Rewrite rules",
     "kind": "Log type",
-    "offset": "Position"
+    "offset": "Position",
+    "ca": {
+      "self": "Certificate authority",
+      "directory": "ACME directory URL",
+      "eab": "EAB credentials",
+      "email": "Contact email",
+      "name": "Certificate authority",
+      "rootPem": "Root certificate"
+    },
+    "dnsAccount": "DNS account",
+    "keyType": "Key type",
+    "challenge": "Validation method",
+    "certPem": "Certificate (PEM)",
+    "keyPem": "Private key (PEM)",
+    "zone": "Zone",
+    "defaultCa": "Default CA",
+    "email": "Email",
+    "provider": "DNS provider",
+    "certificate": "Certificate"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -116,6 +135,10 @@
     "sites": {
       "read": "View sites",
       "manage": "Manage sites"
+    },
+    "certs": {
+      "read": "View certificates",
+      "manage": "Manage certificates"
     }
   },
   "copy": {

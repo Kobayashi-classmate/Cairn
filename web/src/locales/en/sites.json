@@ -73,7 +73,16 @@
     "rootPlaceholder": "public",
     "rootHint": "Relative to the site directory, for example public for Laravel. Leave it empty to serve the directory itself.",
     "indexHint": "File names tried when a directory is requested. Leave empty for the defaults.",
-    "writableHint": "Directories the site may write to, relative to the site directory (uploads, caches). Everything else stays read-only to it."
+    "writableHint": "Directories the site may write to, relative to the site directory (uploads, caches). Everything else stays read-only to it.",
+    "https": "HTTPS",
+    "certificate": "Certificate",
+    "noTls": "None (HTTP only)",
+    "certHint": "Only valid certificates that cover every domain of the site are listed.",
+    "certNotCovering": "The certificate does not cover every domain of the site.",
+    "redirect": "Redirect HTTP to HTTPS",
+    "redirectHint": "Visitors who come over HTTP are sent to HTTPS.",
+    "hsts": "HSTS",
+    "hstsHint": "Browsers then refuse plain HTTP for this site for a long time, even if HTTPS is turned off later. Turn it on only when HTTPS is meant to stay."
   },
   "settings": {
     "apply": "Apply changes"

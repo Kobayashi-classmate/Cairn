@@ -36,6 +36,8 @@ const (
 	CodeSiteReloadFailed  = "site.reload_failed"  // the reload failed; the previous configuration was restored
 	CodeSiteNotFound      = "site.not_found"
 	CodeSiteRewrite       = "site.rewrite_unknown"
+	CodeSiteCertMissing   = "site.cert_missing"  // the site's certificate is not stored
+	CodeSiteCertCoverage  = "site.cert_coverage" // the certificate does not cover a domain of the site
 )
 
 // MaxSiteDomains caps the domains of one site.
@@ -81,8 +83,18 @@ type SiteSpec struct {
 	// read-only to it.
 	Writable []string   `json:"writable,omitempty"`
 	Proxy    *ProxySpec `json:"proxy,omitempty"`
+	// TLS serves the site over HTTPS with a stored certificate.
+	TLS *SiteTLS `json:"tls,omitempty"`
 	// Enabled false keeps the site configured but answers 503.
 	Enabled bool `json:"enabled"`
+}
+
+// SiteTLS is a site's HTTPS: the certificate (which must cover every
+// domain of the site), whether plain HTTP redirects to HTTPS, and HSTS.
+type SiteTLS struct {
+	Cert     string `json:"cert"`
+	Redirect bool   `json:"redirect,omitempty"`
+	HSTS     bool   `json:"hsts,omitempty"`
 }
 
 func invalid(field, rule string) error {
@@ -198,6 +210,9 @@ func (s SiteSpec) Validate() error {
 	}
 	if s.Rewrite != "" && !softwareIDPattern.MatchString(s.Rewrite) {
 		return invalid("rewrite", "id")
+	}
+	if s.TLS != nil && !ValidCertID(s.TLS.Cert) {
+		return invalid("tls.cert", "cert_id")
 	}
 	switch s.Type {
 	case SiteProxy:

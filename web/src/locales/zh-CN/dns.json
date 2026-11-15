@@ -1,0 +1,44 @@
+{
+  "intro": "DNS 服务商的账号，用于通过 DNS 证明你控制某个域名（DNS-01）。之后的 DNS 记录管理也会使用它们。",
+  "provider": "服务商",
+  "usedBy": "{count} 个证书",
+  "empty": "还没有 DNS 账号。",
+  "dialog": {
+    "createTitle": "添加 DNS 账号",
+    "editTitle": "编辑 DNS 账号",
+    "providerSite": "{name} 官网",
+    "optional": "{field}（可选）",
+    "secretStored": "已保存，留空则保持不变"
+  },
+  "test": {
+    "button": "测试",
+    "title": "测试 {name}",
+    "intro": "使用这些凭据列出一个域名区域的记录，不会做任何修改。",
+    "zonePlaceholder": "example.com",
+    "ok": "在 {zone} 中找到 {count} 条记录。"
+  },
+  "delete": {
+    "title": "删除 DNS 账号 {name}？",
+    "content": "通过该账号验证的证书之后将无法续期。",
+    "done": "已删除 {name}。"
+  },
+  "field": {
+    "api_token": "API 令牌",
+    "secret_id": "SecretId",
+    "access_key_id": "AccessKey ID",
+    "server": "服务器",
+    "key_name": "密钥名称",
+    "key_alg": "密钥算法",
+    "region_id": "地域 ID",
+    "username": "用户名",
+    "api_password": "API 密码",
+    "api_key": "API 密钥",
+    "api_secret": "API Secret",
+    "zone_token": "区域令牌",
+    "region": "地域",
+    "secret_key": "SecretKey",
+    "secret_access_key": "Secret Access Key",
+    "access_key_secret": "AccessKey Secret",
+    "key": "密钥"
+  }
+}

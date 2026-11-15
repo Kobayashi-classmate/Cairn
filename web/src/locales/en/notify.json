@@ -33,6 +33,10 @@
     "cloud": {
       "label": "Official messages",
       "description": "Messages published by the Cairn project."
+    },
+    "cert": {
+      "label": "Certificates",
+      "description": "Failed renewals and certificates about to expire."
     }
   },
   "event": {
@@ -50,6 +54,10 @@
     },
     "cloud": {
       "announcement": "Official message"
+    },
+    "cert": {
+      "renew_failed": "Certificate renewal failed",
+      "expiring": "Certificate expiring"
     }
   },
   "channel": {

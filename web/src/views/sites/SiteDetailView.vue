@@ -29,6 +29,7 @@ import {
   type RewriteRule,
   type SiteView,
 } from '@/api/sites'
+import { useCertChoices } from '@/certs/useCertChoices'
 import JobProgress from '@/components/JobProgress.vue'
 import { useErrorToast } from '@/composables/useErrorToast'
 import { errorMessage, errorText } from '@/i18n/errors'
@@ -47,6 +48,7 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const showError = useErrorToast()
+const { certs } = useCertChoices()
 
 const code = computed(() => String(route.params.code ?? ''))
 const site = ref<SiteView | null>(null)
@@ -118,9 +120,10 @@ const rewriteName = computed(() => {
   return rule ? rewriteLabel(rule) : id
 })
 
-/** Domains that can be opened in a browser (wildcards cannot). */
+/** Domains that can be opened in a browser (wildcards cannot), over HTTPS when the site has it. */
 function domainUrl(domain: string): string | null {
-  return domain.startsWith('*.') ? null : `http://${domain}/`
+  if (domain.startsWith('*.')) return null
+  return `${site.value?.tls ? 'https' : 'http'}://${domain}/`
 }
 
 /** Starts a change job and follows it inline. */
@@ -176,6 +179,11 @@ const failureText = computed(() => {
   const errorCode = site.value?.errorCode
   return errorCode ? (errorText(errorCode) ?? errorCode) : ''
 })
+
+/** A certificate's name when it is in the list of choices, else its id. */
+function certName(id: string): string {
+  return certs.value?.find((cert) => cert.id === id)?.name ?? id
+}
 
 const notFound = computed(() => isApiError(loadError.value) && loadError.value.status === 404)
 </script>
@@ -285,6 +293,17 @@ const notFound = computed(() => isApiError(loadError.value) && loadError.value.s
                     </NTag>
                   </dd>
                 </template>
+                <dt>{{ t('sites.form.https') }}</dt>
+                <dd>
+                  <template v-if="site.tls">
+                    <RouterLink :to="{ name: 'cert', params: { id: site.tls.cert } }">{{ certName(site.tls.cert) }}</RouterLink>
+                    <NTag v-if="site.tls.redirect" size="small" :bordered="false" class="tag">
+                      {{ t('sites.form.redirect') }}
+                    </NTag>
+                    <NTag v-if="site.tls.hsts" size="small" :bordered="false" class="tag">HSTS</NTag>
+                  </template>
+                  <template v-else>{{ t('sites.form.noTls') }}</template>
+                </dd>
                 <dt>{{ t('sites.overview.created') }}</dt>
                 <dd>{{ formatDateTime(site.createdAt) }}</dd>
                 <dt>{{ t('sites.overview.updated') }}</dt>
@@ -304,6 +323,7 @@ const notFound = computed(() => isApiError(loadError.value) && loadError.value.s
                 :initial="site"
                 :php-lines="phpLines"
                 :rewrites="rewrites"
+                :certs="certs"
                 :disabled="applying"
               />
               <NAlert v-if="formError" type="error" class="block">{{ errorMessage(formError) }}</NAlert>

@@ -31,6 +31,13 @@
       "start": "Start site {site}",
       "stop": "Stop site {site}",
       "delete": "Delete site {site}"
+    },
+    "cert": {
+      "issue": "Issue certificate {name}",
+      "renew": "Renew certificate {name}",
+      "upload": "Upload certificate {name}",
+      "delete": "Delete certificate {name}",
+      "panel": "Change the panel certificate"
     }
   },
   "detail": {
@@ -56,6 +63,12 @@
       "start": "Start site",
       "stop": "Stop site",
       "delete": "Delete site"
+    },
+    "cert": {
+      "issue": "Issue certificate",
+      "renew": "Renew certificate",
+      "upload": "Upload certificate",
+      "delete": "Delete certificate"
     }
   }
 }

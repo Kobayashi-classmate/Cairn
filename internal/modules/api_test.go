@@ -34,6 +34,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
+	certsmod "github.com/Kobayashi-classmate/Cairn/internal/modules/certs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
@@ -56,6 +57,13 @@ type fakeHelper struct {
 	requests  map[string]json.RawMessage
 	responses map[string]any
 	errs      map[string]error // per-action failures
+}
+
+// callsOf returns the actions called so far.
+func (f *fakeHelper) callsOf() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
 }
 
 func (f *fakeHelper) called(action string) bool {
@@ -94,6 +102,7 @@ type env struct {
 	notifier *notify.Notifier
 	bus      *events.Bus
 	cloud    *cloudsvc.Module
+	certs    *certsmod.Module
 	modules  *module.Registry
 	jobs     *jobs.Manager
 }
@@ -141,6 +150,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 
 	router := api.NewRouter(core.Authenticator(db), log)
 	registry := module.NewRegistry(db)
+	certsMod := &certsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log}
 	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),
 		Log: log, Version: "0.1.0", Family: "debian", Format: "deb", Arch: "amd64"}
 	registry.Add(
@@ -149,6 +159,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log,
 			Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"},
 		&sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log},
+		certsMod,
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
@@ -164,7 +175,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		api.Require(authz.Self), api.Doc("meta", "This OpenAPI document"))
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod,
+	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod,
 		modules: registry, jobs: jobManager}
 }
 
@@ -184,6 +195,7 @@ func (e *env) client() *client {
 type reply struct {
 	status int
 	body   map[string]any
+	raw    string
 }
 
 func (r reply) code() string {
@@ -228,6 +240,7 @@ func (c *client) do(method, path string, body any, headers ...string) reply {
 	defer res.Body.Close()
 	out := reply{status: res.StatusCode, body: map[string]any{}}
 	data, _ := io.ReadAll(res.Body)
+	out.raw = string(data)
 	if len(data) > 0 {
 		_ = json.Unmarshal(data, &out.body)
 	}
