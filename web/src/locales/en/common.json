@@ -88,7 +88,23 @@
     "defaultCa": "Default CA",
     "email": "Email",
     "provider": "DNS provider",
-    "certificate": "Certificate"
+    "certificate": "Certificate",
+    "app": {
+      "self": "App",
+      "runtime": "Runtime",
+      "line": "Runtime version",
+      "command": "Start command",
+      "workDir": "Working directory",
+      "port": "Port",
+      "env": "Environment variables",
+      "memoryMb": "Memory limit (MB)",
+      "cpuPercent": "CPU limit (%)",
+      "healthPath": "Health check path"
+    },
+    "protocol": "Protocol",
+    "upstreams": "Upstreams",
+    "balance": "Load balancing",
+    "cursor": "Position"
   },
   "boot": {
     "failed": "Cannot load the panel"

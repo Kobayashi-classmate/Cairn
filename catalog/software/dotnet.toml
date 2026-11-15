@@ -12,9 +12,53 @@ lines = [
   { version = "8", lts = true, eol = "2026-11-10" },
 ]
 
+# .NET apps need ICU for globalization; its package carries the ICU
+# version in its name on Debian and Ubuntu (checked 2026-11-14).
+
 [[sources]]
 method = "standalone"
 provider = "dotnet"
-releases = ["*"]
+releases = ["debian-12"]
 lines = ["10", "9", "8"]
 arch = ["amd64", "arm64"]
+packages = ["libicu72"]
+
+[[sources]]
+method = "standalone"
+provider = "dotnet"
+releases = ["debian-13"]
+lines = ["10", "9", "8"]
+arch = ["amd64", "arm64"]
+packages = ["libicu76"]
+
+[[sources]]
+method = "standalone"
+provider = "dotnet"
+releases = ["ubuntu-22.04"]
+lines = ["10", "9", "8"]
+arch = ["amd64", "arm64"]
+packages = ["libicu70"]
+
+[[sources]]
+method = "standalone"
+provider = "dotnet"
+releases = ["ubuntu-24.04"]
+lines = ["10", "9", "8"]
+arch = ["amd64", "arm64"]
+packages = ["libicu74"]
+
+[[sources]]
+method = "standalone"
+provider = "dotnet"
+releases = ["ubuntu-26.04"]
+lines = ["10", "9", "8"]
+arch = ["amd64", "arm64"]
+packages = ["libicu78"]
+
+[[sources]]
+method = "standalone"
+provider = "dotnet"
+releases = ["el"]
+lines = ["10", "9", "8"]
+arch = ["amd64", "arm64"]
+packages = ["libicu"]

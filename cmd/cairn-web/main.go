@@ -12,11 +12,13 @@ import (
 	"flag"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -127,6 +129,8 @@ func run(cfgPath string, log *slog.Logger) error {
 	}
 	go cloudMod.Run(ctx)
 
+	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log, PanelPort: panelPort(cfg.Server.Listen)}
+	go sitesMod.Run(ctx)
 	certsMod := &certsmod.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Events: bus, TLS: tlsHolder, Log: log}
 	go certsMod.Run(ctx)
 
@@ -136,7 +140,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: collector},
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
-		&sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log},
+		sitesMod,
 		certsMod,
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
@@ -241,4 +245,14 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// panelPort returns the port of the panel's listen address, or 0.
+func panelPort(listen string) int {
+	_, p, err := net.SplitHostPort(listen)
+	if err != nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(p)
+	return n
 }

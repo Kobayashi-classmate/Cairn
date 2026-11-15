@@ -42,7 +42,9 @@ export function validationMessage(
 ): string {
   const { t, te } = i18n.global
   const label = fieldLabel(field)
-  const key = `errors.validation.rule.${rule}`
+  // A range the server does not spell out reads as "out of the allowed range".
+  const bounded = rule !== 'range' || params.min !== undefined || params.max !== undefined
+  const key = `errors.validation.rule.${bounded ? rule : 'out_of_range'}`
   if (!te(key)) return t('errors.validation.field', { field: label })
   const named = { ...params, field: label }
   // Length limits pick the plural form from the limit itself.
@@ -84,6 +86,8 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
   // Codes whose message names its parameters have two texts: `errors.<code>`
   // reads well on its own (the audit log only has the code), and
   // `errors.detailed.<code>` is used when the parameters are at hand.
+  // No free app port left in the panel's range.
+  if (code === 'app.port_taken' && params.range !== undefined) return t('errors.app.port_range_full')
   const detailed = `errors.detailed.${code}`
   if (Object.keys(params).length > 0 && te(detailed)) {
     return t(detailed, decorateFor(code, params))
@@ -99,9 +103,31 @@ function decorateFor(code: string, params: ErrorParams): NamedParams {
     const key = `software.reason.${params.reason}`
     named.reasonText = i18n.global.te(key) ? i18n.global.t(key) : params.reason
   }
+  if (code === 'app.port_taken' || code === 'stream.port_taken') named.owner = portOwner(params)
   // Providers of prebuilt runtimes are shown by name (not translated).
   if (typeof params.provider === 'string') named.provider = providerName(params.provider)
   return named
+}
+
+/**
+ * Who uses a port, from `site`, `stream` or `panel` parameters, or from
+ * `by` ("site <code>", "stream <code>", "panel").
+ */
+function portOwner(params: ErrorParams): string {
+  const { t } = i18n.global
+  let kind = ''
+  let name = ''
+  if (typeof params.site === 'string') [kind, name] = ['site', params.site]
+  else if (typeof params.stream === 'string') [kind, name] = ['stream', params.stream]
+  else if (params.panel === true) kind = 'panel'
+  else if (typeof params.by === 'string') {
+    const [first = '', ...rest] = params.by.split(' ')
+    ;[kind, name] = [first, rest.join(' ')]
+  }
+  if (kind === 'site') return t('errors.owner.site', { name })
+  if (kind === 'stream') return t('errors.owner.stream', { name })
+  if (kind === 'panel') return t('errors.owner.panel')
+  return typeof params.by === 'string' ? params.by : ''
 }
 
 /** Turns anything thrown by an API call into a message in the current language. */

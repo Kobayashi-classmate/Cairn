@@ -39,7 +39,21 @@ const userFilter = ref('')
 const categoryFilter = ref<string | null>(null)
 
 // Action code prefixes the server filters on.
-const categories = ['auth', 'users', 'settings', 'notify', 'update', 'software', 'site', 'cert', 'dns', 'job', 'module', 'setup'] as const
+const categories = [
+  'auth',
+  'users',
+  'settings',
+  'notify',
+  'update',
+  'software',
+  'site',
+  'stream',
+  'cert',
+  'dns',
+  'job',
+  'module',
+  'setup',
+] as const
 const categoryOptions = computed(() =>
   categories.map((c) => ({ value: `${c}.`, label: t(`audit.category.${c}`) })),
 )
@@ -169,6 +183,13 @@ function details(entry: AuditEntry): string[] {
       list.push(t('audit.detail.channel', { channel: te(key) ? t(key) : entry.params.channel }))
     }
     return list
+  }
+  if (entry.action.startsWith('stream.')) {
+    const { protocol, port } = entry.params
+    return typeof protocol === 'string' && port !== undefined ? [`${protocol.toUpperCase()} ${port}`] : []
+  }
+  if (entry.action === 'site.restart' && entry.params.reason === 'health') {
+    return [t('audit.detail.healthRestart')]
   }
   if (entry.action.startsWith('site.')) {
     const list: string[] = []

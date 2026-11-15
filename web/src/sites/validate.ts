@@ -84,3 +84,55 @@ export function deriveCode(domain: string): string {
   if (code.length > 20) code = code.slice(0, 20)
   return code.replace(/-+$/, '')
 }
+
+export const APP_PORT_MIN = 20000
+export const APP_PORT_MAX = 29999
+export const MAX_ENV = 64
+export const MAX_UPSTREAMS = 16
+
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/
+const HEALTH_PATH = /^\/[A-Za-z0-9._~/%?&=+-]{0,255}$/
+// Control characters (newlines included) are not allowed in commands and values.
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f]/
+
+export function isEnvName(name: string): boolean {
+  return ENV_NAME.test(name)
+}
+
+export function isEnvValue(value: string): boolean {
+  return value.length <= 4096 && !CONTROL.test(value)
+}
+
+/** One shell line without control characters. */
+export function isAppCommand(command: string): boolean {
+  return command.trim() !== '' && command.length <= 4096 && !CONTROL.test(command)
+}
+
+export function isHealthPath(path: string): boolean {
+  return HEALTH_PATH.test(path)
+}
+
+/** A port a four-layer proxy may listen on. */
+export function isStreamPort(port: number): boolean {
+  return (
+    Number.isInteger(port) &&
+    port >= 1 &&
+    port <= 65535 &&
+    port !== 80 &&
+    port !== 443 &&
+    (port < APP_PORT_MIN || port > APP_PORT_MAX)
+  )
+}
+
+/** host:port, with [v6]:port allowed. */
+export function isHostPort(value: string): boolean {
+  const v6 = /^\[([0-9a-fA-F:.]+)\]:(\d{1,5})$/.exec(value)
+  const plain = /^([A-Za-z0-9.-]+):(\d{1,5})$/.exec(value)
+  const match = v6 ?? plain
+  if (!match) return false
+  const port = Number(match[2])
+  if (port < 1 || port > 65535) return false
+  const host = match[1] ?? ''
+  return v6 !== null || host === 'localhost' || isSiteHost(host.toLowerCase())
+}

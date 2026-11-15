@@ -30,7 +30,8 @@
       "update": "修改网站 {site}",
       "start": "启动网站 {site}",
       "stop": "停用网站 {site}",
-      "delete": "删除网站 {site}"
+      "delete": "删除网站 {site}",
+      "restart": "重启网站 {site}"
     },
     "cert": {
       "issue": "签发证书 {name}",
@@ -38,6 +39,13 @@
       "upload": "上传证书 {name}",
       "delete": "删除证书 {name}",
       "panel": "更换面板证书"
+    },
+    "stream": {
+      "create": "创建四层代理 {stream}",
+      "update": "修改四层代理 {stream}",
+      "start": "启动四层代理 {stream}",
+      "stop": "停用四层代理 {stream}",
+      "delete": "删除四层代理 {stream}"
     }
   },
   "detail": {
@@ -62,13 +70,21 @@
       "update": "修改网站",
       "start": "启动网站",
       "stop": "停用网站",
-      "delete": "删除网站"
+      "delete": "删除网站",
+      "restart": "重启网站"
     },
     "cert": {
       "issue": "签发证书",
       "renew": "续期证书",
       "upload": "上传证书",
       "delete": "删除证书"
+    },
+    "stream": {
+      "create": "创建四层代理",
+      "update": "修改四层代理",
+      "start": "启动四层代理",
+      "stop": "停用四层代理",
+      "delete": "删除四层代理"
     }
   }
 }

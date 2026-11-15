@@ -30,7 +30,8 @@
       "update": "Update site {site}",
       "start": "Start site {site}",
       "stop": "Stop site {site}",
-      "delete": "Delete site {site}"
+      "delete": "Delete site {site}",
+      "restart": "Restart site {site}"
     },
     "cert": {
       "issue": "Issue certificate {name}",
@@ -38,6 +39,13 @@
       "upload": "Upload certificate {name}",
       "delete": "Delete certificate {name}",
       "panel": "Change the panel certificate"
+    },
+    "stream": {
+      "create": "Create four-layer proxy {stream}",
+      "update": "Update four-layer proxy {stream}",
+      "start": "Start four-layer proxy {stream}",
+      "stop": "Stop four-layer proxy {stream}",
+      "delete": "Delete four-layer proxy {stream}"
     }
   },
   "detail": {
@@ -62,13 +70,21 @@
       "update": "Update site",
       "start": "Start site",
       "stop": "Stop site",
-      "delete": "Delete site"
+      "delete": "Delete site",
+      "restart": "Restart site"
     },
     "cert": {
       "issue": "Issue certificate",
       "renew": "Renew certificate",
       "upload": "Upload certificate",
       "delete": "Delete certificate"
+    },
+    "stream": {
+      "create": "Create four-layer proxy",
+      "update": "Update four-layer proxy",
+      "start": "Start four-layer proxy",
+      "stop": "Stop four-layer proxy",
+      "delete": "Delete four-layer proxy"
     }
   }
 }

@@ -24,6 +24,9 @@ const (
 	SiteStatic = "static"
 	SitePHP    = "php"
 	SiteProxy  = "proxy"
+	// SiteApp is a project: a process the panel runs (a systemd unit as the
+	// site's runner) behind nginx.
+	SiteApp = "app"
 )
 
 // Site error codes.
@@ -83,10 +86,109 @@ type SiteSpec struct {
 	// read-only to it.
 	Writable []string   `json:"writable,omitempty"`
 	Proxy    *ProxySpec `json:"proxy,omitempty"`
+	// App is the process of an app site.
+	App *AppSpec `json:"app,omitempty"`
 	// TLS serves the site over HTTPS with a stored certificate.
 	TLS *SiteTLS `json:"tls,omitempty"`
 	// Enabled false keeps the site configured but answers 503.
 	Enabled bool `json:"enabled"`
+}
+
+// App runtimes (catalog software IDs); "" runs the command with the
+// system's tools only (a binary in the site).
+var AppRuntimes = []string{"nodejs", "python", "go", "java", "dotnet"}
+
+// App ports the panel hands out (it may also be set by hand, from 1024).
+const (
+	AppPortMin = 20000
+	AppPortMax = 29999
+)
+
+// EnvVar is one environment variable of an app.
+type EnvVar struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// AppSpec is how an app site's process runs.
+type AppSpec struct {
+	// Runtime and Line pick an installed runtime, put first on PATH (with
+	// JAVA_HOME or DOTNET_ROOT where they apply).
+	Runtime string `json:"runtime,omitempty"`
+	Line    string `json:"line,omitempty"`
+	// Command is one shell command line, run by /bin/sh in WorkDir as the
+	// site's runner; it must listen on 127.0.0.1:$PORT.
+	Command string `json:"command"`
+	// WorkDir is relative to the app directory.
+	WorkDir string   `json:"workDir,omitempty"`
+	Port    int      `json:"port"`
+	Env     []EnvVar `json:"env,omitempty"`
+	// MemoryMB and CPUPercent limit the process (0: no limit); CPUPercent
+	// is of one CPU (200 = two CPUs).
+	MemoryMB   int `json:"memoryMb,omitempty"`
+	CPUPercent int `json:"cpuPercent,omitempty"`
+	// HealthPath is checked over HTTP by the panel; failing checks restart
+	// the app. Empty: no check.
+	HealthPath string `json:"healthPath,omitempty"`
+	// WebSocket passes connection upgrades through nginx.
+	WebSocket bool `json:"webSocket,omitempty"`
+}
+
+var (
+	envName      = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,127}$`)
+	healthPathRe = regexp.MustCompile(`^/[A-Za-z0-9._~/%?&=+-]{0,255}$`)
+)
+
+// noControl reports whether s has no control characters (newlines would
+// break out of a systemd unit line).
+func noControl(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *AppSpec) validate() error {
+	if a.Runtime != "" && !containsString(AppRuntimes, a.Runtime) {
+		return invalid("app.runtime", "oneof")
+	}
+	if (a.Runtime == "") != (a.Line == "") || (a.Line != "" && !linePattern.MatchString(a.Line)) {
+		return invalid("app.line", "line")
+	}
+	if strings.TrimSpace(a.Command) == "" || len(a.Command) > 4096 || !noControl(a.Command) {
+		return invalid("app.command", "command")
+	}
+	if !ValidRelPath(a.WorkDir) {
+		return invalid("app.workDir", "path")
+	}
+	if a.Port < 1024 || a.Port > 65535 {
+		return invalid("app.port", "port")
+	}
+	if len(a.Env) > 64 {
+		return invalid("app.env", "count")
+	}
+	seen := map[string]bool{}
+	for _, e := range a.Env {
+		if !envName.MatchString(e.Name) || seen[e.Name] {
+			return invalid("app.env", "name")
+		}
+		seen[e.Name] = true
+		if len(e.Value) > 4096 || !noControl(e.Value) {
+			return invalid("app.env", "value")
+		}
+	}
+	if a.MemoryMB < 0 || a.MemoryMB > 1<<20 || (a.MemoryMB > 0 && a.MemoryMB < 16) {
+		return invalid("app.memoryMb", "range")
+	}
+	if a.CPUPercent < 0 || a.CPUPercent > 6400 || (a.CPUPercent > 0 && a.CPUPercent < 5) {
+		return invalid("app.cpuPercent", "range")
+	}
+	if a.HealthPath != "" && !healthPathRe.MatchString(a.HealthPath) {
+		return invalid("app.healthPath", "path")
+	}
+	return nil
 }
 
 // SiteTLS is a site's HTTPS: the certificate (which must cover every
@@ -175,7 +277,7 @@ func (s SiteSpec) Validate() error {
 		return invalid("code", "site_code")
 	}
 	switch s.Type {
-	case SiteStatic, SitePHP, SiteProxy:
+	case SiteStatic, SitePHP, SiteProxy, SiteApp:
 	default:
 		return invalid("type", "oneof")
 	}
@@ -214,7 +316,20 @@ func (s SiteSpec) Validate() error {
 	if s.TLS != nil && !ValidCertID(s.TLS.Cert) {
 		return invalid("tls.cert", "cert_id")
 	}
+	if s.Type != SiteApp && s.App != nil {
+		return invalid("app", "unexpected")
+	}
 	switch s.Type {
+	case SiteApp:
+		if s.App == nil {
+			return invalid("app", "required")
+		}
+		if err := s.App.validate(); err != nil {
+			return err
+		}
+		if s.PHP != "" || s.Rewrite != "" || s.Root != "" || len(s.Index) > 0 || s.Proxy != nil {
+			return invalid("type", "app_fields")
+		}
 	case SiteProxy:
 		if s.Proxy == nil || !ValidProxyURL(s.Proxy.URL) {
 			return invalid("proxy", "url")
@@ -280,8 +395,12 @@ type SiteStatus struct {
 	} `json:"nginx"`
 	// PHP lists the installed PHP lines whose FPM can host site pools.
 	PHP []string `json:"php"`
-	// Sites are the sites the helper has applied, by code.
-	Sites map[string]SiteState `json:"sites"`
+	// Sites are the sites the helper has applied, by code; Streams the
+	// four-layer proxies.
+	Sites   map[string]SiteState  `json:"sites"`
+	Streams map[string]StreamSpec `json:"streams"`
+	// Systemd is false where apps cannot run (containers without it).
+	Systemd bool `json:"systemd"`
 }
 
 // SiteState is what the helper last applied for a site.
@@ -324,4 +443,163 @@ type SiteLogResponse struct {
 	// smaller than the requested offset was rotated: reading restarts at 0.
 	Offset int64 `json:"offset"`
 	Size   int64 `json:"size"`
+}
+
+// App actions: synchronous status and log reads, and a restart operation.
+const (
+	ActionAppStatus  = "app.status"
+	ActionAppLog     = "app.log"
+	ActionAppRestart = "app.restart"
+)
+
+// App error codes.
+const (
+	CodeAppNoSystemd      = "app.systemd_required" // apps run as systemd units
+	CodeAppRuntimeMissing = "app.runtime_missing"  // the runtime line is not installed
+	CodeAppPortTaken      = "app.port_taken"       // another site or stream uses the port
+	CodeAppNotFound       = "app.not_found"
+)
+
+// AppRef names an app site.
+type AppRef struct {
+	Code string `json:"code"`
+}
+
+// Validate implements the helper's request validation hook.
+func (r AppRef) Validate() error {
+	if !ValidSiteCode(r.Code) {
+		return invalid("code", "site_code")
+	}
+	return nil
+}
+
+// AppStatus is what systemd reports about an app's unit.
+type AppStatus struct {
+	Code        string `json:"code"`
+	ActiveState string `json:"activeState"` // active | inactive | failed | activating ...
+	SubState    string `json:"subState"`
+	MainPID     int    `json:"mainPid,omitempty"`
+	Restarts    int    `json:"restarts"`
+	MemoryBytes int64  `json:"memoryBytes,omitempty"`
+	CPUNanos    int64  `json:"cpuNanos,omitempty"`
+	// Since is when the unit entered its active state (unix seconds).
+	Since  int64  `json:"since,omitempty"`
+	Result string `json:"result,omitempty"` // success | exit-code | signal | oom-kill ...
+}
+
+// AppLogRequest reads an app's journal: the last lines, or the lines after
+// a cursor returned before.
+type AppLogRequest struct {
+	Code   string `json:"code"`
+	Cursor string `json:"cursor,omitempty"`
+}
+
+var journalCursor = regexp.MustCompile(`^[A-Za-z0-9=;_-]{1,512}$`)
+
+// Validate implements the helper's request validation hook.
+func (r AppLogRequest) Validate() error {
+	if !ValidSiteCode(r.Code) {
+		return invalid("code", "site_code")
+	}
+	if r.Cursor != "" && !journalCursor.MatchString(r.Cursor) {
+		return invalid("cursor", "cursor")
+	}
+	return nil
+}
+
+// AppLogResponse is a chunk of an app's journal.
+type AppLogResponse struct {
+	Lines  []string `json:"lines"`
+	Cursor string   `json:"cursor,omitempty"`
+}
+
+// Stream (four-layer proxy) actions.
+const (
+	ActionStreamApply  = "stream.apply"
+	ActionStreamRemove = "stream.remove"
+)
+
+// Stream error codes.
+const (
+	CodeStreamModuleMissing = "stream.module_missing" // nginx's stream module is not installed
+	CodeStreamPortTaken     = "stream.port_taken"
+	CodeStreamNotFound      = "stream.not_found"
+)
+
+// Stream protocols.
+const (
+	StreamTCP = "tcp"
+	StreamUDP = "udp"
+)
+
+// MaxStreamUpstreams caps the upstreams of a stream.
+const MaxStreamUpstreams = 16
+
+// StreamSpec is a four-layer (TCP or UDP) proxy: nginx listens on Port on
+// every address and forwards to the upstreams.
+type StreamSpec struct {
+	Code      string   `json:"code"`
+	Protocol  string   `json:"protocol"`
+	Port      int      `json:"port"`
+	Upstreams []string `json:"upstreams"` // host:port
+	// Balance "hash" keeps a client on one upstream; "" is round robin.
+	Balance string `json:"balance,omitempty"`
+	Enabled bool   `json:"enabled"`
+}
+
+// ValidHostPort reports whether s is "host:port" with a host name, an IPv4
+// address or a bracketed IPv6 address.
+func ValidHostPort(s string) bool {
+	host, port, err := net.SplitHostPort(s)
+	if err != nil {
+		return false
+	}
+	n, err := strconv.Atoi(port)
+	if err != nil || n < 1 || n > 65535 {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return true
+	}
+	return ValidHost(host) || host == "localhost"
+}
+
+// Validate implements the helper's request validation hook.
+func (s StreamSpec) Validate() error {
+	if !ValidSiteCode(s.Code) {
+		return invalid("code", "site_code")
+	}
+	if s.Protocol != StreamTCP && s.Protocol != StreamUDP {
+		return invalid("protocol", "oneof")
+	}
+	if s.Port < 1 || s.Port > 65535 || s.Port == 80 || s.Port == 443 || (s.Port >= AppPortMin && s.Port <= AppPortMax) {
+		return invalid("port", "port")
+	}
+	if len(s.Upstreams) == 0 || len(s.Upstreams) > MaxStreamUpstreams {
+		return invalid("upstreams", "count")
+	}
+	seen := map[string]bool{}
+	for _, u := range s.Upstreams {
+		if !ValidHostPort(u) || seen[u] {
+			return invalid("upstreams", "host_port")
+		}
+		seen[u] = true
+	}
+	if s.Balance != "" && s.Balance != "hash" {
+		return invalid("balance", "oneof")
+	}
+	return nil
+}
+
+// StreamRef names a stream.
+type StreamRef struct {
+	Code string `json:"code"`
+}
+
+// Validate implements the helper's request validation hook.
+func (r StreamRef) Validate() error {
+	if !ValidSiteCode(r.Code) {
+		return invalid("code", "site_code")
+	}
+	return nil
 }

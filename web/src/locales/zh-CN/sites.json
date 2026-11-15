@@ -15,6 +15,10 @@
     "proxy": {
       "name": "反向代理",
       "description": "把请求转发给在其他地址监听的应用。"
+    },
+    "app": {
+      "name": "应用（Node.js / Python / Go / Java / .NET）",
+      "description": "作为服务长期运行、位于 nginx 之后的程序。"
     }
   },
   "state": {
@@ -99,7 +103,10 @@
   "tabs": {
     "overview": "概览",
     "settings": "设置",
-    "logs": "日志"
+    "logs": "日志",
+    "process": "进程",
+    "sites": "网站",
+    "streams": "四层代理"
   },
   "drift": {
     "tag": "未生效",
@@ -124,5 +131,54 @@
   },
   "rewrite": {
     "spa": "单页应用"
+  },
+  "app": {
+    "systemTools": "无（仅使用系统工具）",
+    "notInstalled": "{runtime}（未安装）",
+    "runtimeHint": "只列出已安装的运行环境；所选运行环境会排在 PATH 的最前面。",
+    "installRuntime": "前往软件页面安装运行环境",
+    "commandHint": "一行 Shell 命令，由 /bin/sh 以网站的运行用户身份执行。应用必须监听 127.0.0.1:$PORT；HOST 和 PORT 会自动设置。",
+    "portAuto": "自动分配（20000–29999）",
+    "portKeep": "保持当前端口",
+    "envName": "变量名",
+    "envValue": "值",
+    "addEnv": "添加变量",
+    "envHint": "HOST、PORT、HOME 和 PATH 由面板设置。变量值保存在只有 root 能读取的文件中。",
+    "writableHint": "应用只能写入这些目录和 tmp/，其他内容对它都是只读的。",
+    "noLimit": "不限制",
+    "limitsHint": "内存以 MB 为单位（至少 16）；CPU 以单个 CPU 的百分比计算（200 表示两个 CPU，至少 5）。留空表示不限制。",
+    "healthHint": "面板每 30 秒请求一次该路径。连续三次失败（无响应或状态码不低于 500）后会重启应用。",
+    "noSystemd": "需要 systemd，而此系统没有。",
+    "envCount": "{count} 个变量",
+    "limits": "资源限制",
+    "limitsValue": "内存：{memory}，CPU：{cpu}"
+  },
+  "process": {
+    "state": {
+      "running": "运行中",
+      "starting": "启动中",
+      "stopping": "停止中",
+      "failed": "失败",
+      "stopped": "已停止"
+    },
+    "healthOk": "健康检查正常",
+    "healthFailing": "健康检查失败（{count} 次）",
+    "restart": "重启",
+    "pid": "PID",
+    "since": "开始时间",
+    "restarts": "重启次数",
+    "memory": "内存",
+    "cpu": "CPU 时间",
+    "lastExit": "上次退出",
+    "journal": "日志",
+    "result": {
+      "exit-code": "以错误状态退出",
+      "signal": "被信号终止",
+      "oom-kill": "内存不足",
+      "timeout": "超时",
+      "core-dump": "崩溃（core dump）",
+      "watchdog": "看门狗超时",
+      "start-limit-hit": "重启过于频繁"
+    }
   }
 }

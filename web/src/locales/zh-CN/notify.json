@@ -37,6 +37,10 @@
     "cert": {
       "label": "证书",
       "description": "续期失败和即将过期的证书。"
+    },
+    "app": {
+      "label": "应用",
+      "description": "不再响应健康检查的应用。"
     }
   },
   "event": {
@@ -58,6 +62,9 @@
     "cert": {
       "renew_failed": "证书续期失败",
       "expiring": "证书即将过期"
+    },
+    "app": {
+      "unhealthy": "应用异常"
     }
   },
   "channel": {

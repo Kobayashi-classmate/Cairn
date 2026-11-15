@@ -38,6 +38,8 @@ type fakeSystem struct {
 	printURIs   string
 	// failPrefix makes any command starting with it fail.
 	failPrefix string
+	// systemctlShow answers "systemctl show"; journal answers journalctl.
+	systemctlShow, journal string
 }
 
 func (f *fakeSystem) use(t *testing.T) {
@@ -96,6 +98,13 @@ func (f *fakeSystem) use(t *testing.T) {
 			return f.madison, nil
 		case "apt-get":
 			return f.printURIs, nil
+		case "systemctl":
+			if args[0] == "show" {
+				return f.systemctlShow, nil
+			}
+			return "", nil
+		case "journalctl":
+			return f.journal, nil
 		case "dnf":
 			if args[0] == "module" {
 				return f.modules, nil

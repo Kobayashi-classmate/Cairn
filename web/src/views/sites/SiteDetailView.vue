@@ -30,6 +30,8 @@ import {
   type SiteView,
 } from '@/api/sites'
 import { useCertChoices } from '@/certs/useCertChoices'
+import { useInstalledRuntimes } from '@/sites/useRuntimes'
+import AppProcess from './AppProcess.vue'
 import JobProgress from '@/components/JobProgress.vue'
 import { useErrorToast } from '@/composables/useErrorToast'
 import { errorMessage, errorText } from '@/i18n/errors'
@@ -49,13 +51,15 @@ const router = useRouter()
 const session = useSessionStore()
 const showError = useErrorToast()
 const { certs } = useCertChoices()
+const { runtimes } = useInstalledRuntimes()
+const systemd = ref(true)
 
 const code = computed(() => String(route.params.code ?? ''))
 const site = ref<SiteView | null>(null)
 const phpLines = ref<string[]>([])
 const rewrites = ref<RewriteRule[]>([])
 const loadError = ref<unknown>(null)
-const tab = ref<'overview' | 'settings' | 'logs'>('overview')
+const tab = ref<'overview' | 'process' | 'settings' | 'logs'>('overview')
 
 /** The job of the change started on this page, followed inline. */
 const actionJob = ref<string | null>(null)
@@ -91,6 +95,7 @@ async function loadContext() {
   try {
     const [list, rules] = await Promise.all([fetchSites(), fetchRewrites()])
     phpLines.value = list.php
+    systemd.value = list.systemd
     rewrites.value = rules
   } catch {
     // The settings form then offers fewer choices; the server still checks.
@@ -267,7 +272,7 @@ const notFound = computed(() => isApiError(loadError.value) && loadError.value.s
                   <dt>{{ t('common.field.php') }}</dt>
                   <dd>PHP {{ site.php }}</dd>
                 </template>
-                <template v-if="site.type !== 'proxy'">
+                <template v-if="site.type === 'static' || site.type === 'php'">
                   <dt>{{ t('common.field.rewrite') }}</dt>
                   <dd>{{ rewriteName || t('sites.form.noRewrite') }}</dd>
                   <dt>{{ t('common.field.root') }}</dt>
@@ -280,6 +285,31 @@ const notFound = computed(() => isApiError(loadError.value) && loadError.value.s
                 <template v-if="site.writable?.length">
                   <dt>{{ t('common.field.writable') }}</dt>
                   <dd class="mono" dir="ltr">{{ site.writable.join(', ') }}</dd>
+                </template>
+                <template v-if="site.app">
+                  <dt>{{ t('common.field.app.runtime') }}</dt>
+                  <dd>{{ site.app.runtime ? `${site.app.runtime} ${site.app.line ?? ''}` : t('sites.app.systemTools') }}</dd>
+                  <dt>{{ t('common.field.app.command') }}</dt>
+                  <dd class="mono" dir="ltr">{{ site.app.command }}</dd>
+                  <dt>{{ t('common.field.app.workDir') }}</dt>
+                  <dd class="mono" dir="ltr">{{ site.app.workDir || t('sites.overview.rootDefault') }}</dd>
+                  <dt>{{ t('common.field.app.port') }}</dt>
+                  <dd class="mono" dir="ltr">127.0.0.1:{{ site.app.port }}</dd>
+                  <dt>{{ t('common.field.app.env') }}</dt>
+                  <dd>{{ t('sites.app.envCount', { count: site.app.env?.length ?? 0 }, site.app.env?.length ?? 0) }}</dd>
+                  <dt>{{ t('sites.app.limits') }}</dt>
+                  <dd>
+                    {{
+                      t('sites.app.limitsValue', {
+                        memory: site.app.memoryMb ? `${site.app.memoryMb} MB` : t('sites.app.noLimit'),
+                        cpu: site.app.cpuPercent ? `${site.app.cpuPercent} %` : t('sites.app.noLimit'),
+                      })
+                    }}
+                  </dd>
+                  <template v-if="site.app.healthPath">
+                    <dt>{{ t('common.field.app.healthPath') }}</dt>
+                    <dd class="mono" dir="ltr">{{ site.app.healthPath }}</dd>
+                  </template>
                 </template>
                 <template v-if="site.proxy">
                   <dt>{{ t('common.field.proxy') }}</dt>
@@ -315,6 +345,10 @@ const notFound = computed(() => isApiError(loadError.value) && loadError.value.s
             </NCard>
           </NTabPane>
 
+          <NTabPane v-if="site.type === 'app'" name="process" :tab="t('sites.tabs.process')">
+            <AppProcess :code="site.code" :can-manage="canManage" />
+          </NTabPane>
+
           <NTabPane v-if="canManage" name="settings" :tab="t('sites.tabs.settings')">
             <NCard size="small">
               <SiteForm
@@ -324,6 +358,8 @@ const notFound = computed(() => isApiError(loadError.value) && loadError.value.s
                 :php-lines="phpLines"
                 :rewrites="rewrites"
                 :certs="certs"
+                :runtimes="runtimes"
+                :systemd="systemd"
                 :disabled="applying"
               />
               <NAlert v-if="formError" type="error" class="block">{{ errorMessage(formError) }}</NAlert>

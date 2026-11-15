@@ -77,6 +77,8 @@ type Sites struct {
 	NginxUser string
 	// Root prefixes every path ("" means /; tests).
 	Root string
+	// PanelPort is the panel's own port, never given to apps or streams.
+	PanelPort int
 }
 
 // Fixed locations (Debian layout; other families come with their profiles).
@@ -108,6 +110,18 @@ func RegisterSites(r *Registry, o *Ops, st *Sites) {
 	Register(r, helperapi.ActionSiteLog, func(_ context.Context, _ helperapi.Caller, req helperapi.SiteLogRequest) (helperapi.SiteLogResponse, error) {
 		return st.readLog(req)
 	})
+	Register(r, helperapi.ActionAppStatus, func(ctx context.Context, _ helperapi.Caller, req helperapi.AppRef) (helperapi.AppStatus, error) {
+		return st.AppStatus(ctx, req.Code)
+	})
+	Register(r, helperapi.ActionAppLog, func(ctx context.Context, _ helperapi.Caller, req helperapi.AppLogRequest) (helperapi.AppLogResponse, error) {
+		return st.AppLog(ctx, req)
+	})
+	RegisterOp(r, o, helperapi.ActionAppRestart, OpSpec[helperapi.AppRef]{
+		Locks: func(s helperapi.AppRef) []string { return web(s) }, Run: st.restartApp})
+	RegisterOp(r, o, helperapi.ActionStreamApply, OpSpec[helperapi.StreamSpec]{
+		Locks: func(s helperapi.StreamSpec) []string { return web(s) }, Run: st.applyStream})
+	RegisterOp(r, o, helperapi.ActionStreamRemove, OpSpec[helperapi.StreamRef]{
+		Locks: func(s helperapi.StreamRef) []string { return web(s) }, Run: st.removeStream})
 }
 
 func (st *Sites) path(p string) string { return filepath.Join(st.Root, p) }
@@ -158,6 +172,11 @@ func (st *Sites) Status(_ context.Context) helperapi.SiteStatus {
 	for code, state := range states {
 		s.Sites[code] = state
 	}
+	s.Streams, _ = st.streamStates()
+	if s.Streams == nil {
+		s.Streams = map[string]helperapi.StreamSpec{}
+	}
+	s.Systemd = systemdRunning()
 	return s
 }
 
@@ -708,8 +727,11 @@ func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM) ([]byte, []by
 		"RewriteBody": "", "Socket": "", "Proxy": nil, "TLS": spec.TLS, "HTTP2On": st.http2Directive(),
 		"CertDir": nginxCertDir, "ACMELocation": indent(acmeLocation),
 	}
-	if spec.Type == helperapi.SiteProxy {
+	switch spec.Type {
+	case helperapi.SiteProxy:
 		data["Proxy"] = spec.Proxy
+	case helperapi.SiteApp:
+		data["Proxy"] = &helperapi.ProxySpec{URL: fmt.Sprintf("http://127.0.0.1:%d", spec.App.Port), WebSocket: spec.App.WebSocket}
 	}
 	if spec.Rewrite != "" {
 		rule, ok := st.Software.Catalog.Rewrite(spec.Rewrite)
@@ -786,6 +808,17 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 			{path: path.Join(nginxCertDir, spec.TLS.Cert+".key"), data: keyPEM, mode: 0o600},
 		}
 	}
+	if spec.Type == helperapi.SiteApp {
+		if !systemdRunning() {
+			return nil, siteErr(helperapi.CodeAppNoSystemd, nil)
+		}
+		if a := spec.App; a.Runtime != "" && (st.Software.Runtimes == nil || st.Software.Runtimes.Installed(a.Runtime, a.Line) == "") {
+			return nil, siteErr(helperapi.CodeAppRuntimeMissing, map[string]any{"software": a.Runtime, "line": a.Line})
+		}
+		if err := st.checkAppPort(spec); err != nil {
+			return nil, err
+		}
+	}
 	conf, pool, err := st.render(spec, fpm)
 	if err != nil {
 		return nil, err
@@ -824,11 +857,37 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		// The pool must listen before nginx sends requests to it.
 		reloads = append([]reloader{fpmReload(fpm)}, reloads...)
 	}
+	appChanged := false
+	if spec.Type == helperapi.SiteApp {
+		files, appChecks, err := st.appChanges(spec, false)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range files {
+			if old, err := os.ReadFile(st.path(f.path)); err != nil || !bytes.Equal(old, f.data) { //nolint:gosec // G304: built from a validated site code.
+				appChanged = true
+			}
+		}
+		changes = append(changes, files...)
+		checks = append(checks, appChecks...)
+	} else if hadPrev && prev.Spec.Type == helperapi.SiteApp {
+		// No longer an app: its unit stops before its files go.
+		st.stopApp(ctx, log, spec.Code)
+		files, _, _ := st.appChanges(prev.Spec, true)
+		changes = append(changes, files...)
+	}
 	checks = append(checks, st.nginxCheck())
 	reloads = append(reloads, st.nginxReload())
 	reloaded, err := st.transact(ctx, log, changes, checks, reloads)
 	if err != nil {
 		return nil, err
+	}
+	if spec.Type == helperapi.SiteApp {
+		if err := st.startApp(ctx, log, spec, appChanged); err != nil {
+			return nil, err
+		}
+	} else if hadPrev && prev.Spec.Type == helperapi.SiteApp {
+		_ = runCommand(ctx, log, "systemctl", "daemon-reload")
 	}
 	state, _ := json.Marshal(helperapi.SiteState{Spec: spec, AppliedAt: time.Now().Unix()})
 	if err := writePrivate(st.path(path.Join(siteStateDir, spec.Code+".json")), state); err != nil {
@@ -854,6 +913,11 @@ func (st *Sites) remove(ctx context.Context, _ helperapi.Caller, req helperapi.S
 	changes := []fileChange{{path: siteConfPath(req.Code)}}
 	checks := []configCheck{st.nginxCheck()}
 	reloads := []reloader{st.nginxReload()}
+	if prev.Spec.Type == helperapi.SiteApp {
+		st.stopApp(ctx, log, req.Code)
+		files, _, _ := st.appChanges(prev.Spec, true)
+		changes = append(changes, files...)
+	}
 	if prev.Spec.Type == helperapi.SitePHP {
 		if o, ok := st.phpOffer(prev.Spec.PHP); ok {
 			changes = append(changes, fileChange{path: poolPath(o.FPM, req.Code)})
@@ -865,6 +929,9 @@ func (st *Sites) remove(ctx context.Context, _ helperapi.Caller, req helperapi.S
 	reloaded, err := st.transact(ctx, log, changes, checks, reloads)
 	if err != nil {
 		return nil, err
+	}
+	if prev.Spec.Type == helperapi.SiteApp && systemdRunning() {
+		_ = runCommand(ctx, log, "systemctl", "daemon-reload")
 	}
 	if err := os.Remove(st.path(path.Join(siteStateDir, req.Code+".json"))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err

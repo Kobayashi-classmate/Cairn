@@ -8,17 +8,19 @@ import { isStepUpRequired } from '@/api/client'
 import type { Job } from '@/api/jobs'
 import { createSite, type RewriteRule } from '@/api/sites'
 import { useCertChoices } from '@/certs/useCertChoices'
+import { useInstalledRuntimes } from '@/sites/useRuntimes'
 import JobProgress from '@/components/JobProgress.vue'
 import { errorMessage } from '@/i18n/errors'
 import SiteForm from './SiteForm.vue'
 
 const show = defineModel<boolean>('show', { required: true })
-defineProps<{ phpLines: string[]; rewrites: RewriteRule[] }>()
+defineProps<{ phpLines: string[]; rewrites: RewriteRule[]; systemd: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 
 const { t } = useI18n()
 const router = useRouter()
 const { certs, reload: reloadCerts } = useCertChoices()
+const { runtimes } = useInstalledRuntimes()
 
 const formRef = ref<InstanceType<typeof SiteForm> | null>(null)
 const submitting = ref(false)
@@ -78,6 +80,8 @@ async function openSite() {
         :php-lines="phpLines"
         :rewrites="rewrites"
         :certs="certs"
+        :runtimes="runtimes"
+        :systemd="systemd"
         :disabled="submitting"
       />
       <NAlert v-if="error" type="error" class="block">{{ errorMessage(error) }}</NAlert>

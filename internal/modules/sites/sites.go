@@ -22,6 +22,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
+	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
@@ -47,7 +48,12 @@ type Module struct {
 	Jobs    *jobs.Manager
 	Helper  jobs.HelperClient
 	DB      *sql.DB
+	Events  *events.Bus
 	Log     *slog.Logger
+	// PanelPort is never given to apps or streams.
+	PanelPort int
+
+	health healthState
 }
 
 // ID implements module.Module.
@@ -87,6 +93,13 @@ func (m *Module) Routes(r *api.Router) {
 		doc("Delete a site; ?deleteFiles=true also deletes its directory and users (starts a job)"), api.Returns(202, jobResponse{}))
 	r.Handle("GET /api/v1/sites/{code}/log", m.log, api.Require(Read),
 		doc("Read a site's nginx log: kind=access|error, offset (-1 for the last part)"), api.Returns(200, helperapi.SiteLogResponse{}))
+	r.Handle("GET /api/v1/sites/{code}/app", m.appStatus, api.Require(Read),
+		doc("An app site's process as systemd reports it"), api.Returns(200, appStatusView{}))
+	r.Handle("GET /api/v1/sites/{code}/app/log", m.appLog, api.Require(Read),
+		doc("An app site's journal: the last lines, or those after ?cursor="), api.Returns(200, helperapi.AppLogResponse{}))
+	r.Handle("POST /api/v1/sites/{code}/restart", m.restart, api.Require(Manage), api.NoBody(),
+		doc("Restart an app site's process (starts a job)"), api.Returns(202, jobResponse{}))
+	m.streamRoutes(r, doc)
 }
 
 // siteRequest is a site as the API takes it. Code is optional on create
@@ -101,6 +114,8 @@ type siteRequest struct {
 	PHP      string               `json:"php,omitempty"`
 	Writable []string             `json:"writable,omitempty"`
 	Proxy    *helperapi.ProxySpec `json:"proxy,omitempty"`
+	// App is the process of an app site; a port of 0 gets a free one.
+	App *helperapi.AppSpec `json:"app,omitempty"`
 	// TLS serves the site over HTTPS with a certificate (certs module); the
 	// helper checks that it covers every domain.
 	TLS *helperapi.SiteTLS `json:"tls,omitempty"`
@@ -133,6 +148,8 @@ type listResponse struct {
 	} `json:"nginx"`
 	PHP   []string   `json:"php"`
 	Sites []siteView `json:"sites"`
+	// Systemd is false where apps cannot run.
+	Systemd bool `json:"systemd"`
 }
 
 type rewritesResponse struct {
@@ -211,7 +228,7 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	if resp.PHP == nil {
 		resp.PHP = []string{}
 	}
-	resp.Nginx.Installed, resp.Nginx.Running = st.Nginx.Installed, st.Nginx.Running
+	resp.Nginx.Installed, resp.Nginx.Running, resp.Systemd = st.Nginx.Installed, st.Nginx.Running, st.Systemd || !known
 	rows, err := m.DB.QueryContext(r.Context(), selectSite+` ORDER BY code`)
 	if err != nil {
 		return err
@@ -263,7 +280,7 @@ func deriveCode(domain string) string {
 // spec turns a request into a complete spec and checks it.
 func (m *Module) spec(req siteRequest, code string, enabled bool) (helperapi.SiteSpec, error) {
 	s := helperapi.SiteSpec{Code: code, Type: req.Type, Root: req.Root, Index: req.Index, Rewrite: req.Rewrite,
-		PHP: req.PHP, Writable: req.Writable, Proxy: req.Proxy, TLS: req.TLS, Enabled: enabled}
+		PHP: req.PHP, Writable: req.Writable, Proxy: req.Proxy, App: req.App, TLS: req.TLS, Enabled: enabled}
 	for _, d := range req.Domains {
 		s.Domains = append(s.Domains, strings.ToLower(strings.TrimSpace(d)))
 	}
@@ -327,6 +344,9 @@ func (m *Module) create(w http.ResponseWriter, r *http.Request) error {
 			code = strings.TrimRight(base[:min(len(base), 20-len(suffix))], "-") + suffix
 		}
 	}
+	if err := m.assignPort(r.Context(), &req, code); err != nil {
+		return err
+	}
 	s, err := m.spec(req, code, true)
 	if err != nil {
 		return err
@@ -371,6 +391,12 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 	}
 	if (req.Code != "" && req.Code != rw.spec.Code) || req.Type != rw.spec.Type {
 		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "type", "rule": "immutable"})
+	}
+	if req.App != nil && req.App.Port == 0 && rw.spec.App != nil {
+		req.App.Port = rw.spec.App.Port // keep the port it has
+	}
+	if err := m.assignPort(r.Context(), &req, rw.spec.Code); err != nil {
+		return err
 	}
 	s, err := m.spec(req, rw.spec.Code, rw.spec.Enabled)
 	if err != nil {

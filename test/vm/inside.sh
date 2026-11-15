@@ -139,6 +139,47 @@ follow DELETE "/api/v1/sites/php-test?deleteFiles=true"
 [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: php.test' http://127.0.0.1/index.php)" != 200 ] || fail "deleted site still served"
 step "PHP site with systemd: pool and server block checked, php$php-fpm and nginx reloaded by systemctl, PHP runs as cw-php-test-run; deleted"
 
+# An app: Node.js from the panel, run by systemd as the site's runner in a
+# locked-down unit, restarted when it dies, a four-layer proxy in front.
+node=$(recommended nodejs)
+follow POST /api/v1/software/install "{\"items\":[{\"software\":\"nodejs\",\"line\":\"$node\"}]}"
+follow POST /api/v1/sites "{\"type\":\"app\",\"domains\":[\"app.test\"],\"writable\":[\"data\"],\"app\":{\"runtime\":\"nodejs\",\"line\":\"$node\",\"command\":\"node server.js\",\"port\":0,\"env\":[{\"name\":\"GREETING\",\"value\":\"hello \\\"world\\\" \$HOME 100%\"}]}}"
+runuser -u cw-app-test -- tee /srv/www/app-test/app/server.js >/dev/null <<'JS'
+const fs = require('fs');
+require('http').createServer((req, res) => {
+  const tryWrite = (p) => { try { fs.writeFileSync(p, 'x'); return 'written'; } catch (e) { return 'refused'; } };
+  res.end(['user=' + require('os').userInfo().username, 'node=' + process.version,
+    'code=' + tryWrite(__dirname + '/hacked.js'), 'data=' + tryWrite(__dirname + '/data/d.txt'),
+    'greeting=' + process.env.GREETING].join('\n') + '\n');
+}).listen(process.env.PORT, '127.0.0.1', () => console.log('listening on ' + process.env.PORT));
+JS
+follow POST /api/v1/sites/app-test/restart
+for _ in $(seq 30); do curl -s -o /dev/null -H 'Host: app.test' http://127.0.0.1/ && break; sleep 1; done
+out=$(curl -s -H 'Host: app.test' http://127.0.0.1/)
+for want in "user=cw-app-test-run" "node=v$node." "code=refused" "data=written" 'greeting=hello "world" $HOME 100%'; do
+	printf '%s\n' "$out" | grep_q -F -- "$want" || fail "app: want $want, got: $out"
+done
+[ "$(systemctl show -p ProtectSystem --value cairn-app-app-test.service)" = strict ] || fail "unit not locked down"
+[ "$(stat -c %a /etc/cairn/apps/app-test.env)" = 600 ] || fail "env file readable by others"
+pid=$(systemctl show -p MainPID --value cairn-app-app-test.service)
+kill -9 "$pid"
+for _ in $(seq 30); do
+	new=$(systemctl show -p MainPID --value cairn-app-app-test.service)
+	[ "$new" != 0 ] && [ "$new" != "$pid" ] && break
+	sleep 1
+done
+[ "$new" != 0 ] && [ "$new" != "$pid" ] || fail "systemd did not restart the app"
+api "$base/api/v1/sites/app-test/app" | python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if d["activeState"]=="active" and d["restarts"]>=1 else 1)' || fail "app status: $(api "$base/api/v1/sites/app-test/app")"
+api "$base/api/v1/sites/app-test/app/log" | grep_q 'listening on' || fail "app log: $(api "$base/api/v1/sites/app-test/app/log")"
+port=$(api "$base/api/v1/sites/app-test" | python3 -c 'import json,sys; print(json.load(sys.stdin)["app"]["port"])')
+follow POST /api/v1/streams "{\"protocol\":\"tcp\",\"port\":9002,\"upstreams\":[\"127.0.0.1:$port\"]}"
+for _ in $(seq 10); do curl -s -o /dev/null http://127.0.0.1:9002/ && break; sleep 1; done
+curl -s http://127.0.0.1:9002/ | grep_q "user=cw-app-test-run" || fail "stream to the app"
+follow DELETE /api/v1/streams/tcp-9002
+follow DELETE "/api/v1/sites/app-test?deleteFiles=true"
+[ "$(systemctl show -p LoadState --value cairn-app-app-test.service)" = not-found ] || fail "app unit left"
+step "app with systemd: Node.js $node as cw-app-test-run, code read-only, data/ writable, variables quoted, restarted after kill -9, log read; stream tcp 9002 in front; deleted"
+
 # Online update in a transient unit: the package restarts both services.
 api -X POST "$base/api/v1/updates/check" | grep_q '"status":"available"' || fail "no update offered"
 helper_pid=$(systemctl show -p MainPID --value cairn-helper.service)

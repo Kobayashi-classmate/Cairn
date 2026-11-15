@@ -103,6 +103,7 @@ type env struct {
 	bus      *events.Bus
 	cloud    *cloudsvc.Module
 	certs    *certsmod.Module
+	sites    *sitesmod.Module
 	modules  *module.Registry
 	jobs     *jobs.Manager
 }
@@ -150,6 +151,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 
 	router := api.NewRouter(core.Authenticator(db), log)
 	registry := module.NewRegistry(db)
+	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log, PanelPort: 28443}
 	certsMod := &certsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log}
 	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),
 		Log: log, Version: "0.1.0", Family: "debian", Format: "deb", Arch: "amd64"}
@@ -158,7 +160,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)},
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log,
 			Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"},
-		&sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log},
+		sitesMod,
 		certsMod,
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
@@ -175,7 +177,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		api.Require(authz.Self), api.Doc("meta", "This OpenAPI document"))
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod,
+	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod, sites: sitesMod,
 		modules: registry, jobs: jobManager}
 }
 

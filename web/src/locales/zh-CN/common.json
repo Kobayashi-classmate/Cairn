@@ -88,7 +88,23 @@
     "defaultCa": "默认颁发机构",
     "email": "邮箱",
     "provider": "DNS 服务商",
-    "certificate": "证书"
+    "certificate": "证书",
+    "app": {
+      "self": "应用",
+      "runtime": "运行环境",
+      "line": "运行环境版本",
+      "command": "启动命令",
+      "workDir": "工作目录",
+      "port": "端口",
+      "env": "环境变量",
+      "memoryMb": "内存上限（MB）",
+      "cpuPercent": "CPU 上限（%）",
+      "healthPath": "健康检查路径"
+    },
+    "protocol": "协议",
+    "upstreams": "上游",
+    "balance": "负载均衡",
+    "cursor": "位置"
   },
   "boot": {
     "failed": "无法加载面板"

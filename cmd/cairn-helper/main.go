@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"os/user"
@@ -109,6 +110,9 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	}
 	helper.RegisterSoftware(reg, ops, software)
 	sites := siteEngine(software)
+	if _, port, err := net.SplitHostPort(cfg.Server.Listen); err == nil {
+		sites.PanelPort, _ = strconv.Atoi(port)
+	}
 	helper.RegisterSites(reg, ops, sites)
 	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: sites, PanelUser: "cairn", Resolvers: cfg.ACME.Resolvers})
 	updater := &helper.Updater{

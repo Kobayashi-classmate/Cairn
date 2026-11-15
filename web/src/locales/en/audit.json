@@ -17,7 +17,8 @@
     "setup": "Setup",
     "site": "Sites",
     "cert": "Certificates",
-    "dns": "DNS"
+    "dns": "DNS",
+    "stream": "Four-layer proxies"
   },
   "column": {
     "time": "Time",
@@ -43,7 +44,8 @@
     "channel": "Channel: {channel}",
     "source": "Source: {source}",
     "filesDeleted": "Files and users deleted",
-    "filesKept": "Files and users kept"
+    "filesKept": "Files and users kept",
+    "healthRestart": "After failed health checks"
   },
   "action": {
     "auth": {
@@ -106,7 +108,8 @@
       "update": "Changed site {site}",
       "start": "Started site {site}",
       "stop": "Stopped site {site}",
-      "delete": "Deleted site {site}"
+      "delete": "Deleted site {site}",
+      "restart": "Restarted site {site}"
     },
     "cert": {
       "issue": "Requested a certificate for {domains}",
@@ -121,6 +124,13 @@
       "account_create": "Added DNS account {name} ({provider})",
       "account_update": "Changed DNS account {name} ({provider})",
       "account_delete": "Deleted DNS account {name} ({provider})"
+    },
+    "stream": {
+      "create": "Created four-layer proxy {stream}",
+      "update": "Changed four-layer proxy {stream}",
+      "start": "Started four-layer proxy {stream}",
+      "stop": "Stopped four-layer proxy {stream}",
+      "delete": "Deleted four-layer proxy {stream}"
     }
   }
 }

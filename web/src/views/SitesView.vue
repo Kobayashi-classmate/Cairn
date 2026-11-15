@@ -1,8 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RouterLink, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
   NAlert,
   NButton,
@@ -12,6 +12,8 @@ import {
   NH2,
   NIcon,
   NSpace,
+  NTabPane,
+  NTabs,
   NTag,
   NText,
   NTooltip,
@@ -25,10 +27,16 @@ import { errorMessage, errorText } from '@/i18n/errors'
 import { siteDisplayState, siteStateTagType, siteTypeLabel } from '@/sites/labels'
 import { useSessionStore } from '@/stores/session'
 import CreateSiteDialog from './sites/CreateSiteDialog.vue'
+import StreamsPanel from './sites/StreamsPanel.vue'
 import DeleteSiteDialog from './sites/DeleteSiteDialog.vue'
 
 const { t } = useI18n()
 const router = useRouter()
+const route = useRoute()
+
+/** Sites or four-layer proxies; kept in the address. */
+const tab = ref<'sites' | 'streams'>(route.query.tab === 'streams' ? 'streams' : 'sites')
+watch(tab, (value) => void router.replace({ query: value === 'sites' ? {} : { tab: value } }))
 const session = useSessionStore()
 const showError = useErrorToast()
 const message = useMessage()
@@ -94,6 +102,10 @@ function askDelete(site: SiteView) {
 function target(site: SiteView): string {
   if (site.type === 'php') return site.php ? `PHP ${site.php}` : ''
   if (site.type === 'proxy') return site.proxy?.url ?? ''
+  if (site.type === 'app' && site.app) {
+    const runtime = site.app.runtime ? `${site.app.runtime} ${site.app.line ?? ''} ` : ''
+    return `${runtime}127.0.0.1:${site.app.port}`
+  }
   return ''
 }
 
@@ -183,7 +195,12 @@ const columns = computed<DataTableColumns<SiteView>>(() => [
   <div class="sites">
     <header class="sites__header">
       <NH2 class="sites__title">{{ t('sites.title') }}</NH2>
-      <NButton v-if="canManage && list?.supported" type="primary" :disabled="!canCreate" @click="showCreate = true">
+      <NButton
+        v-if="canManage && list?.supported && tab === 'sites'"
+        type="primary"
+        :disabled="!canCreate"
+        @click="showCreate = true"
+      >
         <template #icon>
           <NIcon><AddOutline /></NIcon>
         </template>
@@ -206,23 +223,30 @@ const columns = computed<DataTableColumns<SiteView>>(() => [
         <NAlert v-else-if="!list.nginx.running" type="warning" class="block">{{ t('sites.nginxStopped') }}</NAlert>
       </template>
 
-      <NCard v-if="list.sites.length > 0" size="small">
-        <NDataTable
-          :columns="columns"
-          :data="list.sites"
-          :row-key="(site: SiteView) => site.code"
-          :scroll-x="1000"
-          size="small"
-        />
-      </NCard>
-      <NCard v-else-if="list.supported" size="small">
-        <NEmpty :description="t('sites.empty.title')" class="empty">
-          <template #extra>
-            <NText depth="3" tag="p" class="empty__text">{{ t('sites.empty.text') }}</NText>
-            <NButton v-if="canCreate" type="primary" @click="showCreate = true">{{ t('sites.create.title') }}</NButton>
-          </template>
-        </NEmpty>
-      </NCard>
+      <NTabs v-model:value="tab" type="line" class="tabs">
+        <NTabPane name="sites" :tab="t('sites.tabs.sites')">
+          <NCard v-if="list.sites.length > 0" size="small">
+            <NDataTable
+              :columns="columns"
+              :data="list.sites"
+              :row-key="(site: SiteView) => site.code"
+              :scroll-x="1000"
+              size="small"
+            />
+          </NCard>
+          <NCard v-else-if="list.supported" size="small">
+            <NEmpty :description="t('sites.empty.title')" class="empty">
+              <template #extra>
+                <NText depth="3" tag="p" class="empty__text">{{ t('sites.empty.text') }}</NText>
+                <NButton v-if="canCreate" type="primary" @click="showCreate = true">{{ t('sites.create.title') }}</NButton>
+              </template>
+            </NEmpty>
+          </NCard>
+        </NTabPane>
+        <NTabPane v-if="list.supported" name="streams" :tab="t('sites.tabs.streams')">
+          <StreamsPanel :can-manage="canManage" />
+        </NTabPane>
+      </NTabs>
     </template>
 
     <CreateSiteDialog
@@ -230,6 +254,7 @@ const columns = computed<DataTableColumns<SiteView>>(() => [
       v-model:show="showCreate"
       :php-lines="list.php"
       :rewrites="rewrites"
+      :systemd="list.systemd"
       @changed="load"
     />
     <DeleteSiteDialog v-model:show="showDelete" :site="deleting" @deleted="load" />
@@ -260,6 +285,10 @@ const columns = computed<DataTableColumns<SiteView>>(() => [
 
 .empty {
   padding-block: 32px;
+}
+
+.tabs {
+  margin-block-start: 4px;
 }
 
 .empty__text {

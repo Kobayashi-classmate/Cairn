@@ -17,7 +17,8 @@
     "setup": "初始化",
     "site": "网站",
     "cert": "证书",
-    "dns": "DNS"
+    "dns": "DNS",
+    "stream": "四层代理"
   },
   "column": {
     "time": "时间",
@@ -43,7 +44,8 @@
     "channel": "通道：{channel}",
     "source": "来源：{source}",
     "filesDeleted": "已删除文件和用户",
-    "filesKept": "保留了文件和用户"
+    "filesKept": "保留了文件和用户",
+    "healthRestart": "因健康检查失败"
   },
   "action": {
     "auth": {
@@ -106,7 +108,8 @@
       "update": "修改了网站 {site}",
       "start": "启动了网站 {site}",
       "stop": "停用了网站 {site}",
-      "delete": "删除了网站 {site}"
+      "delete": "删除了网站 {site}",
+      "restart": "重启了网站 {site}"
     },
     "cert": {
       "issue": "为 {domains} 申请了证书",
@@ -121,6 +124,13 @@
       "account_create": "添加了 DNS 账号 {name}（{provider}）",
       "account_update": "修改了 DNS 账号 {name}（{provider}）",
       "account_delete": "删除了 DNS 账号 {name}（{provider}）"
+    },
+    "stream": {
+      "create": "创建了四层代理 {stream}",
+      "update": "修改了四层代理 {stream}",
+      "start": "启动了四层代理 {stream}",
+      "stop": "停用了四层代理 {stream}",
+      "delete": "删除了四层代理 {stream}"
     }
   }
 }

@@ -37,6 +37,10 @@
     "cert": {
       "label": "Certificates",
       "description": "Failed renewals and certificates about to expire."
+    },
+    "app": {
+      "label": "Apps",
+      "description": "Apps that stop answering their health check."
     }
   },
   "event": {
@@ -58,6 +62,9 @@
     "cert": {
       "renew_failed": "Certificate renewal failed",
       "expiring": "Certificate expiring"
+    },
+    "app": {
+      "unhealthy": "App unhealthy"
     }
   },
   "channel": {

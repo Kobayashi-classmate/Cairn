@@ -53,10 +53,12 @@ const (
 	// certificate in use expires within a week.
 	CertRenewFailed = "cert.renew_failed"
 	CertExpiring    = "cert.expiring"
+	// AppUnhealthy: an app failed its health checks and was restarted.
+	AppUnhealthy = "app.unhealthy"
 )
 
 // Categories are the prefixes a notification channel can subscribe to.
-var Categories = []string{"security.", "users.", "system.", "cloud.", "cert."}
+var Categories = []string{"security.", "users.", "system.", "cloud.", "cert.", "app."}
 
 // Event is something that happened.
 type Event struct {

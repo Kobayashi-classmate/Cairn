@@ -15,6 +15,10 @@
     "proxy": {
       "name": "Reverse proxy",
       "description": "Forwards requests to an application listening elsewhere."
+    },
+    "app": {
+      "name": "App (Node.js / Python / Go / Java / .NET)",
+      "description": "A long-running program, run as a service behind nginx."
     }
   },
   "state": {
@@ -99,7 +103,10 @@
   "tabs": {
     "overview": "Overview",
     "settings": "Settings",
-    "logs": "Logs"
+    "logs": "Logs",
+    "process": "Process",
+    "sites": "Sites",
+    "streams": "Four-layer proxies"
   },
   "drift": {
     "tag": "Not applied",
@@ -124,5 +131,54 @@
   },
   "rewrite": {
     "spa": "Single-page application"
+  },
+  "app": {
+    "systemTools": "None (system tools only)",
+    "notInstalled": "{runtime} (not installed)",
+    "runtimeHint": "Installed runtimes only; the chosen one comes first on PATH.",
+    "installRuntime": "Install a runtime on the software page",
+    "commandHint": "One shell line, run by /bin/sh as the site's runtime user. The app must listen on 127.0.0.1:$PORT; HOST and PORT are set for it.",
+    "portAuto": "Automatic (20000–29999)",
+    "portKeep": "Keep the current port",
+    "envName": "NAME",
+    "envValue": "Value",
+    "addEnv": "Add variable",
+    "envHint": "HOST, PORT, HOME and PATH are set by the panel. Values are stored in a file only root can read.",
+    "writableHint": "The app can write only these directories and tmp/; everything else is read-only to it.",
+    "noLimit": "No limit",
+    "limitsHint": "Memory in MB (at least 16); CPU in percent of one CPU (200 = two CPUs, at least 5). Empty means no limit.",
+    "healthHint": "The panel requests this path every 30 seconds. After three failures (no answer, or status 500 or higher) it restarts the app.",
+    "noSystemd": "Needs systemd, which this system does not have.",
+    "envCount": "{count} variable | {count} variables",
+    "limits": "Limits",
+    "limitsValue": "Memory: {memory}, CPU: {cpu}"
+  },
+  "process": {
+    "state": {
+      "running": "Running",
+      "starting": "Starting",
+      "stopping": "Stopping",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "healthOk": "Health check passing",
+    "healthFailing": "Health check failing ({count} time) | Health check failing ({count} times)",
+    "restart": "Restart",
+    "pid": "PID",
+    "since": "Since",
+    "restarts": "Restarts",
+    "memory": "Memory",
+    "cpu": "CPU time",
+    "lastExit": "Last exit",
+    "journal": "Journal",
+    "result": {
+      "exit-code": "Exited with an error",
+      "signal": "Killed by a signal",
+      "oom-kill": "Out of memory",
+      "timeout": "Timed out",
+      "core-dump": "Crashed (core dump)",
+      "watchdog": "Watchdog timeout",
+      "start-limit-hit": "Restarted too often"
+    }
   }
 }

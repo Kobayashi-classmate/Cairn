@@ -6,8 +6,41 @@
 import { api } from './client'
 import type { Job } from './jobs'
 
-export type SiteType = 'static' | 'php' | 'proxy'
-export const SITE_TYPES: readonly SiteType[] = ['static', 'php', 'proxy']
+export type SiteType = 'static' | 'php' | 'proxy' | 'app'
+export const SITE_TYPES: readonly SiteType[] = ['static', 'php', 'proxy', 'app']
+
+/** Runtimes an app can run on (prebuilt or system packages of these catalog entries). */
+export const APP_RUNTIMES = ['nodejs', 'python', 'go', 'java', 'dotnet'] as const
+export type AppRuntime = (typeof APP_RUNTIMES)[number]
+
+export interface EnvVar {
+  name: string
+  value: string
+}
+
+/**
+ * A long-running application behind nginx, run by systemd as the site's
+ * runtime user. The command must listen on 127.0.0.1:$PORT.
+ */
+export interface AppSpec {
+  /** Installed runtime put first on PATH; empty for system tools only. */
+  runtime?: AppRuntime
+  line?: string
+  /** One shell line, run by /bin/sh. */
+  command: string
+  /** Relative to the site directory. */
+  workDir?: string
+  /** 0 on create: the panel picks a free port in 20000-29999; on update: keep the current one. */
+  port: number
+  env?: EnvVar[]
+  /** 0 or absent: no limit; at least 16. */
+  memoryMb?: number
+  /** Percent of one CPU (200 = two); 0 or absent: no limit; at least 5. */
+  cpuPercent?: number
+  /** Checked every 30 s; three failures restart the app. */
+  healthPath?: string
+  webSocket?: boolean
+}
 
 export type SiteState = 'applying' | 'active' | 'failed'
 
@@ -46,6 +79,7 @@ export interface SiteRequest {
   writable?: string[]
   proxy?: ProxySpec
   tls?: SiteTls
+  app?: AppSpec
 }
 
 export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>> {
@@ -57,6 +91,7 @@ export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>
   writable?: string[]
   proxy?: ProxySpec
   tls?: SiteTls
+  app?: AppSpec
   /** False keeps the site configured but answering 503. */
   enabled: boolean
   state: SiteState
@@ -86,6 +121,8 @@ export interface SiteList {
   nginx: { installed: boolean; running: boolean }
   /** Installed PHP lines that have PHP-FPM. */
   php: string[]
+  /** Apps run as systemd services; without systemd they are not available. */
+  systemd: boolean
   sites: SiteView[]
 }
 
@@ -165,5 +202,45 @@ export function requestOf(site: SiteView): SiteRequest {
     writable: site.writable,
     proxy: site.proxy,
     tls: site.tls,
+    app: site.app,
   }
+}
+
+/** The systemd service of an app site. */
+export interface AppStatus {
+  code: string
+  /** systemd ActiveState: active, inactive, failed, activating, deactivating, ... */
+  activeState: string
+  subState: string
+  mainPid?: number
+  restarts: number
+  memoryBytes?: number
+  cpuNanos?: number
+  /** Unix seconds the service entered its state. */
+  since?: number
+  /** How the last run ended: success, exit-code, signal, oom-kill, ... */
+  result?: string
+  /** Last health check, when the site has a health path. */
+  health?: 'ok' | 'failing'
+  failures?: number
+}
+
+export interface AppLogChunk {
+  lines: string[]
+  /** Pass back to continue after these lines. */
+  cursor?: string
+}
+
+export function fetchAppStatus(code: string, signal?: AbortSignal): Promise<AppStatus> {
+  return api.get<AppStatus>(`/sites/${encodeURIComponent(code)}/app`, { signal })
+}
+
+/** Without a cursor: the last 300 journal lines. */
+export function fetchAppLog(code: string, cursor?: string, signal?: AbortSignal): Promise<AppLogChunk> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  return api.get<AppLogChunk>(`/sites/${encodeURIComponent(code)}/app/log${query}`, { signal })
+}
+
+export async function restartSite(code: string): Promise<Job> {
+  return (await api.post<{ job: Job }>(`/sites/${encodeURIComponent(code)}/restart`)).job
 }

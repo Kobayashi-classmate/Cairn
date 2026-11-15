@@ -110,6 +110,26 @@ get proxy.test / | grep_q "upstream marker" || fail "proxy: $(get proxy.test /)"
 grep_q 'proxy_set_header Upgrade' /etc/nginx/cairn/sites/proxy-test.conf || fail "WebSocket headers missing"
 step "reverse proxy proxy.test -> 127.0.0.1:8081 (WebSocket headers set)"
 
+# A four-layer proxy to the same upstream; stopped, it does not listen.
+follow POST /api/v1/streams '{"protocol":"tcp","port":9001,"upstreams":["127.0.0.1:8081"]}'
+curl -s http://127.0.0.1:9001/ | grep_q "upstream marker" || fail "stream: $(curl -s http://127.0.0.1:9001/)"
+follow POST /api/v1/streams/tcp-9001/stop
+if curl -s --max-time 3 -o /dev/null http://127.0.0.1:9001/; then fail "a stopped stream still answers"; fi
+follow DELETE /api/v1/streams/tcp-9001
+[ ! -e /etc/nginx/cairn/stream/tcp-9001.conf ] || fail "stream file left"
+step "four-layer proxy tcp 9001 -> 127.0.0.1:8081; stopped, it no longer listens; deleted"
+
+# Apps are systemd units: without systemd they are refused clearly.
+r=$(api -X POST "$base/api/v1/sites" -d '{"type":"app","domains":["app.test"],"app":{"command":"python3 -m http.server $PORT","port":0}}')
+id=$(printf '%s' "$r" | json 'd["job"]["id"]')
+for _ in $(seq 60); do
+	state=$(api "$base/api/v1/jobs/$id" | json 'd["job"]["state"]')
+	case "$state" in succeeded | failed) break ;; esac
+	sleep 0.5
+done
+[ "$(api "$base/api/v1/jobs/$id" | json 'd["job"]["error"]["code"]')" = app.systemd_required ] || fail "app without systemd: $(api "$base/api/v1/jobs/$id")"
+step "an app site without systemd is refused (app.systemd_required)"
+
 # Stop and start; logs.
 follow POST /api/v1/sites/static-test/stop
 [ "$(code static.test /)" = 503 ] || fail "stopped site answers $(code static.test /)"

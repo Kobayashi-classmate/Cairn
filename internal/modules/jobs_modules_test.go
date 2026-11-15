@@ -127,6 +127,15 @@ func TestJobFailureCancelAndRestart(t *testing.T) {
 	if final["state"] != jobs.Failed || final["error"].(map[string]any)["code"] != helperapi.CodeOpFailed {
 		t.Fatalf("failed job: %v", final)
 	}
+	// The event follows the state change; wait for it.
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		mu.Lock()
+		n := len(failed)
+		mu.Unlock()
+		if n > 0 {
+			break
+		}
+	}
 	mu.Lock()
 	if len(failed) != 1 || failed[0].Params["kind"] != "software.refresh" {
 		t.Fatalf("failure event: %v", failed)

@@ -62,7 +62,15 @@
       "pair": "{field}：请同时填写两项，或都不填。",
       "printable": "{field}只能包含可打印字符。",
       "max": "{field}过长。",
-      "size": "{field}过大。"
+      "size": "{field}过大。",
+      "command": "{field}必须是一行，且不能包含控制字符。",
+      "port": "{field}不是允许使用的端口。",
+      "name": "请检查{field}：变量名须以字母或 _ 开头，只能包含字母、数字和 _，且不能重复。",
+      "value": "请检查{field}：变量值不能包含换行或其他控制字符。",
+      "host_port": "请检查{field}：每一项都必须是“主机:端口”的形式。",
+      "app_fields": "应用不能设置网站根目录、PHP、伪静态规则、默认首页或代理地址。",
+      "out_of_range": "{field}超出了允许的范围。",
+      "cursor": "{field}无效。"
     }
   },
   "locale": {
@@ -165,6 +173,13 @@
     },
     "dns": {
       "account_in_use": "以下证书仍通过该 DNS 账号进行验证：{certs}。"
+    },
+    "app": {
+      "runtime_missing": "{software} {line} 未安装。",
+      "port_taken": "端口 {port} 已被{owner}占用。"
+    },
+    "stream": {
+      "port_taken": "端口 {port} 已被{owner}占用。"
     }
   },
   "software": {
@@ -200,5 +215,23 @@
     "request_failed": "向 DNS 服务商发出的请求失败。",
     "account_not_found": "该 DNS 账号不存在。",
     "account_in_use": "仍有证书通过该 DNS 账号进行验证。"
+  },
+  "app": {
+    "systemd_required": "应用需要 systemd，而此系统没有。",
+    "runtime_missing": "所选运行环境未安装。",
+    "port_taken": "该端口已被占用。",
+    "port_range_full": "20000–29999 范围内已没有空闲端口。",
+    "not_found": "该应用不存在。"
+  },
+  "stream": {
+    "module_missing": "未安装 nginx 的 stream 模块。",
+    "port_taken": "该端口已被占用。",
+    "not_found": "该四层代理不存在。",
+    "code_taken": "该代号已被其他四层代理使用。"
+  },
+  "owner": {
+    "site": "网站 {name}",
+    "stream": "四层代理 {name}",
+    "panel": "面板"
   }
 }

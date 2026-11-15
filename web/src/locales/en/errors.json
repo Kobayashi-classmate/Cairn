@@ -62,7 +62,15 @@
       "pair": "{field}: enter both values or neither.",
       "printable": "{field} may contain only printable characters.",
       "max": "{field} is too long.",
-      "size": "{field} is too large."
+      "size": "{field} is too large.",
+      "command": "{field} must be one line without control characters.",
+      "port": "{field} is not an allowed port.",
+      "name": "Check {field}: names start with a letter or _, contain only letters, digits and _, and are used once.",
+      "value": "Check {field}: values cannot contain line breaks or other control characters.",
+      "host_port": "Check {field}: each entry must be host:port.",
+      "app_fields": "An app cannot have a web root, PHP, rewrite rules, index files or a proxy URL.",
+      "out_of_range": "{field} is out of the allowed range.",
+      "cursor": "{field} is not valid."
     }
   },
   "locale": {
@@ -165,6 +173,13 @@
     },
     "dns": {
       "account_in_use": "Certificates still validate through this DNS account: {certs}."
+    },
+    "app": {
+      "runtime_missing": "{software} {line} is not installed.",
+      "port_taken": "Port {port} is already used by {owner}."
+    },
+    "stream": {
+      "port_taken": "Port {port} is already used by {owner}."
     }
   },
   "software": {
@@ -200,5 +215,23 @@
     "request_failed": "The request to the DNS provider failed.",
     "account_not_found": "The DNS account does not exist.",
     "account_in_use": "Certificates still validate through this DNS account."
+  },
+  "app": {
+    "systemd_required": "Apps need systemd, which this system does not have.",
+    "runtime_missing": "The chosen runtime is not installed.",
+    "port_taken": "The port is already in use.",
+    "port_range_full": "No free port is left in 20000–29999.",
+    "not_found": "The app does not exist."
+  },
+  "stream": {
+    "module_missing": "nginx's stream module is not installed.",
+    "port_taken": "The port is already in use.",
+    "not_found": "The four-layer proxy does not exist.",
+    "code_taken": "This code is already used by another four-layer proxy."
+  },
+  "owner": {
+    "site": "site {name}",
+    "stream": "four-layer proxy {name}",
+    "panel": "the panel"
   }
 }
