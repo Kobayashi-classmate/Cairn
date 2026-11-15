@@ -43,7 +43,8 @@
       "oneof": "{field} must be one of the allowed values.",
       "count": "{field} has too many or too few entries.",
       "unexpected": "{field} is not accepted here.",
-      "id": "{field} is not a valid identifier."
+      "id": "{field} is not a valid identifier.",
+      "unique": "{field} contains duplicates."
     }
   },
   "locale": {
@@ -104,7 +105,9 @@
     "archive_invalid": "The downloaded archive contains unsafe or unsupported entries. Nothing was installed.",
     "runtime_broken": "The unpacked runtime did not start or reported a different version. Nothing was installed.",
     "source_unknown": "The chosen download source is not offered for this download or is not allowed by the download policy.",
-    "source_unusable": "No allowed download source serves the official file."
+    "source_unusable": "No allowed download source serves the official file.",
+    "conflict": "Two of the chosen lines need different versions of the same package.",
+    "repo_unreachable": "A software repository could not be reached, so its versions are unknown. Check the network and try again."
   },
   "module": {
     "disabled": "This feature is turned off in the module settings.",
@@ -121,7 +124,15 @@
       "metadata_failed": "The official release information from {provider} could not be read.",
       "download_failed": "The download from {url} failed.",
       "checksum_mismatch": "The download from {url} does not match the official checksum (expected {want}, got {got}). Nothing was installed.",
-      "runtime_broken": "The unpacked runtime did not start or did not report version {version}. Nothing was installed."
+      "runtime_broken": "The unpacked runtime did not start or did not report version {version}. Nothing was installed.",
+      "conflict": "Two of the chosen lines need different versions of package {package}.",
+      "repo_unreachable": "The repository at {host} could not be reached, so its versions are unknown. Check the network and try again."
+    },
+    "software": {
+      "install_incomplete": "Not installed: {failed}"
     }
+  },
+  "software": {
+    "install_incomplete": "Some of the software could not be installed."
   }
 }

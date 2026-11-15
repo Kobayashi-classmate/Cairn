@@ -19,6 +19,7 @@ import AuthLayout from '@/layouts/AuthLayout.vue'
 import { homeLocation } from '@/layouts/navigation'
 import { errorMessage } from '@/i18n/errors'
 import { safeRedirect } from '@/router/redirect'
+import { wizardDue } from '@/wizard/open'
 import { useSessionStore } from '@/stores/session'
 
 const { t } = useI18n()
@@ -56,6 +57,11 @@ const subtitle = computed(() => {
 })
 
 async function finish() {
+  // The first-login wizard comes first while nobody has finished or skipped it.
+  if (await wizardDue()) {
+    await router.replace({ name: 'welcome' })
+    return
+  }
   await router.replace(safeRedirect(route.query.redirect) ?? homeLocation(router))
 }
 

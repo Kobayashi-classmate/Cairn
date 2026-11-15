@@ -1,31 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NForm,
-  NFormItem,
-  NInput,
-  NTag,
-  NText,
-  useMessage,
-  type FormInst,
-  type FormRules,
-} from 'naive-ui'
-import {
-  beginTotp,
-  confirmTotp,
-  disableTotp,
-  regenerateRecoveryCodes,
-  type TotpEnrollment,
-} from '@/api/account'
-import { isApiError, isStepUpRequired } from '@/api/client'
-import { totpCodeRules } from '@/forms/rules'
+import { NAlert, NButton, NCard, NTag, NText, useMessage } from 'naive-ui'
+import { disableTotp, regenerateRecoveryCodes } from '@/api/account'
+import { isStepUpRequired } from '@/api/client'
 import RecoveryCodes from '@/components/RecoveryCodes.vue'
-import TotpQrCode from '@/components/TotpQrCode.vue'
+import TotpEnrollment from '@/components/TotpEnrollment.vue'
 import { useConfirm } from '@/composables/useConfirm'
 import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
@@ -36,23 +17,15 @@ const confirm = useConfirm()
 const session = useSessionStore()
 
 /**
- * idle: status and actions; enrolling: QR code and code entry;
- * codes: freshly issued recovery codes, shown once.
+ * idle: status and actions; enrolling: the enrollment flow;
+ * codes: newly generated recovery codes, shown once.
  */
 const mode = ref<'idle' | 'enrolling' | 'codes'>('idle')
-const enrollment = ref<TotpEnrollment | null>(null)
 const recoveryCodes = ref<string[]>([])
 const busy = ref(false)
 const error = ref<unknown>(null)
 
-const formRef = ref<FormInst | null>(null)
-const form = reactive({ code: '' })
-const rules: FormRules = { code: totpCodeRules() }
-
 const enabled = computed(() => session.user?.totpEnabled === true)
-
-/** The secret in groups of four characters, easier to type. */
-const groupedSecret = computed(() => enrollment.value?.secret.match(/.{1,4}/g)?.join(' ') ?? '')
 
 /** Runs an action, keeping a declined re-authentication silent. */
 async function run(action: () => Promise<void>) {
@@ -68,37 +41,8 @@ async function run(action: () => Promise<void>) {
 }
 
 function startEnrollment() {
-  return run(async () => {
-    enrollment.value = await beginTotp()
-    form.code = ''
-    mode.value = 'enrolling'
-  })
-}
-
-async function finishEnrollment() {
-  try {
-    await formRef.value?.validate()
-  } catch {
-    return
-  }
-  await run(async () => {
-    try {
-      recoveryCodes.value = (await confirmTotp(form.code)).recoveryCodes
-    } catch (err) {
-      // The pending secret expired: start over from the beginning.
-      if (isApiError(err) && err.code === 'auth.totp_not_pending') cancelEnrollment()
-      throw err
-    }
-    session.setTotpEnabled(true)
-    enrollment.value = null
-    mode.value = 'codes'
-    message.success(t('settings.security.enabled'))
-  })
-}
-
-function cancelEnrollment() {
-  enrollment.value = null
-  mode.value = 'idle'
+  error.value = null
+  mode.value = 'enrolling'
 }
 
 async function regenerate() {
@@ -129,7 +73,7 @@ async function disable() {
   })
 }
 
-function codesSaved() {
+function backToIdle() {
   recoveryCodes.value = []
   mode.value = 'idle'
 }
@@ -165,43 +109,9 @@ function codesSaved() {
       </div>
     </template>
 
-    <div v-else-if="mode === 'enrolling' && enrollment" class="enroll">
-      <div class="enroll__step">
-        <NText tag="p" class="intro">{{ t('settings.security.enroll.scan') }}</NText>
-        <TotpQrCode :uri="enrollment.uri" :label="t('settings.security.enroll.qrLabel')" />
-      </div>
-      <div class="enroll__step">
-        <NText depth="3" tag="p" class="intro">{{ t('settings.security.enroll.manual') }}</NText>
-        <code class="secret" dir="ltr">{{ groupedSecret }}</code>
-      </div>
-      <NForm
-        ref="formRef"
-        :model="form"
-        :rules="rules"
-        :disabled="busy"
-        class="enroll__form"
-        @submit.prevent="finishEnrollment"
-      >
-        <NText tag="p" class="intro">{{ t('settings.security.enroll.enterCode') }}</NText>
-        <NFormItem path="code" :label="t('common.field.code')">
-          <NInput
-            v-model:value="form.code"
-            :maxlength="6"
-            :input-props="{ autocomplete: 'one-time-code', inputmode: 'numeric' }"
-          />
-        </NFormItem>
-        <div class="actions">
-          <NButton type="primary" attr-type="submit" :loading="busy">
-            {{ t('settings.security.enroll.submit') }}
-          </NButton>
-          <NButton :disabled="busy" @click="cancelEnrollment">
-            {{ t('common.action.cancel') }}
-          </NButton>
-        </div>
-      </NForm>
-    </div>
+    <TotpEnrollment v-else-if="mode === 'enrolling'" @done="backToIdle" @cancel="backToIdle" />
 
-    <RecoveryCodes v-else-if="mode === 'codes'" :codes="recoveryCodes" @done="codesSaved" />
+    <RecoveryCodes v-else-if="mode === 'codes'" :codes="recoveryCodes" @done="backToIdle" />
   </NCard>
 </template>
 
@@ -224,23 +134,5 @@ function codesSaved() {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-}
-
-.enroll {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.enroll__form {
-  max-inline-size: 320px;
-}
-
-.secret {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 15px;
-  letter-spacing: 0.05em;
-  overflow-wrap: anywhere;
-  user-select: all;
 }
 </style>

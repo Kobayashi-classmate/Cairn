@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute } from 'vue-router'
 import {
@@ -16,21 +16,15 @@ import {
   useMessage,
 } from 'naive-ui'
 import { ArrowBackOutline } from '@vicons/ionicons5'
-import { isAbortError, isApiError } from '@/api/client'
-import { cancelJob, followJobLog, type Job } from '@/api/jobs'
+import { cancelJob } from '@/api/jobs'
 import JobStateTag from '@/components/JobStateTag.vue'
 import { useErrorToast } from '@/composables/useErrorToast'
+import { useJobFollow } from '@/composables/useJobFollow'
 import { useNow } from '@/composables/useNow'
 import { errorMessage, errorText } from '@/i18n/errors'
 import { formatDateTime, formatDuration, formatPercent } from '@/i18n/format'
-import { isFinalState, jobActorLabel, jobKindLabel, sourceLabel } from '@/jobs/labels'
+import { formatJobParam, isFinalState, jobActorLabel, jobKindLabel, sourceLabel } from '@/jobs/labels'
 
-/** Longest wait the server allows for one long-poll request. */
-const WAIT_SECONDS = 25
-/** Pause before retrying after a failed request. */
-const RETRY_MS = 3000
-/** Keep at most this many characters of log in memory; older output is dropped. */
-const MAX_LOG_CHARS = 1024 * 1024
 /** Distance from the bottom (px) that still counts as "following" the log. */
 const FOLLOW_SLACK_PX = 24
 
@@ -40,46 +34,21 @@ const message = useMessage()
 const showError = useErrorToast()
 const now = useNow(1000)
 
-const job = ref<Job | null>(null)
-const log = ref('')
-const trimmed = ref(false)
-const loadError = ref<unknown>(null)
-/** The last request failed; the view keeps retrying. */
-const reconnecting = ref(false)
+const { job, log, trimmed, loadError, reconnecting, start } = useJobFollow()
 const canceling = ref(false)
 
 const logBox = ref<HTMLElement | null>(null)
 /** Whether new output scrolls into view; off once the user scrolls up. */
 const follow = ref(true)
 
-let controller: AbortController | null = null
-
 const final = computed(() => (job.value ? isFinalState(job.value.state) : false))
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => {
-      clearTimeout(timer)
-      resolve()
-    })
+watch(log, () => {
+  if (!follow.value) return
+  void nextTick(() => {
+    if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
   })
-}
-
-function append(chunk: string) {
-  if (!chunk) return
-  let next = log.value + chunk
-  if (next.length > MAX_LOG_CHARS) {
-    next = next.slice(next.length - MAX_LOG_CHARS)
-    trimmed.value = true
-  }
-  log.value = next
-  if (follow.value) {
-    void nextTick(() => {
-      if (logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight
-    })
-  }
-}
+})
 
 function onLogScroll() {
   const box = logBox.value
@@ -87,60 +56,16 @@ function onLogScroll() {
   follow.value = box.scrollHeight - box.scrollTop - box.clientHeight <= FOLLOW_SLACK_PX
 }
 
-/** Follows the job's state and log until it is final and the log is complete. */
-async function followJob(id: string, signal: AbortSignal) {
-  let offset = 0
-  let first = true
-  while (!signal.aborted) {
-    const started = Date.now()
-    try {
-      const chunk = await followJobLog(id, offset, first ? 0 : WAIT_SECONDS, signal)
-      first = false
-      reconnecting.value = false
-      loadError.value = null
-      const changed = chunk.log !== '' || chunk.job.state !== job.value?.state
-      job.value = chunk.job
-      append(chunk.log)
-      offset = chunk.offset
-      if (isFinalState(chunk.job.state) && offset >= chunk.logSize) return
-      // Guard against a server that answers immediately without news.
-      if (!changed && Date.now() - started < 500) await sleep(1000, signal)
-    } catch (err) {
-      if (isAbortError(err)) return
-      if (isApiError(err) && (err.status === 404 || err.status === 401 || err.status === 403)) {
-        loadError.value = err
-        return
-      }
-      // Network trouble or a restarting panel: keep trying quietly.
-      reconnecting.value = true
-      if (!job.value) loadError.value = err
-      await sleep(RETRY_MS, signal)
-    }
-  }
-}
-
-function start(id: string) {
-  controller?.abort()
-  const current = new AbortController()
-  controller = current
-  job.value = null
-  log.value = ''
-  trimmed.value = false
-  loadError.value = null
-  reconnecting.value = false
-  follow.value = true
-  void followJob(id, current.signal)
-}
-
 watch(
   () => route.params.id,
   (id) => {
-    if (typeof id === 'string' && id) start(id)
+    if (typeof id === 'string' && id) {
+      follow.value = true
+      start(id)
+    }
   },
   { immediate: true },
 )
-
-onBeforeUnmount(() => controller?.abort())
 
 async function cancel() {
   if (!job.value) return
@@ -166,7 +91,7 @@ const duration = computed(() => {
 const params = computed(() =>
   Object.entries(job.value?.params ?? {}).map(([key, value]) => ({
     key,
-    value: typeof value === 'string' ? value : JSON.stringify(value),
+    value: formatJobParam(value),
   })),
 )
 

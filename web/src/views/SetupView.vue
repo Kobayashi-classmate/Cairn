@@ -29,6 +29,7 @@ import { homeLocation } from '@/layouts/navigation'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
+import { wizardDue } from '@/wizard/open'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -71,7 +72,7 @@ async function submit() {
       password: form.password,
       locale: locale.value,
     })
-    await router.replace(homeLocation(router))
+    await router.replace((await wizardDue()) ? { name: 'welcome' } : homeLocation(router))
   } catch (err) {
     if (isApiError(err) && err.code === 'setup.already_completed') {
       session.setupAlreadyCompleted(err)

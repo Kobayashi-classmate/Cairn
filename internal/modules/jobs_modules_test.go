@@ -159,6 +159,9 @@ func TestJobFailureCancelAndRestart(t *testing.T) {
 	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpRunning}})
 	e.helper.mu.Lock()
 	e.helper.errs = map[string]error{helperapi.ActionOpCancel: &helperapi.Error{Code: helperapi.CodeOpNotCancelable}}
+	// Forget the earlier jobs' calls: the wait below must see this job's
+	// first op.get, which comes after it recorded its operation.
+	e.helper.calls = nil
 	e.helper.mu.Unlock()
 	rec, _ = e.jobs.Start(context.Background(), jobs.Spec{Kind: "test.op", Permission: authz.SystemRead, ManagePermission: authz.SettingsManage},
 		func(_ context.Context, j *jobs.Job) error { return j.RunOp(helperapi.ActionPkgRefresh, nil, nil) })

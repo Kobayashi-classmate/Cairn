@@ -13,7 +13,8 @@
     "update": "更新",
     "software": "软件",
     "job": "任务",
-    "module": "模块"
+    "module": "模块",
+    "setup": "初始化"
   },
   "column": {
     "time": "时间",
@@ -85,11 +86,15 @@
       "refresh": "开始刷新软件包索引",
       "install": "开始安装 {name} {line}",
       "remove": "开始卸载 {name} {line}",
-      "settings": "将下载源改为{downloadPolicy}"
+      "settings": "将下载源改为{downloadPolicy}",
+      "install_set": "开始安装 {names}"
     },
     "module": {
       "enable": "开启了模块 {module}",
       "disable": "关闭了模块 {module}"
+    },
+    "setup": {
+      "wizard": "将初始化向导标记为{state}"
     }
   }
 }

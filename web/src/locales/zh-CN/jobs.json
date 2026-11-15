@@ -22,7 +22,8 @@
     "software": {
       "refresh": "刷新软件包索引",
       "install": "安装 {name} {line}",
-      "remove": "卸载 {name} {line}"
+      "remove": "卸载 {name} {line}",
+      "install_set": "安装软件组合（{count}）"
     }
   },
   "detail": {
@@ -39,7 +40,8 @@
   "kindName": {
     "software": {
       "install": "安装软件",
-      "remove": "卸载软件"
+      "remove": "卸载软件",
+      "install_set": "安装软件组合"
     }
   }
 }

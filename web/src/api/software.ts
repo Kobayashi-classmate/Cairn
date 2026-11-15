@@ -173,6 +173,8 @@ export interface SourceCandidate {
   latencyMs?: number
   /** Measured transfer rate in bytes per second; 0 or absent when not measured. */
   speed?: number
+  /** Full size of the download from this candidate in bytes (runtime slots). */
+  size?: number
   recommended: boolean
   /** Technical description when the candidate did not answer. */
   error?: string
@@ -193,6 +195,8 @@ export interface SourceSlot {
   /** Runtime slots: the exact version and file that would be downloaded. */
   version?: string
   file?: string
+  /** Runtime slots: size of the download in bytes (absent or 0 when unknown). */
+  size?: number
   /** Repository slots: the compared suites. */
   suites?: string[]
   /** Only runtime downloads can be pointed at another source. */
@@ -206,11 +210,29 @@ export interface SourceSlot {
   candidates: SourceCandidate[]
 }
 
+/** What the package manager would download for the probed package lines. */
+export interface PackageEstimate {
+  /** False when the package manager could not tell (bytes and packages are then 0). */
+  known: boolean
+  bytes: number
+  packages: number
+  /** Lines from repositories that are not added yet are left out. */
+  partial?: boolean
+}
+
 export interface ProbeResult {
   policy: DownloadPolicy
   /** Probe time in milliseconds. */
   took: number
+  /** Slots are shared between the probed lines. */
   slots: SourceSlot[]
+  /** Absent when none of the lines uses the package manager. */
+  packages?: PackageEstimate
+}
+
+/** Slot id of a line's runtime download. */
+export function runtimeSlotId(software: string, line: string): string {
+  return `runtime:${software}:${line}`
 }
 
 export interface ProbeItem {
@@ -239,4 +261,41 @@ export function fetchSoftwareSettings(): Promise<SoftwareSettings> {
 
 export function saveSoftwareSettings(settings: SoftwareSettings): Promise<SoftwareSettings> {
   return api.put<SoftwareSettings>('/software/settings', settings)
+}
+
+/** One item of a suite, resolved for this machine. */
+export interface SuiteItem {
+  /** The first of `choices` offered here, with its recommended line. */
+  software?: string
+  line?: string
+  /** Catalog ids in order of preference. */
+  choices: string[]
+  /** None of the choices is offered on this system. */
+  missing?: boolean
+}
+
+/** A preselection of the first-login wizard; names come from i18n by id. */
+export interface Suite {
+  id: string
+  items: SuiteItem[]
+}
+
+export async function fetchSuites(): Promise<Suite[]> {
+  return (await api.get<{ suites: Suite[] }>('/software/suites')).suites
+}
+
+export interface InstallSetItem {
+  software: string
+  line: string
+  /** Candidate id of the line's runtime download slot; runtime lines only. */
+  source?: string
+}
+
+/**
+ * Installs several lines as one job (`software.install_set`): package lines
+ * in one transaction, runtimes downloading meanwhile. 1 to 16 items, each
+ * software and line at most once.
+ */
+export async function installSoftwareSet(items: InstallSetItem[]): Promise<Job> {
+  return (await api.post<{ job: Job }>('/software/install', { items })).job
 }

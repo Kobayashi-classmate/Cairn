@@ -43,7 +43,8 @@
       "oneof": "{field}必须是允许的取值之一。",
       "count": "{field}的条目数量过多或过少。",
       "unexpected": "此处不接受{field}。",
-      "id": "{field}不是有效的标识符。"
+      "id": "{field}不是有效的标识符。",
+      "unique": "{field}包含重复项。"
     }
   },
   "locale": {
@@ -104,7 +105,9 @@
     "archive_invalid": "下载的压缩包包含不安全或不受支持的条目，未安装任何内容。",
     "runtime_broken": "解压后的运行环境无法启动或报告了不同的版本，未安装任何内容。",
     "source_unknown": "所选下载源不在此次下载的候选范围内，或不被下载源策略允许。",
-    "source_unusable": "没有允许使用的下载源提供官方文件。"
+    "source_unusable": "没有允许使用的下载源提供官方文件。",
+    "conflict": "所选的两个版本线需要同一个软件包的不同版本。",
+    "repo_unreachable": "无法访问软件源，因此不知道其中的版本。请检查网络后重试。"
   },
   "module": {
     "disabled": "此功能已在模块设置中关闭。",
@@ -121,7 +124,15 @@
       "metadata_failed": "无法读取 {provider} 的官方发布信息。",
       "download_failed": "从 {url} 下载失败。",
       "checksum_mismatch": "从 {url} 下载的文件与官方校验值不一致（预期 {want}，实际 {got}），未安装任何内容。",
-      "runtime_broken": "解压后的运行环境无法启动，或没有报告版本 {version}，未安装任何内容。"
+      "runtime_broken": "解压后的运行环境无法启动，或没有报告版本 {version}，未安装任何内容。",
+      "conflict": "所选的两个版本线需要软件包 {package} 的不同版本。",
+      "repo_unreachable": "无法访问 {host} 上的软件源，因此不知道其中的版本。请检查网络后重试。"
+    },
+    "software": {
+      "install_incomplete": "未安装：{failed}"
     }
+  },
+  "software": {
+    "install_incomplete": "部分软件未能安装。"
   }
 }

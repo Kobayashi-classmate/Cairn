@@ -117,6 +117,10 @@ func (m *Module) Routes(r *api.Router) {
 
 	r.Handle("GET /api/v1/settings", m.getSettings, api.Require(authz.SettingsRead), settingsDoc("Panel settings"),
 		api.Returns(200, settingsResponse{}))
+	r.Handle("GET /api/v1/setup/wizard", m.getWizard, self, settingsDoc("Whether the first-login wizard is still to be shown"),
+		api.Returns(200, wizardBody{}))
+	r.Handle("PUT /api/v1/setup/wizard", m.putWizard, api.Require(authz.SettingsManage), api.Body(wizardBody{}),
+		settingsDoc("Mark the first-login wizard finished, skipped or pending again"), api.Returns(200, wizardBody{}))
 	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale, api.Require(authz.SettingsManage),
 		settingsDoc("Change the panel default language"), api.Body(localeRequest{}), noContent)
 

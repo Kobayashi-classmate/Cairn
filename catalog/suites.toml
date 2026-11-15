@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Suites of the first-login wizard: what to tick for a kind of site. They
+# only preselect; the wizard can add or drop single software and change
+# lines. Each item lists software in order of preference: the first one
+# offered on the system is used, in its recommended line (EL 10 has no
+# Redis, so the PHP suite takes Valkey there).
+#
+# The project owner chose these two from the design's examples
+# (2026-11-14); other software is ticked one by one. PHP comes without
+# extensions until PHP management exists. Docker arrives with P2.
+
+[[suite]]
+id = "php-site"
+items = [["nginx"], ["php"], ["mariadb"], ["redis", "valkey"]]
+
+[[suite]]
+id = "node-java"
+items = [["nginx"], ["nodejs"], ["java"]]

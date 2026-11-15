@@ -65,8 +65,10 @@ type Candidate struct {
 	LagSeconds int64 `json:"lagSeconds,omitempty"`
 	// LatencyMS is the time to the first response; Speed the transfer rate
 	// over the sample in bytes per second (0: not measured).
-	LatencyMS   int64  `json:"latencyMs,omitempty"`
-	Speed       int64  `json:"speed,omitempty"`
+	LatencyMS int64 `json:"latencyMs,omitempty"`
+	Speed     int64 `json:"speed,omitempty"`
+	// Size is the full size of a download in bytes (0 if unknown).
+	Size        int64  `json:"size,omitempty"`
 	Recommended bool   `json:"recommended"`
 	Error       string `json:"error,omitempty"`
 }
@@ -355,6 +357,9 @@ func (p *Prober) ProbeFiles(ctx context.Context, cands []Candidate) {
 	for i := range cands {
 		c, m := &cands[i], ms[i]
 		c.LatencyMS, c.Speed = m.latency.Milliseconds(), m.speed
+		if m.err == nil {
+			c.Size = m.total
+		}
 		switch {
 		case m.err != nil:
 			failed(c, m.err)

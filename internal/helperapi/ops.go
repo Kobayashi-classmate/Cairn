@@ -147,6 +147,12 @@ const (
 	CodePkgSourceUnknown = "pkg.source_unknown"
 	// CodePkgSourceUnusable: no allowed source serves the official file.
 	CodePkgSourceUnusable = "pkg.source_unusable"
+	// CodePkgConflict: two lines of one install need different versions of
+	// the same package.
+	CodePkgConflict = "pkg.conflict"
+	// CodePkgRepoUnreachable: the package indexes of a repository could not
+	// be downloaded, so its versions are unknown.
+	CodePkgRepoUnreachable = "pkg.repo_unreachable"
 )
 
 var (
@@ -185,6 +191,49 @@ func (r SoftwareRequest) Validate() error {
 		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "policy", "rule": "oneof"}}
 	}
 	return nil
+}
+
+// ActionPkgInstallSet installs several lines as one operation (the
+// first-login wizard): the lines from the package manager in one
+// transaction, the prebuilt runtimes downloading meanwhile.
+const ActionPkgInstallSet = "pkg.install_set"
+
+// InstallSetRequest names the lines of a pkg.install_set operation.
+type InstallSetRequest struct {
+	Items []SoftwareRequest `json:"items"`
+}
+
+// Validate implements the helper's request validation hook.
+func (r InstallSetRequest) Validate() error {
+	if len(r.Items) == 0 || len(r.Items) > MaxProbeItems {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "items", "rule": "count"}}
+	}
+	seen := map[string]bool{}
+	for _, it := range r.Items {
+		if err := it.Validate(); err != nil {
+			return err
+		}
+		if seen[it.Software+" "+it.Line] {
+			return &Error{Code: "validation.invalid", Params: map[string]any{"field": "items", "rule": "unique"}}
+		}
+		seen[it.Software+" "+it.Line] = true
+	}
+	return nil
+}
+
+// InstallSetItem is how one line of a pkg.install_set operation ended:
+// with its result, or with its error.
+type InstallSetItem struct {
+	Software string         `json:"software"`
+	Line     string         `json:"line"`
+	Result   *InstallResult `json:"result,omitempty"`
+	Error    *Error         `json:"error,omitempty"`
+}
+
+// InstallSetResult is the result of pkg.install_set; the operation succeeds
+// even when some lines failed, which their items say.
+type InstallSetResult struct {
+	Items []InstallSetItem `json:"items"`
 }
 
 // ActionPkgProbe checks the download sources of lines before they are
@@ -241,10 +290,11 @@ type SourceSlot struct {
 	Software []string `json:"software"` // the probed entries that use it
 	Repo     string   `json:"repo,omitempty"`
 	Role     string   `json:"role,omitempty"` // system: main | security
-	// Version and File describe the exact download of a runtime slot;
-	// Suites the compared suites of an apt slot.
+	// Version, File and Size (bytes, 0 if unknown) describe the exact
+	// download of a runtime slot; Suites the compared suites of an apt slot.
 	Version string   `json:"version,omitempty"`
 	File    string   `json:"file,omitempty"`
+	Size    int64    `json:"size,omitempty"`
 	Suites  []string `json:"suites,omitempty"`
 
 	Selectable bool   `json:"selectable"`
@@ -256,9 +306,25 @@ type SourceSlot struct {
 	Candidates []sources.Candidate `json:"candidates"`
 }
 
+// PackageEstimate is what the package manager would download for the
+// probed lines, from its current indexes.
+type PackageEstimate struct {
+	// Known is false when the package manager could not tell (no indexes
+	// yet); Bytes and Packages are then 0.
+	Known    bool  `json:"known"`
+	Bytes    int64 `json:"bytes"`
+	Packages int   `json:"packages"`
+	// Partial is true when lines from repositories not added yet are left
+	// out of the estimate.
+	Partial bool `json:"partial,omitempty"`
+}
+
 // ProbeResult is the result of pkg.probe.
 type ProbeResult struct {
 	Slots []SourceSlot `json:"slots"`
+	// Packages estimates the package manager download of the probed lines
+	// (nil when none of them uses it).
+	Packages *PackageEstimate `json:"packages,omitempty"`
 	// Took is the probe time in milliseconds.
 	Took int64 `json:"took"`
 }

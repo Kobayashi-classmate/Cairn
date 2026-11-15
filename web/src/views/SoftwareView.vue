@@ -226,12 +226,17 @@ async function refresh() {
   <div class="software">
     <header class="software__header">
       <NH2 class="software__title">{{ t('software.title') }}</NH2>
-      <NButton v-if="canManage" :loading="refreshing" @click="refresh">
-        <template #icon>
-          <NIcon><RefreshOutline /></NIcon>
-        </template>
-        {{ t('software.refresh') }}
-      </NButton>
+      <span class="software__actions">
+        <NButton v-if="canManage" @click="router.push({ name: 'welcome', query: { step: 'software' } })">
+          {{ t('wizard.open') }}
+        </NButton>
+        <NButton v-if="canManage" :loading="refreshing" @click="refresh">
+          <template #icon>
+            <NIcon><RefreshOutline /></NIcon>
+          </template>
+          {{ t('software.refresh') }}
+        </NButton>
+      </span>
     </header>
 
     <NAlert v-if="loadError" type="error" class="software__block">{{ errorMessage(loadError) }}</NAlert>
@@ -432,6 +437,12 @@ async function refresh() {
 
 .software__title {
   margin: 0;
+}
+
+.software__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .software__intro {

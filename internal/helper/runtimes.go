@@ -439,44 +439,82 @@ func (r *Runtimes) Installed(sw, line string) string {
 // fail, from the other allowed sources. Every source must deliver the file
 // with the official checksum.
 func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, line, source, policy string) (string, error) {
+	f, err := r.fetch(ctx, log, sw, providerID, line, source, policy)
+	if err != nil {
+		return "", err
+	}
+	return r.finish(ctx, log, f)
+}
+
+// fetched is a runtime build downloaded and checked against the official
+// checksum, waiting to be unpacked (archive is "" when the line already
+// has this build).
+type fetched struct {
+	sw, line string
+	rel      runtimeRelease
+	archive  string
+	used     sources.Candidate
+}
+
+// discard removes a fetched archive that will not be unpacked.
+func (f *fetched) discard() {
+	if f != nil && f.archive != "" {
+		_ = os.Remove(f.archive)
+		f.archive = ""
+	}
+}
+
+// fetch resolves the newest build of line and downloads it (the first half
+// of Install; it does not touch the installed runtimes).
+func (r *Runtimes) fetch(ctx context.Context, log io.Writer, sw, providerID, line, source, policy string) (*fetched, error) {
 	logf := func(format string, a ...any) { _, _ = fmt.Fprintf(log, format, a...) }
 	rel, err := r.resolve(ctx, providerID, line)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !versionDir.MatchString(rel.Version) {
-		return "", pkgErr(CodeRuntimeMetadata, map[string]any{"provider": providerID, "reason": "unexpected version " + rel.Version})
+		return nil, pkgErr(CodeRuntimeMetadata, map[string]any{"provider": providerID, "reason": "unexpected version " + rel.Version})
 	}
 	logf("Newest %s %s build: %s\n  %s\n  %s %s (official)\n", sw, line, rel.Version, rel.URL, map[bool]string{true: "SHA-512", false: "SHA-256"}[rel.SHA512], rel.Hash)
+	f := &fetched{sw: sw, line: line, rel: rel}
 	if r.Installed(sw, line) == rel.Version {
 		logf("Already installed.\n")
-		return rel.Version, nil
+		return f, nil
 	}
 	if err := os.MkdirAll(r.swDir(sw), 0o755); err != nil { //nolint:gosec // G301: runtimes are readable by every site user.
-		return "", err
+		return nil, err
 	}
 	order, err := r.sourceOrder(ctx, log, r.candidates(providerID, rel.URL), source, policy)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	var archive string
-	var used sources.Candidate
 	for i, c := range order {
 		logf("Downloading from %s (%s):\n  %s\n", c.Name, c.ID, c.URL)
 		from := rel
 		from.URL = c.URL
-		archive, err = r.download(ctx, log, from)
+		archive, err := r.download(ctx, log, from)
 		if err == nil {
-			used = c
-			break
+			f.archive, f.used = archive, c
+			return f, nil
 		}
 		if ctx.Err() != nil || i == len(order)-1 {
-			return "", err
+			return nil, err
 		}
 		logf("Download from %s failed (%s); trying %s.\n", c.ID, errorText(err), order[i+1].ID)
 	}
-	defer func() { _ = os.Remove(archive) }()
+	return nil, pkgErr(helperapi.CodePkgSourceUnusable, map[string]any{"file": fileName(rel.URL)})
+}
 
+// finish unpacks a fetched build, checks that it runs here and is the
+// expected version, and makes it the line's build (the second half of
+// Install).
+func (r *Runtimes) finish(ctx context.Context, log io.Writer, f *fetched) (string, error) {
+	if f.archive == "" {
+		return f.rel.Version, nil
+	}
+	defer f.discard()
+	logf := func(format string, a ...any) { _, _ = fmt.Fprintf(log, format, a...) }
+	sw, line, rel := f.sw, f.line, f.rel
 	staging, err := os.MkdirTemp(r.swDir(sw), ".staging-")
 	if err != nil {
 		return "", err
@@ -486,7 +524,7 @@ func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, l
 		return "", err
 	}
 	logf("Unpacking.\n")
-	if err := extractTarGz(archive, staging); err != nil {
+	if err := extractTarGz(f.archive, staging); err != nil {
 		return "", pkgErr(CodeRuntimeArchive, map[string]any{"reason": tailString(err.Error(), 300)})
 	}
 	root := singleTopDir(staging)
@@ -502,7 +540,7 @@ func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, l
 		return "", err
 	}
 	m, _ := json.Marshal(manifest{Software: sw, Line: line, Version: rel.Version, URL: rel.URL, Hash: rel.Hash,
-		Source: used.ID, From: used.URL, InstalledAt: time.Now().Unix()})
+		Source: f.used.ID, From: f.used.URL, InstalledAt: time.Now().Unix()})
 	if err := writeFile(final+".json", m); err != nil {
 		return "", err
 	}

@@ -29,7 +29,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-//go:embed software/*.toml repos/*.toml mirrors.toml
+//go:embed software/*.toml repos/*.toml mirrors.toml suites.toml
 var files embed.FS
 
 // Methods, in order of preference.
@@ -141,6 +141,49 @@ type Catalog struct {
 	Software []Software
 	Repos    map[string]Repo
 	Mirrors  Mirrors
+	Suites   []Suite
+}
+
+// Suite is a preset of the first-login wizard (suites.toml).
+type Suite struct {
+	ID string `toml:"id" json:"id"`
+	// Items list software IDs in order of preference: the first one offered
+	// on the system is used.
+	Items [][]string `toml:"items" json:"-"`
+}
+
+// SuiteItem is a suite item resolved for a system: the software and its
+// recommended line, or Missing when none of the choices is offered.
+type SuiteItem struct {
+	Software string   `json:"software,omitempty"`
+	Line     string   `json:"line,omitempty"`
+	Choices  []string `json:"choices"`
+	Missing  bool     `json:"missing,omitempty"`
+}
+
+// Resolve picks, for each item of the suite, the first software with an
+// available line on sys and its recommended line.
+func (c *Catalog) Resolve(su Suite, sys System) []SuiteItem {
+	out := make([]SuiteItem, 0, len(su.Items))
+	for _, choices := range su.Items {
+		item := SuiteItem{Choices: choices, Missing: true}
+		for _, id := range choices {
+			sw, ok := c.Find(id)
+			if !ok {
+				continue
+			}
+			for _, o := range sw.Offers(sys) {
+				if o.Recommended {
+					item = SuiteItem{Software: id, Line: o.Line, Choices: choices}
+				}
+			}
+			if !item.Missing {
+				break
+			}
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // Mirrors lists download sources besides the official addresses: the
@@ -231,7 +274,8 @@ var (
 func Load() (*Catalog, error) { return load(files) }
 
 // LoadFS parses and checks a catalog laid out like the embedded one
-// (software/*.toml, repos/*.toml, optionally mirrors.toml); tests use it.
+// (software/*.toml, repos/*.toml, optionally mirrors.toml and suites.toml);
+// tests use it.
 func LoadFS(fsys fs.FS) (*Catalog, error) { return load(fsys) }
 
 func load(fsys fs.FS) (*Catalog, error) {
@@ -273,7 +317,31 @@ func load(fsys fs.FS) (*Catalog, error) {
 		}
 		c.Software = append(c.Software, s)
 	}
-	// mirrors.toml is optional in test catalogs.
+	// suites.toml and mirrors.toml are optional in test catalogs.
+	if _, err := fs.Stat(fsys, "suites.toml"); err == nil {
+		var doc struct {
+			Suites []Suite `toml:"suite"`
+		}
+		if err := decode(fsys, "suites.toml", &doc); err != nil {
+			return nil, err
+		}
+		for _, su := range doc.Suites {
+			if !idPattern.MatchString(su.ID) || len(su.Items) == 0 {
+				return nil, fmt.Errorf("catalog: suite %q: bad id or no items", su.ID)
+			}
+			for _, choices := range su.Items {
+				if len(choices) == 0 {
+					return nil, fmt.Errorf("catalog: suite %s: empty item", su.ID)
+				}
+				for _, id := range choices {
+					if _, ok := c.Find(id); !ok {
+						return nil, fmt.Errorf("catalog: suite %s: unknown software %q", su.ID, id)
+					}
+				}
+			}
+		}
+		c.Suites = doc.Suites
+	}
 	if _, err := fs.Stat(fsys, "mirrors.toml"); err == nil {
 		if err := decode(fsys, "mirrors.toml", &c.Mirrors); err != nil {
 			return nil, err

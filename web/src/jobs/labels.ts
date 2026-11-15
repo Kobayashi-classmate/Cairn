@@ -58,3 +58,20 @@ export function sourceLabel(source: string): string {
   const key = `audit.source.${source}`
   return i18n.global.te(key) ? i18n.global.t(key) : source
 }
+
+/** "PHP 8.4, nginx 1.26" for a list of {name, line} items (install sets). */
+export function itemNames(items: unknown): string | null {
+  if (!Array.isArray(items)) return null
+  const names = items.map((item) => {
+    if (typeof item !== 'object' || item === null) return String(item)
+    const { name, software, line } = item as Record<string, unknown>
+    return [name ?? software, line].filter((part) => typeof part === 'string' && part !== '').join(' ')
+  })
+  return names.join(', ')
+}
+
+/** A job or audit parameter as plain text. */
+export function formatJobParam(value: unknown): string {
+  if (typeof value === 'string') return value
+  return itemNames(value) ?? JSON.stringify(value)
+}

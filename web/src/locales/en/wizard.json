@@ -1,0 +1,56 @@
+{
+  "title": "Welcome to Cairn",
+  "intro": "A few steps to get this server ready. You can change all of it later.",
+  "open": "Software wizard",
+  "skip": "Skip setup",
+  "continue": "Continue",
+  "back": "Back",
+  "steps": {
+    "security": "Two-step verification",
+    "software": "Software",
+    "confirm": "Confirm",
+    "start": "Install"
+  },
+  "security": {
+    "title": "Protect your account with two-step verification",
+    "why": "Your password alone protects this whole server. With two-step verification, signing in also needs a code from an app on your phone, so a stolen or guessed password is not enough.",
+    "how": "You need an authenticator app, such as Google Authenticator, Microsoft Authenticator or any other app for one-time codes.",
+    "setUp": "Set up two-step verification",
+    "later": "Skip for now",
+    "on": "Two-step verification is on for your account."
+  },
+  "software": {
+    "intro": "Pick a ready-made set or tick single software. Each comes in its recommended version line; you can choose another.",
+    "other": "Other software",
+    "missing": "not available on this system",
+    "recommendedLine": "{line} (recommended)",
+    "count": "{count} of at most {max} selected",
+    "nothing": "Nothing for now"
+  },
+  "suite": {
+    "php-site": {
+      "name": "PHP site",
+      "description": "nginx, PHP, MariaDB and Redis (Valkey where Redis is not offered)."
+    },
+    "node-java": {
+      "name": "Node/Java projects",
+      "description": "nginx, Node.js and a Java JDK."
+    }
+  },
+  "confirm": {
+    "title": "Check and start",
+    "estimate": "Estimate",
+    "start": "Start installation"
+  },
+  "start": {
+    "title": "Installation started",
+    "background": "The installation continues in the background. You can go to the overview or other settings meanwhile; the task center shows the full output.",
+    "done": "Everything was installed.",
+    "overview": "Go to overview"
+  },
+  "state": {
+    "pending": "pending",
+    "done": "finished",
+    "skipped": "skipped"
+  }
+}

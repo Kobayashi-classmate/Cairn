@@ -117,5 +117,10 @@
     "title": "Open an external link?",
     "content": "This link leads to a website outside the panel:",
     "open": "Open link"
+  },
+  "totpReminder": {
+    "title": "Two-step verification is off for your account",
+    "text": "Anyone who learns your password can sign in to this server.",
+    "action": "Turn it on"
   }
 }

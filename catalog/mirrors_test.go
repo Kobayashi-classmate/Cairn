@@ -5,6 +5,8 @@ package catalog
 import (
 	"testing"
 	"testing/fstest"
+
+	"github.com/Kobayashi-classmate/Cairn/internal/platform"
 )
 
 func TestMirrorRewrites(t *testing.T) {
@@ -79,5 +81,33 @@ homepage = "https://m.example/"
 	fsys := fstest.MapFS{"software/x.toml": {Data: []byte(base)}, "mirrors.toml": {Data: []byte(approved + rewrite("p", `^https://a/(x)$`, "https://m/$1"))}}
 	if _, err := load(fsys); err != nil {
 		t.Errorf("valid mirrors refused: %v", err)
+	}
+}
+
+func TestSuitesResolveOnEveryRelease(t *testing.T) {
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Suites) != 2 {
+		t.Fatalf("suites: %+v", c.Suites)
+	}
+	for _, rel := range tier1 {
+		chain, err := platform.Chain(rel)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, su := range c.Suites {
+			for _, it := range c.Resolve(su, System{Chain: chain, Arch: "amd64", Now: day}) {
+				if it.Missing || it.Line == "" {
+					t.Errorf("%s on %s: nothing offered for %v", su.ID, rel, it.Choices)
+				}
+			}
+		}
+	}
+	// EL 10 has no Redis: the PHP suite falls back to Valkey.
+	chain, _ := platform.Chain("el-10")
+	if items := c.Resolve(c.Suites[0], System{Chain: chain, Arch: "amd64", Now: day}); items[3].Software != "valkey" {
+		t.Errorf("el-10 cache: %+v", items[3])
 	}
 }

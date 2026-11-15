@@ -20,7 +20,7 @@ import { roleLabel } from '@/auth/permissions'
 import { localeNativeName } from '@/i18n'
 import { errorMessage, errorText } from '@/i18n/errors'
 import { formatDateTime } from '@/i18n/format'
-import { jobKindLabel } from '@/jobs/labels'
+import { itemNames, jobKindLabel } from '@/jobs/labels'
 
 const PAGE_SIZE = 50
 const FILTER_DELAY_MS = 400
@@ -36,7 +36,7 @@ const userFilter = ref('')
 const categoryFilter = ref<string | null>(null)
 
 // Action code prefixes the server filters on.
-const categories = ['auth', 'users', 'settings', 'notify', 'update', 'software', 'job', 'module'] as const
+const categories = ['auth', 'users', 'settings', 'notify', 'update', 'software', 'job', 'module', 'setup'] as const
 const categoryOptions = computed(() =>
   categories.map((c) => ({ value: `${c}.`, label: t(`audit.category.${c}`) })),
 )
@@ -100,6 +100,13 @@ function displayParams(entry: AuditEntry): Record<string, string | number | bool
   // Older install/remove entries only carry the catalog id, not the product name.
   if (entry.action.startsWith('software.') && typeof params.name !== 'string') {
     params.name = String(params.software ?? '')
+  }
+  // Install sets list their lines ("PHP 8.4, nginx 1.26").
+  const names = itemNames((entry.params as Record<string, unknown>).items)
+  if (names !== null) params.names = names
+  if (entry.action === 'setup.wizard' && typeof params.state === 'string') {
+    const key = `wizard.state.${params.state}`
+    params.state = te(key) ? t(key) : params.state
   }
   if (typeof params.downloadPolicy === 'string') {
     const key = `software.policy.${params.downloadPolicy}.short`

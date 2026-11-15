@@ -12,9 +12,11 @@ package software
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
@@ -72,6 +74,12 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("POST /api/v1/software/probe", m.probe, api.Require(Manage), api.Body(probeRequest{}),
 		doc("Check the download sources of lines before installing them: which candidates serve exactly the official file or index, how far behind they are, how fast they are from this machine (a few seconds)"),
 		api.Returns(200, probeResponse{}))
+	r.Handle("GET /api/v1/software/suites", m.suites, api.Require(Read),
+		doc("Suites of the first-login wizard, resolved for this system: each item's software and recommended line"),
+		api.Returns(200, suitesResponse{}))
+	r.Handle("POST /api/v1/software/install", m.installSet, api.Require(Manage), api.Body(installSetRequest{}),
+		doc("Install several lines as one job: the lines from the package manager in one transaction, prebuilt runtimes downloading meanwhile (starts a job)"),
+		api.Returns(202, jobResponse{}))
 	r.Handle("GET /api/v1/software/settings", m.getSettings, api.Require(Read),
 		doc("Software settings: the download source policy"), api.Returns(200, settingsBody{}))
 	r.Handle("PUT /api/v1/software/settings", m.putSettings, api.Require(Manage), api.Body(settingsBody{}),
@@ -109,6 +117,25 @@ type lineRequest struct {
 	Line string `json:"line"`
 	// Source is a candidate ID of the line's runtime download slot.
 	Source string `json:"source,omitempty"`
+}
+
+type suiteView struct {
+	ID    string              `json:"id"`
+	Items []catalog.SuiteItem `json:"items"`
+}
+
+type suitesResponse struct {
+	Suites []suiteView `json:"suites"`
+}
+
+type installSetItem struct {
+	Software string `json:"software"`
+	Line     string `json:"line"`
+	Source   string `json:"source,omitempty"`
+}
+
+type installSetRequest struct {
+	Items []installSetItem `json:"items"`
 }
 
 type probeItem struct {
@@ -223,6 +250,83 @@ func (m *Module) putSettings(w http.ResponseWriter, r *http.Request) error {
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "software.settings", "ok", map[string]any{"downloadPolicy": req.DownloadPolicy})
 	return api.WriteJSON(w, http.StatusOK, req)
 }
+
+func (m *Module) suites(w http.ResponseWriter, _ *http.Request) error {
+	sys := catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}
+	resp := suitesResponse{Suites: []suiteView{}}
+	for _, su := range m.Catalog.Suites {
+		resp.Suites = append(resp.Suites, suiteView{ID: su.ID, Items: m.Catalog.Resolve(su, sys)})
+	}
+	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+// installSet starts one job installing several lines (the wizard's choice).
+func (m *Module) installSet(w http.ResponseWriter, r *http.Request) error {
+	var req installSetRequest
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	policy := helperPolicy(m.policy(r.Context()))
+	hreq := helperapi.InstallSetRequest{}
+	var listed []map[string]any
+	names := map[string]string{}
+	for _, it := range req.Items {
+		sw, err := m.availableOffer(it.Software, it.Line)
+		if err != nil {
+			return err
+		}
+		names[it.Software+" "+it.Line] = sw.Name + " " + it.Line
+		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line, Source: it.Source, Policy: policy})
+		entry := map[string]any{"software": it.Software, "name": sw.Name, "line": it.Line}
+		if it.Source != "" {
+			entry["source"] = it.Source
+		}
+		listed = append(listed, entry)
+	}
+	if err := hreq.Validate(); err != nil {
+		var he *helperapi.Error
+		if errors.As(err, &he) {
+			return api.NewError(http.StatusBadRequest, he.Code, he.Params)
+		}
+		return err
+	}
+	who := modutil.ActorOf(r)
+	params := map[string]any{"items": listed, "count": len(listed)}
+	job, err := m.Jobs.Start(r.Context(), jobs.Spec{
+		Kind: "software.install_set", Params: params, Permission: Read, ManagePermission: Manage,
+		Actor: jobs.Actor{UserID: who.UserID, Username: who.Username, Source: who.Source, Remote: api.ClientIP(r)},
+	}, func(_ context.Context, j *jobs.Job) error {
+		var res helperapi.InstallSetResult
+		if err := j.RunOp(helperapi.ActionPkgInstallSet, hreq, &res); err != nil {
+			return err
+		}
+		var failed []string
+		for _, it := range res.Items {
+			name := names[it.Software+" "+it.Line]
+			if it.Error != nil {
+				failed = append(failed, name)
+				j.Logf("%s: not installed (%s)\n", name, it.Error.Code)
+				continue
+			}
+			for _, p := range it.Result.Packages {
+				j.Logf("%s: %s %s\n", name, p.Name, p.Version)
+			}
+		}
+		if len(failed) > 0 {
+			return &helperapi.Error{Code: CodeSetIncomplete, Params: map[string]any{
+				"failed": strings.Join(failed, ", "), "count": len(failed), "total": len(res.Items)}}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	modutil.Audit(r, m.DB, m.Log, who, "software.install_set", "ok", map[string]any{"items": listed, "job": job.ID})
+	return api.WriteJSON(w, http.StatusAccepted, jobResponse{Job: job})
+}
+
+// CodeSetIncomplete ends an install-set job in which some lines failed.
+const CodeSetIncomplete = "software.install_incomplete"
 
 // probe asks the root helper to check the download sources of the lines.
 func (m *Module) probe(w http.ResponseWriter, r *http.Request) error {

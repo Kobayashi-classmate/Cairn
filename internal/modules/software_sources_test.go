@@ -75,3 +75,61 @@ func TestSoftwareProbeAndSourcePolicy(t *testing.T) {
 		t.Fatal("probe request lost")
 	}
 }
+
+func TestWizardSuitesAndInstallSet(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+
+	// The wizard is pending until finished or skipped.
+	if r := admin.expect(admin.do("GET", "/api/v1/setup/wizard", nil), 200, ""); r.body["state"] != "pending" {
+		t.Fatalf("wizard: %v", r.body)
+	}
+	admin.expect(admin.do("PUT", "/api/v1/setup/wizard", map[string]any{"state": "later"}), 400, "validation.invalid")
+	admin.expect(admin.do("PUT", "/api/v1/setup/wizard", map[string]any{"state": "done"}), 200, "")
+	if r := admin.expect(admin.do("GET", "/api/v1/setup/wizard", nil), 200, ""); r.body["state"] != "done" {
+		t.Fatalf("wizard after done: %v", r.body)
+	}
+
+	// Suites come resolved for this system (Debian 13 in the test env).
+	r := admin.expect(admin.do("GET", "/api/v1/software/suites", nil), 200, "")
+	suites := r.body["suites"].([]any)
+	if len(suites) != 2 {
+		t.Fatalf("suites: %v", r.body)
+	}
+	php := suites[0].(map[string]any)
+	var lines []string
+	for _, it := range php["items"].([]any) {
+		m := it.(map[string]any)
+		lines = append(lines, m["software"].(string)+"@"+m["line"].(string))
+	}
+	if php["id"] != "php-site" || strings.Join(lines, " ") != "nginx@1.26 php@8.4 mariadb@11.8 redis@8.0" {
+		t.Fatalf("php suite: %v", lines)
+	}
+
+	// One job installs the set; a failed line fails the job and is named.
+	set := helperapi.InstallSetResult{Items: []helperapi.InstallSetItem{
+		{Software: "nginx", Line: "1.26", Result: &helperapi.InstallResult{Packages: []helperapi.InstalledPackage{{Name: "nginx", Version: "1.26.3-3+deb13u10"}}}},
+		{Software: "nodejs", Line: "24", Error: &helperapi.Error{Code: "pkg.download_failed"}},
+	}}
+	result, _ := json.Marshal(set)
+	e.helper.respond(helperapi.ActionPkgInstallSet, helperapi.OpRef{ID: opID})
+	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpSucceeded, Result: result}})
+	id := admin.expect(admin.do("POST", "/api/v1/software/install", map[string]any{"items": []map[string]any{
+		{"software": "nginx", "line": "1.26"}, {"software": "nodejs", "line": "24", "source": "npmmirror"},
+	}}), 202, "").obj("job")["id"].(string)
+	final, log := waitJob(t, admin, id)
+	if final["state"] != "failed" || final["kind"] != "software.install_set" || !strings.Contains(log, "nginx 1.26: nginx 1.26.3-3+deb13u10") {
+		t.Fatalf("set job: %v\n%s", final, log)
+	}
+	if errInfo := final["error"].(map[string]any); errInfo["code"] != "software.install_incomplete" || errInfo["params"].(map[string]any)["failed"] != "Node.js 24" {
+		t.Fatalf("set error: %v", errInfo)
+	}
+	var sent helperapi.InstallSetRequest
+	if err := json.Unmarshal([]byte(e.helper.sent(helperapi.ActionPkgInstallSet)), &sent); err != nil || len(sent.Items) != 2 || sent.Items[1].Source != "npmmirror" {
+		t.Fatalf("sent: %+v %v", sent, err)
+	}
+	admin.expect(admin.do("POST", "/api/v1/software/install", map[string]any{"items": []map[string]any{}}), 400, "validation.invalid")
+	admin.expect(admin.do("POST", "/api/v1/software/install", map[string]any{"items": []map[string]any{
+		{"software": "nginx", "line": "1.26"}, {"software": "nginx", "line": "1.26"}}}), 400, "validation.invalid")
+	admin.expect(admin.do("POST", "/api/v1/software/install", map[string]any{"items": []map[string]any{{"software": "php", "line": "7.4"}}}), 409, helperapi.CodePkgNotAvailable)
+}

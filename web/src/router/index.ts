@@ -32,6 +32,13 @@ const routes: RouteRecordRaw[] = [
     meta: { titleKey: 'auth.login.title' },
   },
   {
+    // First-login wizard: a full page outside the main layout.
+    path: '/welcome',
+    name: 'welcome',
+    component: () => import('@/views/WelcomeView.vue'),
+    meta: { requiresAuth: true, titleKey: 'wizard.title', permission: 'software.manage' },
+  },
+  {
     path: '/',
     component: () => import('@/layouts/AppLayout.vue'),
     meta: { requiresAuth: true },

@@ -37,6 +37,32 @@ const message = useMessage()
 
 useAnnouncementPolling()
 
+// Two-step verification reminder: it can be hidden for this browser session
+// only, so it returns in the next one until the user turns it on.
+const TOTP_REMINDER_KEY = 'cairn.totpReminderHidden'
+
+function readReminderHidden(): boolean {
+  try {
+    return window.sessionStorage.getItem(TOTP_REMINDER_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+const totpReminderHidden = ref(readReminderHidden())
+const showTotpReminder = computed(
+  () => session.user !== null && !session.user.totpEnabled && !totpReminderHidden.value,
+)
+
+function hideTotpReminder() {
+  totpReminderHidden.value = true
+  try {
+    window.sessionStorage.setItem(TOTP_REMINDER_KEY, '1')
+  } catch {
+    // Storage unavailable: hidden until the page is reloaded.
+  }
+}
+
 // Start collapsed on narrow screens.
 const collapsed = ref(window.matchMedia('(max-width: 768px)').matches)
 const signingOut = ref(false)
@@ -139,6 +165,19 @@ async function signOut() {
             </NButton>
           </div>
         </NAlert>
+        <NAlert
+          v-if="showTotpReminder"
+          type="warning"
+          closable
+          :title="t('common.totpReminder.title')"
+          class="shell__banner"
+          @close="hideTotpReminder"
+        >
+          <div class="shell__banner-actions">
+            <span>{{ t('common.totpReminder.text') }}</span>
+            <RouterLink :to="{ name: 'settings-security' }">{{ t('common.totpReminder.action') }}</RouterLink>
+          </div>
+        </NAlert>
         <RouterView />
       </NLayoutContent>
     </NLayout>
@@ -196,8 +235,9 @@ async function signOut() {
 
 .shell__banner-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 16px;
+  gap: 8px 16px;
 }
 
 @media (max-width: 640px) {

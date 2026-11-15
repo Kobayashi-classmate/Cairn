@@ -68,7 +68,8 @@
     "probeFailed": "无法检测下载源",
     "checkAgain": "重新检测",
     "version": "版本",
-    "file": "文件"
+    "file": "文件",
+    "size": "大小"
   },
   "policy": {
     "title": "下载源",
@@ -87,7 +88,8 @@
     "slot": {
       "download": "下载",
       "system": "系统软件源",
-      "security": "安全更新"
+      "security": "安全更新",
+      "downloadOf": "{name} {line}"
     },
     "kind": {
       "official": "官方",
@@ -124,5 +126,16 @@
       "official_unreachable": "无法访问官方源，因此无法与镜像进行比较。下载的文件仍会按官方校验值进行校验。",
       "no_eligible": "没有任何来源提供官方文件。"
     }
+  },
+  "estimate": {
+    "packages": "软件包",
+    "packageValue": "{size}（{count} 个软件包）",
+    "partial": "尚未添加的软件源中的版本不在统计范围内。",
+    "runtimes": "运行环境",
+    "total": "总下载量",
+    "time": "预计耗时",
+    "unknown": "未知",
+    "about": "约 {value}",
+    "atLeast": "至少 {value}"
   }
 }

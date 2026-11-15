@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -74,10 +75,17 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 			}
 		}
 	}
+	var pkgItems []lineItem
+	var libs []string
 	for _, it := range req.Items {
 		sw, o, err := s.offer(it)
 		if err != nil {
 			return helperapi.ProbeResult{}, err
+		}
+		if o.Method == catalog.MethodStandalone {
+			libs = append(libs, o.Packages...)
+		} else {
+			pkgItems = append(pkgItems, lineItem{req: it, sw: sw, o: o})
 		}
 		switch o.Method {
 		case catalog.MethodStandalone:
@@ -93,6 +101,10 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 			systemSlots(sw.ID)
 		}
 	}
+	var est *helperapi.PackageEstimate
+	if len(pkgItems) > 0 || len(libs) > 0 {
+		runs = append(runs, func() { est = s.estimate(ctx, pkgItems, libs) })
+	}
 	var wg sync.WaitGroup
 	for _, run := range runs {
 		wg.Add(1)
@@ -102,7 +114,7 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 		}()
 	}
 	wg.Wait()
-	res := helperapi.ProbeResult{Slots: make([]helperapi.SourceSlot, 0, len(slots)), Took: time.Since(start).Milliseconds()}
+	res := helperapi.ProbeResult{Slots: make([]helperapi.SourceSlot, 0, len(slots)), Packages: est, Took: time.Since(start).Milliseconds()}
 	for _, sl := range slots {
 		res.Slots = append(res.Slots, *sl)
 	}
@@ -141,6 +153,11 @@ func (s *Software) probeRuntime(ctx context.Context, sl *helperapi.SourceSlot, o
 	sl.Version, sl.File, sl.Selectable = rel.Version, fileName(rel.URL), true
 	cands := filter(s.Runtimes.candidates(o.Provider, rel.URL), allowedBy(policy))
 	s.prober().ProbeFiles(ctx, cands)
+	for _, c := range cands {
+		if c.Eligible && c.Size > 0 && sl.Size == 0 {
+			sl.Size = c.Size
+		}
+	}
 	if pick := sources.Fastest(cands, allowedBy(policy)); pick >= 0 {
 		cands[pick].Recommended = true
 		sl.Selected = cands[pick].ID
@@ -410,4 +427,111 @@ func candidateIndex(cands []sources.Candidate, id string) int {
 		}
 	}
 	return -1
+}
+
+// estimate asks the package manager, from its current indexes and without
+// changing anything, how much the lines would download. Lines whose vendor
+// repository is not added yet are left out.
+func (s *Software) estimate(ctx context.Context, items []lineItem, libs []string) *helperapi.PackageEstimate {
+	est := &helperapi.PackageEstimate{}
+	var names []string
+	for _, it := range items {
+		if it.o.Method == catalog.MethodVendor && !s.repoConfigured(it.o.Repo, it.o.Line) {
+			est.Partial = true
+			continue
+		}
+		names = append(names, it.o.Packages...)
+	}
+	names = append(names, s.missing(ctx, libs)...)
+	if len(names) == 0 {
+		est.Known = true
+		return est
+	}
+	if s.Manager == "apt" {
+		out, err := queryCommand(ctx, "apt-get", append([]string{"install", "--print-uris", "-qq", "--no-install-recommends"}, names...)...)
+		if err == nil {
+			est.Bytes, est.Packages = parsePrintURIs(out)
+			est.Known = true
+		}
+		return est
+	}
+	// Cache only: the probe must not refresh the metadata. dnf exits
+	// non-zero after --assumeno; the summary is still printed.
+	out, _ := queryCommand(ctx, "dnf", append([]string{"install", "--assumeno", "-C"}, names...)...)
+	if bytes, pkgs, ok := parseDNFSummary(out); ok {
+		est.Bytes, est.Packages, est.Known = bytes, pkgs, true
+	}
+	return est
+}
+
+// repoConfigured reports whether a vendor repository (and what it needs)
+// is set up already.
+func (s *Software) repoConfigured(id, line string) bool {
+	r, ok := s.Catalog.Repos[id]
+	if !ok {
+		return false
+	}
+	for _, req := range r.Requires {
+		if !s.repoConfigured(req, line) {
+			return false
+		}
+	}
+	name := instance(r, line)
+	switch {
+	case s.Manager == "apt" && r.APT != nil:
+		_, err := os.Stat(s.path("/etc/apt/sources.list.d/" + name + ".sources"))
+		return err == nil
+	case s.Manager == "dnf" && r.DNF != nil && r.DNF.ReleasePackage != "":
+		return len(s.missing(context.Background(), []string{r.DNF.ReleasePackage})) == 0
+	case s.Manager == "dnf" && r.DNF != nil:
+		_, err := os.Stat(s.path("/etc/yum.repos.d/" + name + ".repo"))
+		return err == nil
+	}
+	return false
+}
+
+// parsePrintURIs sums the sizes in "apt-get --print-uris" output lines:
+// 'URL' file size hash.
+func parsePrintURIs(out string) (int64, int) {
+	var total int64
+	n := 0
+	for _, l := range strings.Split(out, "\n") {
+		f := strings.Fields(l)
+		if len(f) < 3 || !strings.HasPrefix(f[0], "'") {
+			continue
+		}
+		if v, err := strconv.ParseInt(f[2], 10, 64); err == nil && v >= 0 {
+			total += v
+			n++
+		}
+	}
+	return total, n
+}
+
+var (
+	dnfDownload = regexp.MustCompile(`(?m)^Total download size:\s*([0-9.]+)\s*([kMG]?)`)
+	dnfCount    = regexp.MustCompile(`(?m)^\s*(?:Install|Upgrade)\s+([0-9]+)\s+Packages?`)
+)
+
+// parseDNFSummary reads the transaction summary of "dnf install
+// --assumeno": the total download size and the number of packages.
+func parseDNFSummary(out string) (int64, int, bool) {
+	m := dnfDownload.FindStringSubmatch(out)
+	if m == nil {
+		if strings.Contains(out, "Nothing to do") {
+			return 0, 0, true
+		}
+		return 0, 0, false
+	}
+	v, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, 0, false
+	}
+	mult := map[string]float64{"": 1, "k": 1 << 10, "M": 1 << 20, "G": 1 << 30}[m[2]]
+	n := 0
+	for _, c := range dnfCount.FindAllStringSubmatch(out, -1) {
+		k, _ := strconv.Atoi(c[1])
+		n += k
+	}
+	return int64(v * mult), n, true
 }

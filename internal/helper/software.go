@@ -83,6 +83,7 @@ func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 		return []string{LockPkg}
 	}
 	RegisterOp(r, o, helperapi.ActionPkgInstall, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.install})
+	RegisterOp(r, o, helperapi.ActionPkgInstallSet, OpSpec[helperapi.InstallSetRequest]{Locks: s.setLocks, Run: s.installSet})
 	RegisterOp(r, o, helperapi.ActionPkgRemove, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.remove})
 }
 
@@ -157,8 +158,7 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 			return nil, err
 		}
 		s.Log.Info("runtime installed", "software", sw.ID, "line", o.Line, "version", v)
-		return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method,
-			Packages: []helperapi.InstalledPackage{{Name: sw.ID, Version: v}}}, nil
+		return runtimeResult(sw, o, v), nil
 	}
 	if req.Source != "" && req.Source != sources.IDOfficial {
 		// Repositories are used as configured for now; only runtime
@@ -166,86 +166,258 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 		return nil, pkgErr(helperapi.CodePkgSourceUnknown, map[string]any{"source": req.Source})
 	}
 	logf("Installing %s %s (%s%s).\n", sw.Name, o.Line, o.Method, map[bool]string{true: ", repository " + o.Repo}[o.Repo != ""])
-	if o.Method == catalog.MethodVendor {
-		if err := s.ensureRepo(ctx, log, o.Repo, o.Line, map[string]bool{}); err != nil {
-			return nil, err
-		}
+	out, _ := s.installPackages(ctx, log, []lineItem{{req: req, sw: sw, o: o}}, nil)
+	if out[0].err != nil {
+		return nil, out[0].err
 	}
+	return out[0].res, nil
+}
+
+func runtimeResult(sw *catalog.Software, o catalog.Offer, version string) helperapi.InstallResult {
+	return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method,
+		Packages: []helperapi.InstalledPackage{{Name: sw.ID, Version: version}}}
+}
+
+// lineItem is a request resolved to its catalog entry and offer.
+type lineItem struct {
+	req helperapi.SoftwareRequest
+	sw  *catalog.Software
+	o   catalog.Offer
+}
+
+// pkgOutcome is how one line of a package transaction ended.
+type pkgOutcome struct {
+	res helperapi.InstallResult
+	err error
+}
+
+// installPackages installs lines from the system and vendor repositories,
+// and extra packages (the system libraries runtimes need, unpinned), in one
+// package manager transaction: the vendor repositories are added first, the
+// indexes refreshed once, and every package of a line pinned to the exact
+// version chosen for the line. When the combined transaction fails, each
+// line is installed on its own so that one broken line does not fail the
+// others. The error is that of the extra packages.
+func (s *Software) installPackages(ctx context.Context, log io.Writer, items []lineItem, extra []string) ([]pkgOutcome, error) {
+	logf := func(format string, a ...any) { _, _ = fmt.Fprintf(log, format, a...) }
+	out := make([]pkgOutcome, len(items))
+	seen := map[string]bool{}
+	var live []int
+	for i, it := range items {
+		if it.o.Method == catalog.MethodVendor {
+			if err := s.ensureRepo(ctx, log, it.o.Repo, it.o.Line, seen); err != nil {
+				out[i].err = err
+				continue
+			}
+		}
+		live = append(live, i)
+	}
+	missing := s.missing(ctx, extra)
+	if len(live) == 0 && len(missing) == 0 {
+		return out, nil
+	}
+	if len(missing) > 0 {
+		logf("Installing the system libraries it needs: %s\n", strings.Join(missing, " "))
+	}
+	var unreachable []string // hosts whose indexes apt could not fetch
 	if s.Manager == "apt" {
-		if err := runCommand(ctx, log, "apt-get", "update"); err != nil {
-			return nil, err
+		var upd strings.Builder
+		if err := runCommand(ctx, io.MultiWriter(log, &limitedBuilder{b: &upd, max: 1 << 20}), "apt-get", "update"); err != nil {
+			for _, i := range live {
+				out[i].err = err
+			}
+			return out, err
 		}
+		unreachable = aptFailedHosts(upd.String())
 	}
-	if o.Stream != "" {
-		if err := s.enableStream(ctx, log, o.Stream); err != nil {
-			return nil, err
+	versions := make([]map[string]string, len(items))
+	pinned := map[string]string{}
+	var ready []int
+	for _, i := range live {
+		o := items[i].o
+		if o.Stream != "" {
+			if err := s.enableStream(ctx, log, o.Stream); err != nil {
+				out[i].err = err
+				continue
+			}
 		}
+		v, err := s.candidates(ctx, o)
+		if err != nil {
+			// apt keeps going when a repository does not answer; say so
+			// instead of "version unknown".
+			if o.Method == catalog.MethodVendor && s.Manager == "apt" {
+				if host := hostOf(s.expand(s.Catalog.Repos[o.Repo].APT.URI, o.Line)); slices.Contains(unreachable, host) {
+					err = pkgErr(helperapi.CodePkgRepoUnreachable, map[string]any{"repo": o.Repo, "host": host})
+				}
+			}
+			out[i].err = err
+			continue
+		}
+		conflict := ""
+		for _, p := range o.Packages {
+			if have, ok := pinned[p]; ok && have != v[p] {
+				conflict = p
+			}
+		}
+		if conflict != "" {
+			out[i].err = pkgErr(helperapi.CodePkgConflict, map[string]any{"package": conflict, "software": items[i].sw.ID, "line": o.Line})
+			continue
+		}
+		for _, p := range o.Packages {
+			pinned[p] = v[p]
+		}
+		versions[i] = v
+		ready = append(ready, i)
 	}
-	versions, err := s.candidates(ctx, o)
-	if err != nil {
-		return nil, err
+	args := func(idx []int) []string {
+		var a []string
+		for _, i := range idx {
+			for _, p := range items[i].o.Packages {
+				if !slices.Contains(a, p+"="+versions[i][p]) && !slices.Contains(a, p+"-"+versions[i][p]) {
+					if s.Manager == "apt" {
+						a = append(a, p+"="+versions[i][p])
+					} else {
+						a = append(a, p+"-"+versions[i][p])
+					}
+				}
+			}
+		}
+		return a
 	}
-	var args []string
-	for _, p := range o.Packages {
-		if s.Manager == "apt" {
-			args = append(args, p+"="+versions[p])
+	all := append(args(ready), missing...)
+	if len(ready) > 0 {
+		logf("Exact versions: %s\n", strings.Join(args(ready), " "))
+	}
+	var extraErr error
+	if err := s.pkgInstall(ctx, log, all); err != nil {
+		if len(ready) > 1 || (len(ready) > 0 && len(missing) > 0) {
+			logf("The combined install failed; installing each line on its own.\n")
+			for _, i := range ready {
+				if err := s.pkgInstall(ctx, log, args([]int{i})); err != nil {
+					out[i].err = err
+				}
+			}
+			if len(missing) > 0 {
+				extraErr = s.pkgInstall(ctx, log, missing)
+			}
 		} else {
-			args = append(args, p+"-"+versions[p])
+			for _, i := range ready {
+				out[i].err = err
+			}
+			extraErr = err
 		}
-	}
-	logf("Exact versions: %s\n", strings.Join(args, " "))
-	if s.Manager == "apt" {
-		err = runCommand(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends",
-			"-o", "Dpkg::Options::=--force-confold"}, args...)...)
-	} else {
-		err = runCommand(ctx, log, "dnf", append([]string{"install", "-y"}, args...)...)
-	}
-	if err != nil {
-		return nil, err
 	}
 
-	installed := s.installed(ctx, o.Packages)
-	res := helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Services: o.Services}
-	for _, p := range o.Packages {
-		if installed[p] != versions[p] {
-			return nil, pkgErr(helperapi.CodePkgVersionMismatch, map[string]any{"package": p, "want": versions[p], "got": installed[p]})
-		}
-		res.Packages = append(res.Packages, helperapi.InstalledPackage{Name: p, Version: installed[p]})
+	var names []string
+	for _, i := range ready {
+		names = append(names, items[i].o.Packages...)
 	}
-	if len(o.Services) > 0 {
-		if !systemdRunning() {
-			logf("systemd is not running; services not started: %s\n", strings.Join(o.Services, " "))
-		} else if err := runCommand(ctx, log, "systemctl", append([]string{"enable", "--now"}, o.Services...)...); err != nil {
-			return nil, pkgErr(helperapi.CodePkgServiceFailed, map[string]any{"units": strings.Join(o.Services, " ")})
-		} else {
-			res.ServicesStarted = true
+	installed := s.installed(ctx, names)
+	for _, i := range ready {
+		if out[i].err != nil {
+			continue
+		}
+		sw, o := items[i].sw, items[i].o
+		res := helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Services: o.Services}
+		for _, p := range o.Packages {
+			if installed[p] != versions[i][p] {
+				out[i].err = pkgErr(helperapi.CodePkgVersionMismatch, map[string]any{"package": p, "want": versions[i][p], "got": installed[p]})
+				break
+			}
+			res.Packages = append(res.Packages, helperapi.InstalledPackage{Name: p, Version: installed[p]})
+		}
+		if out[i].err != nil {
+			continue
+		}
+		if len(o.Services) > 0 {
+			if !systemdRunning() {
+				logf("systemd is not running; services not started: %s\n", strings.Join(o.Services, " "))
+			} else if err := runCommand(ctx, log, "systemctl", append([]string{"enable", "--now"}, o.Services...)...); err != nil {
+				out[i].err = pkgErr(helperapi.CodePkgServiceFailed, map[string]any{"units": strings.Join(o.Services, " ")})
+				continue
+			} else {
+				res.ServicesStarted = true
+			}
+		}
+		out[i].res = res
+		s.Log.Info("software installed", "software", sw.ID, "line", o.Line, "method", o.Method, "repo", o.Repo)
+	}
+	return out, extraErr
+}
+
+// aptFailedHosts returns the hosts of the indexes "apt-get update" could
+// not fetch ("W: Failed to fetch https://host/...", "Err:6 https://host ...").
+func aptFailedHosts(out string) []string {
+	var hosts []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		var rest string
+		switch {
+		case strings.HasPrefix(line, "W: Failed to fetch "):
+			rest = strings.TrimPrefix(line, "W: Failed to fetch ")
+		case strings.HasPrefix(line, "E: Failed to fetch "):
+			rest = strings.TrimPrefix(line, "E: Failed to fetch ")
+		case strings.HasPrefix(line, "Err:"):
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				rest = f[1]
+			}
+		default:
+			continue
+		}
+		f := strings.Fields(rest)
+		if len(f) == 0 {
+			continue
+		}
+		if h := hostOf(f[0]); h != "" && !slices.Contains(hosts, h) {
+			hosts = append(hosts, h)
 		}
 	}
-	s.Log.Info("software installed", "software", sw.ID, "line", o.Line, "method", o.Method, "repo", o.Repo)
-	return res, nil
+	return hosts
+}
+
+// limitedBuilder keeps up to max bytes of what is written to it.
+type limitedBuilder struct {
+	b   *strings.Builder
+	max int
+}
+
+func (l *limitedBuilder) Write(p []byte) (int, error) {
+	if room := l.max - l.b.Len(); room > 0 {
+		l.b.Write(p[:min(len(p), room)])
+	}
+	return len(p), nil
+}
+
+// pkgInstall runs the package manager's install with exact arguments.
+func (s *Software) pkgInstall(ctx context.Context, log io.Writer, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	if s.Manager == "apt" {
+		return runCommand(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends",
+			"-o", "Dpkg::Options::=--force-confold"}, args...)...)
+	}
+	return runCommand(ctx, log, "dnf", append([]string{"install", "-y"}, args...)...)
+}
+
+// missing returns the packages of pkgs that are not installed.
+func (s *Software) missing(ctx context.Context, pkgs []string) []string {
+	installed := s.installed(ctx, pkgs)
+	var out []string
+	for _, p := range pkgs {
+		if installed[p] == "" && !slices.Contains(out, p) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ensureLibraries installs the system packages a prebuilt runtime needs
 // (from the system repositories) unless they are present already.
 func (s *Software) ensureLibraries(ctx context.Context, log io.Writer, pkgs []string) error {
-	installed := s.installed(ctx, pkgs)
-	var missing []string
-	for _, p := range pkgs {
-		if installed[p] == "" {
-			missing = append(missing, p)
-		}
-	}
-	if len(missing) == 0 {
-		return nil
-	}
-	_, _ = fmt.Fprintf(log, "Installing the system libraries it needs: %s\n", strings.Join(missing, " "))
-	if s.Manager == "apt" {
-		if err := runCommand(ctx, log, "apt-get", "update"); err != nil {
-			return err
-		}
-		return runCommand(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends"}, missing...)...)
-	}
-	return runCommand(ctx, log, "dnf", append([]string{"install", "-y"}, missing...)...)
+	_, err := s.installPackages(ctx, log, nil, pkgs)
+	return err
 }
 
 func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi.SoftwareRequest, log io.Writer) (any, error) {

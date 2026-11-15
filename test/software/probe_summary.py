@@ -2,14 +2,20 @@
 #
 # Prints a probe answer (POST /api/v1/software/probe) one slot per line and
 # exits non-zero when a slot failed, a runtime download has no usable
-# source, or the requested source is not one of the usable ones.
+# source, or the source requested for it is not one of the usable ones.
 #
-#   python3 probe_summary.py probe.json [requested-source]
+#   python3 probe_summary.py probe.json [software@line[#source]...]
 import json
 import sys
 
 answer = json.load(open(sys.argv[1]))
-want = sys.argv[2] if len(sys.argv) > 2 else ""
+# Requested sources by runtime slot ID.
+want = {}
+for entry in sys.argv[2:]:
+    item, _, src = entry.partition("#")
+    if src:
+        sw, _, line = item.partition("@")
+        want["runtime:%s:%s" % (sw, line)] = src
 slots = answer.get("slots") or []
 if not slots:
     sys.exit("no slots")
@@ -44,10 +50,15 @@ for s in slots:
     ))
     if s["kind"] == "runtime":
         usable = [c["id"] for c in s["candidates"] if c["eligible"]]
-        if not usable:
+        if not usable or not s.get("size"):
             ok = False
-        elif want and want not in usable:
-            print("    requested source %s is not usable" % want)
+        elif s["id"] in want and want[s["id"]] not in usable:
+            print("    requested source %s is not usable" % want[s["id"]])
             ok = False
+est = answer.get("packages")
+if est:
+    print("    package download: %s" % (
+        "%.1f MB in %d packages%s" % (est["bytes"] / 1048576, est["packages"], ", partial" if est.get("partial") else "")
+        if est["known"] else "unknown"))
 print("    probe took %d ms" % answer.get("took", 0))
 sys.exit(0 if ok else 1)

@@ -22,7 +22,8 @@
     "software": {
       "refresh": "Refresh package indexes",
       "install": "Install {name} {line}",
-      "remove": "Uninstall {name} {line}"
+      "remove": "Uninstall {name} {line}",
+      "install_set": "Install software set ({count})"
     }
   },
   "detail": {
@@ -39,7 +40,8 @@
   "kindName": {
     "software": {
       "install": "Install software",
-      "remove": "Uninstall software"
+      "remove": "Uninstall software",
+      "install_set": "Install software set"
     }
   }
 }

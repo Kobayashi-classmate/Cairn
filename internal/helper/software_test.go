@@ -32,6 +32,10 @@ type fakeSystem struct {
 	repoquery string
 	modules   string
 	systemd   bool
+	// failInstall makes "apt-get install" fail when an argument starts with
+	// it; printURIs answers "apt-get install --print-uris".
+	failInstall string
+	printURIs   string
 }
 
 func (f *fakeSystem) use(t *testing.T) {
@@ -50,6 +54,11 @@ func (f *fakeSystem) use(t *testing.T) {
 		_, _ = fmt.Fprintf(log, "$ %s\n", cmd)
 		switch {
 		case name == "apt-get" && args[0] == "install":
+			for _, a := range args {
+				if f.failInstall != "" && strings.HasPrefix(a, f.failInstall) {
+					return &helperapi.Error{Code: "pkg.command_failed", Params: map[string]any{"command": "apt-get"}}
+				}
+			}
 			for _, a := range args {
 				if p, v, ok := strings.Cut(a, "="); ok && !strings.HasPrefix(a, "Dpkg") {
 					f.installed[p] = v
@@ -79,6 +88,8 @@ func (f *fakeSystem) use(t *testing.T) {
 		switch name {
 		case "apt-cache":
 			return f.madison, nil
+		case "apt-get":
+			return f.printURIs, nil
 		case "dnf":
 			if args[0] == "module" {
 				return f.modules, nil

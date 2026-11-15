@@ -49,21 +49,30 @@ api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\
 api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
-# probe SOFTWARE LINE [SOURCE]: checks the download sources, prints each
-# slot (* marks the source in use) and fails when a runtime download has no
-# usable source or the requested one is not among them.
-probe() {
-	api -X POST "$base/api/v1/software/probe" -d "{\"items\":[{\"software\":\"$1\",\"line\":\"$2\"}]}" >/tmp/probe.json
-	python3 /t/probe_summary.py /tmp/probe.json "${3:-}" || fail "probe $1 $2: $(head -c 800 /tmp/probe.json)"
+# items_json "sw@line[#source] ...": the items of a probe or set install.
+items_json() {
+	python3 -c '
+import json, sys
+out = []
+for c in sys.argv[1:]:
+    c, _, src = c.partition("#")
+    sw, _, line = c.partition("@")
+    out.append(dict(software=sw, line=line, **({"source": src} if src else {})))
+print(json.dumps({"items": out}))' "$@"
 }
-# run_job ACTION SOFTWARE LINE [SOURCE]: starts the job, follows its log to
-# the end.
-run_job() {
-	local r id state offset=0 body="{\"line\":\"$3\"}"
-	[ -n "${4:-}" ] && body="{\"line\":\"$3\",\"source\":\"$4\"}"
-	r=$(api -X POST "$base/api/v1/software/$2/$1" -d "$body")
+# probe ENTRY...: checks the download sources of the entries in one probe,
+# prints each slot (* marks the source in use) and fails when a runtime
+# download has no usable source or a requested one is not among them.
+probe() {
+	api -X POST "$base/api/v1/software/probe" -d "$(items_json "${@%%#*}")" >/tmp/probe.json
+	python3 /t/probe_summary.py /tmp/probe.json "$@" || fail "probe $*: $(head -c 800 /tmp/probe.json)"
+}
+# follow_job PATH BODY: starts a job, follows its log to the end.
+follow_job() {
+	local r id state offset=0
+	r=$(api -X POST "$base$1" -d "$2")
 	id=$(printf '%s' "$r" | json 'd.get("job",{}).get("id","")')
-	[ -n "$id" ] || fail "$1 $2 $3 not started: $r"
+	[ -n "$id" ] || fail "$1 not started: $r"
 	: >/tmp/job.log
 	for _ in $(seq 400); do
 		r=$(api "$base/api/v1/jobs/$id/log?offset=$offset&wait=20")
@@ -72,7 +81,13 @@ run_job() {
 		state=$(printf '%s' "$r" | json 'd["job"]["state"]')
 		case "$state" in succeeded | failed | canceled | interrupted) break ;; esac
 	done
-	[ "$state" = succeeded ] || fail "$1 $2 $3 ended $state: $(printf '%s' "$r" | json 'd["job"].get("error")')"
+	[ "$state" = succeeded ] || fail "$1 ended $state: $(printf '%s' "$r" | json 'd["job"].get("error")')"
+}
+# run_job ACTION SOFTWARE LINE [SOURCE]
+run_job() {
+	local body="{\"line\":\"$3\"}"
+	[ -n "${4:-}" ] && body="{\"line\":\"$3\",\"source\":\"$4\"}"
+	follow_job "/api/v1/software/$2/$1" "$body"
 }
 # offer SOFTWARE LINE FIELD: a field of the offer (the first item of a list).
 offer() {
@@ -83,16 +98,10 @@ o = [o for s in d["software"] if s["id"] == sys.argv[1] for o in s["offers"] if 
 v = o.get(sys.argv[3])
 print(v[0] if isinstance(v, list) else ("" if v is None else v))' "$1" "$2" "$3"
 }
-
-entries=($CASES)
-last=${entries[-1]}
-for c in "${entries[@]::${#entries[@]}-1}"; do
-	src="" keyinfo_src=""
-	case $c in *"#"*) src=${c#*#} c=${c%%#*} ;; esac
-	sw=${c%@*} line=${c#*@}
-	t0=$(date +%s)
-	probe "$sw" "$line" "$src"
-	run_job install "$sw" "$line" "$src"
+# check_line SOFTWARE LINE SOURCE SECONDS: the line is installed in its
+# exact version (from SOURCE, for a runtime); prints one step.
+check_line() {
+	local sw=$1 line=$2 src=$3 took=$4 method pkg v used repo keyinfo="" from=""
 	[ "$(offer "$sw" "$line" installed)" = True ] || fail "$sw $line not reported installed"
 	method=$(offer "$sw" "$line" method)
 	if [ "$method" = standalone ]; then
@@ -102,17 +111,41 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 		[ -d "/opt/cairn/runtimes/$sw/$v" ] || fail "$sw $line: $pkg -> $v missing"
 		used=$(json 'd.get("source","")' <"/opt/cairn/runtimes/$sw/$v.json")
 		[ -z "$src" ] || [ "$used" = "$src" ] || fail "$sw $line: downloaded from $used, not $src"
-		keyinfo_src=", from $used"
+		from=", from $used"
 	else
 		pkg=$(offer "$sw" "$line" packages)
 		v=$(version_of "$pkg")
 	fi
 	case "${v#*:}" in "$line".*) ;; *) fail "$sw $line: $pkg is $v" ;; esac
 	repo=$(offer "$sw" "$line" repo)
-	keyinfo=""
 	grep -q "Key verified" /tmp/job.log && keyinfo=", key verified"
-	grep -q "checksum matches" /tmp/job.log && keyinfo=", checksum verified, $(grep -o 'Checked: .*' /tmp/job.log | head -1)"
-	step "$sw $line: $pkg $v ($method${repo:+ $repo}$keyinfo$keyinfo_src) in $(($(date +%s) - t0))s"
+	[ "$method" = standalone ] && grep -q "checksum matches" /tmp/job.log && keyinfo=", checksum verified"
+	step "$sw $line: $pkg $v ($method${repo:+ $repo}$keyinfo$from)${took:+ in ${took}s}"
+}
+
+entries=($CASES)
+last=${entries[-1]}
+for c in "${entries[@]::${#entries[@]}-1}"; do
+	t0=$(date +%s)
+	if [[ $c == set:* ]]; then
+		# set:a@1,b@2#source: the wizard's way, one probe and one job.
+		IFS=, read -ra set <<<"${c#set:}"
+		probe "${set[@]}"
+		follow_job /api/v1/software/install "$(items_json "${set[@]}")"
+		step "set of ${#set[@]} installed in $(($(date +%s) - t0))s ($(grep -c '^\$ apt-get install\|^\$ dnf install' /tmp/job.log) package manager install)"
+		for e in "${set[@]}"; do
+			src=""
+			case $e in *"#"*) src=${e#*#} e=${e%%#*} ;; esac
+			check_line "${e%@*}" "${e#*@}" "$src" ""
+		done
+		continue
+	fi
+	src=""
+	case $c in *"#"*) src=${c#*#} c=${c%%#*} ;; esac
+	sw=${c%@*} line=${c#*@}
+	probe "$c${src:+#$src}"
+	run_job install "$sw" "$line" "$src"
+	check_line "$sw" "$line" "$src" "$(($(date +%s) - t0))"
 done
 sw=${last%@*} line=${last#*@}
 run_job remove "$sw" "$line"

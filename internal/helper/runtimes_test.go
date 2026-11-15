@@ -279,7 +279,7 @@ func TestStandaloneThroughSoftwareOps(t *testing.T) {
 	}
 	// The system library the official build needs comes from the system
 	// repositories, once.
-	if !f.ran("apt-get install -y --no-install-recommends libatomic1") {
+	if !f.ran("apt-get install -y --no-install-recommends -o Dpkg::Options::=--force-confold libatomic1") {
 		t.Fatalf("libatomic not installed: %v", f.cmds)
 	}
 	st, _ := s.Status(context.Background())
