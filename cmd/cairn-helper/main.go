@@ -108,6 +108,7 @@ func run(cfgPath, account string, log *slog.Logger) error {
 		return err
 	}
 	helper.RegisterSoftware(reg, ops, software)
+	helper.RegisterSites(reg, ops, siteEngine(software))
 	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,
@@ -152,6 +153,23 @@ func softwareEngine(manager string, log *slog.Logger) (*helper.Software, error) 
 		s.Manager = ""
 	}
 	return s, nil
+}
+
+// siteEngine prepares site management. Sites need the Debian layout for
+// now; on EL they wait for the SELinux verification (P1 batch 3).
+func siteEngine(software *helper.Software) *helper.Sites {
+	st := &helper.Sites{Software: software, Unsupported: "platform"}
+	p, _, err := platform.Detect()
+	if err != nil {
+		return st
+	}
+	switch p.Family {
+	case "debian":
+		st.Unsupported, st.NginxUser = "", p.WebUser
+	case "el":
+		st.Unsupported = "selinux_pending"
+	}
+	return st
 }
 
 // packageTools returns the package format (for updates) and the package

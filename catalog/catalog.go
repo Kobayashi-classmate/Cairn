@@ -29,7 +29,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-//go:embed software/*.toml repos/*.toml mirrors.toml suites.toml
+//go:embed software/*.toml repos/*.toml mirrors.toml suites.toml rewrites.toml
 var files embed.FS
 
 // Methods, in order of preference.
@@ -86,6 +86,34 @@ type Source struct {
 	Arch []string `toml:"arch"`
 	// Services are the systemd units (templates) started after install.
 	Services []string `toml:"services"`
+	// FPM describes the line's PHP-FPM (templates), for per-site pools.
+	FPM *FPM `toml:"fpm"`
+}
+
+// FPM is where a PHP line's FastCGI process manager keeps its pools.
+type FPM struct {
+	PoolDir   string `toml:"pool_dir" json:"poolDir"`
+	Binary    string `toml:"binary" json:"binary"`
+	Service   string `toml:"service" json:"service"`
+	PidFile   string `toml:"pid_file" json:"pidFile"`
+	SocketDir string `toml:"socket_dir" json:"socketDir"`
+}
+
+func (f *FPM) expand(line string) *FPM {
+	if f == nil {
+		return nil
+	}
+	return &FPM{PoolDir: expand(f.PoolDir, line), Binary: expand(f.Binary, line), Service: expand(f.Service, line),
+		PidFile: expand(f.PidFile, line), SocketDir: expand(f.SocketDir, line)}
+}
+
+// RewriteRule is a built-in URL rewrite template for sites (rewrites.toml):
+// nginx directives for the server block, shipped with the panel.
+type RewriteRule struct {
+	ID    string   `toml:"id" json:"id"`
+	Name  string   `toml:"name" json:"name"` // product name, not translated
+	Types []string `toml:"types" json:"types"`
+	Body  string   `toml:"body" json:"-"`
 }
 
 // Repo is an additional package repository.
@@ -142,6 +170,17 @@ type Catalog struct {
 	Repos    map[string]Repo
 	Mirrors  Mirrors
 	Suites   []Suite
+	Rewrites []RewriteRule
+}
+
+// Rewrite returns the rewrite rule with id.
+func (c *Catalog) Rewrite(id string) (RewriteRule, bool) {
+	for _, r := range c.Rewrites {
+		if r.ID == id {
+			return r, true
+		}
+	}
+	return RewriteRule{}, false
 }
 
 // Suite is a preset of the first-login wizard (suites.toml).
@@ -317,7 +356,22 @@ func load(fsys fs.FS) (*Catalog, error) {
 		}
 		c.Software = append(c.Software, s)
 	}
-	// suites.toml and mirrors.toml are optional in test catalogs.
+	// rewrites.toml, suites.toml and mirrors.toml are optional in test
+	// catalogs.
+	if _, err := fs.Stat(fsys, "rewrites.toml"); err == nil {
+		var doc struct {
+			Rules []RewriteRule `toml:"rule"`
+		}
+		if err := decode(fsys, "rewrites.toml", &doc); err != nil {
+			return nil, err
+		}
+		for _, r := range doc.Rules {
+			if err := checkRewrite(r); err != nil {
+				return nil, fmt.Errorf("catalog: rewrite %q: %w", r.ID, err)
+			}
+		}
+		c.Rewrites = doc.Rules
+	}
 	if _, err := fs.Stat(fsys, "suites.toml"); err == nil {
 		var doc struct {
 			Suites []Suite `toml:"suite"`
@@ -351,6 +405,28 @@ func load(fsys fs.FS) (*Catalog, error) {
 		return nil, fmt.Errorf("catalog: mirrors.toml: %w", err)
 	}
 	return c, nil
+}
+
+// Site types a rewrite rule may apply to.
+var siteTypes = []string{"static", "php"}
+
+func checkRewrite(r RewriteRule) error {
+	if !idPattern.MatchString(r.ID) || r.Name == "" || strings.TrimSpace(r.Body) == "" || len(r.Types) == 0 {
+		return fmt.Errorf("bad id, name, body or types")
+	}
+	for _, t := range r.Types {
+		if !slices.Contains(siteTypes, t) {
+			return fmt.Errorf("unknown site type %q", t)
+		}
+	}
+	// Rules stay inside the site: no files read from elsewhere, no
+	// includes, no upstreams.
+	for _, bad := range []string{"alias", "include", "root ", "proxy_pass", "fastcgi_pass", "load_module", "lua", "perl", "js_"} {
+		if strings.Contains(r.Body, bad) {
+			return fmt.Errorf("directive %q is not allowed in a rewrite rule", strings.TrimSpace(bad))
+		}
+	}
+	return nil
 }
 
 func (c *Catalog) checkMirrors() error {
@@ -491,7 +567,14 @@ func (c *Catalog) checkSource(src Source, versions []string) error {
 			return fmt.Errorf("unknown line %q", l)
 		}
 	}
-	for _, p := range append(append(slices.Clone(src.Packages), src.Services...), src.Stream) {
+	templates := append(append(slices.Clone(src.Packages), src.Services...), src.Stream)
+	if f := src.FPM; f != nil {
+		if !strings.HasPrefix(f.PoolDir, "/") || !strings.HasPrefix(f.Binary, "/") || f.Service == "" || !strings.HasPrefix(f.PidFile, "/") || !strings.HasPrefix(f.SocketDir, "/") {
+			return fmt.Errorf("fpm needs absolute paths and a service")
+		}
+		templates = append(templates, f.PoolDir, f.Binary, f.Service, f.PidFile, f.SocketDir)
+	}
+	for _, p := range templates {
 		for _, ph := range placeholder.FindAllString(p, -1) {
 			if ph != "{line}" && ph != "{line_nodot}" {
 				return fmt.Errorf("unknown placeholder %s", ph)
@@ -548,6 +631,7 @@ type Offer struct {
 	Packages    []string `json:"packages,omitempty"`
 	Stream      string   `json:"stream,omitempty"`
 	Services    []string `json:"services,omitempty"`
+	FPM         *FPM     `json:"fpm,omitempty"`
 	Recommended bool     `json:"recommended"`
 	LTS         bool     `json:"lts"`
 	EOL         string   `json:"eol,omitempty"`
@@ -607,6 +691,7 @@ func (sw *Software) Offers(sys System) []Offer {
 			for _, u := range src.Services {
 				o.Services = append(o.Services, expand(u, l.Version))
 			}
+			o.FPM = src.FPM.expand(l.Version)
 			if src.Method == MethodSystem {
 				o.EndOfLife = false
 			}

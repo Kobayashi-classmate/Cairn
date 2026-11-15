@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Built-in URL rewrite rules for sites ("pseudo-static" rules). Each body is
+# nginx directives for the site's server block and takes the place of the
+# default "location /". Only these rules exist for now (decided by the
+# project owner, 2026-11-14); custom rules will come later, limited to
+# rewrite, try_files and return. The loader refuses directives that could
+# reach outside the site (alias, include, root, upstreams, scripting).
+#
+# PHP requests, including PATH_INFO ones (/index.php/foo), go to the site's
+# own PHP location, which the panel adds for PHP sites.
+
+[[rule]]
+id = "wordpress"
+name = "WordPress"
+types = ["php"]
+body = '''
+location / {
+    try_files $uri $uri/ /index.php?$args;
+}
+'''
+
+[[rule]]
+id = "laravel"
+name = "Laravel"
+types = ["php"]
+body = '''
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}
+'''
+
+[[rule]]
+id = "thinkphp"
+name = "ThinkPHP"
+types = ["php"]
+body = '''
+location / {
+    if (!-e $request_filename) {
+        rewrite ^(.*)$ /index.php?s=$1 last;
+    }
+}
+'''
+
+[[rule]]
+id = "typecho"
+name = "Typecho"
+types = ["php"]
+body = '''
+location / {
+    if (!-e $request_filename) {
+        rewrite ^(.*)$ /index.php$1 last;
+    }
+}
+'''
+
+[[rule]]
+id = "drupal"
+name = "Drupal"
+types = ["php"]
+body = '''
+location / {
+    try_files $uri /index.php?$query_string;
+}
+location ~ ^/sites/.*/private/ {
+    return 403;
+}
+'''
+
+[[rule]]
+id = "spa"
+name = "Single-page application"
+types = ["static"]
+body = '''
+location / {
+    try_files $uri $uri/ /index.html;
+}
+'''

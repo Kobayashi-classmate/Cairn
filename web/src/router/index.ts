@@ -50,6 +50,18 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'dashboard.title', navKey: 'overview', permission: 'system.read' },
       },
       {
+        path: 'sites',
+        name: 'sites',
+        component: () => import('@/views/SitesView.vue'),
+        meta: { titleKey: 'sites.title', navKey: 'sites', permission: 'sites.read' },
+      },
+      {
+        path: 'sites/:code',
+        name: 'site',
+        component: () => import('@/views/sites/SiteDetailView.vue'),
+        meta: { titleKey: 'sites.detail.title', navKey: 'sites', permission: 'sites.read' },
+      },
+      {
         path: 'software',
         name: 'software',
         component: () => import('@/views/SoftwareView.vue'),

@@ -37,6 +37,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
+	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
 	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
@@ -131,6 +132,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: collector},
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
+		&sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},

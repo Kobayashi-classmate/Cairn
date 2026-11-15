@@ -14,7 +14,8 @@
     "software": "Software",
     "job": "Tasks",
     "module": "Modules",
-    "setup": "Setup"
+    "setup": "Setup",
+    "site": "Sites"
   },
   "column": {
     "time": "Time",
@@ -38,7 +39,9 @@
     "disabled": "Disabled",
     "enabled": "Enabled",
     "channel": "Channel: {channel}",
-    "source": "Source: {source}"
+    "source": "Source: {source}",
+    "filesDeleted": "Files and users deleted",
+    "filesKept": "Files and users kept"
   },
   "action": {
     "auth": {
@@ -95,6 +98,13 @@
     },
     "setup": {
       "wizard": "Marked the setup wizard as {state}"
+    },
+    "site": {
+      "create": "Created site {site}",
+      "update": "Changed site {site}",
+      "start": "Started site {site}",
+      "stop": "Stopped site {site}",
+      "delete": "Deleted site {site}"
     }
   }
 }

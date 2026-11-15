@@ -7,6 +7,9 @@ name = "PHP"
 category = "runtime"
 homepage = "https://www.php.net/"
 
+# fpm: where the line's PHP-FPM keeps its pools, for per-site pools (the
+# Debian layout, shared by the system packages, sury and ondrej; EL sites
+# wait for the SELinux verification).
 lines = [
   { version = "8.5", eol = "2029-12-31" },
   { version = "8.4", eol = "2028-12-31" },
@@ -23,6 +26,7 @@ releases = ["debian-12"]
 lines = ["8.2"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -30,6 +34,7 @@ releases = ["debian-13"]
 lines = ["8.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -37,6 +42,7 @@ releases = ["ubuntu-22.04"]
 lines = ["8.1"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -44,6 +50,7 @@ releases = ["ubuntu-24.04"]
 lines = ["8.3"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -54,6 +61,7 @@ packages = ["php{line}-fpm", "php{line}-cli"]
 # EL 9: the php:8.3 module stream is the system version; other lines come
 # from Remi's parallel-installable packages instead of further streams.
 services = ["php{line}-fpm"]
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -77,6 +85,7 @@ releases = ["debian-12", "debian-13"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "vendor"
@@ -85,6 +94,7 @@ releases = ["ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "vendor"

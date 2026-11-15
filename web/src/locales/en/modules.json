@@ -13,6 +13,7 @@
     "users": "Users",
     "auditlog": "Audit log",
     "notifications": "Notifications",
-    "cloud": "Cloud service"
+    "cloud": "Cloud service",
+    "sites": "Sites"
   }
 }

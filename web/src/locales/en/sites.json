@@ -1,0 +1,119 @@
+{
+  "title": "Sites",
+  "detail": {
+    "title": "Site"
+  },
+  "type": {
+    "static": {
+      "name": "Static",
+      "description": "HTML, CSS and JavaScript files served as they are."
+    },
+    "php": {
+      "name": "PHP",
+      "description": "A PHP application with a PHP-FPM pool of its own."
+    },
+    "proxy": {
+      "name": "Reverse proxy",
+      "description": "Forwards requests to an application listening elsewhere."
+    }
+  },
+  "state": {
+    "active": "Active",
+    "stopped": "Stopped",
+    "applying": "Applying",
+    "failed": "Failed"
+  },
+  "list": {
+    "state": "Status",
+    "target": "PHP / upstream",
+    "moreDomains": "+{count} more",
+    "open": "Open"
+  },
+  "action": {
+    "stop": "Stop",
+    "start": "Start",
+    "stopping": "Stopping {site}…",
+    "starting": "Starting {site}…"
+  },
+  "create": {
+    "title": "Create site",
+    "submit": "Create site",
+    "close": "Close",
+    "openSite": "Open the site"
+  },
+  "delete": {
+    "title": "Delete site {site}?",
+    "text": "The web server configuration of {site} is removed, so its domains are no longer served.",
+    "files": "Also delete the files and users",
+    "filesOn": "{dir} and the users {owner} and {runner} are deleted. This cannot be undone.",
+    "filesOff": "{dir} and the site’s users are kept, so the files are still there if you create the site again."
+  },
+  "empty": {
+    "title": "No sites yet",
+    "text": "A site serves one or more domains from this server: static files, a PHP application with a PHP-FPM pool of its own, or a reverse proxy to an application. Each site gets its own directory and users."
+  },
+  "unsupported": {
+    "selinux": "Sites are not available on this system yet (SELinux support is being verified)."
+  },
+  "statusUnavailable": "The panel could not check whether nginx and PHP are installed.",
+  "nginxMissing": "nginx is not installed, so sites cannot be created yet.",
+  "installNginx": "Install nginx on the software page",
+  "nginxStopped": "nginx is installed but not running.",
+  "form": {
+    "domainsHint": "Press Enter after each domain. Wildcards (*.example.com) and IPv4 addresses work; international names are converted automatically. No ports.",
+    "codePlaceholder": "derived from the first domain",
+    "codeHint": "A short name for the site directory and users, fixed once the site exists. Leave it empty to derive it from the first domain.",
+    "webSocket": "WebSocket",
+    "webSocketHint": "Pass WebSocket connections through to the upstream.",
+    "upstreamHost": "Send the upstream’s host name",
+    "upstreamHostHint": "The upstream receives its own host name instead of the domain the visitor asked for.",
+    "noPhp": "No PHP version with PHP-FPM is installed.",
+    "installPhp": "Install PHP on the software page",
+    "noRewrite": "None",
+    "rootPlaceholder": "public",
+    "rootHint": "Relative to the site directory, for example public for Laravel. Leave it empty to serve the directory itself.",
+    "indexHint": "File names tried when a directory is requested. Leave empty for the defaults.",
+    "writableHint": "Directories the site may write to, relative to the site directory (uploads, caches). Everything else stays read-only to it."
+  },
+  "settings": {
+    "apply": "Apply changes"
+  },
+  "overview": {
+    "dir": "Directory",
+    "owner": "Owner user",
+    "runner": "Runtime user",
+    "users": "{owner} owns the files; deploy code as this user. The site runs as {runner}, which can read the files but write only the writable directories, so a compromised site cannot change its own code.",
+    "created": "Created",
+    "updated": "Last changed",
+    "rootDefault": "(the site directory)"
+  },
+  "tabs": {
+    "overview": "Overview",
+    "settings": "Settings",
+    "logs": "Logs"
+  },
+  "drift": {
+    "tag": "Not applied",
+    "title": "The last change did not take effect",
+    "text": "What the system runs differs from these settings.",
+    "reapply": "Apply again"
+  },
+  "lastChange": "Last change",
+  "logs": {
+    "access": "Access log",
+    "error": "Error log",
+    "follow": "Follow",
+    "empty": "No log entries yet.",
+    "column": {
+      "time": "Time",
+      "remote": "Client",
+      "request": "Request",
+      "status": "Status",
+      "bytes": "Size",
+      "duration": "Duration"
+    }
+  },
+  "rewrite": {
+    "spa": "Single-page application"
+  }
+}

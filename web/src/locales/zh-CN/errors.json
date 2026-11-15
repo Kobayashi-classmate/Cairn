@@ -44,7 +44,16 @@
       "count": "{field}的条目数量过多或过少。",
       "unexpected": "此处不接受{field}。",
       "id": "{field}不是有效的标识符。",
-      "unique": "{field}包含重复项。"
+      "unique": "{field}包含重复项。",
+      "site_code": "{field}须为 2 到 20 个字符，只能包含小写字母、数字和单个连字符，并以字母开头。",
+      "host": "请检查{field}：每一项都必须是主机名或 IPv4 地址，且不带端口。",
+      "path": "{field}必须是相对路径，不能包含“..”，也不能以“/”开头或结尾。",
+      "file_name": "请检查{field}：每一项都必须是单纯的文件名。",
+      "immutable": "{field}在网站创建后不能修改。",
+      "proxy_fields": "反向代理网站不能设置网站根目录、PHP、伪静态规则、默认首页或可写目录。",
+      "static_fields": "静态网站不能设置 PHP 或可写目录。",
+      "line": "{field}不是有效的版本线。",
+      "integer": "{field}必须是整数。"
     }
   },
   "locale": {
@@ -130,9 +139,28 @@
     },
     "software": {
       "install_incomplete": "未安装：{failed}"
+    },
+    "site": {
+      "php_missing": "PHP {line}（含 PHP-FPM）未安装。",
+      "domain_taken": "{domain} 已被网站 {site} 使用。",
+      "code_taken": "网站代号 {code} 已被使用。",
+      "config_invalid": "{check} 检查拒绝了新配置，未做任何更改。",
+      "reload_failed": "重新加载 {service} 失败，已恢复之前的配置。",
+      "rewrite_unknown": "伪静态规则 {rewrite} 不存在，或不适用于此类网站。"
     }
   },
   "software": {
     "install_incomplete": "部分软件未能安装。"
+  },
+  "site": {
+    "unsupported": "此系统暂不支持网站功能。",
+    "nginx_missing": "未安装 nginx。",
+    "php_missing": "所选的 PHP 版本（含 PHP-FPM）未安装。",
+    "domain_taken": "有域名已被其他网站使用。",
+    "code_taken": "该网站代号已被使用。",
+    "config_invalid": "nginx 或 PHP-FPM 拒绝了新配置，未做任何更改。",
+    "reload_failed": "重新加载 Web 服务失败，已恢复之前的配置。",
+    "not_found": "该网站不存在。",
+    "rewrite_unknown": "该伪静态规则不存在，或不适用于此类网站。"
   }
 }

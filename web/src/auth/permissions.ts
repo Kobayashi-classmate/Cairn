@@ -14,6 +14,8 @@ export type KnownPermission =
   | 'notify.manage'
   | 'software.read'
   | 'software.manage'
+  | 'sites.read'
+  | 'sites.manage'
 
 /**
  * A permission name. Modules define their own at startup, so any string the

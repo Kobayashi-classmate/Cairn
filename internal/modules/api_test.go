@@ -38,6 +38,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
+	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
 	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
@@ -147,6 +148,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)},
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log,
 			Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"},
+		&sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},

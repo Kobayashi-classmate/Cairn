@@ -62,6 +62,12 @@ const session = useSessionStore()
 
 const DEFAULT_PORT: Record<EmailSecurity, number> = { starttls: 587, tls: 465, none: 25 }
 
+/**
+ * Example webhook address for the empty field (not text to translate). Kept
+ * out of the template: a literal URL attribute there trips vue-tsc.
+ */
+const WEBHOOK_EXAMPLE = 'https://example.com/hooks/cairn'
+
 function emptyForm() {
   return {
     type: 'email' as ChannelType,
@@ -336,7 +342,7 @@ function onTypeChange() {
           <NInput
             v-model:value="form.webhook.url"
             :input-props="{ autocomplete: 'off', spellcheck: false, type: 'url' }"
-            placeholder="https://example.com/hooks/cairn"
+            :placeholder="WEBHOOK_EXAMPLE"
           />
         </NFormItem>
         <NFormItem :label="t('common.field.secret')">

@@ -21,6 +21,7 @@ import { localeNativeName } from '@/i18n'
 import { errorMessage, errorText } from '@/i18n/errors'
 import { formatDateTime } from '@/i18n/format'
 import { itemNames, jobKindLabel } from '@/jobs/labels'
+import { siteTypeLabel } from '@/sites/labels'
 
 const PAGE_SIZE = 50
 const FILTER_DELAY_MS = 400
@@ -36,7 +37,7 @@ const userFilter = ref('')
 const categoryFilter = ref<string | null>(null)
 
 // Action code prefixes the server filters on.
-const categories = ['auth', 'users', 'settings', 'notify', 'update', 'software', 'job', 'module', 'setup'] as const
+const categories = ['auth', 'users', 'settings', 'notify', 'update', 'software', 'site', 'job', 'module', 'setup'] as const
 const categoryOptions = computed(() =>
   categories.map((c) => ({ value: `${c}.`, label: t(`audit.category.${c}`) })),
 )
@@ -138,6 +139,14 @@ function details(entry: AuditEntry): string[] {
     if (typeof entry.params.channel === 'string') {
       const key = `updates.channel.${entry.params.channel}`
       list.push(t('audit.detail.channel', { channel: te(key) ? t(key) : entry.params.channel }))
+    }
+    return list
+  }
+  if (entry.action.startsWith('site.')) {
+    const list: string[] = []
+    if (typeof entry.params.type === 'string') list.push(siteTypeLabel(entry.params.type))
+    if (entry.action === 'site.delete' && typeof entry.params.deleteFiles === 'boolean') {
+      list.push(t(entry.params.deleteFiles ? 'audit.detail.filesDeleted' : 'audit.detail.filesKept'))
     }
     return list
   }

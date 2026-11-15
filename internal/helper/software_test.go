@@ -36,6 +36,8 @@ type fakeSystem struct {
 	// it; printURIs answers "apt-get install --print-uris".
 	failInstall string
 	printURIs   string
+	// failPrefix makes any command starting with it fail.
+	failPrefix string
 }
 
 func (f *fakeSystem) use(t *testing.T) {
@@ -52,6 +54,10 @@ func (f *fakeSystem) use(t *testing.T) {
 		cmd := name + " " + strings.Join(args, " ")
 		f.cmds = append(f.cmds, cmd)
 		_, _ = fmt.Fprintf(log, "$ %s\n", cmd)
+		if f.failPrefix != "" && strings.HasPrefix(cmd, f.failPrefix) {
+			_, _ = fmt.Fprintf(log, "[emerg] test failure of %s\n", name)
+			return &helperapi.Error{Code: "exec.failed", Params: map[string]any{"command": name}}
+		}
 		switch {
 		case name == "apt-get" && args[0] == "install":
 			for _, a := range args {

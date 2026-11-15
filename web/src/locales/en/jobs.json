@@ -24,6 +24,13 @@
       "install": "Install {name} {line}",
       "remove": "Uninstall {name} {line}",
       "install_set": "Install software set ({count})"
+    },
+    "site": {
+      "create": "Create site {site}",
+      "update": "Update site {site}",
+      "start": "Start site {site}",
+      "stop": "Stop site {site}",
+      "delete": "Delete site {site}"
     }
   },
   "detail": {
@@ -42,6 +49,13 @@
       "install": "Install software",
       "remove": "Uninstall software",
       "install_set": "Install software set"
+    },
+    "site": {
+      "create": "Create site",
+      "update": "Update site",
+      "start": "Start site",
+      "stop": "Stop site",
+      "delete": "Delete site"
     }
   }
 }

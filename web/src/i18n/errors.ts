@@ -11,6 +11,9 @@ type NamedParams = Record<string, string | number | boolean>
 
 const UNKNOWN_KEY = 'errors.unknown'
 
+/** Field names the server shares between forms, labelled by the rule that failed. */
+const FIELD_BY_RULE: Record<string, string> = { site_code: 'siteCode' }
+
 /** Translated label of a form field; unknown fields are shown by name. */
 export function fieldLabel(field: string): string {
   const key = `common.field.${field}`
@@ -64,7 +67,8 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
   if (code === 'validation.invalid') {
     const { field, rule } = params
     if (typeof field !== 'string' || field === '') return t('errors.validation.invalid')
-    return validationMessage(field, typeof rule === 'string' ? rule : '', decorate(params))
+    const ruleName = typeof rule === 'string' ? rule : ''
+    return validationMessage(FIELD_BY_RULE[ruleName] ?? field, ruleName, decorate(params))
   }
   // Codes whose message names its parameters have two texts: `errors.<code>`
   // reads well on its own (the audit log only has the code), and

@@ -101,6 +101,44 @@ grep -q '^\$ apt-get update' /root/job.log && grep -qE '^(Hit|Get):' /root/job.l
 journal_has 'operation finished.*kind=pkg.refresh.*state=succeeded' || fail "helper did not log the operation"
 step "software refresh job: real apt-get update run by the helper, live log followed to the end"
 
+# A PHP site with the real systemd: the panel installs nginx and PHP (which
+# systemd starts), the site's pool and server block are checked and the
+# services reloaded through systemctl.
+follow() {
+	local r id state offset=0
+	r=$(api -X "$1" "$base$2" ${3:+-d "$3"})
+	id=$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("job",{}).get("id",""))')
+	[ -n "$id" ] || fail "$1 $2 not started: $r"
+	: >/root/job.log
+	for _ in $(seq 300); do
+		r=$(api "$base/api/v1/jobs/$id/log?offset=$offset&wait=20")
+		printf '%s' "$r" | python3 -c 'import json,sys; print(json.load(sys.stdin)["log"], end="")' >>/root/job.log
+		offset=$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.load(sys.stdin)["offset"])')
+		state=$(printf '%s' "$r" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job"]["state"])')
+		case "$state" in succeeded | failed | canceled | interrupted) break ;; esac
+	done
+	[ "$state" = succeeded ] || { tail -40 /root/job.log; fail "$1 $2 ended $state"; }
+}
+recommended() {
+	api "$base/api/v1/software" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print([o["line"] for s in d["software"] if s["id"] == sys.argv[1] for o in s["offers"] if o["recommended"]][0])' "$1"
+}
+php=$(recommended php)
+follow POST /api/v1/software/install "{\"items\":[{\"software\":\"nginx\",\"line\":\"$(recommended nginx)\"},{\"software\":\"php\",\"line\":\"$php\"}]}"
+systemctl is-active --quiet nginx.service && systemctl is-active --quiet "php$php-fpm.service" || fail "nginx or php-fpm not running"
+follow POST /api/v1/sites "{\"type\":\"php\",\"domains\":[\"php.test\"],\"php\":\"$php\",\"writable\":[\"uploads\"]}"
+grep_q "^\$ systemctl reload php$php-fpm" /root/job.log && grep_q '^\$ systemctl reload nginx' /root/job.log || { cat /root/job.log; fail "services not reloaded through systemd"; }
+runuser -u cw-php-test -- tee /srv/www/php-test/app/index.php >/dev/null <<'PHP'
+<?php echo 'user=' . posix_getpwuid(posix_geteuid())['name'];
+PHP
+out=$(curl -s -H 'Host: php.test' http://127.0.0.1/)
+[ "$out" = "user=cw-php-test-run" ] || fail "PHP site served: $out"
+follow DELETE "/api/v1/sites/php-test?deleteFiles=true"
+[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: php.test' http://127.0.0.1/index.php)" != 200 ] || fail "deleted site still served"
+step "PHP site with systemd: pool and server block checked, php$php-fpm and nginx reloaded by systemctl, PHP runs as cw-php-test-run; deleted"
+
 # Online update in a transient unit: the package restarts both services.
 api -X POST "$base/api/v1/updates/check" | grep_q '"status":"available"' || fail "no update offered"
 helper_pid=$(systemctl show -p MainPID --value cairn-helper.service)

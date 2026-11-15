@@ -14,7 +14,8 @@
     "software": "软件",
     "job": "任务",
     "module": "模块",
-    "setup": "初始化"
+    "setup": "初始化",
+    "site": "网站"
   },
   "column": {
     "time": "时间",
@@ -38,7 +39,9 @@
     "disabled": "已停用",
     "enabled": "已启用",
     "channel": "通道：{channel}",
-    "source": "来源：{source}"
+    "source": "来源：{source}",
+    "filesDeleted": "已删除文件和用户",
+    "filesKept": "保留了文件和用户"
   },
   "action": {
     "auth": {
@@ -95,6 +98,13 @@
     },
     "setup": {
       "wizard": "将初始化向导标记为{state}"
+    },
+    "site": {
+      "create": "创建了网站 {site}",
+      "update": "修改了网站 {site}",
+      "start": "启动了网站 {site}",
+      "stop": "停用了网站 {site}",
+      "delete": "删除了网站 {site}"
     }
   }
 }

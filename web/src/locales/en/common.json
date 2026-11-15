@@ -11,7 +11,8 @@
     "account": "Account settings",
     "messages": "Messages",
     "software": "Software",
-    "jobs": "Tasks"
+    "jobs": "Tasks",
+    "sites": "Sites"
   },
   "action": {
     "signOut": "Sign out",
@@ -58,14 +59,25 @@
     "channel": "Release channel",
     "source": "Download source",
     "downloadPolicy": "Download sources",
-    "items": "Software to check"
+    "items": "Software to check",
+    "siteCode": "Site code",
+    "domains": "Domains",
+    "root": "Web root",
+    "index": "Index files",
+    "writable": "Writable directories",
+    "proxy": "Upstream URL",
+    "php": "PHP version",
+    "rewrite": "Rewrite rules",
+    "kind": "Log type",
+    "offset": "Position"
   },
   "boot": {
     "failed": "Cannot load the panel"
   },
   "format": {
     "bytes": "{value} {unit}",
-    "rate": "{value}/s"
+    "rate": "{value}/s",
+    "ms": "{value} ms"
   },
   "role": {
     "admin": "Administrator",
@@ -100,6 +112,10 @@
     "software": {
       "read": "View software",
       "manage": "Manage software"
+    },
+    "sites": {
+      "read": "View sites",
+      "manage": "Manage sites"
     }
   },
   "copy": {

@@ -30,7 +30,7 @@ NODE_RUN = docker run --rm \
 	-v cairn-npm-cache:/root/.npm \
 	$(NODE_IMAGE)
 
-.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test vm-test clean
+.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test vm-test clean
 
 all: check build
 
@@ -118,6 +118,10 @@ update-test:
 ## software-test: install catalog software through the API on every tier-1 distribution (containers)
 software-test:
 	bash test/software/run.sh
+
+## sites-test: create sites through the API with the real nginx and PHP-FPM (Debian/Ubuntu containers)
+sites-test:
+	bash test/sites/run.sh
 
 ## vm-test: the same in a real VM with systemd (QEMU in a container); VM=debian-13|debian-12
 vm-test:
