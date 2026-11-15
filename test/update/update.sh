@@ -8,6 +8,10 @@
 # There is no systemd here: the helper runs the update in-process and the
 # services are restarted by hand.
 set -euo pipefail
+# grep_q is "grep -q" that reads all of its input: with pipefail, grep -q
+# stopping at the first match can kill the writer with SIGPIPE and fail the
+# whole pipeline at random.
+grep_q() { grep "$@" >/dev/null; }
 
 . /etc/os-release
 step() { printf '  - %s\n' "$*"; }
@@ -84,8 +88,8 @@ api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: a
 pw=update-test-password-1
 login() {
 	rm -f "$jar"
-	api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep -q '"username":"admin"' || fail "login"
-	api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep -q '"elevatedUntil"' || fail "elevate"
+	api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
+	api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 }
 # wait_job: prints the final state of the update job.
 wait_job() {
@@ -105,8 +109,8 @@ api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\
 login
 
 r=$(api -X POST "$base/api/v1/updates/check")
-echo "$r" | grep -q '"status":"available"' || fail "no update offered: $r"
-echo "$r" | grep -q '"current":"0.1.0"' && echo "$r" | grep -q '"latest":{"version":"0.3.0"' || fail "update check: $r"
+echo "$r" | grep_q '"status":"available"' || fail "no update offered: $r"
+echo "$r" | grep_q '"current":"0.1.0"' && echo "$r" | grep_q '"latest":{"version":"0.3.0"' || fail "update check: $r"
 step "update check: running 0.1.0, latest is 0.3.0 (signed index verified)"
 
 code=$(apply 0.2.0)
@@ -114,25 +118,25 @@ code=$(apply 0.2.0)
 [ "$(wait_job)" = succeeded ] || fail "update to 0.2.0 did not succeed"
 is_version 0.2.0 || fail "0.2.0 is not installed"
 current_is 0.2.0 || fail "rollback pointer not moved to 0.2.0"
-ls $updates | grep -q 0.1.0 || fail "previous package not kept"
+ls $updates | grep_q 0.1.0 || fail "previous package not kept"
 step "online update to 0.2.0 installed; 0.1.0 kept as the rollback package"
 
 stop
 start
-api "$base/api/v1/meta" | grep -q '"version":"0.2.0"' || fail "restarted panel is not 0.2.0"
+api "$base/api/v1/meta" | grep_q '"version":"0.2.0"' || fail "restarted panel is not 0.2.0"
 login
 step "restarted: the panel now runs 0.2.0"
 
 code=$(apply 0.3.0)
 [ "$code" = 202 ] || fail "apply 0.3.0 returned $code: $(cat /tmp/apply.json)"
 [ "$(wait_job)" = failed ] || fail "the uninstallable 0.3.0 did not fail"
-api "$base/api/v1/updates" | grep -q 'the previous version was restored' || fail "rollback not reported"
+api "$base/api/v1/updates" | grep_q 'the previous version was restored' || fail "rollback not reported"
 is_version 0.2.0 || fail "0.2.0 not restored after the failed update"
 current_is 0.2.0 || fail "rollback pointer moved by a failed update"
 step "update to 0.3.0 failed (missing dependency) and 0.2.0 was restored"
 
 audit=$(api "$base/api/v1/audit?action=update.finish")
-echo "$audit" | grep -q '"result":"ok"' && echo "$audit" | grep -q '"result":"update.install_failed"' ||
+echo "$audit" | grep_q '"result":"ok"' && echo "$audit" | grep_q '"result":"update.install_failed"' ||
 	fail "update results not audited: $audit"
 [ "$(api "$base/api/v1/audit?action=update.apply" | grep -o '"action":"update.apply"' | wc -l)" -eq 2 ] || fail "update requests not audited"
 step "both requests and both outcomes audited"

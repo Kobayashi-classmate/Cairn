@@ -39,7 +39,11 @@
       "range": "{field} must be between {min} and {max}.",
       "subset": "{field} includes permissions your role does not have.",
       "ip": "Check {field}: each entry must be an IP address or a CIDR range.",
-      "https": "{field} must be an https:// address."
+      "https": "{field} must be an https:// address.",
+      "oneof": "{field} must be one of the allowed values.",
+      "count": "{field} has too many or too few entries.",
+      "unexpected": "{field} is not accepted here.",
+      "id": "{field} is not a valid identifier."
     }
   },
   "locale": {
@@ -98,7 +102,9 @@
     "download_failed": "The download failed.",
     "checksum_mismatch": "The download does not match the official checksum. Nothing was installed.",
     "archive_invalid": "The downloaded archive contains unsafe or unsupported entries. Nothing was installed.",
-    "runtime_broken": "The unpacked runtime did not start or reported a different version. Nothing was installed."
+    "runtime_broken": "The unpacked runtime did not start or reported a different version. Nothing was installed.",
+    "source_unknown": "The chosen download source is not offered for this download or is not allowed by the download policy.",
+    "source_unusable": "No allowed download source serves the official file."
   },
   "module": {
     "disabled": "This feature is turned off in the module settings.",

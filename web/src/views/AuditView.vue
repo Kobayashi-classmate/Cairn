@@ -97,6 +97,14 @@ function displayParams(entry: AuditEntry): Record<string, string | number | bool
     const key = `modules.name.${params.module}`
     params.module = te(key) ? t(key) : params.module
   }
+  // Older install/remove entries only carry the catalog id, not the product name.
+  if (entry.action.startsWith('software.') && typeof params.name !== 'string') {
+    params.name = String(params.software ?? '')
+  }
+  if (typeof params.downloadPolicy === 'string') {
+    const key = `software.policy.${params.downloadPolicy}.short`
+    params.downloadPolicy = te(key) ? t(key) : params.downloadPolicy
+  }
   return params
 }
 
@@ -125,6 +133,10 @@ function details(entry: AuditEntry): string[] {
       list.push(t('audit.detail.channel', { channel: te(key) ? t(key) : entry.params.channel }))
     }
     return list
+  }
+  // The download source chosen for a runtime, as its candidate id.
+  if (entry.action === 'software.install' && typeof entry.params.source === 'string') {
+    return [t('audit.detail.source', { source: entry.params.source })]
   }
   if (entry.action !== 'users.update') return []
   const list: string[] = []

@@ -25,8 +25,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/execx"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/sources"
 )
 
 // Runtime error codes.
@@ -68,6 +70,10 @@ type Runtimes struct {
 	HTTP *http.Client
 	// Bases overrides the providers' official base URLs (tests).
 	Bases map[string]string
+	// Mirrors are the catalog's download mirrors; Prober compares them with
+	// the official download when the install names no source.
+	Mirrors *catalog.Mirrors
+	Prober  *sources.Prober
 }
 
 // runtimeRelease is the exact build chosen for a line.
@@ -331,12 +337,85 @@ func findSum(list, file string) string {
 
 // manifest records an installed runtime next to its directory.
 type manifest struct {
-	Software    string `json:"software"`
-	Line        string `json:"line"`
-	Version     string `json:"version"`
-	URL         string `json:"url"`
-	Hash        string `json:"hash"`
+	Software string `json:"software"`
+	Line     string `json:"line"`
+	Version  string `json:"version"`
+	URL      string `json:"url"` // the official download
+	Hash     string `json:"hash"`
+	// Source is the candidate it was downloaded from, and From its address.
+	Source      string `json:"source,omitempty"`
+	From        string `json:"from,omitempty"`
 	InstalledAt int64  `json:"installedAt"`
+}
+
+// candidates lists the sources of a runtime download: the official address
+// first, then the catalog's mirrors of the provider.
+func (r *Runtimes) candidates(providerID, official string) []sources.Candidate {
+	out := []sources.Candidate{{ID: sources.IDOfficial, Kind: sources.KindOfficial, Name: sources.Host(official), URL: official}}
+	if r.Mirrors == nil {
+		return out
+	}
+	for _, rw := range r.Mirrors.Rewrites {
+		u := rw.Apply(official)
+		if rw.Provider != providerID || u == "" {
+			continue
+		}
+		op, _ := r.Mirrors.Operator(rw.Operator)
+		kind := sources.KindSupplementary
+		if op.Official {
+			kind = sources.KindOfficialMirror
+		}
+		out = append(out, sources.Candidate{ID: op.ID, Kind: kind, Name: op.Name, URL: u})
+	}
+	return out
+}
+
+func (r *Runtimes) prober() *sources.Prober {
+	if r.Prober != nil {
+		return r.Prober
+	}
+	return defaultProber
+}
+
+// sourceOrder puts the requested source first and the other allowed ones
+// after it as fallbacks. Without a requested source it probes the allowed
+// candidates and starts with the fastest one that serves the official file.
+func (r *Runtimes) sourceOrder(ctx context.Context, log io.Writer, cands []sources.Candidate, source, policy string) ([]sources.Candidate, error) {
+	cands = filter(cands, allowedBy(policy))
+	if source != "" {
+		i := candidateIndex(cands, source)
+		if i < 0 {
+			return nil, pkgErr(helperapi.CodePkgSourceUnknown, map[string]any{"source": source})
+		}
+		return append([]sources.Candidate{cands[i]}, append(slices.Clone(cands[:i]), cands[i+1:]...)...), nil
+	}
+	if len(cands) == 1 {
+		return cands, nil
+	}
+	pctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	r.prober().ProbeFiles(pctx, cands)
+	cancel()
+	for _, c := range cands {
+		_, _ = fmt.Fprintf(log, "  source %s: %s%s\n", c.ID, c.Status, speedNote(c))
+	}
+	var eligible []sources.Candidate
+	for _, c := range cands {
+		if c.Eligible {
+			eligible = append(eligible, c)
+		}
+	}
+	if len(eligible) == 0 {
+		return nil, pkgErr(helperapi.CodePkgSourceUnusable, map[string]any{"file": fileName(cands[0].URL)})
+	}
+	sort.SliceStable(eligible, func(a, b int) bool { return eligible[a].Speed > eligible[b].Speed })
+	return eligible, nil
+}
+
+func speedNote(c sources.Candidate) string {
+	if c.Speed <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(", %.1f MB/s", float64(c.Speed)/(1<<20))
 }
 
 var versionDir = regexp.MustCompile(`^[0-9][0-9A-Za-z.+_-]{0,63}$`)
@@ -355,8 +434,11 @@ func (r *Runtimes) Installed(sw, line string) string {
 	return target
 }
 
-// Install fetches, verifies and unpacks the newest build of line.
-func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, line string) (string, error) {
+// Install fetches, verifies and unpacks the newest build of line, from
+// source (a candidate ID; "" picks the fastest allowed one) and, should that
+// fail, from the other allowed sources. Every source must deliver the file
+// with the official checksum.
+func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, line, source, policy string) (string, error) {
 	logf := func(format string, a ...any) { _, _ = fmt.Fprintf(log, format, a...) }
 	rel, err := r.resolve(ctx, providerID, line)
 	if err != nil {
@@ -365,7 +447,7 @@ func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, l
 	if !versionDir.MatchString(rel.Version) {
 		return "", pkgErr(CodeRuntimeMetadata, map[string]any{"provider": providerID, "reason": "unexpected version " + rel.Version})
 	}
-	logf("Newest %s %s build: %s\n  %s\n  %s %s\n", sw, line, rel.Version, rel.URL, map[bool]string{true: "SHA-512", false: "SHA-256"}[rel.SHA512], rel.Hash)
+	logf("Newest %s %s build: %s\n  %s\n  %s %s (official)\n", sw, line, rel.Version, rel.URL, map[bool]string{true: "SHA-512", false: "SHA-256"}[rel.SHA512], rel.Hash)
 	if r.Installed(sw, line) == rel.Version {
 		logf("Already installed.\n")
 		return rel.Version, nil
@@ -373,9 +455,25 @@ func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, l
 	if err := os.MkdirAll(r.swDir(sw), 0o755); err != nil { //nolint:gosec // G301: runtimes are readable by every site user.
 		return "", err
 	}
-	archive, err := r.download(ctx, log, rel)
+	order, err := r.sourceOrder(ctx, log, r.candidates(providerID, rel.URL), source, policy)
 	if err != nil {
 		return "", err
+	}
+	var archive string
+	var used sources.Candidate
+	for i, c := range order {
+		logf("Downloading from %s (%s):\n  %s\n", c.Name, c.ID, c.URL)
+		from := rel
+		from.URL = c.URL
+		archive, err = r.download(ctx, log, from)
+		if err == nil {
+			used = c
+			break
+		}
+		if ctx.Err() != nil || i == len(order)-1 {
+			return "", err
+		}
+		logf("Download from %s failed (%s); trying %s.\n", c.ID, errorText(err), order[i+1].ID)
 	}
 	defer func() { _ = os.Remove(archive) }()
 
@@ -403,7 +501,8 @@ func (r *Runtimes) Install(ctx context.Context, log io.Writer, sw, providerID, l
 	if err := os.Rename(root, final); err != nil {
 		return "", err
 	}
-	m, _ := json.Marshal(manifest{Software: sw, Line: line, Version: rel.Version, URL: rel.URL, Hash: rel.Hash, InstalledAt: time.Now().Unix()})
+	m, _ := json.Marshal(manifest{Software: sw, Line: line, Version: rel.Version, URL: rel.URL, Hash: rel.Hash,
+		Source: used.ID, From: used.URL, InstalledAt: time.Now().Unix()})
 	if err := writeFile(final+".json", m); err != nil {
 		return "", err
 	}
@@ -638,4 +737,16 @@ func (r *Runtimes) status(sw string, lines []string) map[string][]helperapi.Inst
 		}
 	}
 	return out
+}
+
+// errorText is a short form of an install error for the log.
+func errorText(err error) string {
+	var he *helperapi.Error
+	if errors.As(err, &he) {
+		if r, ok := he.Params["reason"].(string); ok {
+			return he.Code + ": " + r
+		}
+		return he.Code
+	}
+	return tailString(err.Error(), 200)
 }

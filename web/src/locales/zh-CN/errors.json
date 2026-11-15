@@ -39,7 +39,11 @@
       "range": "{field}必须在 {min} 到 {max} 之间。",
       "subset": "{field}包含了你的角色不具备的权限。",
       "ip": "请检查{field}：每一项都必须是 IP 地址或 CIDR 网段。",
-      "https": "{field}必须是以 https:// 开头的地址。"
+      "https": "{field}必须是以 https:// 开头的地址。",
+      "oneof": "{field}必须是允许的取值之一。",
+      "count": "{field}的条目数量过多或过少。",
+      "unexpected": "此处不接受{field}。",
+      "id": "{field}不是有效的标识符。"
     }
   },
   "locale": {
@@ -98,7 +102,9 @@
     "download_failed": "下载失败。",
     "checksum_mismatch": "下载的文件与官方校验值不一致，未安装任何内容。",
     "archive_invalid": "下载的压缩包包含不安全或不受支持的条目，未安装任何内容。",
-    "runtime_broken": "解压后的运行环境无法启动或报告了不同的版本，未安装任何内容。"
+    "runtime_broken": "解压后的运行环境无法启动或报告了不同的版本，未安装任何内容。",
+    "source_unknown": "所选下载源不在此次下载的候选范围内，或不被下载源策略允许。",
+    "source_unusable": "没有允许使用的下载源提供官方文件。"
   },
   "module": {
     "disabled": "此功能已在模块设置中关闭。",

@@ -2,10 +2,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Runs inside one throwaway container (see run.sh): installs the panel,
-# starts the helper and the web process by hand (no systemd), then installs
-# every software@line of $CASES through the API and checks the exact
+# starts the helper and the web process by hand (no systemd), then probes the
+# download sources of every software@line[#source] of $CASES, installs it
+# through the API (from the given source, for runtimes) and checks the exact
 # installed version; the last entry is removed again.
 set -euo pipefail
+# grep_q is "grep -q" that reads all of its input: with pipefail, grep -q
+# stopping at the first match can kill the writer with SIGPIPE and fail the
+# whole pipeline at random.
+grep_q() { grep "$@" >/dev/null; }
 . /etc/os-release
 step() { printf '  - %s\n' "$*"; }
 fail() {
@@ -15,6 +20,8 @@ fail() {
 	exit 1
 }
 echo "== ${PRETTY_NAME}: ${CASES}"
+# A command failing outside fail() still says where and shows the logs.
+trap 'fail "line $LINENO: $BASH_COMMAND"; tail -5 /tmp/web.log >&2 || true' ERR
 
 if command -v apt-get >/dev/null; then
 	export DEBIAN_FRONTEND=noninteractive
@@ -38,14 +45,23 @@ jar=/tmp/jar
 api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 pw=software-test-password-1
 token=$(grep -o 'token=[A-Za-z0-9_-]*' /tmp/install.log | head -1 | cut -d= -f2)
-api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep -q '"username":"admin"' || fail "setup"
-api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep -q '"elevatedUntil"' || fail "elevate"
+api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep_q '"username":"admin"' || fail "setup"
+api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
-# run_job ACTION SOFTWARE LINE: starts the job, follows its log to the end.
+# probe SOFTWARE LINE [SOURCE]: checks the download sources, prints each
+# slot (* marks the source in use) and fails when a runtime download has no
+# usable source or the requested one is not among them.
+probe() {
+	api -X POST "$base/api/v1/software/probe" -d "{\"items\":[{\"software\":\"$1\",\"line\":\"$2\"}]}" >/tmp/probe.json
+	python3 /t/probe_summary.py /tmp/probe.json "${3:-}" || fail "probe $1 $2: $(head -c 800 /tmp/probe.json)"
+}
+# run_job ACTION SOFTWARE LINE [SOURCE]: starts the job, follows its log to
+# the end.
 run_job() {
-	local r id state offset=0
-	r=$(api -X POST "$base/api/v1/software/$2/$1" -d "{\"line\":\"$3\"}")
+	local r id state offset=0 body="{\"line\":\"$3\"}"
+	[ -n "${4:-}" ] && body="{\"line\":\"$3\",\"source\":\"$4\"}"
+	r=$(api -X POST "$base/api/v1/software/$2/$1" -d "$body")
 	id=$(printf '%s' "$r" | json 'd.get("job",{}).get("id","")')
 	[ -n "$id" ] || fail "$1 $2 $3 not started: $r"
 	: >/tmp/job.log
@@ -71,9 +87,12 @@ print(v[0] if isinstance(v, list) else ("" if v is None else v))' "$1" "$2" "$3"
 entries=($CASES)
 last=${entries[-1]}
 for c in "${entries[@]::${#entries[@]}-1}"; do
+	src="" keyinfo_src=""
+	case $c in *"#"*) src=${c#*#} c=${c%%#*} ;; esac
 	sw=${c%@*} line=${c#*@}
 	t0=$(date +%s)
-	run_job install "$sw" "$line"
+	probe "$sw" "$line" "$src"
+	run_job install "$sw" "$line" "$src"
 	[ "$(offer "$sw" "$line" installed)" = True ] || fail "$sw $line not reported installed"
 	method=$(offer "$sw" "$line" method)
 	if [ "$method" = standalone ]; then
@@ -81,6 +100,9 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 		pkg=/opt/cairn/runtimes/$sw/$line
 		v=$(readlink "$pkg")
 		[ -d "/opt/cairn/runtimes/$sw/$v" ] || fail "$sw $line: $pkg -> $v missing"
+		used=$(json 'd.get("source","")' <"/opt/cairn/runtimes/$sw/$v.json")
+		[ -z "$src" ] || [ "$used" = "$src" ] || fail "$sw $line: downloaded from $used, not $src"
+		keyinfo_src=", from $used"
 	else
 		pkg=$(offer "$sw" "$line" packages)
 		v=$(version_of "$pkg")
@@ -90,7 +112,7 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 	keyinfo=""
 	grep -q "Key verified" /tmp/job.log && keyinfo=", key verified"
 	grep -q "checksum matches" /tmp/job.log && keyinfo=", checksum verified, $(grep -o 'Checked: .*' /tmp/job.log | head -1)"
-	step "$sw $line: $pkg $v ($method${repo:+ $repo}$keyinfo) in $(($(date +%s) - t0))s"
+	step "$sw $line: $pkg $v ($method${repo:+ $repo}$keyinfo$keyinfo_src) in $(($(date +%s) - t0))s"
 done
 sw=${last%@*} line=${last#*@}
 run_job remove "$sw" "$line"

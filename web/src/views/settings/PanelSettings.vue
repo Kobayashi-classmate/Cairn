@@ -17,7 +17,9 @@ import { isStepUpRequired } from '@/api/client'
 import { fetchSettings, updateDefaultLocale } from '@/api/settings'
 import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
 import { errorMessage } from '@/i18n/errors'
+import { useNavStore } from '@/stores/nav'
 import { useSessionStore } from '@/stores/session'
+import DownloadPolicySettings from './DownloadPolicySettings.vue'
 
 const { t } = useI18n()
 const message = useMessage()
@@ -26,6 +28,13 @@ const session = useSessionStore()
 const { options: localeOptions, renderLabel } = useLocaleSwitch()
 
 const canManage = computed(() => session.can('settings.manage'))
+
+// The menu only lists the software page when its module is on and the user
+// may read it, which is exactly when its download policy is worth showing.
+const nav = useNavStore()
+const showDownloadPolicy = computed(
+  () => session.can('software.read') && nav.entries.some((entry) => entry.route === 'software'),
+)
 const saved = ref<string | null>(null)
 const defaultLocale = ref<string | null>(null)
 const loading = ref(true)
@@ -94,6 +103,8 @@ async function save() {
       </NButton>
     </NSpin>
   </NCard>
+
+  <DownloadPolicySettings v-if="showDownloadPolicy" />
 </template>
 
 <style scoped>

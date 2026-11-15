@@ -25,6 +25,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/config"
 	"github.com/Kobayashi-classmate/Cairn/internal/helper"
 	"github.com/Kobayashi-classmate/Cairn/internal/platform"
+	"github.com/Kobayashi-classmate/Cairn/internal/sources"
 )
 
 // stateDir holds the helper's own state (update packages and status).
@@ -138,8 +139,9 @@ func softwareEngine(manager string, log *slog.Logger) (*helper.Software, error) 
 	if err != nil {
 		return nil, err
 	}
-	s := &helper.Software{Catalog: cat, Manager: manager, Arch: runtime.GOARCH, Log: log,
-		Runtimes: &helper.Runtimes{Dir: "/opt/cairn/runtimes", Arch: runtime.GOARCH}}
+	prober := &sources.Prober{}
+	s := &helper.Software{Catalog: cat, Manager: manager, Arch: runtime.GOARCH, Log: log, Sources: prober,
+		Runtimes: &helper.Runtimes{Dir: "/opt/cairn/runtimes", Arch: runtime.GOARCH, Mirrors: &cat.Mirrors, Prober: prober}}
 	p, osr, err := platform.Detect()
 	if err != nil {
 		return s, nil //nolint:nilerr // unsupported platforms install nothing; already logged by packageTools

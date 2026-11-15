@@ -36,7 +36,8 @@
     "role": "角色：{role}",
     "disabled": "已停用",
     "enabled": "已启用",
-    "channel": "通道：{channel}"
+    "channel": "通道：{channel}",
+    "source": "来源：{source}"
   },
   "action": {
     "auth": {
@@ -82,8 +83,9 @@
     },
     "software": {
       "refresh": "开始刷新软件包索引",
-      "install": "开始安装 {software} {line}",
-      "remove": "开始卸载 {software} {line}"
+      "install": "开始安装 {name} {line}",
+      "remove": "开始卸载 {name} {line}",
+      "settings": "将下载源改为{downloadPolicy}"
     },
     "module": {
       "enable": "开启了模块 {module}",

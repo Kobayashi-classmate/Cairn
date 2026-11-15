@@ -8,6 +8,10 @@
 # update in its own transient unit with the services restarted by the
 # package, the rollback of a failed update, and a clean purge.
 set -euo pipefail
+# grep_q is "grep -q" that reads all of its input: with pipefail, grep -q
+# stopping at the first match can kill the writer with SIGPIPE and fail the
+# whole pipeline at random.
+grep_q() { grep "$@" >/dev/null; }
 
 R=http://10.0.2.2:8080/releases
 . /etc/os-release
@@ -71,12 +75,12 @@ api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\
 	grep -q '"username":"admin"' || fail "setup"
 login() {
 	rm -f "$jar"
-	api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep -q '"username":"admin"' || fail "login"
-	api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep -q '"elevatedUntil"' || fail "elevate"
+	api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
+	api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 }
 login
 systemctl is-active --quiet cairn-helper.service || fail "helper was not started through its socket"
-api "$base/api/v1/ui/nav" | grep -q '"key":"software"' || fail "menu"
+api "$base/api/v1/ui/nav" | grep_q '"key":"software"' || fail "menu"
 step "first-run setup through the API; helper started on demand by socket activation"
 
 # A package job: the web process starts an operation in the root helper,
@@ -98,7 +102,7 @@ journal_has 'operation finished.*kind=pkg.refresh.*state=succeeded' || fail "hel
 step "software refresh job: real apt-get update run by the helper, live log followed to the end"
 
 # Online update in a transient unit: the package restarts both services.
-api -X POST "$base/api/v1/updates/check" | grep -q '"status":"available"' || fail "no update offered"
+api -X POST "$base/api/v1/updates/check" | grep_q '"status":"available"' || fail "no update offered"
 helper_pid=$(systemctl show -p MainPID --value cairn-helper.service)
 code=$(api -o /root/apply.json -w '%{http_code}' -X POST "$base/api/v1/updates/apply" -d '{"version":"0.2.0"}')
 [ "$code" = 202 ] || fail "apply 0.2.0: $code $(cat /root/apply.json)"
@@ -115,7 +119,7 @@ wait_update() {
 is_version 0.2.0 || fail "0.2.0 not installed"
 journal_has 'Started cairn-update-[0-9]*.service' || fail "no transient update unit"
 wait_web
-api "$base/api/v1/meta" | grep -q '"version":"0.2.0"' || fail "cairn-web was not restarted into 0.2.0"
+api "$base/api/v1/meta" | grep_q '"version":"0.2.0"' || fail "cairn-web was not restarted into 0.2.0"
 [ "$(systemctl show -p MainPID --value cairn-helper.service)" != "$helper_pid" ] || fail "helper was not restarted"
 grep -q 0.2.0 "$updates/current" || fail "rollback pointer"
 step "online update to 0.2.0 in a transient unit; both services restarted into 0.2.0"
@@ -124,7 +128,7 @@ login
 code=$(api -o /root/apply.json -w '%{http_code}' -X POST "$base/api/v1/updates/apply" -d '{"version":"0.3.0"}')
 [ "$code" = 202 ] || fail "apply 0.3.0: $code $(cat /root/apply.json)"
 [ "$(wait_update)" = failed ] || fail "the uninstallable 0.3.0 did not fail"
-api "$base/api/v1/updates" | grep -q 'the previous version was restored' || fail "rollback not reported"
+api "$base/api/v1/updates" | grep_q 'the previous version was restored' || fail "rollback not reported"
 is_version 0.2.0 || fail "0.2.0 not restored"
 wait_web
 systemctl is-active --quiet cairn-web.service || fail "cairn-web not running after the rollback"

@@ -36,7 +36,8 @@
     "role": "Role: {role}",
     "disabled": "Disabled",
     "enabled": "Enabled",
-    "channel": "Channel: {channel}"
+    "channel": "Channel: {channel}",
+    "source": "Source: {source}"
   },
   "action": {
     "auth": {
@@ -82,8 +83,9 @@
     },
     "software": {
       "refresh": "Started refreshing the package indexes",
-      "install": "Started installing {software} {line}",
-      "remove": "Started uninstalling {software} {line}"
+      "install": "Started installing {name} {line}",
+      "remove": "Started uninstalling {name} {line}",
+      "settings": "Changed the download sources to {downloadPolicy}"
     },
     "module": {
       "enable": "Turned on module {module}",

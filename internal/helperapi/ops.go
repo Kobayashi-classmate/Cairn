@@ -5,6 +5,8 @@ package helperapi
 import (
 	"encoding/json"
 	"regexp"
+
+	"github.com/Kobayashi-classmate/Cairn/internal/sources"
 )
 
 // Operations are long-running privileged actions (installing packages,
@@ -140,6 +142,11 @@ const (
 	CodePkgVersionUnknown  = "pkg.version_unknown"
 	CodePkgVersionMismatch = "pkg.version_mismatch"
 	CodePkgServiceFailed   = "pkg.service_failed"
+	// CodePkgSourceUnknown: the requested download source is not a
+	// candidate of the line (or not allowed by the policy).
+	CodePkgSourceUnknown = "pkg.source_unknown"
+	// CodePkgSourceUnusable: no allowed source serves the official file.
+	CodePkgSourceUnusable = "pkg.source_unusable"
 )
 
 var (
@@ -151,14 +158,109 @@ var (
 type SoftwareRequest struct {
 	Software string `json:"software"`
 	Line     string `json:"line"`
+	// Source is the download source chosen for an install (a candidate ID of
+	// the line's selectable slot, see ProbeResult); empty picks the
+	// recommended one. Policy restricts the candidates.
+	Source string `json:"source,omitempty"`
+	Policy string `json:"policy,omitempty"`
 }
+
+// Download source policies.
+const (
+	PolicyRecommended = ""         // the fastest source that matches the official one
+	PolicyOfficial    = "official" // official addresses only
+)
+
+var sourceIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,63}$`)
 
 // Validate implements the helper's request validation hook.
 func (r SoftwareRequest) Validate() error {
 	if !softwareIDPattern.MatchString(r.Software) || !linePattern.MatchString(r.Line) {
 		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "software", "rule": "catalog"}}
 	}
+	if r.Source != "" && !sourceIDPattern.MatchString(r.Source) {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "source", "rule": "id"}}
+	}
+	if r.Policy != PolicyRecommended && r.Policy != PolicyOfficial {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "policy", "rule": "oneof"}}
+	}
 	return nil
+}
+
+// ActionPkgProbe checks the download sources of lines before they are
+// installed (synchronous, a few seconds).
+const ActionPkgProbe = "pkg.probe"
+
+// MaxProbeItems caps the lines of one probe.
+const MaxProbeItems = 16
+
+// ProbeRequest names the lines to probe the sources of.
+type ProbeRequest struct {
+	Items  []SoftwareRequest `json:"items"`
+	Policy string            `json:"policy,omitempty"`
+}
+
+// Validate implements the helper's request validation hook.
+func (r ProbeRequest) Validate() error {
+	if len(r.Items) == 0 || len(r.Items) > MaxProbeItems {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "items", "rule": "count"}}
+	}
+	for _, it := range r.Items {
+		if err := it.Validate(); err != nil {
+			return err
+		}
+	}
+	if r.Policy != PolicyRecommended && r.Policy != PolicyOfficial {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "policy", "rule": "oneof"}}
+	}
+	return nil
+}
+
+// Source slot kinds.
+const (
+	SlotRuntime = "runtime" // a prebuilt runtime download (selectable)
+	SlotRepo    = "repo"    // a vendor repository
+	SlotSystem  = "system"  // the system repositories
+)
+
+// Source slot warnings.
+const (
+	WarnInUseBehind        = "in_use_behind"        // the source in use is older than the official one
+	WarnInUseUnusable      = "in_use_unusable"      // the source in use did not answer or lacks the index
+	WarnOfficialUnverified = "official_unreachable" // the official source could not be compared with
+	WarnNoEligible         = "no_eligible"          // no candidate serves the official file
+)
+
+// SourceSlot is one place the install downloads from, with its candidates.
+// Only runtime slots are selectable for now: the system repositories and
+// the vendor repositories are shown as they are configured.
+type SourceSlot struct {
+	// ID is "runtime:<software>:<line>", "repo:<repo>" or "system:<role>".
+	ID       string   `json:"id"`
+	Kind     string   `json:"kind"`
+	Software []string `json:"software"` // the probed entries that use it
+	Repo     string   `json:"repo,omitempty"`
+	Role     string   `json:"role,omitempty"` // system: main | security
+	// Version and File describe the exact download of a runtime slot;
+	// Suites the compared suites of an apt slot.
+	Version string   `json:"version,omitempty"`
+	File    string   `json:"file,omitempty"`
+	Suites  []string `json:"suites,omitempty"`
+
+	Selectable bool   `json:"selectable"`
+	Selected   string `json:"selected,omitempty"` // recommended / in-use candidate ID
+	Warning    string `json:"warning,omitempty"`
+	// Error is set when the slot could not be probed at all (for example the
+	// official metadata of a runtime did not answer).
+	Error      *Error              `json:"error,omitempty"`
+	Candidates []sources.Candidate `json:"candidates"`
+}
+
+// ProbeResult is the result of pkg.probe.
+type ProbeResult struct {
+	Slots []SourceSlot `json:"slots"`
+	// Took is the probe time in milliseconds.
+	Took int64 `json:"took"`
 }
 
 // InstalledPackage is a package with its exact installed version.

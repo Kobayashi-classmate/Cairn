@@ -2,9 +2,11 @@
 
 // Package software serves the software catalog as offered on this system
 // (which lines can be installed, how, which one is recommended and which are
-// installed) and starts package jobs: refreshing the indexes, installing and
+// installed), probes the download sources of lines before they are
+// installed, and starts package jobs: refreshing the indexes, installing and
 // removing a line. The root helper resolves every request against its own
-// copy of the catalog; this module only names an entry and a line.
+// copy of the catalog; this module only names an entry, a line and, for
+// runtime downloads, one of the sources the probe offered.
 package software
 
 import (
@@ -67,8 +69,16 @@ func (m *Module) Routes(r *api.Router) {
 		doc("Software catalog as offered on this system: lines, install method, recommended line"), api.Returns(200, listResponse{}))
 	r.Handle("POST /api/v1/software/refresh", m.refresh, api.Require(Manage), api.NoBody(),
 		doc("Refresh the system package indexes (starts a job)"), api.Returns(202, jobResponse{}))
+	r.Handle("POST /api/v1/software/probe", m.probe, api.Require(Manage), api.Body(probeRequest{}),
+		doc("Check the download sources of lines before installing them: which candidates serve exactly the official file or index, how far behind they are, how fast they are from this machine (a few seconds)"),
+		api.Returns(200, probeResponse{}))
+	r.Handle("GET /api/v1/software/settings", m.getSettings, api.Require(Read),
+		doc("Software settings: the download source policy"), api.Returns(200, settingsBody{}))
+	r.Handle("PUT /api/v1/software/settings", m.putSettings, api.Require(Manage), api.Body(settingsBody{}),
+		doc("Change the download source policy"), api.Returns(200, settingsBody{}))
 	r.Handle("POST /api/v1/software/{id}/install", m.install, api.Require(Manage), api.Body(lineRequest{}),
-		doc("Install a line: the exact newest version of the line from its source (starts a job)"), api.Returns(202, jobResponse{}))
+		doc("Install a line: the exact newest version of the line from its source (starts a job). source picks a candidate of the line's runtime download slot (see probe); empty picks the recommended one"),
+		api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/software/{id}/remove", m.remove, api.Require(Manage), api.StepUp(), api.Body(lineRequest{}),
 		doc("Remove an installed line; configuration and data are kept (starts a job)"), api.Returns(202, jobResponse{}))
 }
@@ -97,6 +107,35 @@ type listResponse struct {
 
 type lineRequest struct {
 	Line string `json:"line"`
+	// Source is a candidate ID of the line's runtime download slot.
+	Source string `json:"source,omitempty"`
+}
+
+type probeItem struct {
+	Software string `json:"software"`
+	Line     string `json:"line"`
+}
+
+type probeRequest struct {
+	Items []probeItem `json:"items"`
+}
+
+type probeResponse struct {
+	Policy string `json:"policy"` // recommended | official
+	helperapi.ProbeResult
+}
+
+// Download source policies as the API names them.
+const (
+	policyRecommended = "recommended"
+	policyOfficial    = "official"
+	policyKey         = "software.download_policy"
+)
+
+type settingsBody struct {
+	// DownloadPolicy is "recommended" (the fastest source that serves the
+	// official file) or "official" (the upstream's own addresses only).
+	DownloadPolicy string `json:"downloadPolicy"`
 }
 
 type jobResponse struct {
@@ -149,6 +188,68 @@ func (m *Module) refresh(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusAccepted, jobResponse{Job: job})
 }
 
+// policy returns the stored download source policy.
+func (m *Module) policy(ctx context.Context) string {
+	var v string
+	if err := m.DB.QueryRowContext(ctx, `SELECT value FROM kv WHERE key = ?`, policyKey).Scan(&v); err != nil || v != policyOfficial {
+		return policyRecommended
+	}
+	return v
+}
+
+func helperPolicy(p string) string {
+	if p == policyOfficial {
+		return helperapi.PolicyOfficial
+	}
+	return helperapi.PolicyRecommended
+}
+
+func (m *Module) getSettings(w http.ResponseWriter, r *http.Request) error {
+	return api.WriteJSON(w, http.StatusOK, settingsBody{DownloadPolicy: m.policy(r.Context())})
+}
+
+func (m *Module) putSettings(w http.ResponseWriter, r *http.Request) error {
+	var req settingsBody
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	if req.DownloadPolicy != policyRecommended && req.DownloadPolicy != policyOfficial {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "downloadPolicy", "rule": "oneof"})
+	}
+	if _, err := m.DB.ExecContext(r.Context(), `INSERT INTO kv(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		policyKey, req.DownloadPolicy); err != nil {
+		return err
+	}
+	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "software.settings", "ok", map[string]any{"downloadPolicy": req.DownloadPolicy})
+	return api.WriteJSON(w, http.StatusOK, req)
+}
+
+// probe asks the root helper to check the download sources of the lines.
+func (m *Module) probe(w http.ResponseWriter, r *http.Request) error {
+	var req probeRequest
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	if len(req.Items) == 0 || len(req.Items) > helperapi.MaxProbeItems {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "items", "rule": "count"})
+	}
+	policy := m.policy(r.Context())
+	hreq := helperapi.ProbeRequest{Policy: helperPolicy(policy)}
+	for _, it := range req.Items {
+		if _, err := m.availableOffer(it.Software, it.Line); err != nil {
+			return err
+		}
+		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line})
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	resp := probeResponse{Policy: policy}
+	if err := m.Helper.Call(ctx, helperapi.ActionPkgProbe, callerOf(r), hreq, &resp.ProbeResult); err != nil {
+		return err
+	}
+	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
 func callerOf(r *http.Request) helperapi.Caller {
 	who := modutil.ActorOf(r)
 	return helperapi.Caller{UserID: who.UserID, Username: who.Username, Remote: api.ClientIP(r), Source: who.Source}
@@ -162,6 +263,26 @@ func (m *Module) remove(w http.ResponseWriter, r *http.Request) error {
 	return m.startLineJob(w, r, "software.remove", helperapi.ActionPkgRemove)
 }
 
+// availableOffer returns the offer of a line that can be installed here.
+func (m *Module) availableOffer(id, line string) (*catalog.Software, error) {
+	sw, ok := m.Catalog.Find(id)
+	if !ok {
+		return nil, api.ErrNotFound
+	}
+	params := map[string]any{"software": id, "line": line}
+	for _, o := range sw.Offers(catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}) {
+		if o.Line != line {
+			continue
+		}
+		if o.Method == "" {
+			params["reason"] = o.Reason
+			return nil, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable, params)
+		}
+		return sw, nil
+	}
+	return nil, api.NewError(http.StatusNotFound, "request.not_found", params)
+}
+
 // startLineJob checks that the line can be handled on this system and
 // starts the job that runs the helper operation.
 func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, action string) error {
@@ -170,32 +291,30 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 		return err
 	}
 	id := r.PathValue("id")
-	sw, ok := m.Catalog.Find(id)
-	if !ok {
-		return api.ErrNotFound
+	sw, err := m.availableOffer(id, req.Line)
+	if err != nil {
+		return err
 	}
-	var offer *catalog.Offer
-	for _, o := range sw.Offers(catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}) {
-		if o.Line == req.Line {
-			offer = &o
+	hreq := helperapi.SoftwareRequest{Software: id, Line: req.Line}
+	params := map[string]any{"software": id, "line": req.Line, "name": sw.Name}
+	if action == helperapi.ActionPkgInstall {
+		hreq.Source, hreq.Policy = req.Source, helperPolicy(m.policy(r.Context()))
+		if req.Source != "" {
+			params["source"] = req.Source
 		}
+	} else if req.Source != "" {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "source", "rule": "unexpected"})
 	}
-	params := map[string]any{"software": id, "line": req.Line}
-	switch {
-	case offer == nil:
-		return api.NewError(http.StatusNotFound, "request.not_found", params)
-	case offer.Method == "":
-		params["reason"] = offer.Reason
-		return api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable, params)
+	if err := hreq.Validate(); err != nil {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "source", "rule": "id"})
 	}
 	who := modutil.ActorOf(r)
-	params["name"] = sw.Name
 	job, err := m.Jobs.Start(r.Context(), jobs.Spec{
 		Kind: kind, Params: params, Permission: Read, ManagePermission: Manage,
 		Actor: jobs.Actor{UserID: who.UserID, Username: who.Username, Source: who.Source, Remote: api.ClientIP(r)},
 	}, func(_ context.Context, j *jobs.Job) error {
 		var res helperapi.InstallResult
-		if err := j.RunOp(action, helperapi.SoftwareRequest{Software: id, Line: req.Line}, &res); err != nil {
+		if err := j.RunOp(action, hreq, &res); err != nil {
 			return err
 		}
 		for _, p := range res.Packages {
@@ -206,6 +325,10 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 	if err != nil {
 		return err
 	}
-	modutil.Audit(r, m.DB, m.Log, who, kind, "ok", map[string]any{"software": id, "name": sw.Name, "line": req.Line, "job": job.ID})
+	audit := map[string]any{"software": id, "name": sw.Name, "line": req.Line, "job": job.ID}
+	if req.Source != "" {
+		audit["source"] = req.Source
+	}
+	modutil.Audit(r, m.DB, m.Log, who, kind, "ok", audit)
 	return api.WriteJSON(w, http.StatusAccepted, jobResponse{Job: job})
 }

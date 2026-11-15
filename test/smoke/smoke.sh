@@ -7,6 +7,10 @@
 # the administrator is created through the setup link printed by the package,
 # and the API is driven with curl. Finally the package is removed.
 set -euo pipefail
+# grep_q is "grep -q" that reads all of its input: with pipefail, grep -q
+# stopping at the first match can kill the writer with SIGPIPE and fail the
+# whole pipeline at random.
+grep_q() { grep "$@" >/dev/null; }
 
 PKGS=/pkgs
 INSTALL_LANG=${SMOKE_LANG:-en}
@@ -59,23 +63,23 @@ step "helper (root) and web (cairn) running, socket handshake ok"
 jar=/tmp/jar
 api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 
-api "$base/api/v1/meta" | grep -q '"setupRequired":true' || fail "meta before setup"
+api "$base/api/v1/meta" | grep_q '"setupRequired":true' || fail "meta before setup"
 out=$(api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"smoke-test-password-1\",\"locale\":\"$INSTALL_LANG\"}")
-echo "$out" | grep -q '"username":"admin"' || fail "setup: $out"
+echo "$out" | grep_q '"username":"admin"' || fail "setup: $out"
 grep -q '#HttpOnly_127.0.0.1.*TRUE.*__Host-cairn_session' "$jar" || fail "session cookie must be HttpOnly and Secure"
 step "administrator created through the setup link"
 
-api "$base/api/v1/system/overview" | grep -q '"cpuCores":[1-9]' || fail "overview"
+api "$base/api/v1/system/overview" | grep_q '"cpuCores":[1-9]' || fail "overview"
 headers=$(curl -sk -D - -o /dev/null "$base/")
-echo "$headers" | grep -qi '^content-security-policy:' || fail "CSP header missing"
-echo "$headers" | grep -qi '^x-frame-options: DENY' || fail "X-Frame-Options missing"
+echo "$headers" | grep_q -i '^content-security-policy:' || fail "CSP header missing"
+echo "$headers" | grep_q -i '^x-frame-options: DENY' || fail "X-Frame-Options missing"
 step "overview served, security headers present"
 
 code=$(api -o /dev/null -w '%{http_code}' -X PUT "$base/api/v1/settings/default-locale" -d "{\"locale\":\"$OTHER_LANG\"}")
 [ "$code" = 204 ] || fail "default-locale via helper returned $code"
 grep -qE "default_locale = ['\"]$OTHER_LANG['\"]" /etc/cairn/config.toml || fail "helper did not write the config"
 [ "$(stat -c '%U:%G %a' /etc/cairn/config.toml)" = "root:cairn 640" ] || fail "config ownership changed by helper"
-api "$base/api/v1/meta" | grep -q "\"defaultLocale\":\"$OTHER_LANG\"" || fail "meta default locale"
+api "$base/api/v1/meta" | grep_q "\"defaultLocale\":\"$OTHER_LANG\"" || fail "meta default locale"
 grep -q 'action=config.set_default_locale result=ok user=admin' /tmp/helper.log || fail "helper audit line"
 step "default language changed through the root helper (audited)"
 
@@ -88,29 +92,29 @@ newpw=$(cairn reset-password --lang en | sed -n 's/.*New password: //p')
 rm -f "$jar"
 code=$(api -o /dev/null -w '%{http_code}' -X POST "$base/api/v1/auth/login" -d '{"username":"admin","password":"smoke-test-password-1"}')
 [ "$code" = 401 ] || fail "old password still works ($code)"
-api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$newpw\"}" | grep -q '"username":"admin"' || fail "login with reset password"
+api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$newpw\"}" | grep_q '"username":"admin"' || fail "login with reset password"
 step "cairn reset-password works, old password rejected"
 
 newop='{"username":"ops","password":"smoke-operator-password","role":"operator"}'
-api -X POST "$base/api/v1/users" -d "$newop" | grep -q '"auth.step_up_required"' || fail "creating a user without step-up"
-api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$newpw\"}" | grep -q '"elevatedUntil"' || fail "elevate"
-api -X POST "$base/api/v1/users" -d "$newop" | grep -q '"role":"operator"' || fail "create operator"
+api -X POST "$base/api/v1/users" -d "$newop" | grep_q '"auth.step_up_required"' || fail "creating a user without step-up"
+api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$newpw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+api -X POST "$base/api/v1/users" -d "$newop" | grep_q '"role":"operator"' || fail "create operator"
 opjar=/tmp/opjar
 curl -sk -c "$opjar" -b "$opjar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' -X POST "$base/api/v1/auth/login" \
-	-d '{"username":"ops","password":"smoke-operator-password"}' | grep -q '"system.read"' || fail "operator login"
-curl -sk -b "$opjar" "$base/api/v1/users" | grep -q '"auth.forbidden"' || fail "operator reached user management"
-api "$base/api/v1/audit?action=users.create" | grep -q '"username":"ops"' || fail "audit entry for users.create"
+	-d '{"username":"ops","password":"smoke-operator-password"}' | grep_q '"system.read"' || fail "operator login"
+curl -sk -b "$opjar" "$base/api/v1/users" | grep_q '"auth.forbidden"' || fail "operator reached user management"
+api "$base/api/v1/audit?action=users.create" | grep_q '"username":"ops"' || fail "audit entry for users.create"
 step "roles enforced: step-up for user management, operator denied, change audited"
 
 tok=$(api -X POST "$base/api/v1/me/tokens" -d '{"name":"smoke","permissions":["system.read"],"expiresInDays":1}' | sed -n 's/.*"token":"\(cairn_[A-Za-z0-9_-]*\)".*/\1/p')
 [ -n "$tok" ] || fail "create API token"
-curl -sk -H "Authorization: Bearer $tok" "$base/api/v1/system/overview" | grep -q '"cpuCores"' || fail "token within scope"
-curl -sk -H "Authorization: Bearer $tok" "$base/api/v1/users" | grep -q '"auth.forbidden"' || fail "token outside scope"
-api "$base/api/v1/openapi.json" | grep -q '"openapi":"3.1.0"' || fail "openapi document"
+curl -sk -H "Authorization: Bearer $tok" "$base/api/v1/system/overview" | grep_q '"cpuCores"' || fail "token within scope"
+curl -sk -H "Authorization: Bearer $tok" "$base/api/v1/users" | grep_q '"auth.forbidden"' || fail "token outside scope"
+api "$base/api/v1/openapi.json" | grep_q '"openapi":"3.1.0"' || fail "openapi document"
 step "API token scoped to system.read works; OpenAPI document served"
 
-api "$base/api/v1/ui/nav" | grep -q '"key":"software"' || fail "menu from the modules"
-api "$base/api/v1/software" | grep -q '"supported":true' || fail "software catalog not resolved for this system"
+api "$base/api/v1/ui/nav" | grep_q '"key":"software"' || fail "menu from the modules"
+api "$base/api/v1/software" | grep_q '"supported":true' || fail "software catalog not resolved for this system"
 job=$(api -X POST "$base/api/v1/software/refresh" | sed -n 's/.*"job":{"id":"\([0-9a-f]*\)".*/\1/p')
 [ -n "$job" ] || fail "refresh job not started"
 state=""
@@ -120,10 +124,10 @@ for _ in $(seq 150); do
 	sleep 2
 done
 [ "$state" = succeeded ] || fail "package index refresh job ended '$state'"
-api "$base/api/v1/jobs/$job/log" | grep -qE '\$ (apt-get update|dnf makecache)' || fail "job log"
+api "$base/api/v1/jobs/$job/log" | grep_q -E '\$ (apt-get update|dnf makecache)' || fail "job log"
 step "menu from the enabled modules; catalog resolved; package index refresh ran as a helper operation"
 
-cairn reset-2fa --username admin --lang en | grep -q "turned off" || fail "cairn reset-2fa"
+cairn reset-2fa --username admin --lang en | grep_q "turned off" || fail "cairn reset-2fa"
 [ "$(stat -c '%U:%G %a' /var/lib/cairn/master.key)" = "cairn:cairn 600" ] || fail "master key ownership/mode"
 step "cairn reset-2fa works; master key is cairn-only (0600)"
 

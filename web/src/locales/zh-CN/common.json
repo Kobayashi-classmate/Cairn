@@ -55,7 +55,10 @@
     "allowedIps": "允许的 IP 地址",
     "expiresInDays": "有效期",
     "baseUrl": "服务地址",
-    "channel": "发布通道"
+    "channel": "发布通道",
+    "source": "下载源",
+    "downloadPolicy": "下载源",
+    "items": "要检测的软件"
   },
   "boot": {
     "failed": "无法加载面板"

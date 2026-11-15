@@ -1,0 +1,157 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Download sources besides the official addresses named elsewhere in the
+# catalog (decided by the project owner on 2026-11-14):
+#   - mainly the official addresses and the official mirror networks the
+#     upstream projects publish themselves;
+#   - for upstreams without an official mirror network (Node.js, Temurin,
+#     python-build-standalone), a few approved supplementary mirrors.
+# Every candidate is checked again before it is used: an archive must be the
+# same file as the official one (size, then the official checksum after the
+# download), a repository's index must match the official index.
+
+# Operators of the mirrors named below. One that is not the upstream itself
+# needs the owner's recorded approval.
+[[operator]]
+id = "google-cn"
+name = "golang.google.cn"
+homepage = "https://golang.google.cn/"
+official = true # Google's own Go download site for China
+
+[[operator]]
+id = "npmmirror"
+name = "npmmirror"
+homepage = "https://npmmirror.com/"
+approved = "2026-11-14"
+
+[[operator]]
+id = "tuna"
+name = "TUNA (Tsinghua University)"
+homepage = "https://mirrors.tuna.tsinghua.edu.cn/"
+approved = "2026-11-14"
+
+# Rewrites of an official download URL to the same file on a mirror. The
+# pattern must match the whole official URL; $1, $2... in url refer to its
+# groups. Paths checked 2026-11-14.
+[[rewrite]]
+provider = "go"
+operator = "google-cn"
+pattern = '^https://go\.dev/dl/(go[0-9][^/]*\.linux-[a-z0-9]+\.tar\.gz)$'
+url = 'https://golang.google.cn/dl/$1'
+
+[[rewrite]]
+provider = "nodejs"
+operator = "npmmirror"
+pattern = '^https://nodejs\.org/dist/(v[0-9][^/]*/node-v[^/]+\.tar\.gz)$'
+url = 'https://cdn.npmmirror.com/binaries/node/$1'
+
+[[rewrite]]
+provider = "nodejs"
+operator = "tuna"
+pattern = '^https://nodejs\.org/dist/(v[0-9][^/]*/node-v[^/]+\.tar\.gz)$'
+url = 'https://mirrors.tuna.tsinghua.edu.cn/nodejs-release/$1'
+
+[[rewrite]]
+provider = "python-build-standalone"
+operator = "npmmirror"
+pattern = '^https://github\.com/astral-sh/python-build-standalone/releases/download/([0-9]+/cpython-[^/]+\.tar\.gz)$'
+url = 'https://registry.npmmirror.com/-/binary/python-build-standalone/$1'
+
+[[rewrite]]
+provider = "temurin"
+operator = "tuna"
+pattern = '^https://github\.com/adoptium/temurin([0-9]+)-binaries/releases/download/[^/]+/(OpenJDK[0-9]+U-jdk_(x64|aarch64)_linux_hotspot_[^/]+\.tar\.gz)$'
+url = 'https://mirrors.tuna.tsinghua.edu.cn/Adoptium/$1/jdk/$3/linux/$2'
+
+# System repositories: each distribution's official address per role and
+# the official mirror network it publishes. They are probed and shown; the
+# panel does not change system sources yet (P1 batch 9).
+#
+# Templates: {codename}, {major}; dnf variables ($basearch...) as in .repo
+# files. arch limits an entry to Go architectures.
+
+[[system]]
+distro = "debian"
+role = "main"
+official = "https://deb.debian.org/debian"
+suites = ["{codename}", "{codename}-updates"]
+# Debian's own country aliases (ftp.<country>.debian.org), each pointing at
+# a mirror the Debian mirror team runs or vouches for. HTTP only; apt checks
+# the signed indexes.
+mirrors = [
+  "http://ftp.au.debian.org/debian",
+  "http://ftp.br.debian.org/debian",
+  "http://ftp.cn.debian.org/debian",
+  "http://ftp.de.debian.org/debian",
+  "http://ftp.fr.debian.org/debian",
+  "http://ftp.hk.debian.org/debian",
+  "http://ftp.jp.debian.org/debian",
+  "http://ftp.kr.debian.org/debian",
+  "http://ftp.nl.debian.org/debian",
+  "http://ftp.sg.debian.org/debian",
+  "http://ftp.tw.debian.org/debian",
+  "http://ftp.uk.debian.org/debian",
+  "http://ftp.us.debian.org/debian",
+]
+
+[[system]]
+distro = "debian"
+role = "security"
+official = "https://security.debian.org/debian-security"
+suites = ["{codename}-security"]
+# The same archive through Debian's CDN (the default in Debian images).
+mirrors = ["https://deb.debian.org/debian-security"]
+
+[[system]]
+distro = "ubuntu"
+role = "main"
+arch = ["amd64"]
+official = "http://archive.ubuntu.com/ubuntu"
+suites = ["{codename}", "{codename}-updates"]
+# Launchpad's registry, answering with the mirrors of the caller's country.
+mirror_list = "http://mirrors.ubuntu.com/mirrors.txt"
+
+[[system]]
+distro = "ubuntu"
+role = "security"
+arch = ["amd64"]
+official = "http://security.ubuntu.com/ubuntu"
+suites = ["{codename}-security"]
+
+[[system]]
+distro = "ubuntu"
+role = "main"
+arch = ["arm64"]
+official = "http://ports.ubuntu.com/ubuntu-ports"
+suites = ["{codename}", "{codename}-updates"]
+
+[[system]]
+distro = "ubuntu"
+role = "security"
+arch = ["arm64"]
+official = "http://ports.ubuntu.com/ubuntu-ports"
+suites = ["{codename}-security"]
+
+# EL: AppStream stands for the system repositories (most catalog packages
+# come from it). section is the .repo section the distribution ships.
+[[system]]
+distro = "rocky"
+role = "main"
+official = "https://dl.rockylinux.org/pub/rocky/{major}/AppStream/$basearch/os/"
+section = "appstream"
+mirror_list = "https://mirrors.rockylinux.org/mirrorlist?arch=$basearch&repo=AppStream-{major}"
+
+[[system]]
+distro = "almalinux"
+role = "main"
+official = "https://repo.almalinux.org/almalinux/{major}/AppStream/$basearch/os/"
+section = "appstream"
+mirror_list = "https://mirrors.almalinux.org/mirrorlist/{major}/appstream"
+
+[[system]]
+distro = "centos"
+role = "main"
+official = "https://mirror.stream.centos.org/{major}-stream/AppStream/$basearch/os/"
+section = "appstream"
+mirror_list = "https://mirrors.centos.org/metalink?repo=centos-appstream-{major}-stream&arch=$basearch"
+mirror_list_format = "metalink"

@@ -55,7 +55,10 @@
     "allowedIps": "Allowed IP addresses",
     "expiresInDays": "Expires",
     "baseUrl": "Service address",
-    "channel": "Release channel"
+    "channel": "Release channel",
+    "source": "Download source",
+    "downloadPolicy": "Download sources",
+    "items": "Software to check"
   },
   "boot": {
     "failed": "Cannot load the panel"

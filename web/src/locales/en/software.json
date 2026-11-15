@@ -59,5 +59,70 @@
     "title": "Uninstall {name} {line}?",
     "content": "The packages of {name} {line} will be removed. Configuration files and data are kept.",
     "runtimeContent": "The files of {name} {line} will be removed. A runtime has no configuration or data to keep; projects that use it will stop working until it is installed again."
+  },
+  "install": {
+    "title": "Install {name} {line}",
+    "policy": "Download sources: {policy}",
+    "changePolicy": "Change",
+    "probing": "Checking download sources…",
+    "probeFailed": "The download sources could not be checked",
+    "checkAgain": "Check again",
+    "version": "Version",
+    "file": "File"
+  },
+  "policy": {
+    "title": "Download sources",
+    "intro": "Where the panel downloads prebuilt runtimes from. Every download is checked against the official checksum.",
+    "readOnly": "Your role can view this setting but not change it.",
+    "recommended": {
+      "short": "Recommended",
+      "description": "The fastest source that serves exactly the official file: official addresses, the upstream's official mirrors and a few approved mirrors."
+    },
+    "official": {
+      "short": "Official only",
+      "description": "Only the upstream's own addresses and mirror sites."
+    }
+  },
+  "probe": {
+    "slot": {
+      "download": "Download",
+      "system": "System repositories",
+      "security": "Security updates"
+    },
+    "kind": {
+      "official": "Official",
+      "official_mirror": "Official mirror",
+      "supplementary": "Supplementary mirror",
+      "other": "Other"
+    },
+    "status": {
+      "in_sync": "Same as official",
+      "newer": "Newer than official",
+      "unverified": "Not verified (official unreachable)",
+      "behind": "Behind by {duration}",
+      "mismatch": "Different file",
+      "not_found": "Not available",
+      "unreachable": "No answer",
+      "skipped": "Not compared"
+    },
+    "inUse": "In use",
+    "ms": "{value} ms",
+    "mbps": "{value} MB/s",
+    "skipped": "{count} more mirror not compared (slower to answer) | {count} more mirrors not compared (slower to answer)",
+    "column": {
+      "name": "Source",
+      "kind": "Type",
+      "status": "Status",
+      "indexTime": "Index time",
+      "latency": "First response",
+      "speed": "Speed"
+    },
+    "systemNote": "Switching the system's sources will come with system management.",
+    "warning": {
+      "in_use_behind": "The source in use is {duration} behind the official one, so this installation may not get the newest packages.",
+      "in_use_unusable": "The source in use did not answer or does not have the package index.",
+      "official_unreachable": "The official source could not be reached, so the mirrors could not be compared with it. Downloads are still checked against the official checksum.",
+      "no_eligible": "No source serves the official file."
+    }
   }
 }

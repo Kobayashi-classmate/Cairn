@@ -21,7 +21,6 @@ import { OpenOutline, RefreshOutline } from '@vicons/ionicons5'
 import type { Job } from '@/api/jobs'
 import {
   fetchSoftware,
-  installSoftware,
   isAvailable,
   isManageable,
   providerName,
@@ -41,6 +40,7 @@ import { formatIsoDate } from '@/i18n/format'
 import { jobKindLabel, jobStateLabel } from '@/jobs/labels'
 import { safeHttpsUrl } from '@/markdown/parse'
 import { useSessionStore } from '@/stores/session'
+import InstallDialog from './software/InstallDialog.vue'
 
 /** Display order of categories; unknown categories follow in name order. */
 const CATEGORY_ORDER = ['web', 'runtime', 'database', 'cache']
@@ -168,16 +168,19 @@ function runningOn(entry: SoftwareEntry, offer: Offer) {
   return job && job.line === offer.line ? job : null
 }
 
-async function install(entry: SoftwareEntry, offer: Offer) {
-  starting.value = `${entry.id}/${offer.line}`
+/** The line the install dialog is open for. */
+const installTarget = ref<{ entry: SoftwareEntry; offer: Offer } | null>(null)
+const showInstall = ref(false)
+
+/** Opens the install dialog, which checks the download sources first. */
+function install(entry: SoftwareEntry, offer: Offer) {
   failure.value = null
-  try {
-    track(await installSoftware(entry.id, offer.line))
-  } catch (err) {
-    showError(err)
-  } finally {
-    starting.value = null
-  }
+  installTarget.value = { entry, offer }
+  showInstall.value = true
+}
+
+function onInstallStarted(job: Job) {
+  track(job)
 }
 
 async function uninstall(entry: SoftwareEntry, offer: Offer) {
@@ -404,6 +407,13 @@ async function refresh() {
         </section>
       </template>
     </NSpin>
+    <InstallDialog
+      v-model:show="showInstall"
+      :entry="installTarget?.entry ?? null"
+      :offer="installTarget?.offer ?? null"
+      :repos="repos"
+      @started="onInstallStarted"
+    />
   </div>
 </template>
 

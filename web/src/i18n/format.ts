@@ -119,3 +119,22 @@ export function formatIsoDate(date: string): string {
     Date.UTC(year, month - 1, day),
   )
 }
+
+const RELATIVE_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; seconds: number }> = [
+  { unit: 'day', seconds: 86400 },
+  { unit: 'hour', seconds: 3600 },
+  { unit: 'minute', seconds: 60 },
+  { unit: 'second', seconds: 1 },
+]
+
+/** Formats a Unix timestamp relative to `nowSeconds`, for example "6 hours ago". */
+export function formatRelativeTime(unixSeconds: number, nowSeconds: number): string {
+  const diff = unixSeconds - nowSeconds
+  const size = Math.abs(diff)
+  const { unit, seconds } = RELATIVE_UNITS.find((u) => size >= u.seconds) ?? RELATIVE_UNITS[3]!
+  const options: Intl.RelativeTimeFormatOptions = { numeric: 'auto' }
+  return cached('relative', options, (locale) => new Intl.RelativeTimeFormat(locale, options)).format(
+    Math.round(diff / seconds),
+    unit,
+  )
+}

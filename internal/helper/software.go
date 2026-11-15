@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
@@ -21,6 +22,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/pgpkey"
 	"github.com/Kobayashi-classmate/Cairn/internal/platform"
+	"github.com/Kobayashi-classmate/Cairn/internal/sources"
 )
 
 const (
@@ -57,13 +59,18 @@ type Software struct {
 	Log  *slog.Logger
 	// Runtimes installs the "standalone" lines; nil disables them.
 	Runtimes *Runtimes
+	// Sources probes download sources (nil: defaults).
+	Sources *sources.Prober
+
+	probing sync.Mutex
 }
 
-// RegisterSoftware adds pkg.status, pkg.install and pkg.remove.
+// RegisterSoftware adds pkg.status, pkg.probe, pkg.install and pkg.remove.
 func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 	Register(r, helperapi.ActionPkgStatus, func(ctx context.Context, _ helperapi.Caller, _ helperapi.Empty) (helperapi.SoftwareStatus, error) {
 		return s.Status(ctx)
 	})
+	Register(r, helperapi.ActionPkgProbe, s.probe)
 	// Prebuilt runtimes do not use the package manager: their downloads
 	// must not hold up package operations.
 	locks := func(req helperapi.SoftwareRequest) []string {
@@ -145,13 +152,18 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 		if err := s.ensureLibraries(ctx, log, o.Packages); err != nil {
 			return nil, err
 		}
-		v, err := s.Runtimes.Install(ctx, log, sw.ID, o.Provider, o.Line)
+		v, err := s.Runtimes.Install(ctx, log, sw.ID, o.Provider, o.Line, req.Source, req.Policy)
 		if err != nil {
 			return nil, err
 		}
 		s.Log.Info("runtime installed", "software", sw.ID, "line", o.Line, "version", v)
 		return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method,
 			Packages: []helperapi.InstalledPackage{{Name: sw.ID, Version: v}}}, nil
+	}
+	if req.Source != "" && req.Source != sources.IDOfficial {
+		// Repositories are used as configured for now; only runtime
+		// downloads have a choice of source.
+		return nil, pkgErr(helperapi.CodePkgSourceUnknown, map[string]any{"source": req.Source})
 	}
 	logf("Installing %s %s (%s%s).\n", sw.Name, o.Line, o.Method, map[bool]string{true: ", repository " + o.Repo}[o.Repo != ""])
 	if o.Method == catalog.MethodVendor {

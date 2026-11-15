@@ -59,5 +59,70 @@
     "title": "卸载 {name} {line}？",
     "content": "将移除 {name} {line} 的软件包，配置文件和数据会保留。",
     "runtimeContent": "将删除 {name} {line} 的文件。运行环境没有需要保留的配置或数据；使用它的项目在重新安装之前将无法运行。"
+  },
+  "install": {
+    "title": "安装 {name} {line}",
+    "policy": "下载源：{policy}",
+    "changePolicy": "修改",
+    "probing": "正在检测下载源…",
+    "probeFailed": "无法检测下载源",
+    "checkAgain": "重新检测",
+    "version": "版本",
+    "file": "文件"
+  },
+  "policy": {
+    "title": "下载源",
+    "intro": "面板下载预编译运行环境时使用的来源。每次下载都会按官方校验值进行校验。",
+    "readOnly": "你的角色可以查看此设置，但不能修改。",
+    "recommended": {
+      "short": "推荐",
+      "description": "选择提供与官方完全相同文件的最快来源：官方地址、上游的官方镜像以及少数经过批准的镜像。"
+    },
+    "official": {
+      "short": "仅官方",
+      "description": "只使用上游自己的地址和镜像站点。"
+    }
+  },
+  "probe": {
+    "slot": {
+      "download": "下载",
+      "system": "系统软件源",
+      "security": "安全更新"
+    },
+    "kind": {
+      "official": "官方",
+      "official_mirror": "官方镜像",
+      "supplementary": "补充镜像",
+      "other": "其他"
+    },
+    "status": {
+      "in_sync": "与官方一致",
+      "newer": "比官方更新",
+      "unverified": "未验证（官方无法访问）",
+      "behind": "落后 {duration}",
+      "mismatch": "文件不同",
+      "not_found": "不可用",
+      "unreachable": "无响应",
+      "skipped": "未比较"
+    },
+    "inUse": "使用中",
+    "ms": "{value} 毫秒",
+    "mbps": "{value} MB/s",
+    "skipped": "另有 {count} 个镜像未比较（响应较慢）",
+    "column": {
+      "name": "来源",
+      "kind": "类型",
+      "status": "状态",
+      "indexTime": "索引时间",
+      "latency": "首次响应",
+      "speed": "速度"
+    },
+    "systemNote": "切换系统软件源的功能将随系统管理模块提供。",
+    "warning": {
+      "in_use_behind": "当前使用的源比官方落后 {duration}，此次安装可能拿不到最新的软件包。",
+      "in_use_unusable": "当前使用的源没有响应，或缺少软件包索引。",
+      "official_unreachable": "无法访问官方源，因此无法与镜像进行比较。下载的文件仍会按官方校验值进行校验。",
+      "no_eligible": "没有任何来源提供官方文件。"
+    }
   }
 }

@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
@@ -77,7 +78,8 @@ func newProviderServer(t *testing.T) *providerServer {
 			http.NotFound(w, r)
 			return
 		}
-		_, _ = w.Write(data)
+		w.Header().Set("Content-Type", "application/octet-stream")
+		http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
 	}))
 	t.Cleanup(p.Close)
 	return p
@@ -125,7 +127,7 @@ func TestRuntimeInstallReplaceRemove(t *testing.T) {
 	p.node(t, "24.22.3", nodeArchive(t, "24.22.3"))
 	fakeVersion(t, "v24.22.3\n")
 	var log strings.Builder
-	v, err := r.Install(context.Background(), &log, "nodejs", "nodejs", "24")
+	v, err := r.Install(context.Background(), &log, "nodejs", "nodejs", "24", "", "")
 	if err != nil || v != "24.22.3" {
 		t.Fatalf("install: %q %v\n%s", v, err, log.String())
 	}
@@ -142,13 +144,13 @@ func TestRuntimeInstallReplaceRemove(t *testing.T) {
 	}
 	// Installing again is a no-op.
 	log.Reset()
-	if _, err := r.Install(context.Background(), &log, "nodejs", "nodejs", "24"); err != nil || !strings.Contains(log.String(), "Already installed") {
+	if _, err := r.Install(context.Background(), &log, "nodejs", "nodejs", "24", "", ""); err != nil || !strings.Contains(log.String(), "Already installed") {
 		t.Fatalf("reinstall: %v %s", err, log.String())
 	}
 	// A newer build of the line replaces the old one.
 	p.node(t, "24.23.0", nodeArchive(t, "24.23.0"))
 	fakeVersion(t, "v24.23.0\n")
-	if v, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24"); err != nil || v != "24.23.0" {
+	if v, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24", "", ""); err != nil || v != "24.23.0" {
 		t.Fatalf("update: %q %v", v, err)
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -174,7 +176,7 @@ func TestRuntimeRefusesBadDownloads(t *testing.T) {
 	// Checksum mismatch: nothing is unpacked.
 	p.node(t, "24.22.3", nodeArchive(t, "24.22.3"))
 	p.files["/node/v24.22.3/node-v24.22.3-linux-x64.tar.gz"] = append(p.files["/node/v24.22.3/node-v24.22.3-linux-x64.tar.gz"], 0)
-	if _, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24"); code(err) != CodeRuntimeChecksum {
+	if _, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24", "", ""); code(err) != CodeRuntimeChecksum {
 		t.Fatalf("checksum: %v", err)
 	}
 	if entries, _ := os.ReadDir(filepath.Join(r.Dir, "nodejs")); len(entries) != 0 {
@@ -190,7 +192,7 @@ func TestRuntimeRefusesBadDownloads(t *testing.T) {
 		"link to grandparent": tarGz(t, entry{name: "a/up", typ: tar.TypeSymlink, link: "../.."}),
 	} {
 		p.node(t, "24.22.3", archive)
-		if _, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24"); code(err) != CodeRuntimeArchive {
+		if _, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24", "", ""); code(err) != CodeRuntimeArchive {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -198,7 +200,7 @@ func TestRuntimeRefusesBadDownloads(t *testing.T) {
 	// A runtime that does not report the expected version is not installed.
 	p.node(t, "24.22.3", nodeArchive(t, "24.22.3"))
 	fakeVersion(t, "Illegal instruction")
-	if _, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24"); code(err) != CodeRuntimeBroken {
+	if _, err := r.Install(context.Background(), io.Discard, "nodejs", "nodejs", "24", "", ""); code(err) != CodeRuntimeBroken {
 		t.Fatalf("broken runtime: %v", err)
 	}
 	if r.Installed("nodejs", "24") != "" {
@@ -243,7 +245,7 @@ func TestRuntimeProviders(t *testing.T) {
 		{"python", "python-build-standalone", "3.13", "3.13.18", "bin/python3"},
 	} {
 		fakeVersion(t, "version "+tc.version)
-		v, err := r.Install(context.Background(), io.Discard, tc.sw, tc.provider, tc.line)
+		v, err := r.Install(context.Background(), io.Discard, tc.sw, tc.provider, tc.line, "", "")
 		if err != nil || v != tc.version {
 			t.Errorf("%s: %q %v", tc.provider, v, err)
 			continue
@@ -253,7 +255,7 @@ func TestRuntimeProviders(t *testing.T) {
 		}
 	}
 	// Metadata without the line is a metadata error, not a crash.
-	if _, err := r.Install(context.Background(), io.Discard, "go", "go", "1.30"); code(err) != CodeRuntimeMetadata {
+	if _, err := r.Install(context.Background(), io.Discard, "go", "go", "1.30", "", ""); code(err) != CodeRuntimeMetadata {
 		t.Fatalf("missing line: %v", err)
 	}
 }

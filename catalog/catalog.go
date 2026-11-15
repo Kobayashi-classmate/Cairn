@@ -29,7 +29,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-//go:embed software/*.toml repos/*.toml
+//go:embed software/*.toml repos/*.toml mirrors.toml
 var files embed.FS
 
 // Methods, in order of preference.
@@ -140,7 +140,85 @@ type Key struct {
 type Catalog struct {
 	Software []Software
 	Repos    map[string]Repo
+	Mirrors  Mirrors
 }
+
+// Mirrors lists download sources besides the official addresses: the
+// operators of approved mirrors, rewrites of official download URLs to
+// those mirrors, and the distributions' official repository addresses with
+// their official mirror networks (mirrors.toml).
+type Mirrors struct {
+	Operators []Operator   `toml:"operator"`
+	Rewrites  []Rewrite    `toml:"rewrite"`
+	Systems   []SystemRepo `toml:"system"`
+}
+
+// Operator runs mirrors. One that is not the upstream itself needs the
+// project owner's recorded approval.
+type Operator struct {
+	ID       string `toml:"id" json:"id"`
+	Name     string `toml:"name" json:"name"`
+	Homepage string `toml:"homepage" json:"homepage"`
+	Official bool   `toml:"official" json:"official"`
+	Approved string `toml:"approved" json:"-"`
+}
+
+// Rewrite maps an official download URL of a provider to the same file on
+// an operator's mirror.
+type Rewrite struct {
+	Provider string `toml:"provider"`
+	Operator string `toml:"operator"`
+	// Pattern must match the whole official URL; URL may refer to its
+	// groups as $1, $2...
+	Pattern string `toml:"pattern"`
+	URL     string `toml:"url"`
+	re      *regexp.Regexp
+}
+
+// Apply returns the mirror URL of official, or "" when the rewrite does not
+// apply.
+func (r Rewrite) Apply(official string) string {
+	if r.re == nil || !r.re.MatchString(official) {
+		return ""
+	}
+	return r.re.ReplaceAllString(official, r.URL)
+}
+
+// SystemRepo is a distribution's official repository address for one role
+// and the official mirror network it publishes.
+type SystemRepo struct {
+	Distro string   `toml:"distro"` // os-release ID
+	Role   string   `toml:"role"`   // main | security
+	Arch   []string `toml:"arch"`   // Go architectures; empty means all
+	// Official is the base URL template ({codename}, {major}, dnf variables).
+	Official string `toml:"official"`
+	// Suites are the apt suites of the role; empty for dnf.
+	Suites []string `toml:"suites"`
+	// Section is the dnf .repo section the distribution ships for it.
+	Section string `toml:"section"`
+	// Mirrors are fixed official mirror addresses (Debian's country aliases).
+	Mirrors []string `toml:"mirrors"`
+	// MirrorList is the official registry answering with mirrors, one URL per
+	// line or (MirrorListFormat "metalink") as a metalink document.
+	MirrorList       string `toml:"mirror_list"`
+	MirrorListFormat string `toml:"mirror_list_format"`
+}
+
+// Operator returns the operator with id.
+func (m *Mirrors) Operator(id string) (Operator, bool) {
+	for _, o := range m.Operators {
+		if o.ID == id {
+			return o, true
+		}
+	}
+	return Operator{}, false
+}
+
+// Roles of system repositories.
+const (
+	RoleMain     = "main"
+	RoleSecurity = "security"
+)
 
 var (
 	idPattern   = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -153,7 +231,7 @@ var (
 func Load() (*Catalog, error) { return load(files) }
 
 // LoadFS parses and checks a catalog laid out like the embedded one
-// (software/*.toml, repos/*.toml); tests use it.
+// (software/*.toml, repos/*.toml, optionally mirrors.toml); tests use it.
 func LoadFS(fsys fs.FS) (*Catalog, error) { return load(fsys) }
 
 func load(fsys fs.FS) (*Catalog, error) {
@@ -195,7 +273,69 @@ func load(fsys fs.FS) (*Catalog, error) {
 		}
 		c.Software = append(c.Software, s)
 	}
+	// mirrors.toml is optional in test catalogs.
+	if _, err := fs.Stat(fsys, "mirrors.toml"); err == nil {
+		if err := decode(fsys, "mirrors.toml", &c.Mirrors); err != nil {
+			return nil, err
+		}
+	}
+	if err := c.checkMirrors(); err != nil {
+		return nil, fmt.Errorf("catalog: mirrors.toml: %w", err)
+	}
 	return c, nil
+}
+
+func (c *Catalog) checkMirrors() error {
+	m := &c.Mirrors
+	for _, o := range m.Operators {
+		if !idPattern.MatchString(o.ID) || o.Name == "" || !strings.HasPrefix(o.Homepage, "https://") {
+			return fmt.Errorf("operator %q: bad id, name or homepage", o.ID)
+		}
+		if !o.Official && !datePattern.MatchString(o.Approved) {
+			return fmt.Errorf("operator %s is not official and has no recorded approval", o.ID)
+		}
+	}
+	providers := map[string]bool{}
+	for i := range c.Software {
+		for _, src := range c.Software[i].Sources {
+			if src.Method == MethodStandalone {
+				providers[src.Provider] = true
+			}
+		}
+	}
+	for i := range m.Rewrites {
+		r := &m.Rewrites[i]
+		if _, ok := m.Operator(r.Operator); !ok || !providers[r.Provider] {
+			return fmt.Errorf("rewrite %d: unknown operator %q or provider %q", i, r.Operator, r.Provider)
+		}
+		if !strings.HasPrefix(r.Pattern, "^https://") || !strings.HasSuffix(r.Pattern, "$") || !strings.HasPrefix(r.URL, "https://") {
+			return fmt.Errorf("rewrite %d: the pattern must be anchored on an https URL and the target https", i)
+		}
+		re, err := regexp.Compile(r.Pattern)
+		if err != nil {
+			return fmt.Errorf("rewrite %d: %w", i, err)
+		}
+		r.re = re
+	}
+	for i, s := range m.Systems {
+		bad := func(why string) error { return fmt.Errorf("system %d (%s %s): %s", i, s.Distro, s.Role, why) }
+		switch {
+		case !idPattern.MatchString(s.Distro) || (s.Role != RoleMain && s.Role != RoleSecurity):
+			return bad("bad distro or role")
+		case !strings.HasPrefix(s.Official, "https://") && !strings.HasPrefix(s.Official, "http://"):
+			return bad("official address must be http(s)")
+		case (len(s.Suites) == 0) == (s.Section == ""):
+			return bad("needs either apt suites or a dnf section")
+		case s.MirrorListFormat != "" && s.MirrorListFormat != "metalink":
+			return bad("unknown mirror list format")
+		}
+		for _, u := range append(slices.Clone(s.Mirrors), s.MirrorList) {
+			if u != "" && !strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://") {
+				return bad("mirror addresses must be http(s)")
+			}
+		}
+	}
+	return nil
 }
 
 func checkKey(k Key) error {

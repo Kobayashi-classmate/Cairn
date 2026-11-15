@@ -12,13 +12,14 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 ls dist/cairn_*_amd64.deb dist/cairn-*.x86_64.rpm >/dev/null
 
-# image|software@line list; the last entry is removed again. The runtime
-# rows prove the prebuilt builds start on each glibc generation.
+# image|software@line[#source] list; the last entry is removed again. The
+# runtime rows prove the prebuilt builds start on each glibc generation and
+# that every approved mirror serves the official files.
 runs=(
 	"debian:trixie|nginx@1.26 php@8.4 php@8.3 mysql@8.4 postgresql@18 php@8.3"
-	"debian:trixie|nodejs@24 python@3.14 go@1.27 java@21 dotnet@10 nodejs@24"
+	"debian:trixie|nodejs@24#npmmirror python@3.14#npmmirror go@1.27#google-cn java@21#tuna dotnet@10 nodejs@24"
 	"debian:bookworm|php@8.5 postgresql@17 php@8.5"
-	"ubuntu:22.04|php@8.3 nodejs@26 python@3.12 php@8.3"
+	"ubuntu:22.04|php@8.3 nodejs@26#tuna python@3.12 php@8.3"
 	"ubuntu:24.04|php@8.2 mysql@8.4 redis@7.0 php@8.2"
 	"ubuntu:26.04|nginx@1.28 php@8.5 postgresql@16 valkey@9.0 valkey@9.0"
 	"rockylinux:9|nginx@1.26 php@8.2 postgresql@17 mariadb@11.8 nodejs@22 python@3.13 php@8.2"
