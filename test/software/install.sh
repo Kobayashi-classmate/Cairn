@@ -75,16 +75,26 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 	t0=$(date +%s)
 	run_job install "$sw" "$line"
 	[ "$(offer "$sw" "$line" installed)" = True ] || fail "$sw $line not reported installed"
-	pkg=$(offer "$sw" "$line" packages)
-	v=$(version_of "$pkg")
-	case "${v#*:}" in "$line".*) ;; *) fail "$sw $line: $pkg is $v" ;; esac
 	method=$(offer "$sw" "$line" method)
+	if [ "$method" = standalone ]; then
+		# The line path points at the exact build; the job already ran it.
+		pkg=/opt/cairn/runtimes/$sw/$line
+		v=$(readlink "$pkg")
+		[ -d "/opt/cairn/runtimes/$sw/$v" ] || fail "$sw $line: $pkg -> $v missing"
+	else
+		pkg=$(offer "$sw" "$line" packages)
+		v=$(version_of "$pkg")
+	fi
+	case "${v#*:}" in "$line".*) ;; *) fail "$sw $line: $pkg is $v" ;; esac
 	repo=$(offer "$sw" "$line" repo)
-	grep -q "Key verified" /tmp/job.log && keyinfo=", key verified" || keyinfo=""
+	keyinfo=""
+	grep -q "Key verified" /tmp/job.log && keyinfo=", key verified"
+	grep -q "checksum matches" /tmp/job.log && keyinfo=", checksum verified, $(grep -o 'Checked: .*' /tmp/job.log | head -1)"
 	step "$sw $line: $pkg $v ($method${repo:+ $repo}$keyinfo) in $(($(date +%s) - t0))s"
 done
 sw=${last%@*} line=${last#*@}
 run_job remove "$sw" "$line"
 [ "$(offer "$sw" "$line" installed)" = False ] || fail "$sw $line still reported installed"
+[ ! -e "/opt/cairn/runtimes/$sw/$line" ] || fail "$sw $line: runtime files left"
 step "$sw $line removed (configuration kept)"
 echo "== PASS: ${PRETTY_NAME}"

@@ -138,7 +138,8 @@ func softwareEngine(manager string, log *slog.Logger) (*helper.Software, error) 
 	if err != nil {
 		return nil, err
 	}
-	s := &helper.Software{Catalog: cat, Manager: manager, Arch: runtime.GOARCH, Log: log}
+	s := &helper.Software{Catalog: cat, Manager: manager, Arch: runtime.GOARCH, Log: log,
+		Runtimes: &helper.Runtimes{Dir: "/opt/cairn/runtimes", Arch: runtime.GOARCH}}
 	p, osr, err := platform.Detect()
 	if err != nil {
 		return s, nil //nolint:nilerr // unsupported platforms install nothing; already logged by packageTools

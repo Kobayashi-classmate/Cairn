@@ -184,12 +184,8 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 	switch {
 	case offer == nil:
 		return api.NewError(http.StatusNotFound, "request.not_found", params)
-	case offer.Method != catalog.MethodSystem && offer.Method != catalog.MethodVendor:
-		// Prebuilt runtimes come with the next step of the install engine.
+	case offer.Method == "":
 		params["reason"] = offer.Reason
-		if offer.Method == catalog.MethodStandalone {
-			params["reason"] = "standalone"
-		}
 		return api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable, params)
 	}
 	who := modutil.ActorOf(r)

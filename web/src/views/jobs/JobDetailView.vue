@@ -170,9 +170,12 @@ const params = computed(() =>
   })),
 )
 
-const errorReason = computed(() => {
-  const reason = job.value?.error?.params?.reason
-  return typeof reason === 'string' ? reason : ''
+/** Technical details of a failure (`reason`, program `output`), shown as is. */
+const errorDetails = computed(() => {
+  const params = job.value?.error?.params ?? {}
+  return ['reason', 'output']
+    .map((key) => params[key])
+    .filter((value): value is string => typeof value === 'string' && value !== '')
 })
 
 function jobErrorText(code: string, errorParams: Record<string, string | number | boolean> = {}): string {
@@ -249,7 +252,9 @@ function jobErrorText(code: string, errorParams: Record<string, string | number 
 
           <NAlert v-if="job.error" type="error" class="job__error">
             <div>{{ jobErrorText(job.error.code, job.error.params) }}</div>
-            <code v-if="errorReason" class="mono reason" dir="ltr">{{ errorReason }}</code>
+            <code v-for="(detail, index) in errorDetails" :key="index" class="mono reason" dir="ltr">{{
+              detail
+            }}</code>
           </NAlert>
         </NCard>
 
@@ -332,7 +337,10 @@ function jobErrorText(code: string, errorParams: Record<string, string | number 
 
 .reason {
   display: block;
+  max-block-size: 240px;
   margin-block-start: 6px;
+  overflow: auto;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

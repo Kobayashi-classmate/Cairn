@@ -93,7 +93,12 @@
     "stream_conflict": "Another version of this module is already enabled.",
     "version_unknown": "The exact version to install could not be determined.",
     "version_mismatch": "The installed version differs from the expected one.",
-    "service_failed": "A service could not be started after the installation."
+    "service_failed": "A service could not be started after the installation.",
+    "metadata_failed": "The official release information could not be read.",
+    "download_failed": "The download failed.",
+    "checksum_mismatch": "The download does not match the official checksum. Nothing was installed.",
+    "archive_invalid": "The downloaded archive contains unsafe or unsupported entries. Nothing was installed.",
+    "runtime_broken": "The unpacked runtime did not start or reported a different version. Nothing was installed."
   },
   "module": {
     "disabled": "This feature is turned off in the module settings.",
@@ -106,7 +111,11 @@
       "stream_conflict": "Module {module} already has version {enabled} enabled; this line needs {wanted}. Nothing was changed.",
       "version_unknown": "The exact version of {package} for line {line} could not be determined.",
       "version_mismatch": "{package} was installed as version {got}, but {want} was expected.",
-      "service_failed": "These services could not be started after the installation: {units}."
+      "service_failed": "These services could not be started after the installation: {units}.",
+      "metadata_failed": "The official release information from {provider} could not be read.",
+      "download_failed": "The download from {url} failed.",
+      "checksum_mismatch": "The download from {url} does not match the official checksum (expected {want}, got {got}). Nothing was installed.",
+      "runtime_broken": "The unpacked runtime did not start or did not report version {version}. Nothing was installed."
     }
   }
 }

@@ -392,6 +392,8 @@ func TestSoftwareInstallAndRemove(t *testing.T) {
 	if sent != `{"software":"php","line":"8.4"}` {
 		t.Fatalf("sent to the helper: %s", sent)
 	}
+	// Prebuilt runtimes go through the same operation.
+	admin.expect(admin.do("POST", "/api/v1/software/nodejs/install", map[string]any{"line": "24"}), 202, "")
 
 	for _, tc := range []struct {
 		path, line string
@@ -400,7 +402,7 @@ func TestSoftwareInstallAndRemove(t *testing.T) {
 		reason     any
 	}{
 		{"/api/v1/software/php/install", "7.4", 409, helperapi.CodePkgNotAvailable, "end_of_life"},
-		{"/api/v1/software/nodejs/install", "24", 409, helperapi.CodePkgNotAvailable, "standalone"},
+		{"/api/v1/software/nodejs/install", "20", 409, helperapi.CodePkgNotAvailable, "end_of_life"},
 		{"/api/v1/software/php/install", "9.9", 404, "request.not_found", nil},
 		{"/api/v1/software/nope/install", "1", 404, "request.not_found", nil},
 	} {
@@ -419,7 +421,7 @@ func TestSoftwareInstallAndRemove(t *testing.T) {
 	}
 	var audited int
 	_ = e.db.QueryRow(`SELECT count(*) FROM audit_log WHERE action IN ('software.install', 'software.remove') AND result = 'ok'`).Scan(&audited)
-	if audited != 2 {
+	if audited != 3 { // php install, nodejs install, php remove
 		t.Fatalf("audited %d software actions", audited)
 	}
 

@@ -55,6 +55,8 @@ type Software struct {
 	Root string
 	HTTP *http.Client
 	Log  *slog.Logger
+	// Runtimes installs the "standalone" lines; nil disables them.
+	Runtimes *Runtimes
 }
 
 // RegisterSoftware adds pkg.status, pkg.install and pkg.remove.
@@ -62,7 +64,17 @@ func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 	Register(r, helperapi.ActionPkgStatus, func(ctx context.Context, _ helperapi.Caller, _ helperapi.Empty) (helperapi.SoftwareStatus, error) {
 		return s.Status(ctx)
 	})
-	locks := func(helperapi.SoftwareRequest) []string { return []string{LockPkg} }
+	// Prebuilt runtimes do not use the package manager: their downloads
+	// must not hold up package operations.
+	locks := func(req helperapi.SoftwareRequest) []string {
+		if _, o, err := s.offer(req); err == nil && o.Method == catalog.MethodStandalone {
+			if len(o.Packages) > 0 { // system libraries come first
+				return []string{LockPkg, LockRuntimes}
+			}
+			return []string{LockRuntimes}
+		}
+		return []string{LockPkg}
+	}
 	RegisterOp(r, o, helperapi.ActionPkgInstall, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.install})
 	RegisterOp(r, o, helperapi.ActionPkgRemove, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.remove})
 }
@@ -83,11 +95,21 @@ func (s *Software) offer(req helperapi.SoftwareRequest) (*catalog.Software, cata
 		return nil, catalog.Offer{}, notAvailable
 	}
 	for _, o := range sw.Offers(s.system()) {
-		if o.Line == req.Line && (o.Method == catalog.MethodSystem || o.Method == catalog.MethodVendor) {
+		if o.Line == req.Line && s.handles(o.Method) {
 			return sw, o, nil
 		}
 	}
 	return nil, catalog.Offer{}, notAvailable
+}
+
+func (s *Software) handles(method string) bool {
+	switch method {
+	case catalog.MethodSystem, catalog.MethodVendor:
+		return true
+	case catalog.MethodStandalone:
+		return s.Runtimes != nil
+	}
+	return false
 }
 
 func (s *Software) path(p string) string { return filepath.Join(s.Root, p) }
@@ -118,6 +140,19 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 		return nil, err
 	}
 	logf := func(format string, a ...any) { _, _ = fmt.Fprintf(log, format, a...) }
+	if o.Method == catalog.MethodStandalone {
+		logf("Installing %s %s (prebuilt build from %s).\n", sw.Name, o.Line, o.Provider)
+		if err := s.ensureLibraries(ctx, log, o.Packages); err != nil {
+			return nil, err
+		}
+		v, err := s.Runtimes.Install(ctx, log, sw.ID, o.Provider, o.Line)
+		if err != nil {
+			return nil, err
+		}
+		s.Log.Info("runtime installed", "software", sw.ID, "line", o.Line, "version", v)
+		return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method,
+			Packages: []helperapi.InstalledPackage{{Name: sw.ID, Version: v}}}, nil
+	}
 	logf("Installing %s %s (%s%s).\n", sw.Name, o.Line, o.Method, map[bool]string{true: ", repository " + o.Repo}[o.Repo != ""])
 	if o.Method == catalog.MethodVendor {
 		if err := s.ensureRepo(ctx, log, o.Repo, o.Line, map[string]bool{}); err != nil {
@@ -178,10 +213,43 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 	return res, nil
 }
 
+// ensureLibraries installs the system packages a prebuilt runtime needs
+// (from the system repositories) unless they are present already.
+func (s *Software) ensureLibraries(ctx context.Context, log io.Writer, pkgs []string) error {
+	installed := s.installed(ctx, pkgs)
+	var missing []string
+	for _, p := range pkgs {
+		if installed[p] == "" {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	_, _ = fmt.Fprintf(log, "Installing the system libraries it needs: %s\n", strings.Join(missing, " "))
+	if s.Manager == "apt" {
+		if err := runCommand(ctx, log, "apt-get", "update"); err != nil {
+			return err
+		}
+		return runCommand(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends"}, missing...)...)
+	}
+	return runCommand(ctx, log, "dnf", append([]string{"install", "-y"}, missing...)...)
+}
+
 func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi.SoftwareRequest, log io.Writer) (any, error) {
 	sw, o, err := s.offer(req)
 	if err != nil {
 		return nil, err
+	}
+	if o.Method == catalog.MethodStandalone {
+		v, err := s.Runtimes.Remove(sw.ID, o.Line)
+		if err != nil {
+			return nil, err
+		}
+		_, _ = fmt.Fprintf(log, "Removed %s %s (%s).\n", sw.Name, o.Line, v)
+		s.Log.Info("runtime removed", "software", sw.ID, "line", o.Line, "version", v)
+		return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method,
+			Packages: []helperapi.InstalledPackage{{Name: sw.ID, Version: v}}}, nil
 	}
 	installed := s.installed(ctx, o.Packages)
 	var present []string
@@ -211,6 +279,20 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 // Status reports the installed lines of every catalog entry.
 func (s *Software) Status(ctx context.Context) (helperapi.SoftwareStatus, error) {
 	st := helperapi.SoftwareStatus{Installed: map[string]map[string][]helperapi.InstalledPackage{}}
+	if s.Runtimes != nil {
+		for i := range s.Catalog.Software {
+			sw := &s.Catalog.Software[i]
+			var lines []string
+			for _, o := range sw.Offers(s.system()) {
+				if o.Method == catalog.MethodStandalone {
+					lines = append(lines, o.Line)
+				}
+			}
+			if found := s.Runtimes.status(sw.ID, lines); len(found) > 0 {
+				st.Installed[sw.ID] = found
+			}
+		}
+	}
 	if s.Manager != "apt" && s.Manager != "dnf" {
 		return st, nil
 	}

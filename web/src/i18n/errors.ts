@@ -3,6 +3,7 @@
 // Renders API errors in the current language. The server only sends an error
 // code and parameters; the message for code `a.b` lives at `errors.a.b`.
 import { isApiError, type ErrorParams } from '@/api/client'
+import { providerName } from '@/api/software'
 import { i18n } from './index'
 import { formatBytes, formatDuration } from './format'
 
@@ -83,6 +84,8 @@ function decorateFor(code: string, params: ErrorParams): NamedParams {
     const key = `software.reason.${params.reason}`
     named.reasonText = i18n.global.te(key) ? i18n.global.t(key) : params.reason
   }
+  // Providers of prebuilt runtimes are shown by name (not translated).
+  if (typeof params.provider === 'string') named.provider = providerName(params.provider)
   return named
 }
 

@@ -130,8 +130,8 @@ func TestSourceRules(t *testing.T) {
 		{"mysql", "debian-13", "8.4", "vendor", "mysql", "", true, "mysql-server"},
 		{"postgresql", "el-10", "18", "vendor", "pgdg", "", false, "postgresql18-server"},
 		{"postgresql", "debian-12", "14", "", "", ReasonEndOfLife, false, ""},
-		{"nodejs", "el-10", "24", "standalone", "", "", false, ""},
-		{"nodejs", "el-10", "26", "standalone", "", "", true, ""},
+		{"nodejs", "el-10", "24", "standalone", "", "", false, "libatomic"},
+		{"nodejs", "el-10", "26", "standalone", "", "", true, "libatomic"},
 		{"nodejs", "debian-13", "20", "", "", ReasonEndOfLife, false, ""},
 		{"valkey", "el-10", "8.0", "system", "", "", true, "valkey"},
 	}

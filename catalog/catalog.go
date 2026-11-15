@@ -76,7 +76,9 @@ type Source struct {
 	// Provider names the download provider (MethodStandalone).
 	Provider string `toml:"provider"`
 	// Packages are package name templates; {line} and {line_nodot} are
-	// replaced ("8.4", "84").
+	// replaced ("8.4", "84"). For a standalone source they are the system
+	// libraries the prebuilt build needs, installed from the system
+	// repositories first.
 	Packages []string `toml:"packages"`
 	// Stream is an EL module stream template such as "php:{line}".
 	Stream string `toml:"stream"`

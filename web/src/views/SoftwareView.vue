@@ -27,6 +27,7 @@ import {
   providerName,
   refreshPackageIndexes,
   removeSoftware,
+  runtimePaths,
   type Offer,
   type Repository,
   type SoftwareCatalog,
@@ -183,7 +184,11 @@ async function uninstall(entry: SoftwareEntry, offer: Offer) {
   const named = { name: entry.name, line: offer.line }
   const ok = await confirm({
     title: t('software.confirmRemove.title', named),
-    content: t('software.confirmRemove.content', named),
+    // Runtimes are plain files; packages leave configuration and data behind.
+    content: t(
+      offer.method === 'standalone' ? 'software.confirmRemove.runtimeContent' : 'software.confirmRemove.content',
+      named,
+    ),
     confirmText: t('software.action.remove'),
     danger: true,
   })
@@ -338,7 +343,14 @@ async function refresh() {
                         <dt>{{ t('software.advanced.method') }}</dt>
                         <dd>{{ methodText(offer) }}</dd>
                         <template v-if="offer.packages?.length">
-                          <dt>{{ t('software.advanced.packages') }}</dt>
+                          <!-- Prebuilt runtimes list the system libraries they need. -->
+                          <dt>
+                            {{
+                              offer.method === 'standalone'
+                                ? t('software.advanced.systemLibraries')
+                                : t('software.advanced.packages')
+                            }}
+                          </dt>
                           <dd class="mono" dir="ltr">{{ offer.packages.join(', ') }}</dd>
                         </template>
                         <template v-if="offer.stream">
@@ -352,6 +364,12 @@ async function refresh() {
                               {{ pkg.name }} {{ pkg.version }}
                             </div>
                           </dd>
+                        </template>
+                        <template v-if="runtimePaths(entry.id, offer)">
+                          <dt>{{ t('software.advanced.location') }}</dt>
+                          <dd class="mono" dir="ltr">{{ runtimePaths(entry.id, offer)?.line }}</dd>
+                          <dt>{{ t('software.advanced.buildDirectory') }}</dt>
+                          <dd class="mono" dir="ltr">{{ runtimePaths(entry.id, offer)?.build }}</dd>
                         </template>
                         <template v-if="offer.services?.length">
                           <dt>{{ t('software.advanced.services') }}</dt>
@@ -369,14 +387,6 @@ async function refresh() {
                         </template>
                       </dl>
                       <NText v-else depth="3" tag="p" class="offer__reason">{{ reasonText(offer) }}</NText>
-                      <NText
-                        v-if="isAvailable(offer) && !isManageable(offer)"
-                        depth="3"
-                        tag="p"
-                        class="offer__note"
-                      >
-                        {{ t('software.advanced.comingSoon') }}
-                      </NText>
                       <NText
                         v-if="isAvailable(offer) && repoOf(offer) && !repoOf(offer)?.official"
                         depth="3"

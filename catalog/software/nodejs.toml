@@ -14,9 +14,21 @@ lines = [
   { version = "20", lts = true, eol = "2026-04-30" },
 ]
 
+# The official builds need libatomic (Node.js 26 and later fail to start
+# without it on minimal systems, found 2026-11-14); it is installed from the
+# system repositories first.
 [[sources]]
 method = "standalone"
 provider = "nodejs"
-releases = ["*"]
+releases = ["debian"]
 lines = ["26", "24", "22", "20"]
 arch = ["amd64", "arm64"]
+packages = ["libatomic1"]
+
+[[sources]]
+method = "standalone"
+provider = "nodejs"
+releases = ["el"]
+lines = ["26", "24", "22", "20"]
+arch = ["amd64", "arm64"]
+packages = ["libatomic"]

@@ -93,7 +93,12 @@
     "stream_conflict": "该模块已启用了另一个版本。",
     "version_unknown": "无法确定要安装的确切版本。",
     "version_mismatch": "安装的版本与预期不一致。",
-    "service_failed": "安装后有服务无法启动。"
+    "service_failed": "安装后有服务无法启动。",
+    "metadata_failed": "无法读取官方发布信息。",
+    "download_failed": "下载失败。",
+    "checksum_mismatch": "下载的文件与官方校验值不一致，未安装任何内容。",
+    "archive_invalid": "下载的压缩包包含不安全或不受支持的条目，未安装任何内容。",
+    "runtime_broken": "解压后的运行环境无法启动或报告了不同的版本，未安装任何内容。"
   },
   "module": {
     "disabled": "此功能已在模块设置中关闭。",
@@ -106,7 +111,11 @@
       "stream_conflict": "模块 {module} 已启用版本 {enabled}，而此版本线需要 {wanted}。未做任何更改。",
       "version_unknown": "无法确定 {package} 在版本线 {line} 中的确切版本。",
       "version_mismatch": "{package} 安装的版本为 {got}，预期为 {want}。",
-      "service_failed": "安装后以下服务无法启动：{units}。"
+      "service_failed": "安装后以下服务无法启动：{units}。",
+      "metadata_failed": "无法读取 {provider} 的官方发布信息。",
+      "download_failed": "从 {url} 下载失败。",
+      "checksum_mismatch": "从 {url} 下载的文件与官方校验值不一致（预期 {want}，实际 {got}），未安装任何内容。",
+      "runtime_broken": "解压后的运行环境无法启动，或没有报告版本 {version}，未安装任何内容。"
     }
   }
 }

@@ -107,9 +107,23 @@ export async function removeSoftware(id: string, line: string): Promise<Job> {
   return (await api.post<{ job: Job }>(`/software/${encodeURIComponent(id)}/remove`, { line })).job
 }
 
-/** Lines the panel can install or remove itself (prebuilt runtimes come later). */
+/** Lines the panel can install and remove: packages and prebuilt runtimes. */
 export function isManageable(offer: Offer): boolean {
-  return offer.method === 'system' || offer.method === 'vendor'
+  return offer.method === 'system' || offer.method === 'vendor' || offer.method === 'standalone'
+}
+
+/** Prebuilt runtimes are unpacked here, one directory per exact version. */
+const RUNTIME_ROOT = '/opt/cairn/runtimes'
+
+/**
+ * Paths of an installed prebuilt runtime: `line` always points to the
+ * installed build of the line (projects use it), `build` is the exact
+ * version's directory. Null for anything that is not an installed runtime.
+ */
+export function runtimePaths(id: string, offer: Offer): { line: string; build: string } | null {
+  const version = offer.installedPackages?.[0]?.version
+  if (offer.method !== 'standalone' || !offer.installed || !version) return null
+  return { line: `${RUNTIME_ROOT}/${id}/${offer.line}`, build: `${RUNTIME_ROOT}/${id}/${version}` }
 }
 
 /** True when the line can be installed on this system. */

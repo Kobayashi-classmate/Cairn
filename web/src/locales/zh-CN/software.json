@@ -21,21 +21,22 @@
   "reason": {
     "end_of_life": "上游已停止支持，后续版本将以容器方式提供。",
     "not_built": "没有适用于此系统的软件包。",
-    "unknown": "此系统上不可用。",
-    "standalone": "暂不支持安装预编译版本，将在后续版本中提供。"
+    "unknown": "此系统上不可用。"
   },
   "advanced": {
     "title": "高级信息",
     "notAvailable": "不可用",
     "method": "安装方式",
     "packages": "软件包",
+    "systemLibraries": "系统依赖库",
     "stream": "模块流",
     "eol": "上游支持结束",
     "eolEnded": "{date}（已结束）",
     "unofficialRepo": "{repo} 不是 {software} 的官方软件源，已经过审核并被批准用于此用途。",
     "installedPackages": "已安装的软件包",
     "services": "服务",
-    "comingSoon": "预编译版本的安装功能即将推出。"
+    "location": "安装位置",
+    "buildDirectory": "构建目录"
   },
   "installed": "已安装",
   "statusUnavailable": "面板无法确定已安装的软件，因此所有版本都未标记为已安装。",
@@ -56,6 +57,7 @@
   },
   "confirmRemove": {
     "title": "卸载 {name} {line}？",
-    "content": "将移除 {name} {line} 的软件包，配置文件和数据会保留。"
+    "content": "将移除 {name} {line} 的软件包，配置文件和数据会保留。",
+    "runtimeContent": "将删除 {name} {line} 的文件。运行环境没有需要保留的配置或数据；使用它的项目在重新安装之前将无法运行。"
   }
 }

@@ -12,20 +12,24 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 ls dist/cairn_*_amd64.deb dist/cairn-*.x86_64.rpm >/dev/null
 
-# image=space-separated software@line list; the last entry is removed again.
-declare -A cases=(
-	[debian:trixie]="nginx@1.26 php@8.4 php@8.3 mysql@8.4 postgresql@18 php@8.3"
-	[debian:bookworm]="php@8.5 postgresql@17 php@8.5"
-	[ubuntu:22.04]="php@8.3 php@8.3"
-	[ubuntu:24.04]="php@8.2 mysql@8.4 redis@7.0 php@8.2"
-	[ubuntu:26.04]="nginx@1.28 php@8.5 postgresql@16 valkey@9.0 valkey@9.0"
-	[rockylinux:9]="nginx@1.26 php@8.2 postgresql@17 mariadb@11.8 php@8.2"
-	[almalinux:10]="php@8.4 valkey@8.0 mysql@8.4 php@8.4"
+# image|software@line list; the last entry is removed again. The runtime
+# rows prove the prebuilt builds start on each glibc generation.
+runs=(
+	"debian:trixie|nginx@1.26 php@8.4 php@8.3 mysql@8.4 postgresql@18 php@8.3"
+	"debian:trixie|nodejs@24 python@3.14 go@1.27 java@21 dotnet@10 nodejs@24"
+	"debian:bookworm|php@8.5 postgresql@17 php@8.5"
+	"ubuntu:22.04|php@8.3 nodejs@26 python@3.12 php@8.3"
+	"ubuntu:24.04|php@8.2 mysql@8.4 redis@7.0 php@8.2"
+	"ubuntu:26.04|nginx@1.28 php@8.5 postgresql@16 valkey@9.0 valkey@9.0"
+	"rockylinux:9|nginx@1.26 php@8.2 postgresql@17 mariadb@11.8 nodejs@22 python@3.13 php@8.2"
+	"almalinux:10|php@8.4 valkey@8.0 mysql@8.4 php@8.4"
 )
 targets=${SOFTWARE_TARGETS:-"debian:trixie debian:bookworm ubuntu:22.04 ubuntu:24.04 ubuntu:26.04 rockylinux:9 almalinux:10"}
 failed=()
-for image in $targets; do
-	if ! docker run --rm -v "$PWD/dist:/pkgs:ro" -v "$PWD/test/software:/t:ro" -e CASES="${cases[$image]}" \
+for run in "${runs[@]}"; do
+	image=${run%%|*}
+	case " $targets " in *" $image "*) ;; *) continue ;; esac
+	if ! docker run --rm -v "$PWD/dist:/pkgs:ro" -v "$PWD/test/software:/t:ro" -e CASES="${run#*|}" \
 		"$image" bash /t/install.sh; then
 		failed+=("$image")
 	fi
