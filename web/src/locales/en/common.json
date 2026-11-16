@@ -13,7 +13,8 @@
     "software": "Software",
     "jobs": "Tasks",
     "sites": "Sites",
-    "certs": "Certificates"
+    "certs": "Certificates",
+    "databases": "Databases"
   },
   "action": {
     "signOut": "Sign out",
@@ -104,7 +105,25 @@
     "protocol": "Protocol",
     "upstreams": "Upstreams",
     "balance": "Load balancing",
-    "cursor": "Position"
+    "cursor": "Position",
+    "dbUser": "User",
+    "hosts": "Allowed hosts",
+    "grants": "Access",
+    "maxMemoryMb": "Memory limit (MB)",
+    "maxMemoryPolicy": "Eviction policy",
+    "persistence": "Persistence",
+    "user": "User",
+    "key": "Key",
+    "keys": "Keys",
+    "file": "File",
+    "engine": "Database server",
+    "count": "Count",
+    "action": "Action",
+    "database": "Database",
+    "db": "Database number",
+    "pattern": "Pattern",
+    "seconds": "Seconds",
+    "owner": "Owner"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -155,6 +174,10 @@
     "certs": {
       "read": "View certificates",
       "manage": "Manage certificates"
+    },
+    "databases": {
+      "read": "View databases",
+      "manage": "Manage databases"
     }
   },
   "copy": {

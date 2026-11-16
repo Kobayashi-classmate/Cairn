@@ -70,7 +70,15 @@
       "host_port": "Check {field}: each entry must be host:port.",
       "app_fields": "An app cannot have a web root, PHP, rewrite rules, index files or a proxy URL.",
       "out_of_range": "{field} is out of the allowed range.",
-      "cursor": "{field} is not valid."
+      "cursor": "{field} is not valid.",
+      "db_name": "{field} is not a valid database name.",
+      "db_user": "{field} is not a valid user name.",
+      "db_password": "{field} must be 8 to 128 characters from letters, digits and !#%*+,.:=?{'@'}^_~-",
+      "db_host": "Check {field}: each entry must be localhost, % (anywhere), an IPv4 address or an IPv4 CIDR range.",
+      "grant": "{field} contains an invalid entry.",
+      "dump_name": "{field} is not a valid dump file name.",
+      "dump_format": "This kind of dump file cannot be uploaded for this database server.",
+      "key": "{field} is not a valid key."
     }
   },
   "locale": {
@@ -180,6 +188,25 @@
     },
     "stream": {
       "port_taken": "Port {port} is already used by {owner}."
+    },
+    "db": {
+      "engine_missing": "The database server {engine} is not installed.",
+      "not_running": "The database server {engine} is not running.",
+      "exists": "A database named {name} already exists.",
+      "not_found": "The database {name} does not exist.",
+      "user_not_found": "The database user {name} does not exist.",
+      "user_owns_database": "{name} still owns databases: {databases}. Delete them or give them another owner first.",
+      "reserved_name": "The name {name} is reserved by the database server.",
+      "no_cluster": "{engine} has no cluster yet.",
+      "dump_not_found": "The dump file {file} does not exist.",
+      "password_required": "{name} needs a password.",
+      "user_exists": "A user named {name} already exists.",
+      "restore_needs_user": "{database} cannot be restored: no user with full access to it whose password the panel knows.",
+      "dump_exists": "A dump named {file} already exists.",
+      "upload_too_large": "The file is larger than {size}."
+    },
+    "redis": {
+      "key_not_found": "The key {key} does not exist (it may have expired)."
     }
   },
   "software": {
@@ -233,5 +260,32 @@
     "site": "site {name}",
     "stream": "four-layer proxy {name}",
     "panel": "the panel"
+  },
+  "db": {
+    "unsupported": "Databases are not available on this system yet.",
+    "engine_missing": "This database server is not installed.",
+    "not_running": "The database server is not running.",
+    "exists": "A database with this name already exists.",
+    "not_found": "The database does not exist.",
+    "user_not_found": "The database user does not exist.",
+    "user_owns_database": "The user still owns databases. Delete them or give them another owner first.",
+    "query_failed": "The database server refused the request.",
+    "reserved_name": "This name is reserved by the database server.",
+    "no_cluster": "This PostgreSQL version has no cluster yet.",
+    "dump_not_found": "The dump file does not exist.",
+    "access_denied": "The panel could not sign in to the database server as its administrator.",
+    "systemd_required": "Restarting the database server needs systemd.",
+    "password_required": "A new user, or a new host for a user, needs a password.",
+    "restart_failed": "The database server did not restart.",
+    "user_exists": "A user with this name already exists.",
+    "restore_needs_user": "The dump cannot be restored: no user with full access to the database whose password the panel knows.",
+    "password_unknown": "The panel does not know this password.",
+    "dump_exists": "A dump with this file name already exists.",
+    "upload_too_large": "The file is too large."
+  },
+  "redis": {
+    "password_required": "Set a password before allowing remote access to Redis.",
+    "command_failed": "Redis refused the command.",
+    "key_not_found": "The key does not exist (it may have expired)."
   }
 }

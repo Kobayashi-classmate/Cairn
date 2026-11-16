@@ -1,0 +1,138 @@
+{
+  "title": "Databases",
+  "statusUnavailable": "The panel could not read the state of the database servers.",
+  "unsupported": {
+    "platform": "Databases are available on Debian and Ubuntu only for now."
+  },
+  "empty": {
+    "title": "No database server installed",
+    "text": "Install MariaDB or MySQL, PostgreSQL, or Redis or Valkey on the software page; they then appear here.",
+    "install": "Go to the software page"
+  },
+  "running": "Running",
+  "stopped": "Stopped",
+  "version": "Version {version}",
+  "port": "Port {port}",
+  "redisStats": "{keys} keys, {memory} used",
+  "size": "Size",
+  "owner": "Owner",
+  "missing": "Missing",
+  "unmanaged": "Not created by the panel",
+  "anyHost": "Anywhere (%)",
+  "noCluster": "This PostgreSQL version was installed without its main cluster, so it has no databases yet.",
+  "createCluster": "Create cluster",
+  "tabs": {
+    "databases": "Databases",
+    "users": "Users",
+    "dumps": "Dumps",
+    "settings": "Settings",
+    "keys": "Keys",
+    "snapshots": "Snapshots"
+  },
+  "remote": {
+    "label": "Remote access",
+    "enableTitle": "Allow remote access?",
+    "enableRestart": "The server will listen on every address instead of only locally. This restarts the service (it needs systemd), so open connections are dropped.",
+    "enablePg": "PostgreSQL will listen on every address. Users still need hosts that allow their remote address.",
+    "disableTitle": "Allow local connections only?",
+    "disable": "The server will listen locally only; remote clients can no longer connect.",
+    "firewallNote": "The firewall comes in a later version: open the port there separately if clients need it."
+  },
+  "hints": {
+    "mysqlName": "Letters, digits and _, up to 64 characters.",
+    "mysqlUser": "Letters, digits and _, up to 32 characters.",
+    "pgName": "Lower-case letters, digits and _, starting with a letter or _, up to 63 characters.",
+    "password": "8 to 128 characters: letters, digits and !#%*+,.:=?{'@'}^_~-",
+    "generate": "Leave empty to generate one",
+    "keep": "Leave empty to keep the current one",
+    "hosts": "Where the user may connect from: localhost, % (anywhere), an IPv4 address or a CIDR range. Leave empty for local only.",
+    "pgHosts": "Local connections are always allowed; hosts add remote ones (an IPv4 address or a CIDR range)."
+  },
+  "db": {
+    "createTitle": "Create database",
+    "create": "Create",
+    "withUser": "Also create a user for it",
+    "userPlaceholder": "same as the database",
+    "empty": "No databases yet.",
+    "dropTitle": "Delete database {name}?",
+    "dropContent": "The database and all its data are deleted. This cannot be undone.",
+    "dropOwner": "Also delete its owner {user}"
+  },
+  "user": {
+    "createTitle": "Add user",
+    "editTitle": "Edit user {name}",
+    "empty": "No users yet.",
+    "dropTitle": "Delete database user {name}?",
+    "dropContent": "Programs that sign in as this user will no longer be able to connect."
+  },
+  "grant": {
+    "all": "Full access",
+    "readonly": "Read only",
+    "add": "Add access",
+    "tag": "{database}: {level}"
+  },
+  "password": {
+    "show": "Show password",
+    "title": "Password of {name}",
+    "hint": "Copy it now; it is not kept on this page after you close the dialog."
+  },
+  "dumps": {
+    "intro": "Dumps are kept on this server. Download them to keep a copy elsewhere.",
+    "redisIntro": "Snapshots are copies of the Redis data file (RDB), kept on this server.",
+    "file": "File",
+    "create": "Dump",
+    "snapshot": "Create snapshot",
+    "upload": "Upload dump",
+    "empty": "No dumps yet.",
+    "deleteTitle": "Delete {file}?",
+    "deleteContent": "The dump file is deleted from this server.",
+    "deleted": "{file} was deleted.",
+    "uploaded": "{file} was uploaded.",
+    "badName": "Only .sql and .sql.gz files (and .dump for PostgreSQL) can be uploaded, with a name of letters, digits, dots, dashes and underscores."
+  },
+  "restore": {
+    "title": "Restore a dump",
+    "submit": "Restore",
+    "file": "Dump file",
+    "database": "Database",
+    "user": "Restore as",
+    "owner": "The owner of the database",
+    "userHint": "Restoring runs as the owner, or as a user with full access to the database whose password the panel knows.",
+    "intro": "The dump is loaded into an existing database.",
+    "warning": "Objects in the dump replace the ones in the database with the same names.",
+    "needsUser": "Create the database through the panel (it then has a known owner), or give a user whose password the panel knows full access to it."
+  },
+  "redis": {
+    "passwordOn": "Password set",
+    "passwordOff": "No password",
+    "passwordTitle": "Redis password",
+    "generate": "Generate a new password",
+    "setOwn": "Set my own",
+    "removeRemote": "Remote access is on; Redis refuses it without a password.",
+    "maxMemoryHint": "0 means no limit. When the limit is reached, the eviction policy decides what happens.",
+    "persistence": {
+      "rdb": "Snapshots (RDB)",
+      "aof": "Append-only file (AOF)",
+      "both": "Snapshots and append-only file",
+      "none": "None (data is lost on restart)"
+    },
+    "persistenceHint": "Without persistence, the data is lost when Redis restarts."
+  },
+  "keys": {
+    "intro": "Choose a database number and a pattern, then scan.",
+    "pattern": "Pattern, for example user:*",
+    "scan": "Scan",
+    "key": "Key",
+    "ttl": "Expires in",
+    "noExpiry": "No expiry",
+    "empty": "No keys match.",
+    "length": "{count} items",
+    "truncated": "Only the first part of the value is shown.",
+    "setTtl": "Set expiry",
+    "ttlHint": "Seconds; 0 removes the expiry.",
+    "deleteSelected": "Delete selected ({count})",
+    "deleteTitle": "Delete {count} key? | Delete {count} keys?",
+    "deleteContent": "The keys and their values are deleted.",
+    "deleted": "Deleted {count} key. | Deleted {count} keys."
+  }
+}

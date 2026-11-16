@@ -22,7 +22,8 @@ import { roleLabel } from '@/auth/permissions'
 import { localeNativeName } from '@/i18n'
 import { errorMessage, errorText } from '@/i18n/errors'
 import { formatDateTime } from '@/i18n/format'
-import { itemNames, jobKindLabel } from '@/jobs/labels'
+import { engineIdLabel } from '@/databases/labels'
+import { itemNames, jobKindLabel, labelVariant } from '@/jobs/labels'
 import { siteTypeLabel } from '@/sites/labels'
 
 const PAGE_SIZE = 50
@@ -48,6 +49,8 @@ const categories = [
   'software',
   'site',
   'stream',
+  'db',
+  'redis',
   'cert',
   'dns',
   'job',
@@ -122,6 +125,7 @@ function displayParams(entry: AuditEntry): Record<string, string | number | bool
   if (entry.action.startsWith('job.')) {
     params.kind = typeof params.kind === 'string' ? jobKindLabel(params.kind) : String(params.id ?? '')
   }
+  if (/^(db|redis)\./.test(entry.action) && typeof params.engine === 'string') params.engine = engineIdLabel(params.engine)
   if (typeof params.module === 'string') {
     const key = `modules.name.${params.module}`
     params.module = te(key) ? t(key) : params.module
@@ -158,10 +162,18 @@ function displayParams(entry: AuditEntry): Record<string, string | number | bool
   return params
 }
 
+/** The audit.variant key that describes an entry better than its plain text, if any. */
+function variantKey(entry: AuditEntry): string | null {
+  const variant = labelVariant(entry.action, entry.params)
+  const key = variant ? `audit.variant.${entry.action}.${variant}` : ''
+  return key && te(key) ? key : null
+}
+
 /** Translated description of an action; unknown actions show their code. */
 function describe(entry: AuditEntry): string {
-  const key = `audit.action.${entry.action}`
-  if (!te(key)) return entry.action
+  const plain = `audit.action.${entry.action}`
+  if (!te(plain)) return entry.action
+  const key = variantKey(entry) ?? plain
   const params = displayParams(entry)
   return typeof params.count === 'number' ? t(key, params, params.count) : t(key, params)
 }
@@ -183,6 +195,10 @@ function details(entry: AuditEntry): string[] {
       list.push(t('audit.detail.channel', { channel: te(key) ? t(key) : entry.params.channel }))
     }
     return list
+  }
+  // Service actions the descriptions do not name yet are shown as they are.
+  if (entry.action === 'db.service' && typeof entry.params.action === 'string' && !variantKey(entry)) {
+    return [entry.params.action]
   }
   if (entry.action.startsWith('stream.')) {
     const { protocol, port } = entry.params

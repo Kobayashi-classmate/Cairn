@@ -70,7 +70,15 @@
       "host_port": "请检查{field}：每一项都必须是“主机:端口”的形式。",
       "app_fields": "应用不能设置网站根目录、PHP、伪静态规则、默认首页或代理地址。",
       "out_of_range": "{field}超出了允许的范围。",
-      "cursor": "{field}无效。"
+      "cursor": "{field}无效。",
+      "db_name": "{field}不是有效的数据库名称。",
+      "db_user": "{field}不是有效的用户名。",
+      "db_password": "{field}须为 8 到 128 个字符，可使用字母、数字和 !#%*+,.:=?{'@'}^_~-",
+      "db_host": "请检查{field}：每一项都必须是 localhost、%（任意主机）、IPv4 地址或 IPv4 CIDR 网段。",
+      "grant": "{field}包含无效的条目。",
+      "dump_name": "{field}不是有效的备份文件名。",
+      "dump_format": "该数据库服务不能上传这种备份文件。",
+      "key": "{field}不是有效的键。"
     }
   },
   "locale": {
@@ -180,6 +188,25 @@
     },
     "stream": {
       "port_taken": "端口 {port} 已被{owner}占用。"
+    },
+    "db": {
+      "engine_missing": "数据库服务 {engine} 未安装。",
+      "not_running": "数据库服务 {engine} 未运行。",
+      "exists": "已存在名为 {name} 的数据库。",
+      "not_found": "数据库 {name} 不存在。",
+      "user_not_found": "数据库用户 {name} 不存在。",
+      "user_owns_database": "{name} 仍拥有以下数据库：{databases}。请先删除它们或更换其所有者。",
+      "reserved_name": "名称 {name} 被数据库服务保留。",
+      "no_cluster": "{engine} 还没有集群。",
+      "dump_not_found": "备份文件 {file} 不存在。",
+      "password_required": "{name} 需要设置密码。",
+      "user_exists": "已存在名为 {name} 的用户。",
+      "restore_needs_user": "无法恢复 {database}：没有对它拥有完全权限、且面板知道其密码的用户。",
+      "dump_exists": "已存在名为 {file} 的备份文件。",
+      "upload_too_large": "文件大于 {size}。"
+    },
+    "redis": {
+      "key_not_found": "键 {key} 不存在（可能已过期）。"
     }
   },
   "software": {
@@ -233,5 +260,32 @@
     "site": "网站 {name}",
     "stream": "四层代理 {name}",
     "panel": "面板"
+  },
+  "db": {
+    "unsupported": "此系统暂不支持数据库功能。",
+    "engine_missing": "该数据库服务未安装。",
+    "not_running": "数据库服务未运行。",
+    "exists": "已存在同名的数据库。",
+    "not_found": "该数据库不存在。",
+    "user_not_found": "该数据库用户不存在。",
+    "user_owns_database": "该用户仍拥有数据库，请先删除这些数据库或更换其所有者。",
+    "query_failed": "数据库服务拒绝了请求。",
+    "reserved_name": "该名称被数据库服务保留。",
+    "no_cluster": "该 PostgreSQL 版本还没有集群。",
+    "dump_not_found": "该备份文件不存在。",
+    "access_denied": "面板无法以管理员身份登录数据库服务。",
+    "systemd_required": "重启数据库服务需要 systemd。",
+    "password_required": "新用户或用户的新主机需要设置密码。",
+    "restart_failed": "数据库服务未能重启。",
+    "user_exists": "已存在同名的用户。",
+    "restore_needs_user": "无法恢复备份：没有对该数据库拥有完全权限、且面板知道其密码的用户。",
+    "password_unknown": "面板不知道该密码。",
+    "dump_exists": "已存在同名的备份文件。",
+    "upload_too_large": "文件过大。"
+  },
+  "redis": {
+    "password_required": "允许远程访问 Redis 之前，请先设置密码。",
+    "command_failed": "Redis 拒绝了该命令。",
+    "key_not_found": "该键不存在（可能已过期）。"
   }
 }

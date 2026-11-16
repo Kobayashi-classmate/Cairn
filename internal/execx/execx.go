@@ -64,6 +64,10 @@ type Cmd struct {
 	// interleaved (live logs of long operations). Its errors are ignored and
 	// it does not count against MaxOutput.
 	Output io.Writer
+	// Stdout, when set, receives standard output instead of the Result
+	// (large outputs such as database dumps): it is neither captured nor
+	// capped, and Output does not see it. A write error stops the command.
+	Stdout io.Writer
 }
 
 // Result is the outcome of a finished command.
@@ -129,6 +133,9 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 		live := &lockedWriter{w: c.Output}
 		cmd.Stdout = io.MultiWriter(stdout, live)
 		cmd.Stderr = io.MultiWriter(stderr, live)
+	}
+	if c.Stdout != nil {
+		cmd.Stdout = c.Stdout
 	}
 	// Run in its own process group so a timeout kills every descendant.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

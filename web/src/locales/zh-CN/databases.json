@@ -1,0 +1,138 @@
+{
+  "title": "数据库",
+  "statusUnavailable": "面板无法读取数据库服务的状态。",
+  "unsupported": {
+    "platform": "数据库功能目前仅支持 Debian 和 Ubuntu。"
+  },
+  "empty": {
+    "title": "尚未安装数据库服务",
+    "text": "请在软件页面安装 MariaDB 或 MySQL、PostgreSQL，或 Redis 或 Valkey，安装后会显示在这里。",
+    "install": "前往软件页面"
+  },
+  "running": "运行中",
+  "stopped": "已停止",
+  "version": "版本 {version}",
+  "port": "端口 {port}",
+  "redisStats": "{keys} 个键，已用 {memory}",
+  "size": "大小",
+  "owner": "所有者",
+  "missing": "已丢失",
+  "unmanaged": "非面板创建",
+  "anyHost": "任意主机（%）",
+  "noCluster": "该 PostgreSQL 版本安装时没有创建主集群，因此还没有数据库。",
+  "createCluster": "创建集群",
+  "tabs": {
+    "databases": "数据库",
+    "users": "用户",
+    "dumps": "备份",
+    "settings": "设置",
+    "keys": "键",
+    "snapshots": "快照"
+  },
+  "remote": {
+    "label": "远程访问",
+    "enableTitle": "允许远程访问？",
+    "enableRestart": "服务将监听所有地址，而不只是本机。这会重启服务（需要 systemd），现有连接会断开。",
+    "enablePg": "PostgreSQL 将监听所有地址。用户仍需配置允许其远程地址的主机。",
+    "disableTitle": "只允许本机连接？",
+    "disable": "服务将只监听本机，远程客户端将无法再连接。",
+    "firewallNote": "防火墙功能将在后续版本提供：如果客户端需要访问，请另行开放该端口。"
+  },
+  "hints": {
+    "mysqlName": "字母、数字和 _，最多 64 个字符。",
+    "mysqlUser": "字母、数字和 _，最多 32 个字符。",
+    "pgName": "小写字母、数字和 _，以字母或 _ 开头，最多 63 个字符。",
+    "password": "8 到 128 个字符：字母、数字和 !#%*+,.:=?{'@'}^_~-",
+    "generate": "留空则自动生成",
+    "keep": "留空则保持不变",
+    "hosts": "允许用户连接的来源：localhost、%（任意主机）、IPv4 地址或 CIDR 网段。留空表示仅限本机。",
+    "pgHosts": "始终允许本机连接；这里填写的主机用于增加远程来源（IPv4 地址或 CIDR 网段）。"
+  },
+  "db": {
+    "createTitle": "创建数据库",
+    "create": "创建",
+    "withUser": "同时为它创建用户",
+    "userPlaceholder": "与数据库同名",
+    "empty": "还没有数据库。",
+    "dropTitle": "删除数据库 {name}？",
+    "dropContent": "将删除该数据库及其全部数据，此操作无法撤销。",
+    "dropOwner": "同时删除其所有者 {user}"
+  },
+  "user": {
+    "createTitle": "添加用户",
+    "editTitle": "编辑用户 {name}",
+    "empty": "还没有用户。",
+    "dropTitle": "删除数据库用户 {name}？",
+    "dropContent": "以该用户登录的程序将无法再连接。"
+  },
+  "grant": {
+    "all": "完全权限",
+    "readonly": "只读",
+    "add": "添加权限",
+    "tag": "{database}：{level}"
+  },
+  "password": {
+    "show": "查看密码",
+    "title": "{name} 的密码",
+    "hint": "请立即复制；关闭对话框后本页面不会保留该密码。"
+  },
+  "dumps": {
+    "intro": "备份保存在这台服务器上。请下载以便在其他地方另存一份。",
+    "redisIntro": "快照是 Redis 数据文件（RDB）的副本，保存在这台服务器上。",
+    "file": "文件",
+    "create": "备份",
+    "snapshot": "创建快照",
+    "upload": "上传备份",
+    "empty": "还没有备份。",
+    "deleteTitle": "删除 {file}？",
+    "deleteContent": "将从这台服务器上删除该备份文件。",
+    "deleted": "已删除 {file}。",
+    "uploaded": "已上传 {file}。",
+    "badName": "只能上传 .sql 和 .sql.gz 文件（PostgreSQL 还支持 .dump），文件名只能包含字母、数字、点、连字符和下划线。"
+  },
+  "restore": {
+    "title": "恢复备份",
+    "submit": "恢复",
+    "file": "备份文件",
+    "database": "数据库",
+    "user": "恢复身份",
+    "owner": "数据库的所有者",
+    "userHint": "恢复以所有者身份执行，或以对该数据库拥有完全权限、且面板知道其密码的用户身份执行。",
+    "intro": "将备份导入到已有的数据库中。",
+    "warning": "备份中的对象会替换数据库中的同名对象。",
+    "needsUser": "请通过面板创建该数据库（这样会有已知的所有者），或为一个面板知道其密码的用户授予该数据库的完全权限。"
+  },
+  "redis": {
+    "passwordOn": "已设置密码",
+    "passwordOff": "未设置密码",
+    "passwordTitle": "Redis 密码",
+    "generate": "生成新密码",
+    "setOwn": "自己设置",
+    "removeRemote": "当前已开启远程访问；没有密码时 Redis 会拒绝远程访问。",
+    "maxMemoryHint": "0 表示不限制。达到上限后，由淘汰策略决定如何处理。",
+    "persistence": {
+      "rdb": "快照（RDB）",
+      "aof": "追加日志（AOF）",
+      "both": "快照和追加日志",
+      "none": "不持久化（重启后数据丢失）"
+    },
+    "persistenceHint": "不开启持久化时，Redis 重启后数据会丢失。"
+  },
+  "keys": {
+    "intro": "选择数据库编号和匹配模式后点击扫描。",
+    "pattern": "匹配模式，例如 user:*",
+    "scan": "扫描",
+    "key": "键",
+    "ttl": "过期时间",
+    "noExpiry": "永不过期",
+    "empty": "没有匹配的键。",
+    "length": "{count} 项",
+    "truncated": "只显示了值的前一部分。",
+    "setTtl": "设置过期时间",
+    "ttlHint": "单位为秒；0 表示取消过期时间。",
+    "deleteSelected": "删除所选（{count}）",
+    "deleteTitle": "删除 {count} 个键？",
+    "deleteContent": "将删除这些键及其值。",
+    "deleted": "已删除 {count} 个键。"
+  }
+}

@@ -13,7 +13,8 @@
     "software": "软件",
     "jobs": "任务",
     "sites": "网站",
-    "certs": "证书"
+    "certs": "证书",
+    "databases": "数据库"
   },
   "action": {
     "signOut": "退出登录",
@@ -104,7 +105,25 @@
     "protocol": "协议",
     "upstreams": "上游",
     "balance": "负载均衡",
-    "cursor": "位置"
+    "cursor": "位置",
+    "dbUser": "用户",
+    "hosts": "允许的主机",
+    "grants": "访问权限",
+    "maxMemoryMb": "内存上限（MB）",
+    "maxMemoryPolicy": "淘汰策略",
+    "persistence": "持久化",
+    "user": "用户",
+    "key": "键",
+    "keys": "键",
+    "file": "文件",
+    "engine": "数据库服务",
+    "count": "数量",
+    "action": "操作",
+    "database": "数据库",
+    "db": "数据库编号",
+    "pattern": "匹配模式",
+    "seconds": "秒数",
+    "owner": "所有者"
   },
   "boot": {
     "failed": "无法加载面板"
@@ -155,6 +174,10 @@
     "certs": {
       "read": "查看证书",
       "manage": "管理证书"
+    },
+    "databases": {
+      "read": "查看数据库",
+      "manage": "管理数据库"
     }
   },
   "copy": {

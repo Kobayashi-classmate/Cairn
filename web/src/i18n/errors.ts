@@ -104,6 +104,7 @@ function decorateFor(code: string, params: ErrorParams): NamedParams {
     named.reasonText = i18n.global.te(key) ? i18n.global.t(key) : params.reason
   }
   if (code === 'app.port_taken' || code === 'stream.port_taken') named.owner = portOwner(params)
+  if (code === 'db.upload_too_large' && typeof params.max === 'number') named.size = formatBytes(params.max)
   // Providers of prebuilt runtimes are shown by name (not translated).
   if (typeof params.provider === 'string') named.provider = providerName(params.provider)
   return named

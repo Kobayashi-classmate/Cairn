@@ -33,6 +33,8 @@ import { useNavStore } from '@/stores/nav'
 const ICONS: Record<string, Component> = {
   apps: AppsOutline,
   cube: CubeOutline,
+  // No database icon in this set; stacked disks read the same.
+  database: ServerOutline,
   'document-text': DocumentTextOutline,
   folder: FolderOutline,
   globe: GlobeOutline,

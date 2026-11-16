@@ -180,6 +180,35 @@ follow DELETE "/api/v1/sites/app-test?deleteFiles=true"
 [ "$(systemctl show -p LoadState --value cairn-app-app-test.service)" = not-found ] || fail "app unit left"
 step "app with systemd: Node.js $node as cw-app-test-run, code read-only, data/ writable, variables quoted, restarted after kill -9, log read; stream tcp 9002 in front; deleted"
 
+# Databases with systemd: the packages start their services; remote access
+# changes the listening address and restarts them through systemctl.
+login
+pg=$(recommended postgresql)
+follow POST /api/v1/software/install "{\"items\":[{\"software\":\"mariadb\",\"line\":\"$(recommended mariadb)\"},{\"software\":\"postgresql\",\"line\":\"$pg\"},{\"software\":\"redis\",\"line\":\"$(recommended redis)\"}]}"
+systemctl is-active --quiet mariadb.service && systemctl is-active --quiet redis-server.service || fail "database services not running"
+dbjson() { api "$base/api/v1/databases" | python3 -c "import json,sys; d=json.load(sys.stdin); e={x['id']:x for x in d['engines']}; print($1)"; }
+[ "$(dbjson "e['mysql']['running'], e['postgresql-$pg']['running'], e['redis']['running']")" = "True True True" ] || fail "engines: $(api "$base/api/v1/databases")"
+follow POST /api/v1/databases/mysql/dbs '{"name":"vmdb"}'
+follow POST /api/v1/databases/mysql/users '{"name":"far","password":"far-password-1","hosts":["%"],"grants":[{"database":"vmdb","level":"all"}]}'
+addr=$(hostname -I | awk '{print $1}')
+follow PUT /api/v1/databases/mysql/remote '{"enabled":true}'
+ss -ltn | grep_q '0.0.0.0:3306' || fail "MariaDB not listening on every address"
+mariadb -ufar -pfar-password-1 -h "$addr" vmdb -e "SELECT 1" >/dev/null || fail "remote login to MariaDB"
+follow PUT /api/v1/databases/mysql/remote '{"enabled":false}'
+ss -ltn | grep_q '127.0.0.1:3306' || fail "MariaDB not back on 127.0.0.1"
+follow POST /api/v1/databases/mysql/service '{"action":"restart"}'
+systemctl is-active --quiet mariadb.service || fail "MariaDB not running after restart"
+follow PUT "/api/v1/databases/postgresql-$pg/remote" '{"enabled":true}'
+ss -ltn | grep_q '0.0.0.0:5432' || fail "PostgreSQL not listening on every address"
+systemctl is-active --quiet "postgresql@$pg-main.service" || fail "PostgreSQL cluster unit"
+follow PUT "/api/v1/databases/postgresql-$pg/remote" '{"enabled":false}'
+follow PUT /api/v1/databases/redis/config '{"generatePassword":true}'
+follow PUT /api/v1/databases/redis/remote '{"enabled":true}'
+ss -ltn | grep_q '0.0.0.0:6379' || fail "Redis not listening on every address"
+follow PUT /api/v1/databases/redis/remote '{"enabled":false}'
+follow DELETE "/api/v1/databases/mysql/dbs/vmdb?dropOwner=true"
+step "databases with systemd: MariaDB remote on and off (restarted by systemctl, remote login works), service restart; PostgreSQL $pg remote through its cluster unit; Redis password and remote access"
+
 # Online update in a transient unit: the package restarts both services.
 api -X POST "$base/api/v1/updates/check" | grep_q '"status":"available"' || fail "no update offered"
 helper_pid=$(systemctl show -p MainPID --value cairn-helper.service)

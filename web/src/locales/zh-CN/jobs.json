@@ -46,6 +46,21 @@
       "start": "启动四层代理 {stream}",
       "stop": "停用四层代理 {stream}",
       "delete": "删除四层代理 {stream}"
+    },
+    "db": {
+      "create": "创建数据库 {database}",
+      "drop": "删除数据库 {database}",
+      "user_create": "创建数据库用户 {user}",
+      "user_update": "修改数据库用户 {user}",
+      "user_drop": "删除数据库用户 {user}",
+      "remote": "修改远程访问（{engine}）",
+      "service": "控制数据库服务（{engine}）",
+      "cluster": "创建 {engine} 主集群",
+      "dump": "创建备份（{engine}）",
+      "restore": "从 {file} 恢复 {database}"
+    },
+    "redis": {
+      "config": "修改 Redis 设置"
     }
   },
   "detail": {
@@ -85,6 +100,34 @@
       "start": "启动四层代理",
       "stop": "停用四层代理",
       "delete": "删除四层代理"
+    },
+    "db": {
+      "create": "创建数据库",
+      "drop": "删除数据库",
+      "user_create": "创建数据库用户",
+      "user_update": "修改数据库用户",
+      "user_drop": "删除数据库用户",
+      "remote": "修改远程访问",
+      "service": "控制数据库服务",
+      "cluster": "创建 PostgreSQL 集群",
+      "dump": "创建备份",
+      "restore": "恢复备份"
+    }
+  },
+  "variant": {
+    "db": {
+      "service": {
+        "start": "启动数据库服务（{engine}）",
+        "stop": "停止数据库服务（{engine}）",
+        "restart": "重启数据库服务（{engine}）"
+      },
+      "remote": {
+        "enable": "开启远程访问（{engine}）",
+        "disable": "关闭远程访问（{engine}）"
+      },
+      "dump": {
+        "database": "备份数据库 {database}（{engine}）"
+      }
     }
   }
 }

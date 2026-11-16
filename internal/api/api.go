@@ -197,7 +197,10 @@ type Route struct {
 	Module     string               // registering module, if any
 	Request    reflect.Type         // nil: no JSON body
 	NoBody     bool                 // explicitly documented as taking no body
+	RawBody    string               // content type of a non-JSON body (uploads)
 	Responses  map[int]reflect.Type // nil type: no body
+	// Files are responses that are not JSON (downloads), by content type.
+	Files map[int]string
 }
 
 // Routes returns the registered endpoints in registration order.
@@ -214,7 +217,9 @@ type routeConfig struct {
 	summary   string
 	request   reflect.Type
 	noBody    bool
+	rawBody   string
 	responses map[int]reflect.Type
+	files     map[int]string
 }
 
 // Doc documents a route for the OpenAPI document.
@@ -227,6 +232,20 @@ func Body(v any) RouteOption { return func(c *routeConfig) { c.request = reflect
 
 // NoBody documents that a state-changing route takes no request body.
 func NoBody() RouteOption { return func(c *routeConfig) { c.noBody = true } }
+
+// RawBody documents a request body that is not JSON (an upload) by its
+// content type; the handler reads and limits it itself.
+func RawBody(contentType string) RouteOption { return func(c *routeConfig) { c.rawBody = contentType } }
+
+// ReturnsFile documents a response that is a file of the content type.
+func ReturnsFile(status int, contentType string) RouteOption {
+	return func(c *routeConfig) {
+		if c.files == nil {
+			c.files = map[int]string{}
+		}
+		c.files[status] = contentType
+	}
+}
 
 // Returns documents a response; v is a zero value of the body type, or nil
 // for an empty body.
@@ -276,7 +295,7 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 	method, path, _ := strings.Cut(pattern, " ")
 	rt.routes = append(rt.routes, Route{
 		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp,
-		Tag: cfg.tag, Summary: cfg.summary, Module: rt.module, Request: cfg.request, NoBody: cfg.noBody, Responses: cfg.responses,
+		Tag: cfg.tag, Summary: cfg.summary, Module: rt.module, Request: cfg.request, NoBody: cfg.noBody, RawBody: cfg.rawBody, Responses: cfg.responses, Files: cfg.files,
 	})
 	gate := rt.gate
 	rt.mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {

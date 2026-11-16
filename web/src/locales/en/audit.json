@@ -18,7 +18,9 @@
     "site": "Sites",
     "cert": "Certificates",
     "dns": "DNS",
-    "stream": "Four-layer proxies"
+    "stream": "Four-layer proxies",
+    "db": "Databases",
+    "redis": "Redis"
   },
   "column": {
     "time": "Time",
@@ -131,6 +133,44 @@
       "start": "Started four-layer proxy {stream}",
       "stop": "Stopped four-layer proxy {stream}",
       "delete": "Deleted four-layer proxy {stream}"
+    },
+    "db": {
+      "create": "Created database {database} ({engine})",
+      "drop": "Deleted database {database} ({engine})",
+      "user_create": "Created database user {user} ({engine})",
+      "user_update": "Changed database user {user} ({engine})",
+      "user_drop": "Deleted database user {user} ({engine})",
+      "remote": "Changed remote access to {engine}",
+      "service": "Controlled the {engine} service",
+      "cluster": "Created the main cluster of {engine}",
+      "dump": "Created a dump ({engine})",
+      "restore": "Restored {database} from {file} ({engine})",
+      "password_reveal": "Viewed the password of database user {user} ({engine})",
+      "dump_download": "Downloaded dump {file} ({engine})",
+      "dump_upload": "Uploaded dump {file} ({engine})",
+      "dump_delete": "Deleted dump {file} ({engine})"
+    },
+    "redis": {
+      "config": "Changed the Redis settings",
+      "password_reveal": "Viewed the Redis password",
+      "delete": "Deleted Redis keys from db{db}",
+      "ttl": "Changed the expiry of Redis key {key} (db{db})"
+    }
+  },
+  "variant": {
+    "db": {
+      "service": {
+        "start": "Started the {engine} service",
+        "stop": "Stopped the {engine} service",
+        "restart": "Restarted the {engine} service"
+      },
+      "remote": {
+        "enable": "Enabled remote access to {engine}",
+        "disable": "Disabled remote access to {engine}"
+      },
+      "dump": {
+        "database": "Dumped database {database} ({engine})"
+      }
     }
   }
 }

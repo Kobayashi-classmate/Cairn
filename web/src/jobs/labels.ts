@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { JobState } from '@/api/jobs'
+import { engineIdLabel } from '@/databases/labels'
 import { i18n } from '@/i18n'
 
 const FINAL_STATES: ReadonlySet<string> = new Set(['succeeded', 'failed', 'canceled', 'interrupted'])
@@ -7,6 +8,27 @@ const FINAL_STATES: ReadonlySet<string> = new Set(['succeeded', 'failed', 'cance
 /** True once a job can no longer change. */
 export function isFinalState(state: string): boolean {
   return FINAL_STATES.has(state)
+}
+
+/**
+ * Variant of a job (or audit) label for the params at hand. Some kinds read
+ * better naming a value ("Stop the database server") or depend on whether
+ * an optional param is set. The text lives under
+ * <area>.variant.<kind>.<variant>; when there is no variant, or no text for
+ * it, the plain label is used.
+ */
+export function labelVariant(kind: string, params: Record<string, unknown>): string | null {
+  switch (kind) {
+    case 'db.service':
+      return typeof params.action === 'string' && /^[a-z]+$/.test(params.action) ? params.action : null
+    case 'db.remote':
+      return typeof params.enabled === 'boolean' ? (params.enabled ? 'enable' : 'disable') : null
+    case 'db.dump':
+      // Redis snapshots have no database.
+      return typeof params.database === 'string' && params.database !== '' ? 'database' : null
+    default:
+      return null
+  }
 }
 
 /**
@@ -24,6 +46,9 @@ export function jobKindLabel(kind: string, params?: Record<string, unknown>): st
   }
   const short = `jobs.kindName.${kind}`
   if (Object.keys(named).length === 0 && te(short)) return t(short)
+  if (/^(db|redis)\./.test(kind) && typeof named.engine === 'string') named.engine = engineIdLabel(named.engine)
+  const variant = labelVariant(kind, named)
+  if (variant && te(`jobs.variant.${kind}.${variant}`)) return t(`jobs.variant.${kind}.${variant}`, named)
   const full = `jobs.kind.${kind}`
   return te(full) ? t(full, named) : kind
 }

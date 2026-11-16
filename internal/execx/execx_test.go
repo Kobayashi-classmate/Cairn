@@ -89,3 +89,15 @@ func TestOutputIsStreamed(t *testing.T) {
 		t.Fatalf("live %q, captured %q, truncated %v", live.String(), res.Stdout, res.Truncated)
 	}
 }
+
+func TestStdoutIsRedirected(t *testing.T) {
+	var out, live strings.Builder
+	res, err := Run(context.Background(), Cmd{Name: "printf", Args: []string{"0123456789"}, Stdout: &out, Output: &live, MaxOutput: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Redirected output is complete, not captured and not in the live log.
+	if out.String() != "0123456789" || len(res.Stdout) != 0 || res.Truncated || live.Len() != 0 {
+		t.Fatalf("out %q, captured %q, truncated %v, live %q", out.String(), res.Stdout, res.Truncated, live.String())
+	}
+}

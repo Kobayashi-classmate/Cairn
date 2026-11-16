@@ -5,7 +5,8 @@
 // StepUpDialog. Requests that need step-up at the same time share one dialog
 // and are all retried (or all rejected) when it closes.
 import { ref } from 'vue'
-import { setStepUpHandler, type ApiError } from '@/api/client'
+import { ApiError, STEP_UP_REQUIRED, setStepUpHandler } from '@/api/client'
+import { useSessionStore } from '@/stores/session'
 
 interface Waiter {
   error: ApiError
@@ -38,4 +39,16 @@ export function finishStepUp(elevated: boolean): void {
 
 export function installStepUp(): void {
   setStepUpHandler(requestStepUp)
+}
+
+/**
+ * Makes sure the session is re-authenticated before a step-up protected
+ * request the API client cannot retry itself, such as a download through a
+ * plain link or an upload with progress. Rejects when the user cancels.
+ */
+export async function ensureElevated(): Promise<void> {
+  const session = useSessionStore()
+  // Keep a margin so the elevation does not run out during the request.
+  if (session.elevatedUntil > Date.now() / 1000 + 30) return
+  await requestStepUp(new ApiError(403, STEP_UP_REQUIRED))
 }

@@ -47,7 +47,7 @@ const failure = computed(() => {
 /** Technical details of a failure (`reason`, program `output` such as `nginx -t`), shown as is. */
 const details = computed(() => {
   const params = job.value?.error?.params ?? {}
-  return ['reason', 'output']
+  return ['reason', 'output', 'detail']
     .map((key) => params[key])
     .filter((value): value is string => typeof value === 'string' && value !== '')
 })

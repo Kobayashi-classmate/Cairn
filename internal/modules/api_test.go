@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -37,6 +38,7 @@ import (
 	certsmod "github.com/Kobayashi-classmate/Cairn/internal/modules/certs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/databases"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
@@ -104,6 +106,7 @@ type env struct {
 	cloud    *cloudsvc.Module
 	certs    *certsmod.Module
 	sites    *sitesmod.Module
+	dataDir  string
 	modules  *module.Registry
 	jobs     *jobs.Manager
 }
@@ -149,6 +152,10 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		t.Fatal(err)
 	}
 
+	dataDir := filepath.Join(dir, "data")
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	router := api.NewRouter(core.Authenticator(db), log)
 	registry := module.NewRegistry(db)
 	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log, PanelPort: 28443}
@@ -162,6 +169,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 			Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"},
 		sitesMod,
 		certsMod,
+		&databases.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Log: log, DataDir: dataDir},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
@@ -178,7 +186,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
 	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod, sites: sitesMod,
-		modules: registry, jobs: jobManager}
+		dataDir: dataDir, modules: registry, jobs: jobManager}
 }
 
 // client is one browser with its own cookie jar.

@@ -18,7 +18,9 @@
     "site": "网站",
     "cert": "证书",
     "dns": "DNS",
-    "stream": "四层代理"
+    "stream": "四层代理",
+    "db": "数据库",
+    "redis": "Redis"
   },
   "column": {
     "time": "时间",
@@ -131,6 +133,44 @@
       "start": "启动了四层代理 {stream}",
       "stop": "停用了四层代理 {stream}",
       "delete": "删除了四层代理 {stream}"
+    },
+    "db": {
+      "create": "创建了数据库 {database}（{engine}）",
+      "drop": "删除了数据库 {database}（{engine}）",
+      "user_create": "创建了数据库用户 {user}（{engine}）",
+      "user_update": "修改了数据库用户 {user}（{engine}）",
+      "user_drop": "删除了数据库用户 {user}（{engine}）",
+      "remote": "修改了 {engine} 的远程访问",
+      "service": "控制了 {engine} 服务",
+      "cluster": "创建了 {engine} 主集群",
+      "dump": "创建了备份（{engine}）",
+      "restore": "从 {file} 恢复了 {database}（{engine}）",
+      "password_reveal": "查看了数据库用户 {user} 的密码（{engine}）",
+      "dump_download": "下载了备份 {file}（{engine}）",
+      "dump_upload": "上传了备份 {file}（{engine}）",
+      "dump_delete": "删除了备份 {file}（{engine}）"
+    },
+    "redis": {
+      "config": "修改了 Redis 设置",
+      "password_reveal": "查看了 Redis 密码",
+      "delete": "从 db{db} 删除了 Redis 键",
+      "ttl": "修改了 Redis 键 {key} 的过期时间（db{db}）"
+    }
+  },
+  "variant": {
+    "db": {
+      "service": {
+        "start": "启动了 {engine} 服务",
+        "stop": "停止了 {engine} 服务",
+        "restart": "重启了 {engine} 服务"
+      },
+      "remote": {
+        "enable": "开启了 {engine} 的远程访问",
+        "disable": "关闭了 {engine} 的远程访问"
+      },
+      "dump": {
+        "database": "备份了数据库 {database}（{engine}）"
+      }
     }
   }
 }

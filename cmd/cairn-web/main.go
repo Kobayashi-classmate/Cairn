@@ -38,6 +38,7 @@ import (
 	certsmod "github.com/Kobayashi-classmate/Cairn/internal/modules/certs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/databases"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
@@ -142,6 +143,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
 		sitesMod,
 		certsMod,
+		&databases.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Log: log, DataDir: cfg.Paths.DataDir},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},

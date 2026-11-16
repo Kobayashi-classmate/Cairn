@@ -46,6 +46,21 @@
       "start": "Start four-layer proxy {stream}",
       "stop": "Stop four-layer proxy {stream}",
       "delete": "Delete four-layer proxy {stream}"
+    },
+    "db": {
+      "create": "Create database {database}",
+      "drop": "Delete database {database}",
+      "user_create": "Create database user {user}",
+      "user_update": "Change database user {user}",
+      "user_drop": "Delete database user {user}",
+      "remote": "Change remote access ({engine})",
+      "service": "Control the database server ({engine})",
+      "cluster": "Create the main cluster of {engine}",
+      "dump": "Create a dump ({engine})",
+      "restore": "Restore {database} from {file}"
+    },
+    "redis": {
+      "config": "Change the Redis settings"
     }
   },
   "detail": {
@@ -85,6 +100,34 @@
       "start": "Start four-layer proxy",
       "stop": "Stop four-layer proxy",
       "delete": "Delete four-layer proxy"
+    },
+    "db": {
+      "create": "Create database",
+      "drop": "Delete database",
+      "user_create": "Create database user",
+      "user_update": "Change database user",
+      "user_drop": "Delete database user",
+      "remote": "Change remote access",
+      "service": "Control the database server",
+      "cluster": "Create a PostgreSQL cluster",
+      "dump": "Create a dump",
+      "restore": "Restore a dump"
+    }
+  },
+  "variant": {
+    "db": {
+      "service": {
+        "start": "Start the database server ({engine})",
+        "stop": "Stop the database server ({engine})",
+        "restart": "Restart the database server ({engine})"
+      },
+      "remote": {
+        "enable": "Enable remote access ({engine})",
+        "disable": "Disable remote access ({engine})"
+      },
+      "dump": {
+        "database": "Dump database {database} ({engine})"
+      }
     }
   }
 }

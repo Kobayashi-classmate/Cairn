@@ -157,6 +157,28 @@ async function readError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, ClientErrorCode.http, { status: response.status })
 }
 
+/**
+ * Turns an error response body (already read as text) into an ApiError, the
+ * way JSON requests do. For callers that cannot use fetch, such as uploads
+ * with progress through XMLHttpRequest.
+ */
+export function apiErrorFromBody(status: number, body: string): ApiError {
+  try {
+    const data: unknown = JSON.parse(body)
+    if (isObject(data) && isObject(data.error) && typeof data.error.code === 'string') {
+      return new ApiError(status, data.error.code, sanitizeParams(data.error.params))
+    }
+  } catch {
+    // Not JSON; handled below.
+  }
+  return status === 0 ? new ApiError(0, ClientErrorCode.network) : new ApiError(status, ClientErrorCode.http, { status })
+}
+
+/** Runs the global 401 handling for a request made outside this client. */
+export function reportUnauthorized(error: ApiError): void {
+  unauthorizedHandler?.(error)
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -115,6 +115,7 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	}
 	helper.RegisterSites(reg, ops, sites)
 	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: sites, PanelUser: "cairn", Resolvers: cfg.ACME.Resolvers})
+	helper.RegisterDBs(reg, ops, dbEngine(software, cfg.Paths.DataDir))
 	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,
@@ -159,6 +160,16 @@ func softwareEngine(manager string, log *slog.Logger) (*helper.Software, error) 
 		s.Manager = ""
 	}
 	return s, nil
+}
+
+// dbEngine prepares database management, Debian and Ubuntu only for now
+// (P1 batch 6).
+func dbEngine(software *helper.Software, dataDir string) *helper.DBs {
+	d := &helper.DBs{Software: software, DataDir: dataDir, PanelUser: "cairn", Unsupported: "platform"}
+	if p, _, err := platform.Detect(); err == nil && p.Family == "debian" {
+		d.Unsupported = ""
+	}
+	return d
 }
 
 // siteEngine prepares site management. Sites need the Debian layout for

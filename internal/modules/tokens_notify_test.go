@@ -210,7 +210,7 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 		if r.Summary == "" || r.Tag == "" {
 			t.Errorf("%s %s is not documented (api.Doc missing)", r.Method, r.Path)
 		}
-		if r.Method != "GET" && r.Method != "DELETE" && r.Request == nil && !r.NoBody {
+		if r.Method != "GET" && r.Method != "DELETE" && r.Request == nil && !r.NoBody && r.RawBody == "" {
 			t.Errorf("%s %s documents neither a body (api.Body) nor its absence (api.NoBody)", r.Method, r.Path)
 		}
 	}

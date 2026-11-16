@@ -57,6 +57,10 @@ func (rt *Router) OpenAPI(title, version string) map[string]any {
 		if r.Request != nil {
 			op["requestBody"] = map[string]any{"required": true, "content": jsonContent(gen.schema(r.Request))}
 		}
+		binary := map[string]any{"type": "string", "format": "binary"}
+		if r.RawBody != "" {
+			op["requestBody"] = map[string]any{"required": true, "content": map[string]any{r.RawBody: map[string]any{"schema": binary}}}
+		}
 		responses := map[string]any{"default": map[string]any{"$ref": "#/components/responses/Error"}}
 		for status, t := range r.Responses {
 			resp := map[string]any{"description": http.StatusText(status)}
@@ -65,7 +69,11 @@ func (rt *Router) OpenAPI(title, version string) map[string]any {
 			}
 			responses[strconv.Itoa(status)] = resp
 		}
-		if len(r.Responses) == 0 {
+		for status, ct := range r.Files {
+			responses[strconv.Itoa(status)] = map[string]any{"description": http.StatusText(status),
+				"content": map[string]any{ct: map[string]any{"schema": binary}}}
+		}
+		if len(r.Responses) == 0 && len(r.Files) == 0 {
 			responses["200"] = map[string]any{"description": "OK"}
 		}
 		op["responses"] = responses
