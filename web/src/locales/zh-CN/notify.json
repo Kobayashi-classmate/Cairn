@@ -41,6 +41,14 @@
     "app": {
       "label": "应用",
       "description": "不再响应健康检查的应用。"
+    },
+    "cron": {
+      "label": "计划任务",
+      "description": "计划任务运行失败或超时。"
+    },
+    "backup": {
+      "label": "备份",
+      "description": "备份方案运行失败。"
     }
   },
   "event": {
@@ -65,6 +73,12 @@
     },
     "app": {
       "unhealthy": "应用异常"
+    },
+    "cron": {
+      "failed": "计划任务失败"
+    },
+    "backup": {
+      "failed": "备份失败"
     }
   },
   "channel": {

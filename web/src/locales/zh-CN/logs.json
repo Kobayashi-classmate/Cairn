@@ -1,0 +1,41 @@
+{
+  "title": "日志",
+  "intro": "系统日志：各个服务和系统本身的消息。",
+  "allUnits": "所有单元",
+  "allPriorities": "所有级别",
+  "priorityAtLeast": "{level}及更严重",
+  "priority": {
+    "0": "紧急",
+    "1": "警报",
+    "2": "严重",
+    "3": "错误",
+    "4": "警告",
+    "5": "注意",
+    "6": "信息",
+    "7": "调试"
+  },
+  "priorityShort": {
+    "0": "EMERG",
+    "1": "ALERT",
+    "2": "CRIT",
+    "3": "ERR",
+    "4": "WARN",
+    "5": "NOTE",
+    "6": "INFO",
+    "7": "DEBUG"
+  },
+  "since": "开始时间",
+  "until": "结束时间",
+  "grep": "要查找的文字",
+  "boot": "仅本次启动",
+  "limitOption": "最近 {count} 条",
+  "apply": "显示",
+  "follow": "实时跟踪",
+  "timeHint": "时间格式与 journalctl 相同：“today”“yesterday”“-1h”“-30min”“2026-11-16 10:00”。",
+  "empty": "没有匹配的日志。",
+  "dropped": "页面上只保留最新的 {count} 条日志。",
+  "sites": {
+    "title": "网站日志",
+    "intro": "每个网站的访问日志和错误日志在它自己的页面上："
+  }
+}

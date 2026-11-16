@@ -404,6 +404,11 @@ func (d *DBs) reconfigure(ctx context.Context, log io.Writer, e dbEngine, p stri
 }
 
 func (d *DBs) mysqlDump(ctx context.Context, log io.Writer, e dbEngine, name string) (helperapi.DumpInfo, error) {
+	return d.writeDump(e.id, name, ".sql.gz", true, func(w io.Writer) error { return d.mysqlDumpTo(ctx, log, e, name, w) })
+}
+
+// mysqlDumpTo writes a database's SQL dump to w.
+func (d *DBs) mysqlDumpTo(ctx context.Context, log io.Writer, e dbEngine, name string, w io.Writer) error {
 	args := []string{"--protocol=socket", "--single-transaction", "--quick", "--routines", "--triggers", "--events",
 		"--hex-blob", "--default-character-set=utf8mb4"}
 	if e.software == "mysql" {
@@ -412,13 +417,10 @@ func (d *DBs) mysqlDump(ctx context.Context, log io.Writer, e dbEngine, name str
 	args = append(args, name)
 	tool := d.tool("mariadb-dump", "mysqldump")
 	_, _ = fmt.Fprintf(log, "$ %s %s\n", path.Base(tool), strings.Join(args, " "))
-	return d.writeDump(e.id, name, ".sql.gz", true, func(w io.Writer) error {
-		_, err := dbRun(ctx, execx.Cmd{Name: tool, Args: args, Stdout: w, Output: log, Timeout: dumpTimeout, MaxOutput: 64 << 10})
-		if err != nil {
-			return mysqlError(err)
-		}
-		return nil
-	})
+	if _, err := dbRun(ctx, execx.Cmd{Name: tool, Args: args, Stdout: w, Output: log, Timeout: dumpTimeout, MaxOutput: 64 << 10}); err != nil {
+		return mysqlError(err)
+	}
+	return nil
 }
 
 // mysqlRestore loads a dump as the given user: the client reads the

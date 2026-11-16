@@ -18,6 +18,9 @@
     "certs": "Certificates",
     "databases": "Databases",
     "files": "Files",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "cron": "Scheduled tasks",
+    "backups": "Backups",
+    "logs": "Logs"
   }
 }

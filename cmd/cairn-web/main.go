@@ -35,12 +35,15 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/backups"
 	certsmod "github.com/Kobayashi-classmate/Cairn/internal/modules/certs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/cron"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/databases"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/files"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/logs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
 	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
@@ -140,6 +143,10 @@ func run(cfgPath string, log *slog.Logger) error {
 	go filesMod.Run(ctx)
 	termMod := &terminal.Module{Helper: helper, DB: db, Log: log}
 	go termMod.Run(ctx)
+	cronMod := &cron.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
+	go cronMod.Run(ctx)
+	backupsMod := &backups.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Events: bus, Log: log, DataDir: cfg.Paths.DataDir}
+	go backupsMod.Run(ctx)
 
 	router := api.NewRouter(core.Authenticator(db), log)
 	registry := module.NewRegistry(db)
@@ -152,6 +159,9 @@ func run(cfgPath string, log *slog.Logger) error {
 		&databases.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Log: log, DataDir: cfg.Paths.DataDir},
 		filesMod,
 		termMod,
+		cronMod,
+		backupsMod,
+		&logs.Module{Helper: helper, Log: log},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},

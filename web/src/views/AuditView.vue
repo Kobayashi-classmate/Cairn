@@ -53,6 +53,8 @@ const categories = [
   'file',
   'files',
   'terminal',
+  'cron',
+  'backup',
   'cert',
   'dns',
   'job',

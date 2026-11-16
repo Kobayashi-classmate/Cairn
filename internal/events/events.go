@@ -55,10 +55,20 @@ const (
 	CertExpiring    = "cert.expiring"
 	// AppUnhealthy: an app failed its health checks and was restarted.
 	AppUnhealthy = "app.unhealthy"
+	// CronFailed: a scheduled task's run failed; BackupFailed: a backup
+	// plan's run failed.
+	CronFailed   = "cron.failed"
+	BackupFailed = "backup.failed"
+	// JobFailed: a background job failed (published by the jobs package).
+	JobFailed = "system.job_failed"
 )
 
+// Types lists every event type; each has a notification text.
+var Types = []string{SecurityLockout, SecurityLogin, SecurityTOTPDisabled, UsersChange, SystemTest, CloudAnnouncement,
+	CertRenewFailed, CertExpiring, AppUnhealthy, CronFailed, BackupFailed, JobFailed}
+
 // Categories are the prefixes a notification channel can subscribe to.
-var Categories = []string{"security.", "users.", "system.", "cloud.", "cert.", "app."}
+var Categories = []string{"security.", "users.", "system.", "cloud.", "cert.", "app.", "cron.", "backup."}
 
 // Event is something that happened.
 type Event struct {

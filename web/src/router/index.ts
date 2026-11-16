@@ -92,6 +92,24 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'terminal.title', navKey: 'terminal', permission: 'terminal.use' },
       },
       {
+        path: 'cron',
+        name: 'cron',
+        component: () => import('@/views/CronView.vue'),
+        meta: { titleKey: 'cron.title', navKey: 'cron', permission: 'cron.read' },
+      },
+      {
+        path: 'backups',
+        name: 'backups',
+        component: () => import('@/views/BackupsView.vue'),
+        meta: { titleKey: 'backups.title', navKey: 'backups', permission: 'backups.read' },
+      },
+      {
+        path: 'logs',
+        name: 'logs',
+        component: () => import('@/views/LogsView.vue'),
+        meta: { titleKey: 'logs.title', navKey: 'logs', permission: 'logs.read' },
+      },
+      {
         path: 'software',
         name: 'software',
         component: () => import('@/views/SoftwareView.vue'),

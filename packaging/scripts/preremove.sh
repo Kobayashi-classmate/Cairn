@@ -11,6 +11,10 @@ case "$1" in
 	remove | 0)
 		if [ -d /run/systemd/system ]; then
 			systemctl disable --now cairn-web.service cairn-helper.socket cairn-helper.service >/dev/null 2>&1 || true
+			# Scheduled tasks run the helper binary, which is going away.
+			for t in /etc/systemd/system/cairn-cron-*.timer; do
+				[ -e "$t" ] && systemctl disable --now "${t##*/}" >/dev/null 2>&1 || true
+			done
 		fi
 		;;
 esac

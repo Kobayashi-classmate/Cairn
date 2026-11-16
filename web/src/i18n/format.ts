@@ -109,6 +109,19 @@ export function formatDateTime(unixSeconds: number): string {
   )
 }
 
+/** Formats a Unix timestamp in milliseconds as a short date and a time with seconds (log lines). */
+export function formatLogTime(unixMs: number): string {
+  const options: Intl.DateTimeFormatOptions = {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }
+  return cached('logtime', options, (locale) => new Intl.DateTimeFormat(locale, options)).format(unixMs)
+}
+
 /** Formats a calendar date given as YYYY-MM-DD; other text is returned unchanged. */
 export function formatIsoDate(date: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date)

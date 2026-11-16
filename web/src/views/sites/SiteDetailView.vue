@@ -59,7 +59,10 @@ const site = ref<SiteView | null>(null)
 const phpLines = ref<string[]>([])
 const rewrites = ref<RewriteRule[]>([])
 const loadError = ref<unknown>(null)
-const tab = ref<'overview' | 'process' | 'settings' | 'logs'>('overview')
+type SiteTab = 'overview' | 'process' | 'settings' | 'logs'
+const SITE_TABS: readonly SiteTab[] = ['overview', 'process', 'settings', 'logs']
+// Links can open a tab directly (?tab=logs from the logs page).
+const tab = ref<SiteTab>(SITE_TABS.find((name) => name === route.query.tab) ?? 'overview')
 
 /** The job of the change started on this page, followed inline. */
 const actionJob = ref<string | null>(null)

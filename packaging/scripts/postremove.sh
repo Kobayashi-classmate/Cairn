@@ -12,6 +12,8 @@ set -e
 case "$1" in
 	purge)
 		rm -rf /etc/cairn /var/lib/cairn /var/lib/cairn-helper
+		rm -rf /etc/cairn-cron
+		rm -f /etc/systemd/system/cairn-cron-*.service /etc/systemd/system/cairn-cron-*.timer
 		;;
 esac
 

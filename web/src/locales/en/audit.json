@@ -23,7 +23,9 @@
     "redis": "Redis",
     "file": "Files",
     "files": "Full-disk access",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "cron": "Scheduled tasks",
+    "backup": "Backups"
   },
   "column": {
     "time": "Time",
@@ -183,6 +185,24 @@
     "terminal": {
       "open": "Opened a terminal as {user}",
       "root": "Changed whether root terminals are allowed"
+    },
+    "cron": {
+      "create": "Created scheduled task {name}",
+      "update": "Changed scheduled task {name}",
+      "delete": "Deleted scheduled task {name}",
+      "run": "Ran scheduled task {name}"
+    },
+    "backup": {
+      "storage_create": "Added backup storage {name} ({bucket})",
+      "storage_update": "Changed backup storage {name}",
+      "storage_delete": "Deleted backup storage {name}",
+      "plan_create": "Created backup plan {name}",
+      "plan_update": "Changed backup plan {name}",
+      "plan_delete": "Deleted backup plan {name}",
+      "download": "Downloaded backup {file} of {name}",
+      "run": "Ran backup plan {name}",
+      "delete": "Deleted backups of {name}",
+      "restore": "Restored {file}"
     }
   },
   "variant": {
@@ -239,6 +259,15 @@
       "root": {
         "enable": "Allowed root terminals",
         "disable": "Disallowed root terminals"
+      }
+    },
+    "backup": {
+      "restore": {
+        "dest": "Restored {file} to {dest}",
+        "database": "Restored {file} as a dump of {database} ({engine})"
+      },
+      "plan_delete": {
+        "files": "Deleted backup plan {name} and its backups"
       }
     }
   }

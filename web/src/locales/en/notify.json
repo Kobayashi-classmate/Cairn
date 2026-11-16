@@ -41,6 +41,14 @@
     "app": {
       "label": "Apps",
       "description": "Apps that stop answering their health check."
+    },
+    "cron": {
+      "label": "Scheduled tasks",
+      "description": "Runs of scheduled tasks that fail or time out."
+    },
+    "backup": {
+      "label": "Backups",
+      "description": "Backup plan runs that fail."
     }
   },
   "event": {
@@ -65,6 +73,12 @@
     },
     "app": {
       "unhealthy": "App unhealthy"
+    },
+    "cron": {
+      "failed": "Scheduled task failed"
+    },
+    "backup": {
+      "failed": "Backup failed"
     }
   },
   "channel": {

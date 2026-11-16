@@ -40,6 +40,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "task" {
+		if err := runTask(os.Args[2:], log); err != nil {
+			fmt.Fprintln(os.Stderr, "cairn task:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	cfgPath := flag.String("config", config.DefaultPath, "configuration file")
 	account := flag.String("user", "cairn", "account of the unprivileged web process")
 	flag.Parse()
@@ -104,20 +111,18 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	helper.RegisterOpActions(reg, ops)
 	format, manager := packageTools(log)
 	helper.RegisterPkg(reg, ops, manager)
-	software, err := softwareEngine(manager, log)
+	e, err := newEngines(cfg, manager, log)
 	if err != nil {
 		return err
 	}
-	helper.RegisterSoftware(reg, ops, software)
-	sites := siteEngine(software)
-	if _, port, err := net.SplitHostPort(cfg.Server.Listen); err == nil {
-		sites.PanelPort, _ = strconv.Atoi(port)
-	}
-	helper.RegisterSites(reg, ops, sites)
-	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: sites, PanelUser: "cairn", Resolvers: cfg.ACME.Resolvers})
-	helper.RegisterDBs(reg, ops, dbEngine(software, cfg.Paths.DataDir))
-	helper.RegisterFiles(reg, ops, &helper.Files{DataDir: cfg.Paths.DataDir, PanelUser: "cairn", StateDir: stateDir,
-		RootAccess: cfg.Security.RootAccess, Log: log})
+	helper.RegisterSoftware(reg, ops, e.software)
+	helper.RegisterSites(reg, ops, e.sites)
+	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: e.sites, PanelUser: "cairn", Resolvers: cfg.ACME.Resolvers})
+	helper.RegisterDBs(reg, ops, e.dbs)
+	helper.RegisterFiles(reg, ops, e.files)
+	helper.RegisterBackups(reg, ops, e.backups)
+	helper.RegisterCron(reg, ops, e.cron)
+	helper.RegisterLogs(reg, "")
 	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,
@@ -140,6 +145,69 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	}
 	log.Info("cairn-helper ready", "version", buildinfo.Version, "actions", len(reg.Actions()), "web_uid", webUID)
 	return srv.Serve(ctx, l)
+}
+
+// engines are the helper's subsystems, shared by the daemon and by the
+// task runner.
+type engines struct {
+	software *helper.Software
+	sites    *helper.Sites
+	dbs      *helper.DBs
+	files    *helper.Files
+	backups  *helper.Backups
+	cron     *helper.Cron
+}
+
+func newEngines(cfg config.Config, manager string, log *slog.Logger) (*engines, error) {
+	software, err := softwareEngine(manager, log)
+	if err != nil {
+		return nil, err
+	}
+	e := &engines{software: software, sites: siteEngine(software), dbs: dbEngine(software, cfg.Paths.DataDir)}
+	if _, port, err := net.SplitHostPort(cfg.Server.Listen); err == nil {
+		e.sites.PanelPort, _ = strconv.Atoi(port)
+	}
+	e.files = &helper.Files{DataDir: cfg.Paths.DataDir, PanelUser: "cairn", StateDir: stateDir, RootAccess: cfg.Security.RootAccess, Log: log}
+	e.backups = &helper.Backups{Files: e.files, DBs: e.dbs, Log: log}
+	e.cron = &helper.Cron{Sites: e.sites, Files: e.files, Backups: e.backups}
+	return e, nil
+}
+
+// runTask is what a scheduled task's service runs:
+//
+//	cairn-helper task start|done <id>   (records the run, as root)
+//	cairn-helper task url               (fetches $CAIRN_URL)
+//	cairn-helper task backup <id>       (runs the task's backup plan)
+func runTask(args []string, log *slog.Logger) error {
+	if len(args) == 1 && args[0] == "url" {
+		return helper.TaskURL(context.Background(), os.Stdout)
+	}
+	if len(args) != 2 {
+		return errors.New("usage: cairn-helper task start|done|backup <id>")
+	}
+	if os.Geteuid() != 0 {
+		return errors.New("tasks run as root")
+	}
+	cfg, err := config.Load(config.DefaultPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	_, manager := packageTools(slog.New(slog.DiscardHandler))
+	e, err := newEngines(cfg, manager, log)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	switch args[0] {
+	case "start":
+		return e.cron.TaskStart(args[1])
+	case "done":
+		return e.cron.TaskDone(args[1])
+	case "backup":
+		return e.cron.TaskBackup(ctx, args[1], os.Stdout)
+	}
+	return fmt.Errorf("unknown task step %q", args[0])
 }
 
 // softwareEngine prepares catalog installs for the running platform; on an

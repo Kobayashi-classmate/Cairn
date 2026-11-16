@@ -74,6 +74,17 @@
       "purge": "Delete an entry from the trash permanently",
       "upload": "Upload {path}",
       "fetch": "Download {url} to {path}"
+    },
+    "cron": {
+      "create": "Create scheduled task {name}",
+      "update": "Change scheduled task {name}",
+      "delete": "Delete scheduled task {name}",
+      "run": "Run scheduled task {name}"
+    },
+    "backup": {
+      "run": "Run backup plan {name}",
+      "delete": "Delete backups of {name}",
+      "restore": "Restore {file}"
     }
   },
   "detail": {
@@ -138,6 +149,17 @@
       "purge": "Delete from the trash",
       "upload": "Upload a file",
       "fetch": "Download from URL"
+    },
+    "cron": {
+      "create": "Create scheduled task",
+      "update": "Change scheduled task",
+      "delete": "Delete scheduled task",
+      "run": "Run scheduled task"
+    },
+    "backup": {
+      "run": "Run backup plan",
+      "delete": "Delete backups",
+      "restore": "Restore backup"
     }
   },
   "variant": {
@@ -179,6 +201,12 @@
       "purge": {
         "many": "Delete {count} entries from the trash permanently",
         "all": "Empty the trash"
+      }
+    },
+    "backup": {
+      "restore": {
+        "dest": "Restore {file} to {dest}",
+        "database": "Restore {file} as a dump of {database} ({engine})"
       }
     }
   }

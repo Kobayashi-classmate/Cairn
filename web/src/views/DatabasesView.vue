@@ -24,6 +24,8 @@ const version = ref(0)
 const tab = ref<string | undefined>(typeof route.query.engine === 'string' ? route.query.engine : undefined)
 
 const canManage = computed(() => session.can('databases.manage'))
+/** Sub-tab asked for in the address (?tab=dumps from the backups page). */
+const subTab = route.query.tab === 'dumps' || route.query.tab === 'users' ? route.query.tab : undefined
 
 async function load() {
   try {
@@ -41,7 +43,7 @@ onMounted(load)
 
 // The engine tab is kept in the address.
 watch(tab, (value) => {
-  if (value) void router.replace({ query: { engine: value } })
+  if (value) void router.replace({ query: { ...route.query, engine: value } })
 })
 </script>
 
@@ -74,7 +76,14 @@ watch(tab, (value) => {
                 :version="version"
                 @changed="load"
               />
-              <SqlPanel v-else :engine="engine" :can-manage="canManage" :version="version" @changed="load" />
+              <SqlPanel
+                v-else
+                :engine="engine"
+                :can-manage="canManage"
+                :version="version"
+                :initial-tab="subTab"
+                @changed="load"
+              />
             </NTabPane>
           </NTabs>
         </template>

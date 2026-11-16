@@ -18,6 +18,7 @@ import (
 	"testing/fstest"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
+	"github.com/Kobayashi-classmate/Cairn/internal/execx"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/pgpkey"
 	"github.com/Kobayashi-classmate/Cairn/internal/platform"
@@ -38,8 +39,9 @@ type fakeSystem struct {
 	printURIs   string
 	// failPrefix makes any command starting with it fail.
 	failPrefix string
-	// systemctlShow answers "systemctl show"; journal answers journalctl.
-	systemctlShow, journal string
+	// systemctlShow answers "systemctl show"; journal answers journalctl;
+	// calendar answers "systemd-analyze calendar".
+	systemctlShow, journal, calendar string
 }
 
 func (f *fakeSystem) use(t *testing.T) {
@@ -105,6 +107,11 @@ func (f *fakeSystem) use(t *testing.T) {
 			return "", nil
 		case "journalctl":
 			return f.journal, nil
+		case "systemd-analyze":
+			if f.calendar == "" {
+				return "", &execx.ExitError{Name: name, ExitCode: 1, Stderr: "Failed to parse calendar specification"}
+			}
+			return f.calendar, nil
 		case "dnf":
 			if args[0] == "module" {
 				return f.modules, nil

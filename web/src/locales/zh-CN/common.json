@@ -16,7 +16,10 @@
     "certs": "证书",
     "databases": "数据库",
     "files": "文件",
-    "terminal": "终端"
+    "terminal": "终端",
+    "cron": "计划任务",
+    "backups": "备份",
+    "logs": "日志"
   },
   "action": {
     "signOut": "退出登录",
@@ -139,7 +142,30 @@
     "paths": "条目",
     "query": "搜索文字",
     "size": "大小",
-    "upload": "上传"
+    "upload": "上传",
+    "schedule": "计划",
+    "plan": "备份方案",
+    "script": "脚本",
+    "endpoint": "端点",
+    "region": "区域",
+    "bucket": "存储桶",
+    "prefix": "前缀",
+    "accessKey": "访问密钥 ID",
+    "secretKey": "访问密钥",
+    "identity": "私钥",
+    "recipients": "接收者",
+    "retention": "保留规则",
+    "targets": "备份内容",
+    "since": "开始时间",
+    "until": "结束时间",
+    "grep": "搜索文字",
+    "unit": "单元",
+    "priority": "级别",
+    "invocation": "运行",
+    "timeoutMin": "超时时间",
+    "limit": "条数",
+    "site": "网站",
+    "id": "ID"
   },
   "boot": {
     "failed": "无法加载面板"
@@ -203,6 +229,18 @@
     "terminal": {
       "use": "使用网页终端",
       "admin": "打开和允许 root 终端"
+    },
+    "cron": {
+      "read": "查看计划任务",
+      "manage": "管理计划任务",
+      "root": "管理以 root 运行的任务"
+    },
+    "backups": {
+      "read": "查看备份",
+      "manage": "管理备份"
+    },
+    "logs": {
+      "read": "查看系统日志"
     }
   },
   "copy": {

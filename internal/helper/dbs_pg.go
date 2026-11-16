@@ -558,18 +558,20 @@ func (d *DBs) pgDump(ctx context.Context, log io.Writer, e dbEngine, name string
 	if len(rows) == 0 {
 		return helperapi.DumpInfo{}, dbErr(helperapi.CodeDBNotFound, map[string]any{"name": name})
 	}
-	// Owners and privileges stay out: the dump restores as any user.
-	args := []string{"-u", "postgres", "--", pgBin(e, "pg_dump"), "-Fc", "--no-owner", "--no-privileges", "-p", strconv.Itoa(c.port), "-d", name}
-	_, _ = fmt.Fprintf(log, "$ pg_dump -Fc --no-owner --no-privileges -d %s\n", name)
 	// The file itself is the dump's standard output, so pg_dump can seek
 	// and record where each table's data starts.
-	return d.writeDump(e.id, name, ".dump", false, func(w io.Writer) error {
-		_, err := dbRun(ctx, execx.Cmd{Name: "runuser", Args: args, Stdout: w, Output: log, Timeout: dumpTimeout, MaxOutput: 64 << 10})
-		if err != nil {
-			return pgError(err, e)
-		}
-		return nil
-	})
+	return d.writeDump(e.id, name, ".dump", false, func(w io.Writer) error { return d.pgDumpTo(ctx, log, e, c, name, w) })
+}
+
+// pgDumpTo writes a database's dump (custom format) to w. Owners and
+// privileges stay out: the dump restores as any user.
+func (d *DBs) pgDumpTo(ctx context.Context, log io.Writer, e dbEngine, c pgClusterInfo, name string, w io.Writer) error {
+	args := []string{"-u", "postgres", "--", pgBin(e, "pg_dump"), "-Fc", "--no-owner", "--no-privileges", "-p", strconv.Itoa(c.port), "-d", name}
+	_, _ = fmt.Fprintf(log, "$ pg_dump -Fc --no-owner --no-privileges -d %s\n", name)
+	if _, err := dbRun(ctx, execx.Cmd{Name: "runuser", Args: args, Stdout: w, Output: log, Timeout: dumpTimeout, MaxOutput: 64 << 10}); err != nil {
+		return pgError(err, e)
+	}
+	return nil
 }
 
 // pgRestore loads a dump as the given user over TCP with its password, so

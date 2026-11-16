@@ -38,7 +38,13 @@ import DumpsPanel from './DumpsPanel.vue'
 import PasswordDialog from './PasswordDialog.vue'
 import UserDialog from './UserDialog.vue'
 
-const props = defineProps<{ engine: DbEngine; canManage: boolean; version: number }>()
+const props = defineProps<{
+  engine: DbEngine
+  canManage: boolean
+  version: number
+  /** Tab to open first (links from other pages). */
+  initialTab?: 'databases' | 'users' | 'dumps'
+}>()
 const emit = defineEmits<{ changed: [] }>()
 
 const { t } = useI18n()
@@ -46,7 +52,7 @@ const confirm = useConfirm()
 const showError = useErrorToast()
 const { jobId, run, follow, finished, dismiss } = useJobRun((_job: Job) => emit('changed'))
 
-const tab = ref<'databases' | 'users' | 'dumps'>('databases')
+const tab = ref<'databases' | 'users' | 'dumps'>(props.initialTab ?? 'databases')
 const showCreateDb = ref(false)
 const showUser = ref(false)
 const editingUser = ref<DbUser | null>(null)

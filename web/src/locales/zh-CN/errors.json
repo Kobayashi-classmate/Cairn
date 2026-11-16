@@ -84,7 +84,23 @@
       "posix_name": "{field}必须是有效的用户名或用户组名。",
       "archive_name": "{field}必须以压缩格式的扩展名结尾。",
       "search_query": "{field}必须是 1 到 256 个字符的单行文字。",
-      "http_url": "{field}必须是 http:// 或 https:// 网址，且不能包含用户名或密码。"
+      "http_url": "{field}必须是 http:// 或 https:// 网址，且不能包含用户名或密码。",
+      "schedule": "{field}必须是 systemd OnCalendar 表达式，不能包含引号、“;”“$”“%”或换行。",
+      "cron_id": "{field}不是计划任务。",
+      "plan_id": "{field}不是备份方案。",
+      "script": "{field}不能为空，且最大 64 KiB。",
+      "invocation_id": "{field}不是此任务的一次运行。",
+      "bucket": "{field}必须是存储桶名：3 到 63 个小写字母、数字、点或连字符。",
+      "region": "{field}不能包含空格或“/”。",
+      "credentials": "请检查访问密钥 ID 和访问密钥。",
+      "duplicate": "{field}中有重复的条目。",
+      "retention": "{field}至少要保留一个备份，每一项最多 1000。",
+      "age_recipient": "{field}必须是 age 公钥（“age1…”），每行一个。",
+      "age_identity": "{field}必须是 age 私钥（“AGE-SECRET-KEY-1…”）。",
+      "backup_name": "{field}不是此方案的备份。",
+      "unit_name": "{field}必须是 systemd 单元名，例如 nginx.service。",
+      "journal_time": "{field}必须是 journalctl 能识别的时间，例如“today”“-1h”或“2026-11-16 10:00”。",
+      "endpoint": "{field}必须是主机名，可带端口，不能带“https://”或路径。"
     }
   },
   "locale": {
@@ -236,6 +252,16 @@
     "term": {
       "user_not_allowed": "终端不能以 {user} 的身份运行。",
       "too_many": "最多只能同时打开 {max} 个终端。"
+    },
+    "cron": {
+      "bad_schedule": "systemd 无法识别计划“{schedule}”。",
+      "plan_not_found": "备份方案 {plan} 不存在（或已被删除）。"
+    },
+    "backup": {
+      "not_found": "备份 {name} 不存在（或已被删除）。",
+      "storage_failed": "无法访问存储，或存储拒绝了请求：{detail}",
+      "storage_in_use": "仍有 {plans} 个备份方案在使用此存储，请先修改它们。",
+      "plan_in_use": "仍有 {tasks} 个计划任务在运行此方案，请先删除它们。"
     }
   },
   "software": {
@@ -351,5 +377,26 @@
   "terminal": {
     "not_found": "此终端已结束。"
   },
-  "sameCause": "另有 {count} 个条目因同样的原因失败。"
+  "sameCause": "另有 {count} 个条目因同样的原因失败。",
+  "cron": {
+    "systemd_required": "计划任务需要 systemd，但本服务器没有运行 systemd。",
+    "bad_schedule": "systemd 无法识别这个计划。",
+    "not_found": "此计划任务不存在（或已被删除）。",
+    "plan_not_found": "此任务的备份方案不存在（或已被删除）。"
+  },
+  "backup": {
+    "plan_not_found": "此备份方案不存在（或已被删除）。",
+    "not_found": "此备份不存在（或已被删除）。",
+    "storage_failed": "无法访问存储，或存储拒绝了请求。",
+    "identity_required": "此备份已加密：请输入私钥后再恢复。",
+    "bad_identity": "这个私钥无法解开此备份。",
+    "running": "此方案正在运行。",
+    "no_storage": "此方案没有设置存储桶。",
+    "storage_in_use": "仍有备份方案在使用此存储，请先修改它们。",
+    "plan_in_use": "仍有计划任务在运行此方案，请先删除它们。",
+    "storage_not_found": "此存储不存在（或已被删除）。"
+  },
+  "log": {
+    "no_journal": "本服务器没有系统日志（journalctl）。"
+  }
 }

@@ -35,12 +35,15 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/metrics"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/auditlog"
+	backupsmod "github.com/Kobayashi-classmate/Cairn/internal/modules/backups"
 	certsmod "github.com/Kobayashi-classmate/Cairn/internal/modules/certs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
+	cronmod "github.com/Kobayashi-classmate/Cairn/internal/modules/cron"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/databases"
 	filesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/files"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/logs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
 	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
@@ -135,6 +138,8 @@ type env struct {
 	sites    *sitesmod.Module
 	files    *filesmod.Module
 	terminal *terminal.Module
+	cron     *cronmod.Module
+	backups  *backupsmod.Module
 	dataDir  string
 	modules  *module.Registry
 	jobs     *jobs.Manager
@@ -191,6 +196,8 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	certsMod := &certsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log}
 	filesMod := &filesmod.Module{Jobs: jobManager, Helper: h, DB: db, Log: log, DataDir: dataDir}
 	termMod := &terminal.Module{Helper: h, DB: db, Log: log}
+	cronMod := &cronmod.Module{Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log}
+	backupsMod := &backupsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log, DataDir: dataDir}
 	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),
 		Log: log, Version: "0.1.0", Family: "debian", Format: "deb", Arch: "amd64"}
 	registry.Add(
@@ -203,6 +210,9 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		&databases.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Log: log, DataDir: dataDir},
 		filesMod,
 		termMod,
+		cronMod,
+		backupsMod,
+		&logs.Module{Helper: h, Log: log},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
@@ -219,7 +229,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
 	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod, sites: sitesMod,
-		files: filesMod, terminal: termMod, dataDir: dataDir, modules: registry, jobs: jobManager}
+		files: filesMod, terminal: termMod, cron: cronMod, backups: backupsMod, dataDir: dataDir, modules: registry, jobs: jobManager}
 }
 
 // client is one browser with its own cookie jar.

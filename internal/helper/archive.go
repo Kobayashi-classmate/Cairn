@@ -379,6 +379,11 @@ func (x *extractor) tar(p, kind string) error {
 		return err
 	}
 	defer done()
+	return x.tarFrom(r)
+}
+
+// tarFrom extracts a tar stream.
+func (x *extractor) tarFrom(r io.Reader) error {
 	tr := tar.NewReader(r)
 	for {
 		h, err := tr.Next()

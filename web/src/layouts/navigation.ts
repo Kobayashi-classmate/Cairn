@@ -8,6 +8,7 @@ import type { Component } from 'vue'
 import type { RouteLocationRaw, Router } from 'vue-router'
 import {
   AppsOutline,
+  ArchiveOutline,
   CubeOutline,
   DocumentTextOutline,
   FolderOutline,
@@ -19,6 +20,7 @@ import {
   NotificationsOutline,
   PeopleOutline,
   PulseOutline,
+  ReaderOutline,
   ServerOutline,
   SettingsOutline,
   ShieldOutline,
@@ -32,6 +34,7 @@ import { useNavStore } from '@/stores/nav'
 /** Icon names the server may use. Unknown names get GENERIC_ICON. */
 const ICONS: Record<string, Component> = {
   apps: AppsOutline,
+  archive: ArchiveOutline,
   cube: CubeOutline,
   // No database icon in this set; stacked disks read the same.
   database: ServerOutline,
@@ -45,6 +48,7 @@ const ICONS: Record<string, Component> = {
   notifications: NotificationsOutline,
   people: PeopleOutline,
   pulse: PulseOutline,
+  reader: ReaderOutline,
   server: ServerOutline,
   settings: SettingsOutline,
   shield: ShieldOutline,

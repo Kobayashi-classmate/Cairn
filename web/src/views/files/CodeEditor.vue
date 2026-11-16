@@ -20,6 +20,8 @@ const props = defineProps<{
   readOnly?: boolean
   /** Line to show and put the cursor on (1-based). */
   line?: number
+  /** False keeps the focus where it is (an editor inside a form). */
+  autofocus?: boolean
 }>()
 const emit = defineEmits<{ changed: []; save: [] }>()
 
@@ -83,7 +85,7 @@ onMounted(() => {
     }),
   })
   goToLine(props.line)
-  view.focus()
+  if (props.autofocus !== false) view.focus()
   void loadLanguage(props.path)
 })
 

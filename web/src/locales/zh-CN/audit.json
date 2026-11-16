@@ -23,7 +23,9 @@
     "redis": "Redis",
     "file": "文件",
     "files": "全盘访问",
-    "terminal": "终端"
+    "terminal": "终端",
+    "cron": "计划任务",
+    "backup": "备份"
   },
   "column": {
     "time": "时间",
@@ -183,6 +185,24 @@
     "terminal": {
       "open": "以 {user} 身份打开了终端",
       "root": "修改了是否允许 root 终端"
+    },
+    "cron": {
+      "create": "创建了计划任务 {name}",
+      "update": "修改了计划任务 {name}",
+      "delete": "删除了计划任务 {name}",
+      "run": "运行了计划任务 {name}"
+    },
+    "backup": {
+      "storage_create": "添加了备份存储 {name}（{bucket}）",
+      "storage_update": "修改了备份存储 {name}",
+      "storage_delete": "删除了备份存储 {name}",
+      "plan_create": "创建了备份方案 {name}",
+      "plan_update": "修改了备份方案 {name}",
+      "plan_delete": "删除了备份方案 {name}",
+      "download": "下载了 {name} 的备份 {file}",
+      "run": "运行了备份方案 {name}",
+      "delete": "删除了 {name} 的备份",
+      "restore": "恢复了 {file}"
     }
   },
   "variant": {
@@ -239,6 +259,15 @@
       "root": {
         "enable": "允许了 root 终端",
         "disable": "禁止了 root 终端"
+      }
+    },
+    "backup": {
+      "restore": {
+        "dest": "将 {file} 恢复到了 {dest}",
+        "database": "将 {file} 恢复为了 {database}（{engine}）的备份文件"
+      },
+      "plan_delete": {
+        "files": "删除了备份方案 {name} 及其备份"
       }
     }
   }

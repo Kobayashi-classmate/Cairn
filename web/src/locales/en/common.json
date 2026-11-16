@@ -16,7 +16,10 @@
     "certs": "Certificates",
     "databases": "Databases",
     "files": "Files",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "cron": "Scheduled tasks",
+    "backups": "Backups",
+    "logs": "Logs"
   },
   "action": {
     "signOut": "Sign out",
@@ -139,7 +142,30 @@
     "paths": "Entries",
     "query": "Search text",
     "size": "Size",
-    "upload": "Upload"
+    "upload": "Upload",
+    "schedule": "Schedule",
+    "plan": "Backup plan",
+    "script": "Script",
+    "endpoint": "Endpoint",
+    "region": "Region",
+    "bucket": "Bucket",
+    "prefix": "Prefix",
+    "accessKey": "Access key",
+    "secretKey": "Secret key",
+    "identity": "Private key",
+    "recipients": "Recipients",
+    "retention": "Retention",
+    "targets": "Backup targets",
+    "since": "Since",
+    "until": "Until",
+    "grep": "Search text",
+    "unit": "Unit",
+    "priority": "Level",
+    "invocation": "Run",
+    "timeoutMin": "Timeout",
+    "limit": "Number of entries",
+    "site": "Site",
+    "id": "ID"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -203,6 +229,18 @@
     "terminal": {
       "use": "Use the web terminal",
       "admin": "Open root terminals and allow them"
+    },
+    "cron": {
+      "read": "View scheduled tasks",
+      "manage": "Manage scheduled tasks",
+      "root": "Manage tasks that run as root"
+    },
+    "backups": {
+      "read": "View backups",
+      "manage": "Manage backups"
+    },
+    "logs": {
+      "read": "Read the system journal"
     }
   },
   "copy": {

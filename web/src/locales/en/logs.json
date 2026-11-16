@@ -1,0 +1,41 @@
+{
+  "title": "Logs",
+  "intro": "The system journal: messages of services and the system itself.",
+  "allUnits": "All units",
+  "allPriorities": "All levels",
+  "priorityAtLeast": "{level} and more severe",
+  "priority": {
+    "0": "Emergency",
+    "1": "Alert",
+    "2": "Critical",
+    "3": "Error",
+    "4": "Warning",
+    "5": "Notice",
+    "6": "Info",
+    "7": "Debug"
+  },
+  "priorityShort": {
+    "0": "EMERG",
+    "1": "ALERT",
+    "2": "CRIT",
+    "3": "ERR",
+    "4": "WARN",
+    "5": "NOTE",
+    "6": "INFO",
+    "7": "DEBUG"
+  },
+  "since": "Since",
+  "until": "Until",
+  "grep": "Text to find",
+  "boot": "This boot only",
+  "limitOption": "Last {count}",
+  "apply": "Show",
+  "follow": "Follow",
+  "timeHint": "Times as journalctl reads them: \"today\", \"yesterday\", \"-1h\", \"-30min\", \"2026-11-16 10:00\".",
+  "empty": "No entries match.",
+  "dropped": "Only the newest {count} entries are kept on the page.",
+  "sites": {
+    "title": "Site logs",
+    "intro": "Each site's access and error logs are on its own page:"
+  }
+}

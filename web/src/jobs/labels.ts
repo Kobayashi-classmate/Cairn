@@ -42,6 +42,12 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
       return params.count === 0 ? 'all' : many ? 'many' : null
     case 'file.save':
       return params.new === true ? 'new' : null
+    case 'backup.restore':
+      // Database backups become a dump of their engine instead of files.
+      if (typeof params.dest === 'string') return 'dest'
+      return typeof params.database === 'string' ? 'database' : null
+    case 'backup.plan_delete':
+      return params.files === true ? 'files' : null
     case 'files.full_disk':
     case 'terminal.root':
       return typeof params.enabled === 'boolean' ? (params.enabled ? 'enable' : 'disable') : null
@@ -55,8 +61,8 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
  * names, file paths become absolute paths, sizes are formatted by the caller.
  */
 export function decorateParams(kind: string, named: Record<string, string | number | boolean>): void {
-  if (/^(db|redis)\./.test(kind) && typeof named.engine === 'string') named.engine = engineIdLabel(named.engine)
-  if (kind.startsWith('file.') && typeof named.root === 'string') {
+  if ((/^(db|redis)\./.test(kind) || kind === 'backup.restore') && typeof named.engine === 'string') named.engine = engineIdLabel(named.engine)
+  if ((kind.startsWith('file.') || kind === 'backup.restore') && typeof named.root === 'string') {
     if (typeof named.path === 'string') named.path = absolutePath(named.root, named.path)
     if (typeof named.dest === 'string') named.dest = absolutePath(named.root, named.dest)
   }

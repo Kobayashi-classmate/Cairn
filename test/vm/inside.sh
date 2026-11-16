@@ -236,6 +236,49 @@ for _ in $(seq 20); do systemctl list-units --type=service --state=active --no-l
 systemctl list-units --type=service --state=active --no-legend 'cairn-term-*' | grep_q cairn-term- && fail "terminal unit left after closing"
 step "terminal with systemd: alice's shell in a cairn-term-* unit, the system's /tmp, survives a helper restart, gone when closed"
 
+# Scheduled tasks with systemd: a service and a timer each; the services
+# record their runs, whose output the journal keeps.
+login
+cronjob() { api -X POST "$base/api/v1/cron" -d "$1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job"]["id"])'; }
+waitjob() {
+	for _ in $(seq 120); do
+		s=$(api "$base/api/v1/jobs/$1" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job"]["state"])')
+		case "$s" in succeeded | failed) echo "$s"; return ;; esac
+		sleep 1
+	done
+}
+lastrun() { # lastrun TASK: waits for a finished run, prints "result exitCode invocation"
+	for _ in $(seq 120); do
+		r=$(api "$base/api/v1/cron/$1/runs" | python3 -c 'import json,sys; r=json.load(sys.stdin)["runs"]; print(" ".join(map(str,(r[0]["result"],r[0].get("exitCode",0),r[0].get("invocation",""))) ) if r else "")')
+		case "$r" in "" | running*) sleep 1 ;; *) echo "$r"; return ;; esac
+	done
+}
+taskid() { api "$base/api/v1/cron" | python3 -c "import json,sys; print([t['id'] for t in json.load(sys.stdin)['tasks'] if t['name']=='$1'][0])"; }
+[ "$(waitjob "$(cronjob '{"name":"hello","type":"shell","schedule":"daily","user":"alice","script":"echo hello from $(id -un)","enabled":true}')")" = succeeded ] || fail "shell task"
+t=$(taskid hello)
+systemctl is-enabled --quiet "cairn-cron-$t.timer" || fail "timer not enabled"
+[ "$(waitjob "$(api -X POST "$base/api/v1/cron/$t/run" | python3 -c 'import json,sys; print(json.load(sys.stdin)["job"]["id"])')")" = succeeded ] || fail "run now"
+set -- $(lastrun "$t")
+[ "$1" = success ] || fail "shell run: $*"
+api "$base/api/v1/cron/$t/runs/$3/log" | grep_q "hello from alice" || fail "run output"
+[ "$(waitjob "$(cronjob '{"name":"broken","type":"shell","schedule":"daily","user":"alice","script":"echo oops; exit 3","enabled":true}')")" = succeeded ] || fail "failing task"
+b=$(taskid broken)
+api -X POST "$base/api/v1/cron/$b/run" >/dev/null
+set -- $(lastrun "$b")
+[ "$1 $2" = "failed 3" ] || fail "failing run: $*"
+[ "$(waitjob "$(cronjob '{"name":"root","type":"shell","schedule":"daily","user":"root","script":"id","enabled":true}')")" = failed ] || fail "root task while root access is off"
+mkdir -p /srv/www/vmbackup && echo payload >/srv/www/vmbackup/file.txt
+plan=$(api -X POST "$base/api/v1/backups/plans" -d '{"name":"vm","targets":[{"kind":"directory","root":"sites","path":"vmbackup"}],"retention":{"last":3}}' |
+	python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+[ "$(waitjob "$(cronjob "{\"name\":\"vm backup\",\"type\":\"backup\",\"schedule\":\"daily\",\"plan\":\"$plan\",\"enabled\":true}")")" = succeeded ] || fail "backup task"
+k=$(taskid "vm backup")
+api -X POST "$base/api/v1/cron/$k/run" >/dev/null
+set -- $(lastrun "$k")
+[ "$1" = success ] || fail "backup run: $*"
+api "$base/api/v1/backups/plans/$plan/files" | grep_q '"local":true' || fail "no backup from the task"
+api "$base/api/v1/logs/journal?unit=cairn-web.service&limit=5" | grep_q '"entries":\[{' || fail "journal browser"
+step "scheduled tasks with systemd: alice's script ran (output in the journal), a failing one recorded exit 3, a root task refused while root access is off; a backup task ran its plan; the journal browser reads cairn-web's journal"
+
 # Online update in a transient unit: the package restarts both services.
 api -X POST "$base/api/v1/updates/check" | grep_q '"status":"available"' || fail "no update offered"
 helper_pid=$(systemctl show -p MainPID --value cairn-helper.service)

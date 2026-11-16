@@ -1,0 +1,100 @@
+{
+  "title": "计划任务",
+  "intro": "按计划运行脚本、访问网址或执行备份方案。每个任务是一个 systemd 定时器，运行记录和输出保存在系统日志中。",
+  "statusUnavailable": "暂时无法获取下次和上次运行时间。",
+  "empty": {
+    "title": "还没有计划任务",
+    "text": "创建任务后，可以按计划运行脚本、访问网址或执行备份方案。"
+  },
+  "type": {
+    "shell": "脚本",
+    "url": "网址",
+    "backup": "备份"
+  },
+  "target": {
+    "shell": "以 {user} 身份运行",
+    "backup": "备份方案 {plan}"
+  },
+  "state": {
+    "applying": "应用中",
+    "active": "已启用",
+    "failed": "失败",
+    "disabled": "已停用"
+  },
+  "result": {
+    "success": "成功",
+    "failed": "失败",
+    "timeout": "超时",
+    "running": "运行中"
+  },
+  "column": {
+    "state": "状态",
+    "lastRun": "上次运行",
+    "nextRun": "下次运行"
+  },
+  "action": {
+    "run": "立即运行",
+    "history": "运行记录和输出",
+    "more": "{name} 的更多操作"
+  },
+  "task": {
+    "createTitle": "新建任务",
+    "editTitle": "修改 {name}",
+    "deleteTitle": "删除 {name}？",
+    "deleteText": "任务及其定时器会被删除。过去的输出仍保留在系统日志中。",
+    "user": "运行身份",
+    "userPlaceholder": "选择用户",
+    "rootNote": "此任务以 root 身份运行。root 任务需要再次输入密码，并且只在允许 root 终端时运行：关闭 root 终端后它们会停止运行。",
+    "rootOff": "root 终端当前已关闭，因此此任务不会运行。",
+    "scriptHint": "最大 {size}。如果脚本第一行不是以“#!”开头，会自动加上“#!/bin/sh”。",
+    "scriptTooLarge": "脚本超过了 {size}。",
+    "urlHint": "每次运行时服务器会请求此地址；返回非 2xx 状态即视为失败。",
+    "planPlaceholder": "选择备份方案",
+    "noPlans": "还没有备份方案，请先到备份页面创建。",
+    "timeout": "超时时间",
+    "enabled": "启用"
+  },
+  "schedule": {
+    "kind": {
+      "minutes": "每隔几分钟",
+      "hourly": "每小时",
+      "daily": "每天",
+      "weekly": "每周",
+      "monthly": "每月",
+      "custom": "自定义（OnCalendar）"
+    },
+    "minutesUnit": "分钟",
+    "atMinute": "第几分钟",
+    "day": "日",
+    "customHint": "systemd OnCalendar 表达式，例如“Mon..Fri *-*-* 09:00:00”或“*-*-01,15 04:30:00”。",
+    "shortMonths": "没有这一天的月份会跳过。",
+    "normalized": "systemd 的理解：",
+    "next": "接下来的运行时间：{times}",
+    "describe": {
+      "minutes": "每 {every} 分钟",
+      "hourly": "每小时第 {minute} 分钟",
+      "daily": "每天 {time}",
+      "weekly": "每{weekday} {time}",
+      "monthly": "每月 {day} 日 {time}"
+    }
+  },
+  "weekday": {
+    "Mon": "周一",
+    "Tue": "周二",
+    "Wed": "周三",
+    "Thu": "周四",
+    "Fri": "周五",
+    "Sat": "周六",
+    "Sun": "周日"
+  },
+  "runs": {
+    "title": "{name} 的运行记录",
+    "intro": "最近的运行及其输出，来自系统日志。",
+    "empty": "任务还没有运行过。",
+    "manual": "手动运行",
+    "meta": "耗时 {duration}，退出码 {code}",
+    "pick": "选择一次运行以查看输出。",
+    "noOutput": "这次运行没有输出。",
+    "truncated": "只显示了输出的末尾部分。"
+  }
+}

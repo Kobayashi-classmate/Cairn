@@ -74,6 +74,17 @@
       "purge": "从回收站永久删除 1 个条目",
       "upload": "上传 {path}",
       "fetch": "将 {url} 下载到 {path}"
+    },
+    "cron": {
+      "create": "创建计划任务 {name}",
+      "update": "修改计划任务 {name}",
+      "delete": "删除计划任务 {name}",
+      "run": "运行计划任务 {name}"
+    },
+    "backup": {
+      "run": "运行备份方案 {name}",
+      "delete": "删除 {name} 的备份",
+      "restore": "恢复 {file}"
     }
   },
   "detail": {
@@ -138,6 +149,17 @@
       "purge": "从回收站删除",
       "upload": "上传文件",
       "fetch": "从网址下载"
+    },
+    "cron": {
+      "create": "创建计划任务",
+      "update": "修改计划任务",
+      "delete": "删除计划任务",
+      "run": "运行计划任务"
+    },
+    "backup": {
+      "run": "运行备份方案",
+      "delete": "删除备份",
+      "restore": "恢复备份"
     }
   },
   "variant": {
@@ -179,6 +201,12 @@
       "purge": {
         "many": "从回收站永久删除 {count} 个条目",
         "all": "清空回收站"
+      }
+    },
+    "backup": {
+      "restore": {
+        "dest": "将 {file} 恢复到 {dest}",
+        "database": "将 {file} 恢复为 {database}（{engine}）的备份文件"
       }
     }
   }

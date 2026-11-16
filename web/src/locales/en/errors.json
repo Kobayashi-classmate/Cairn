@@ -84,7 +84,23 @@
       "posix_name": "{field} must be a valid user or group name.",
       "archive_name": "{field} must end with the extension of the archive format.",
       "search_query": "{field} must be 1 to 256 characters on one line.",
-      "http_url": "{field} must be an http:// or https:// address without a user name or password."
+      "http_url": "{field} must be an http:// or https:// address without a user name or password.",
+      "schedule": "{field} must be a systemd OnCalendar expression without quotes, “;”, “$”, “%” or line breaks.",
+      "cron_id": "{field} is not a scheduled task.",
+      "plan_id": "{field} is not a backup plan.",
+      "script": "{field} must not be empty and must be at most 64 KiB.",
+      "invocation_id": "{field} is not a run of this task.",
+      "bucket": "{field} must be a bucket name: 3 to 63 lower-case letters, digits, dots and hyphens.",
+      "region": "{field} must not contain spaces or “/”.",
+      "credentials": "Check the access key and the secret key.",
+      "duplicate": "{field} contains the same entry twice.",
+      "retention": "{field} must keep at least one backup, with at most 1000 of each kind.",
+      "age_recipient": "{field} must be age public keys (“age1…”), one per line.",
+      "age_identity": "{field} must be an age private key (“AGE-SECRET-KEY-1…”).",
+      "backup_name": "{field} is not a backup of this plan.",
+      "unit_name": "{field} must be a systemd unit name, such as nginx.service.",
+      "journal_time": "{field} must be a time journalctl understands, such as “today”, “-1h” or “2026-11-16 10:00”.",
+      "endpoint": "{field} must be a host name, with an optional port, without “https://” or a path."
     }
   },
   "locale": {
@@ -236,6 +252,16 @@
     "term": {
       "user_not_allowed": "Terminals cannot run as {user}.",
       "too_many": "You can have at most {max} terminals open."
+    },
+    "cron": {
+      "bad_schedule": "systemd cannot read the schedule “{schedule}”.",
+      "plan_not_found": "The backup plan {plan} does not exist (any more)."
+    },
+    "backup": {
+      "not_found": "The backup {name} does not exist (any more).",
+      "storage_failed": "The storage could not be reached or refused the request: {detail}",
+      "storage_in_use": "{plans} backup plan(s) still use this storage; change them first.",
+      "plan_in_use": "{tasks} scheduled task(s) still run this plan; delete them first."
     }
   },
   "software": {
@@ -351,5 +377,26 @@
   "terminal": {
     "not_found": "This terminal has ended."
   },
-  "sameCause": "{count} more entry failed for the same reason. | {count} more entries failed for the same reason."
+  "sameCause": "{count} more entry failed for the same reason. | {count} more entries failed for the same reason.",
+  "cron": {
+    "systemd_required": "Scheduled tasks need systemd, which this server does not run.",
+    "bad_schedule": "systemd cannot read this schedule.",
+    "not_found": "This scheduled task does not exist (any more).",
+    "plan_not_found": "The backup plan of this task does not exist (any more)."
+  },
+  "backup": {
+    "plan_not_found": "This backup plan does not exist (any more).",
+    "not_found": "This backup does not exist (any more).",
+    "storage_failed": "The storage could not be reached or refused the request.",
+    "identity_required": "This backup is encrypted: enter the private key to restore it.",
+    "bad_identity": "The private key does not open this backup.",
+    "running": "This plan is running already.",
+    "no_storage": "This plan has no storage bucket.",
+    "storage_in_use": "Backup plans still use this storage; change them first.",
+    "plan_in_use": "Scheduled tasks still run this plan; delete them first.",
+    "storage_not_found": "This storage does not exist (any more)."
+  },
+  "log": {
+    "no_journal": "This server has no system journal (journalctl)."
+  }
 }

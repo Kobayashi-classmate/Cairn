@@ -25,6 +25,12 @@ export type KnownPermission =
   | 'files.admin'
   | 'terminal.use'
   | 'terminal.admin'
+  | 'cron.read'
+  | 'cron.manage'
+  | 'cron.root'
+  | 'backups.read'
+  | 'backups.manage'
+  | 'logs.read'
 
 /**
  * A permission name. Modules define their own at startup, so any string the

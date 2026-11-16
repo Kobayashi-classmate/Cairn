@@ -1,0 +1,100 @@
+{
+  "title": "Scheduled tasks",
+  "intro": "Run a script, fetch a URL or run a backup plan on a schedule. Each task is a systemd timer; its runs and output are kept by the system journal.",
+  "statusUnavailable": "The next and last runs are not available right now.",
+  "empty": {
+    "title": "No scheduled tasks",
+    "text": "Create a task to run a script, fetch a URL or run a backup plan on a schedule."
+  },
+  "type": {
+    "shell": "Script",
+    "url": "URL",
+    "backup": "Backup"
+  },
+  "target": {
+    "shell": "Runs as {user}",
+    "backup": "Backup plan {plan}"
+  },
+  "state": {
+    "applying": "Applying",
+    "active": "Active",
+    "failed": "Failed",
+    "disabled": "Disabled"
+  },
+  "result": {
+    "success": "Succeeded",
+    "failed": "Failed",
+    "timeout": "Timed out",
+    "running": "Running"
+  },
+  "column": {
+    "state": "State",
+    "lastRun": "Last run",
+    "nextRun": "Next run"
+  },
+  "action": {
+    "run": "Run now",
+    "history": "Runs and output",
+    "more": "More actions for {name}"
+  },
+  "task": {
+    "createTitle": "New task",
+    "editTitle": "Change {name}",
+    "deleteTitle": "Delete {name}?",
+    "deleteText": "The task and its timer are removed. Its past output stays in the system journal.",
+    "user": "Run as",
+    "userPlaceholder": "Choose a user",
+    "rootNote": "This task runs as root. Root tasks need your password, and they only run while root terminals are allowed: switching root terminals off stops them.",
+    "rootOff": "Root terminals are switched off right now, so this task will not run.",
+    "scriptHint": "Up to {size}. \"#!/bin/sh\" is added when the script has no first line starting with \"#!\".",
+    "scriptTooLarge": "The script is larger than {size}.",
+    "urlHint": "The server requests this address at each run; an answer other than 2xx counts as a failure.",
+    "planPlaceholder": "Choose a backup plan",
+    "noPlans": "There is no backup plan yet. Create one on the Backups page.",
+    "timeout": "Stop after",
+    "enabled": "Enabled"
+  },
+  "schedule": {
+    "kind": {
+      "minutes": "Every few minutes",
+      "hourly": "Every hour",
+      "daily": "Every day",
+      "weekly": "Every week",
+      "monthly": "Every month",
+      "custom": "Custom (OnCalendar)"
+    },
+    "minutesUnit": "min",
+    "atMinute": "At minute",
+    "day": "Day",
+    "customHint": "A systemd OnCalendar expression, for example \"Mon..Fri *-*-* 09:00:00\" or \"*-*-01,15 04:30:00\".",
+    "shortMonths": "Months without this day are skipped.",
+    "normalized": "systemd reads it as:",
+    "next": "Next runs: {times}",
+    "describe": {
+      "minutes": "Every minute | Every {every} minutes",
+      "hourly": "Every hour at minute {minute}",
+      "daily": "Every day at {time}",
+      "weekly": "Every {weekday} at {time}",
+      "monthly": "Day {day} of every month at {time}"
+    }
+  },
+  "weekday": {
+    "Mon": "Monday",
+    "Tue": "Tuesday",
+    "Wed": "Wednesday",
+    "Thu": "Thursday",
+    "Fri": "Friday",
+    "Sat": "Saturday",
+    "Sun": "Sunday"
+  },
+  "runs": {
+    "title": "Runs of {name}",
+    "intro": "The newest runs with their output, as the system journal keeps them.",
+    "empty": "The task has not run yet.",
+    "manual": "Run by hand",
+    "meta": "Took {duration}, exit code {code}",
+    "pick": "Pick a run to see its output.",
+    "noOutput": "This run wrote no output.",
+    "truncated": "Only the end of the output is shown."
+  }
+}

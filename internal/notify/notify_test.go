@@ -308,3 +308,21 @@ func TestNotifierMatchingRetriesAndDedupe(t *testing.T) {
 		t.Fatalf("unknown channel: %v", err)
 	}
 }
+
+// Every event has a title and a body in every language.
+func TestEveryEventHasText(t *testing.T) {
+	catalog, err := i18n.NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, typ := range events.Types {
+		for _, loc := range []string{"en", "zh-CN"} {
+			for _, part := range []string{"title", "body"} {
+				id := "notify." + typ + "." + part
+				if got := catalog.T(loc, id, map[string]any{"host": "h"}); got == id {
+					t.Errorf("%s has no %s text", loc, id)
+				}
+			}
+		}
+	}
+}
