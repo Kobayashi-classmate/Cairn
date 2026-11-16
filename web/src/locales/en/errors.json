@@ -78,7 +78,13 @@
       "grant": "{field} contains an invalid entry.",
       "dump_name": "{field} is not a valid dump file name.",
       "dump_format": "This kind of dump file cannot be uploaded for this database server.",
-      "key": "{field} is not a valid key."
+      "key": "{field} is not a valid key.",
+      "file_path": "{field} must be a path inside the location, without a leading slash and without “.” or “..” parts.",
+      "file_mode": "{field} contains permission bits the panel does not set.",
+      "posix_name": "{field} must be a valid user or group name.",
+      "archive_name": "{field} must end with the extension of the archive format.",
+      "search_query": "{field} must be 1 to 256 characters on one line.",
+      "http_url": "{field} must be an http:// or https:// address without a user name or password."
     }
   },
   "locale": {
@@ -120,7 +126,8 @@
     "canceled": "The operation was canceled.",
     "interrupted": "The operation was interrupted.",
     "not_found": "The operation no longer exists.",
-    "not_cancelable": "This operation cannot be canceled."
+    "not_cancelable": "This operation cannot be canceled.",
+    "all_failed": "Nothing was done: the entry failed (the task log says why). | Nothing was done: all {failed} entries failed (the task log says why)."
   },
   "pkg": {
     "busy": "Another package operation is running; try again when it has finished.",
@@ -207,6 +214,28 @@
     },
     "redis": {
       "key_not_found": "The key {key} does not exist (it may have expired)."
+    },
+    "file": {
+      "root_unavailable": "{root} is not available.",
+      "exists": "{path} already exists.",
+      "is_dir": "{path} is a folder.",
+      "not_dir": "{path} is not a folder.",
+      "binary": "{path} is not a text file, so the editor cannot open it. Download it instead.",
+      "too_large": "The file is larger than {size}.",
+      "changed": "{path} was changed by someone else since you opened it.",
+      "is_link": "{path} is a symbolic link; the panel does not write through links.",
+      "cross_device": "The trash is on another file system than {path}; delete it permanently instead.",
+      "protected": "{path} is protected and cannot be changed here.",
+      "bad_archive": "{path} is damaged or not an archive the server can read.",
+      "tool_missing": "Extracting this archive needs {tool}, which is not installed. Install it on the Software page.",
+      "no_space": "There is not enough free disk space ({size} needed).",
+      "user_unknown": "There is no user or group named {name} on the server.",
+      "into_itself": "{path} cannot be copied or moved into itself.",
+      "too_many_favorites": "You can keep at most {max} favorites."
+    },
+    "term": {
+      "user_not_allowed": "Terminals cannot run as {user}.",
+      "too_many": "You can have at most {max} terminals open."
     }
   },
   "software": {
@@ -287,5 +316,40 @@
     "password_required": "Set a password before allowing remote access to Redis.",
     "command_failed": "Redis refused the command.",
     "key_not_found": "The key does not exist (it may have expired)."
-  }
+  },
+  "file": {
+    "root_unavailable": "This location is not available.",
+    "not_found": "The file or folder does not exist (any more).",
+    "exists": "An entry with this name already exists.",
+    "is_dir": "This is a folder.",
+    "not_dir": "This is not a folder.",
+    "binary": "This is not a text file, so the editor cannot open it. Download it instead.",
+    "too_large": "The file is too large.",
+    "too_many_entries": "The archive has more than {max} entries, more than the server extracts.",
+    "changed": "The file was changed by someone else since you opened it.",
+    "is_link": "This is a symbolic link; the panel does not write through links.",
+    "cross_device": "The trash is on another file system; delete the entry permanently instead.",
+    "protected": "This entry is protected: the trash and the top-level system folders cannot be changed here.",
+    "bad_archive": "The archive is damaged or in a format the server cannot read.",
+    "tool_missing": "This archive needs a tool that is not installed (unar). Install it on the Software page.",
+    "no_space": "There is not enough free disk space.",
+    "user_unknown": "There is no such user or group on the server.",
+    "into_itself": "A folder cannot be copied or moved into itself.",
+    "upload_offset": "The upload got out of step with the server.",
+    "upload_complete": "This upload is already complete.",
+    "fetch_failed": "The download failed.",
+    "too_many_favorites": "You already have the most favorites allowed."
+  },
+  "access": {
+    "locked": "The server's configuration does not allow root access."
+  },
+  "term": {
+    "user_not_allowed": "Terminals cannot run as this user.",
+    "root_disabled": "Root terminals are turned off. An administrator can allow them on the Terminal page.",
+    "too_many": "You already have the most terminals allowed open."
+  },
+  "terminal": {
+    "not_found": "This terminal has ended."
+  },
+  "sameCause": "{count} more entry failed for the same reason. | {count} more entries failed for the same reason."
 }

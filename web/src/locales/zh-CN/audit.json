@@ -20,7 +20,10 @@
     "dns": "DNS",
     "stream": "四层代理",
     "db": "数据库",
-    "redis": "Redis"
+    "redis": "Redis",
+    "file": "文件",
+    "files": "全盘访问",
+    "terminal": "终端"
   },
   "column": {
     "time": "时间",
@@ -155,6 +158,31 @@
       "password_reveal": "查看了 Redis 密码",
       "delete": "从 db{db} 删除了 Redis 键",
       "ttl": "修改了 Redis 键 {key} 的过期时间（db{db}）"
+    },
+    "file": {
+      "copy": "将 {path} 复制到了 {dest}",
+      "move": "将 {path} 移动到了 {dest}",
+      "delete": "将 {path} 移入了回收站",
+      "chmod": "将 {path} 的权限改为了 {mode}",
+      "chown": "修改了 {path} 的所有者",
+      "compress": "创建了压缩包 {path}",
+      "extract": "将 {path} 解压到了 {dest}",
+      "restore": "从回收站恢复了 1 个条目",
+      "purge": "从回收站永久删除了 1 个条目",
+      "upload": "上传了 {path}（{size}）",
+      "fetch": "将 {url} 下载到了 {path}",
+      "save": "保存了 {path}（{size}）",
+      "mkdir": "创建了文件夹 {path}",
+      "touch": "创建了文件 {path}",
+      "rename": "将 {path} 重命名为 {name}",
+      "download": "下载了 {path}（{size}）"
+    },
+    "files": {
+      "full_disk": "修改了全盘访问"
+    },
+    "terminal": {
+      "open": "以 {user} 身份打开了终端",
+      "root": "修改了是否允许 root 终端"
     }
   },
   "variant": {
@@ -170,6 +198,47 @@
       },
       "dump": {
         "database": "备份了数据库 {database}（{engine}）"
+      }
+    },
+    "file": {
+      "copy": {
+        "many": "将 {count} 个条目复制到了 {dest}"
+      },
+      "move": {
+        "many": "将 {count} 个条目移动到了 {dest}"
+      },
+      "chmod": {
+        "many": "将 {count} 个条目的权限改为了 {mode}"
+      },
+      "chown": {
+        "many": "修改了 {count} 个条目的所有者"
+      },
+      "restore": {
+        "many": "从回收站恢复了 {count} 个条目"
+      },
+      "delete": {
+        "many": "将 {count} 个条目移入了回收站",
+        "permanent": "永久删除了 {path}",
+        "manyPermanent": "永久删除了 {count} 个条目"
+      },
+      "purge": {
+        "many": "从回收站永久删除了 {count} 个条目",
+        "all": "清空了回收站"
+      },
+      "save": {
+        "new": "创建了 {path}（{size}）"
+      }
+    },
+    "files": {
+      "full_disk": {
+        "enable": "开启了全盘访问",
+        "disable": "关闭了全盘访问"
+      }
+    },
+    "terminal": {
+      "root": {
+        "enable": "允许了 root 终端",
+        "disable": "禁止了 root 终端"
       }
     }
   }

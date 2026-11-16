@@ -78,7 +78,13 @@
       "grant": "{field}包含无效的条目。",
       "dump_name": "{field}不是有效的备份文件名。",
       "dump_format": "该数据库服务不能上传这种备份文件。",
-      "key": "{field}不是有效的键。"
+      "key": "{field}不是有效的键。",
+      "file_path": "{field}必须是此位置内的路径，不能以斜杠开头，也不能包含“.”或“..”。",
+      "file_mode": "{field}包含面板不会设置的权限位。",
+      "posix_name": "{field}必须是有效的用户名或用户组名。",
+      "archive_name": "{field}必须以压缩格式的扩展名结尾。",
+      "search_query": "{field}必须是 1 到 256 个字符的单行文字。",
+      "http_url": "{field}必须是 http:// 或 https:// 网址，且不能包含用户名或密码。"
     }
   },
   "locale": {
@@ -120,7 +126,8 @@
     "canceled": "操作已取消。",
     "interrupted": "操作被中断。",
     "not_found": "该操作已不存在。",
-    "not_cancelable": "该操作无法取消。"
+    "not_cancelable": "该操作无法取消。",
+    "all_failed": "没有完成任何操作：{failed} 个条目全部失败（原因见任务日志）。"
   },
   "pkg": {
     "busy": "另一个软件包操作正在进行，请在其完成后重试。",
@@ -207,6 +214,28 @@
     },
     "redis": {
       "key_not_found": "键 {key} 不存在（可能已过期）。"
+    },
+    "file": {
+      "root_unavailable": "{root}不可用。",
+      "exists": "{path} 已存在。",
+      "is_dir": "{path} 是文件夹。",
+      "not_dir": "{path} 不是文件夹。",
+      "binary": "{path} 不是文本文件，编辑器无法打开，请下载查看。",
+      "too_large": "文件超过了 {size}。",
+      "changed": "自你打开以来，{path} 已被其他人修改。",
+      "is_link": "{path} 是符号链接；面板不会通过链接写入。",
+      "cross_device": "回收站与 {path} 不在同一个文件系统上，请改为永久删除。",
+      "protected": "{path} 受保护，不能在这里修改。",
+      "bad_archive": "{path} 已损坏，或者不是服务器能读取的压缩包。",
+      "tool_missing": "解压此压缩包需要尚未安装的 {tool}，请到软件页面安装。",
+      "no_space": "磁盘剩余空间不足（需要 {size}）。",
+      "user_unknown": "服务器上没有名为 {name} 的用户或用户组。",
+      "into_itself": "{path} 不能复制或移动到它自身里面。",
+      "too_many_favorites": "最多只能收藏 {max} 个。"
+    },
+    "term": {
+      "user_not_allowed": "终端不能以 {user} 的身份运行。",
+      "too_many": "最多只能同时打开 {max} 个终端。"
     }
   },
   "software": {
@@ -287,5 +316,40 @@
     "password_required": "允许远程访问 Redis 之前，请先设置密码。",
     "command_failed": "Redis 拒绝了该命令。",
     "key_not_found": "该键不存在（可能已过期）。"
-  }
+  },
+  "file": {
+    "root_unavailable": "此位置不可用。",
+    "not_found": "文件或文件夹不存在（或已被删除）。",
+    "exists": "已存在同名条目。",
+    "is_dir": "这是一个文件夹。",
+    "not_dir": "这不是文件夹。",
+    "binary": "这不是文本文件，编辑器无法打开，请下载查看。",
+    "too_large": "文件太大。",
+    "too_many_entries": "压缩包中的条目超过 {max} 个，超出了服务器的解压上限。",
+    "changed": "自你打开以来，文件已被其他人修改。",
+    "is_link": "这是符号链接；面板不会通过链接写入。",
+    "cross_device": "回收站位于另一个文件系统上，请改为永久删除。",
+    "protected": "此条目受保护：回收站和系统顶层文件夹不能在这里修改。",
+    "bad_archive": "压缩包已损坏，或者是服务器无法读取的格式。",
+    "tool_missing": "此压缩包需要尚未安装的工具（unar），请到软件页面安装。",
+    "no_space": "磁盘剩余空间不足。",
+    "user_unknown": "服务器上没有这个用户或用户组。",
+    "into_itself": "文件夹不能复制或移动到它自身里面。",
+    "upload_offset": "上传进度与服务器不一致。",
+    "upload_complete": "此上传已经完成。",
+    "fetch_failed": "下载失败。",
+    "too_many_favorites": "收藏数量已达上限。"
+  },
+  "access": {
+    "locked": "服务器配置不允许 root 访问。"
+  },
+  "term": {
+    "user_not_allowed": "终端不能以此用户身份运行。",
+    "root_disabled": "root 终端已关闭。管理员可以在终端页面允许它。",
+    "too_many": "打开的终端数量已达上限。"
+  },
+  "terminal": {
+    "not_found": "此终端已结束。"
+  },
+  "sameCause": "另有 {count} 个条目因同样的原因失败。"
 }

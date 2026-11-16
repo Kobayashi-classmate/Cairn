@@ -229,7 +229,7 @@ func navKeys(t *testing.T, c *client) string {
 func TestNavAndModuleSwitches(t *testing.T) {
 	e := newEnv(t, demo{})
 	admin := e.setupAdmin("admin")
-	if got := navKeys(t, admin); got != "overview,sites,certs,databases,software,demo,jobs,users,messages,audit,settings" {
+	if got := navKeys(t, admin); got != "overview,sites,certs,databases,files,terminal,software,demo,jobs,users,messages,audit,settings" {
 		t.Fatalf("admin menu: %s", got)
 	}
 	admin.elevate("")
@@ -246,7 +246,7 @@ func TestNavAndModuleSwitches(t *testing.T) {
 	}
 
 	mods := admin.expect(admin.do("GET", "/api/v1/modules", nil), 200, "").body["modules"].([]any)
-	if len(mods) != 12 || fmt.Sprint(mods[11]) != "map[enabled:true id:demo optional:true]" {
+	if len(mods) != 14 || fmt.Sprint(mods[13]) != "map[enabled:true id:demo optional:true]" {
 		t.Fatalf("modules: %v", mods)
 	}
 	admin.expect(admin.do("PUT", "/api/v1/modules/core", map[string]any{"enabled": false}), 409, "module.not_optional")

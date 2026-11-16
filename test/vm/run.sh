@@ -32,6 +32,6 @@ bash test/lib/release-fixture.sh "$work/fixture" http://10.0.2.2:8080
 
 echo "== $target VM"
 docker run --rm --name cairn-vm \
-	-v "$PWD/test/vm:/t:ro" -v "$work:/work" -v cairn-vm-images:/images \
+	-v "$PWD/test/vm:/t:ro" -v "$PWD/test/files:/f:ro" -v "$work:/work" -v cairn-vm-images:/images \
 	-e TARGET="$target" -e TRUSTED_KEY="$(awk '{print $1}' "$work/fixture/keys.txt")" \
 	debian:trixie bash /t/host.sh

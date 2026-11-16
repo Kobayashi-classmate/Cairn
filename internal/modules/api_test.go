@@ -39,11 +39,13 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cloudsvc"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/core"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/databases"
+	filesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/files"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
 	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/terminal"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
 	"github.com/Kobayashi-classmate/Cairn/internal/notify"
 	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
@@ -59,6 +61,31 @@ type fakeHelper struct {
 	requests  map[string]json.RawMessage
 	responses map[string]any
 	errs      map[string]error // per-action failures
+	// fds answer CallFD per action.
+	fds map[string]func() (*os.File, error)
+}
+
+// CallFD answers like Call, with the file fds gives for the action.
+func (f *fakeHelper) CallFD(ctx context.Context, action string, caller helperapi.Caller, req, resp any) (*os.File, error) {
+	if err := f.Call(ctx, action, caller, req, resp); err != nil {
+		return nil, err
+	}
+	f.mu.Lock()
+	fn := f.fds[action]
+	f.mu.Unlock()
+	if fn == nil {
+		return nil, &helperapi.Error{Code: helperapi.CodeUnavailable}
+	}
+	return fn()
+}
+
+func (f *fakeHelper) giveFile(action string, fn func() (*os.File, error)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fds == nil {
+		f.fds = map[string]func() (*os.File, error){}
+	}
+	f.fds[action] = fn
 }
 
 // callsOf returns the actions called so far.
@@ -106,6 +133,8 @@ type env struct {
 	cloud    *cloudsvc.Module
 	certs    *certsmod.Module
 	sites    *sitesmod.Module
+	files    *filesmod.Module
+	terminal *terminal.Module
 	dataDir  string
 	modules  *module.Registry
 	jobs     *jobs.Manager
@@ -160,6 +189,8 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	registry := module.NewRegistry(db)
 	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log, PanelPort: 28443}
 	certsMod := &certsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log}
+	filesMod := &filesmod.Module{Jobs: jobManager, Helper: h, DB: db, Log: log, DataDir: dataDir}
+	termMod := &terminal.Module{Helper: h, DB: db, Log: log}
 	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),
 		Log: log, Version: "0.1.0", Family: "debian", Format: "deb", Arch: "amd64"}
 	registry.Add(
@@ -170,6 +201,8 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		sitesMod,
 		certsMod,
 		&databases.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Log: log, DataDir: dataDir},
+		filesMod,
+		termMod,
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
@@ -186,7 +219,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	srv := httptest.NewTLSServer(api.SecurityHeaders(api.Recover(log, router)))
 	t.Cleanup(srv.Close)
 	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod, sites: sitesMod,
-		dataDir: dataDir, modules: registry, jobs: jobManager}
+		files: filesMod, terminal: termMod, dataDir: dataDir, modules: registry, jobs: jobManager}
 }
 
 // client is one browser with its own cookie jar.

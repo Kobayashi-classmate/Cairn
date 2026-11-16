@@ -23,11 +23,20 @@ const DefaultPath = "/etc/cairn/config.toml"
 
 // Config is the panel configuration.
 type Config struct {
-	Server Server `toml:"server"`
-	UI     UI     `toml:"ui"`
-	Paths  Paths  `toml:"paths"`
-	Cloud  Cloud  `toml:"cloud"`
-	ACME   ACME   `toml:"acme"`
+	Server   Server   `toml:"server"`
+	UI       UI       `toml:"ui"`
+	Paths    Paths    `toml:"paths"`
+	Cloud    Cloud    `toml:"cloud"`
+	ACME     ACME     `toml:"acme"`
+	Security Security `toml:"security"`
+}
+
+// Security holds switches that only root on the server can change.
+type Security struct {
+	// RootAccess decides whether administrators may turn on full-disk
+	// file access and root terminals in the panel ("panel", the default)
+	// or not at all ("never").
+	RootAccess string `toml:"root_access"`
 }
 
 // Cloud configures access to the project's signed public data (official
@@ -66,10 +75,11 @@ type Paths struct {
 // Default returns the built-in defaults.
 func Default() Config {
 	return Config{
-		Server: Server{Listen: "0.0.0.0:28443"},
-		UI:     UI{DefaultLocale: i18n.Default},
-		Paths:  Paths{DataDir: "/var/lib/cairn", HelperSocket: "/run/cairn/helper.sock"},
-		Cloud:  Cloud{Enabled: true, BaseURL: DefaultCloudURL, Channel: "stable"},
+		Server:   Server{Listen: "0.0.0.0:28443"},
+		UI:       UI{DefaultLocale: i18n.Default},
+		Paths:    Paths{DataDir: "/var/lib/cairn", HelperSocket: "/run/cairn/helper.sock"},
+		Cloud:    Cloud{Enabled: true, BaseURL: DefaultCloudURL, Channel: "stable"},
+		Security: Security{RootAccess: "panel"},
 	}
 }
 
@@ -116,6 +126,9 @@ func (c Config) Validate() error {
 	}
 	if !filepath.IsAbs(c.Paths.DataDir) || !filepath.IsAbs(c.Paths.HelperSocket) {
 		return errors.New("config: paths must be absolute")
+	}
+	if c.Security.RootAccess != "panel" && c.Security.RootAccess != "never" {
+		return fmt.Errorf("config: security.root_access %q must be panel or never", c.Security.RootAccess)
 	}
 	if c.Cloud.Channel != "stable" && c.Cloud.Channel != "beta" {
 		return fmt.Errorf("config: cloud.channel %q must be stable or beta", c.Cloud.Channel)

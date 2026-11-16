@@ -20,6 +20,11 @@ export type KnownPermission =
   | 'certs.manage'
   | 'databases.read'
   | 'databases.manage'
+  | 'files.read'
+  | 'files.manage'
+  | 'files.admin'
+  | 'terminal.use'
+  | 'terminal.admin'
 
 /**
  * A permission name. Modules define their own at startup, so any string the

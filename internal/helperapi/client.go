@@ -16,7 +16,8 @@ import (
 
 // Client calls the root helper over its Unix socket.
 type Client struct {
-	hc *http.Client
+	hc     *http.Client
+	socket string
 }
 
 // NewClient returns a client for the helper listening on socket.
@@ -29,7 +30,7 @@ func NewClient(socket string) *Client {
 		MaxIdleConns:    4,
 		IdleConnTimeout: 30 * time.Second,
 	}
-	return &Client{hc: &http.Client{Transport: tr, Timeout: 10 * time.Minute}}
+	return &Client{hc: &http.Client{Transport: tr, Timeout: 10 * time.Minute}, socket: socket}
 }
 
 // Call invokes action with req and decodes the result into resp (which may be

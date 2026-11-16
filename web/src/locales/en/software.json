@@ -10,7 +10,8 @@
     "web": "Web servers",
     "runtime": "Language runtimes",
     "database": "Databases",
-    "cache": "Caches"
+    "cache": "Caches",
+    "tool": "Tools"
   },
   "method": {
     "system": "System repositories",

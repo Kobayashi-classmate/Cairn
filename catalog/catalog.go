@@ -41,7 +41,7 @@ const (
 )
 
 // Categories group software in the UI.
-var Categories = []string{"web", "runtime", "database", "cache"}
+var Categories = []string{"web", "runtime", "database", "cache", "tool"}
 
 // Software is one installable product.
 type Software struct {

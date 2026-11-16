@@ -20,7 +20,10 @@
     "dns": "DNS",
     "stream": "Four-layer proxies",
     "db": "Databases",
-    "redis": "Redis"
+    "redis": "Redis",
+    "file": "Files",
+    "files": "Full-disk access",
+    "terminal": "Terminal"
   },
   "column": {
     "time": "Time",
@@ -155,6 +158,31 @@
       "password_reveal": "Viewed the Redis password",
       "delete": "Deleted Redis keys from db{db}",
       "ttl": "Changed the expiry of Redis key {key} (db{db})"
+    },
+    "file": {
+      "copy": "Copied {path} to {dest}",
+      "move": "Moved {path} to {dest}",
+      "delete": "Moved {path} to the trash",
+      "chmod": "Changed the permissions of {path} to {mode}",
+      "chown": "Changed the owner of {path}",
+      "compress": "Created archive {path}",
+      "extract": "Extracted {path} to {dest}",
+      "restore": "Restored an entry from the trash",
+      "purge": "Deleted an entry from the trash permanently",
+      "upload": "Uploaded {path} ({size})",
+      "fetch": "Downloaded {url} to {path}",
+      "save": "Saved {path} ({size})",
+      "mkdir": "Created folder {path}",
+      "touch": "Created file {path}",
+      "rename": "Renamed {path} to {name}",
+      "download": "Downloaded {path} ({size})"
+    },
+    "files": {
+      "full_disk": "Changed full-disk access"
+    },
+    "terminal": {
+      "open": "Opened a terminal as {user}",
+      "root": "Changed whether root terminals are allowed"
     }
   },
   "variant": {
@@ -170,6 +198,47 @@
       },
       "dump": {
         "database": "Dumped database {database} ({engine})"
+      }
+    },
+    "file": {
+      "copy": {
+        "many": "Copied {count} entries to {dest}"
+      },
+      "move": {
+        "many": "Moved {count} entries to {dest}"
+      },
+      "chmod": {
+        "many": "Changed the permissions of {count} entries to {mode}"
+      },
+      "chown": {
+        "many": "Changed the owner of {count} entries"
+      },
+      "restore": {
+        "many": "Restored {count} entries from the trash"
+      },
+      "delete": {
+        "many": "Moved {count} entries to the trash",
+        "permanent": "Deleted {path} permanently",
+        "manyPermanent": "Deleted {count} entries permanently"
+      },
+      "purge": {
+        "many": "Deleted {count} entries from the trash permanently",
+        "all": "Emptied the trash"
+      },
+      "save": {
+        "new": "Created {path} ({size})"
+      }
+    },
+    "files": {
+      "full_disk": {
+        "enable": "Turned on full-disk access",
+        "disable": "Turned off full-disk access"
+      }
+    },
+    "terminal": {
+      "root": {
+        "enable": "Allowed root terminals",
+        "disable": "Disallowed root terminals"
       }
     }
   }

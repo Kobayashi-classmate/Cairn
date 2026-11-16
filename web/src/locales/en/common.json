@@ -14,7 +14,9 @@
     "jobs": "Tasks",
     "sites": "Sites",
     "certs": "Certificates",
-    "databases": "Databases"
+    "databases": "Databases",
+    "files": "Files",
+    "terminal": "Terminal"
   },
   "action": {
     "signOut": "Sign out",
@@ -27,7 +29,8 @@
     "loadMore": "Load more",
     "edit": "Edit",
     "delete": "Delete",
-    "refresh": "Refresh"
+    "refresh": "Refresh",
+    "create": "Create"
   },
   "language": {
     "label": "Language"
@@ -123,7 +126,20 @@
     "db": "Database number",
     "pattern": "Pattern",
     "seconds": "Seconds",
-    "owner": "Owner"
+    "owner": "Owner",
+    "dest": "Destination",
+    "dirMode": "Folder permissions",
+    "format": "Format",
+    "group": "Group",
+    "ids": "Entries",
+    "mode": "Permissions",
+    "names": "Entries",
+    "olderThan": "Deleted before",
+    "path": "Path",
+    "paths": "Entries",
+    "query": "Search text",
+    "size": "Size",
+    "upload": "Upload"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -178,6 +194,15 @@
     "databases": {
       "read": "View databases",
       "manage": "Manage databases"
+    },
+    "files": {
+      "read": "Browse files",
+      "manage": "Manage files",
+      "admin": "Turn full-disk access on and off"
+    },
+    "terminal": {
+      "use": "Use the web terminal",
+      "admin": "Open root terminals and allow them"
     }
   },
   "copy": {

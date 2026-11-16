@@ -116,6 +116,8 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	helper.RegisterSites(reg, ops, sites)
 	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: sites, PanelUser: "cairn", Resolvers: cfg.ACME.Resolvers})
 	helper.RegisterDBs(reg, ops, dbEngine(software, cfg.Paths.DataDir))
+	helper.RegisterFiles(reg, ops, &helper.Files{DataDir: cfg.Paths.DataDir, PanelUser: "cairn", StateDir: stateDir,
+		RootAccess: cfg.Security.RootAccess, Log: log})
 	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,

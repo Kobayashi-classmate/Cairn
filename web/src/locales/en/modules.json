@@ -16,6 +16,8 @@
     "cloud": "Cloud service",
     "sites": "Sites",
     "certs": "Certificates",
-    "databases": "Databases"
+    "databases": "Databases",
+    "files": "Files",
+    "terminal": "Terminal"
   }
 }

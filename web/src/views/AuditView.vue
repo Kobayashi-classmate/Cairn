@@ -21,9 +21,8 @@ import { certsAvailable } from '@/certs/useCertChoices'
 import { roleLabel } from '@/auth/permissions'
 import { localeNativeName } from '@/i18n'
 import { errorMessage, errorText } from '@/i18n/errors'
-import { formatDateTime } from '@/i18n/format'
-import { engineIdLabel } from '@/databases/labels'
-import { itemNames, jobKindLabel, labelVariant } from '@/jobs/labels'
+import { formatBytes, formatDateTime } from '@/i18n/format'
+import { decorateParams, itemNames, jobKindLabel, labelVariant } from '@/jobs/labels'
 import { siteTypeLabel } from '@/sites/labels'
 
 const PAGE_SIZE = 50
@@ -51,6 +50,9 @@ const categories = [
   'stream',
   'db',
   'redis',
+  'file',
+  'files',
+  'terminal',
   'cert',
   'dns',
   'job',
@@ -125,7 +127,8 @@ function displayParams(entry: AuditEntry): Record<string, string | number | bool
   if (entry.action.startsWith('job.')) {
     params.kind = typeof params.kind === 'string' ? jobKindLabel(params.kind) : String(params.id ?? '')
   }
-  if (/^(db|redis)\./.test(entry.action) && typeof params.engine === 'string') params.engine = engineIdLabel(params.engine)
+  decorateParams(entry.action, params)
+  if (entry.action.startsWith('file.') && typeof params.size === 'number') params.size = formatBytes(params.size)
   if (typeof params.module === 'string') {
     const key = `modules.name.${params.module}`
     params.module = te(key) ? t(key) : params.module

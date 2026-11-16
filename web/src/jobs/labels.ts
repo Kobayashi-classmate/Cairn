@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 import type { JobState } from '@/api/jobs'
 import { engineIdLabel } from '@/databases/labels'
+import { absolutePath } from '@/files/paths'
 import { i18n } from '@/i18n'
 
 const FINAL_STATES: ReadonlySet<string> = new Set(['succeeded', 'failed', 'canceled', 'interrupted'])
@@ -18,6 +19,7 @@ export function isFinalState(state: string): boolean {
  * it, the plain label is used.
  */
 export function labelVariant(kind: string, params: Record<string, unknown>): string | null {
+  const many = typeof params.count === 'number' && params.count > 1
   switch (kind) {
     case 'db.service':
       return typeof params.action === 'string' && /^[a-z]+$/.test(params.action) ? params.action : null
@@ -26,8 +28,37 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
     case 'db.dump':
       // Redis snapshots have no database.
       return typeof params.database === 'string' && params.database !== '' ? 'database' : null
+    case 'file.copy':
+    case 'file.move':
+    case 'file.chmod':
+    case 'file.chown':
+    case 'file.restore':
+      return many ? 'many' : null
+    case 'file.delete':
+      if (params.permanent === true) return many ? 'manyPermanent' : 'permanent'
+      return many ? 'many' : null
+    case 'file.purge':
+      // Emptying the trash names no entries.
+      return params.count === 0 ? 'all' : many ? 'many' : null
+    case 'file.save':
+      return params.new === true ? 'new' : null
+    case 'files.full_disk':
+    case 'terminal.root':
+      return typeof params.enabled === 'boolean' ? (params.enabled ? 'enable' : 'disable') : null
     default:
       return null
+  }
+}
+
+/**
+ * Job and audit parameters as people read them: engine IDs become product
+ * names, file paths become absolute paths, sizes are formatted by the caller.
+ */
+export function decorateParams(kind: string, named: Record<string, string | number | boolean>): void {
+  if (/^(db|redis)\./.test(kind) && typeof named.engine === 'string') named.engine = engineIdLabel(named.engine)
+  if (kind.startsWith('file.') && typeof named.root === 'string') {
+    if (typeof named.path === 'string') named.path = absolutePath(named.root, named.path)
+    if (typeof named.dest === 'string') named.dest = absolutePath(named.root, named.dest)
   }
 }
 
@@ -46,7 +77,7 @@ export function jobKindLabel(kind: string, params?: Record<string, unknown>): st
   }
   const short = `jobs.kindName.${kind}`
   if (Object.keys(named).length === 0 && te(short)) return t(short)
-  if (/^(db|redis)\./.test(kind) && typeof named.engine === 'string') named.engine = engineIdLabel(named.engine)
+  decorateParams(kind, named)
   const variant = labelVariant(kind, named)
   if (variant && te(`jobs.variant.${kind}.${variant}`)) return t(`jobs.variant.${kind}.${variant}`, named)
   const full = `jobs.kind.${kind}`

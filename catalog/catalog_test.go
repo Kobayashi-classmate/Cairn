@@ -77,7 +77,9 @@ func TestEveryReleaseIsCovered(t *testing.T) {
 		t.Fatal(err)
 	}
 	// EL 10 ships Valkey only; Debian 12 and Ubuntu 22.04 predate Valkey.
-	missing := map[string]bool{"redis/el-10": true, "valkey/debian-12": true, "valkey/ubuntu-22.04": true}
+	// unar is in EPEL only, which the panel does not add.
+	missing := map[string]bool{"redis/el-10": true, "valkey/debian-12": true, "valkey/ubuntu-22.04": true,
+		"unar/el-9": true, "unar/el-10": true}
 	for _, sw := range c.Software {
 		for _, rel := range tier1 {
 			offers := sw.Offers(system(t, rel))

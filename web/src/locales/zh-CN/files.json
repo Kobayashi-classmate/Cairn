@@ -1,0 +1,199 @@
+{
+  "title": "文件",
+  "root": {
+    "sites": "网站",
+    "backups": "备份",
+    "system": "整个系统"
+  },
+  "side": {
+    "label": "文件位置",
+    "places": "位置",
+    "favorites": "收藏",
+    "noFavorites": "给文件夹加星标后会显示在这里。",
+    "removeFavorite": "取消收藏",
+    "unavailable": "不可用"
+  },
+  "action": {
+    "up": "上一级",
+    "refresh": "刷新",
+    "newFolder": "新建文件夹",
+    "newFile": "新建文件",
+    "upload": "上传",
+    "fetch": "从网址下载",
+    "search": "搜索",
+    "open": "打开",
+    "edit": "编辑",
+    "preview": "预览",
+    "download": "下载",
+    "extract": "解压",
+    "rename": "重命名",
+    "copy": "复制到…",
+    "move": "移动到…",
+    "compress": "压缩",
+    "chmod": "权限",
+    "chown": "所有者",
+    "more": "{name} 的更多操作"
+  },
+  "column": {
+    "size": "大小",
+    "permissions": "权限",
+    "owner": "所有者",
+    "modified": "修改时间"
+  },
+  "hidden": "隐藏文件",
+  "empty": "此文件夹为空。",
+  "dropHint": "把文件拖到这里即可上传。",
+  "dropHere": "松开即可上传到 {dir}",
+  "truncated": "此文件夹的条目超过 {max} 个，只列出了前 {max} 个。请用搜索查找其余条目。",
+  "favorite": {
+    "add": "收藏",
+    "remove": "取消收藏"
+  },
+  "selection": {
+    "count": "{count} 个条目",
+    "selected": "已选择 {count} 项",
+    "clear": "取消选择",
+    "tooMany": "一次最多选择 {max} 个条目。"
+  },
+  "newFolder": {
+    "title": "新建文件夹"
+  },
+  "newFile": {
+    "title": "新建文件"
+  },
+  "rename": {
+    "title": "重命名 {name}",
+    "submit": "重命名"
+  },
+  "picker": {
+    "empty": "这里没有文件夹。"
+  },
+  "transfer": {
+    "copyTitle": "复制 {name}",
+    "moveTitle": "移动 {name}",
+    "pick": "选择目标文件夹：",
+    "overwrite": "替换已存在的条目",
+    "copyHere": "复制到 {dir}",
+    "moveHere": "移动到 {dir}"
+  },
+  "chmod": {
+    "titleOne": "{name} 的权限",
+    "titleMany": "{count} 个条目的权限",
+    "octal": "八进制权限",
+    "files": "文件",
+    "dirs": "文件夹",
+    "owner": "所有者",
+    "group": "用户组",
+    "others": "其他人",
+    "read": "读取",
+    "write": "写入",
+    "execute": "执行",
+    "setgid": "设置组 ID（新条目继承用户组）",
+    "sticky": "粘滞位（只有所有者能删除自己的条目）",
+    "recursive": "同时应用到文件夹内的所有内容",
+    "hint": "面板不会设置 setuid，也不会给文件设置 setgid。"
+  },
+  "chown": {
+    "titleOne": "{name} 的所有者",
+    "titleMany": "{count} 个条目的所有者",
+    "recursive": "同时应用到文件夹内的所有内容"
+  },
+  "compress": {
+    "title": "压缩 {count} 个条目",
+    "submit": "压缩"
+  },
+  "extract": {
+    "title": "解压 {name}",
+    "pick": "解压到此文件夹：",
+    "overwrite": "替换已存在的文件",
+    "hint": "无法安全解压的条目会被跳过，并列在任务日志中。",
+    "submit": "解压到 {dir}",
+    "toolMissing": "解压 7z 和 rar 压缩包需要 unar 工具，但它尚未安装。",
+    "installTool": "到软件页面安装"
+  },
+  "fetch": {
+    "title": "从网址下载",
+    "intro": "服务器会把文件下载到 {dir}。",
+    "namePlaceholder": "取自网址",
+    "submit": "下载"
+  },
+  "delete": {
+    "titleOne": "删除 {name}？",
+    "titleMany": "删除 {count} 个条目？",
+    "trashText": "条目会移入此位置的回收站，之后可以恢复。",
+    "permanentText": "条目会被永久删除。",
+    "permanent": "永久删除（不放入回收站）",
+    "permanentWarning": "此操作无法撤销，需要再次输入密码。",
+    "submit": "移入回收站",
+    "submitPermanent": "永久删除",
+    "crossDeviceTitle": "{count} 个条目无法移入回收站",
+    "crossDeviceText": "回收站与这些条目不在同一个文件系统上。改为永久删除吗？"
+  },
+  "editor": {
+    "modified": "已修改",
+    "readOnly": "只读",
+    "saved": "已保存 {name}。",
+    "tooLarge": "编辑器最多保存 {size} 的文件。",
+    "reload": "重新加载",
+    "reloadTitle": "重新加载文件？",
+    "overwrite": "覆盖对方的修改",
+    "discard": "放弃修改",
+    "discardTitle": "放弃对 {name} 的修改？",
+    "discardText": "未保存的修改将会丢失。"
+  },
+  "preview": {
+    "failed": "无法显示该图片。"
+  },
+  "search": {
+    "title": "搜索",
+    "placeholder": "要查找的名称或文字",
+    "submit": "搜索",
+    "content": "搜索文件内容",
+    "case": "区分大小写",
+    "contentHint": "只搜索不超过 1 MiB 的文本文件。",
+    "none": "没有找到结果。",
+    "truncated": "结果多于显示的数量，请缩小搜索范围。"
+  },
+  "trash": {
+    "title": "{root} 的回收站",
+    "back": "返回 {root}",
+    "intro": "从此位置删除的条目。恢复后会回到原来的位置。",
+    "from": "原位置",
+    "by": "删除者",
+    "deletedAt": "删除时间",
+    "restore": "恢复",
+    "overwrite": "替换原位置上现有的条目",
+    "purge": "永久删除",
+    "purgeTitle": "永久删除 {count} 个条目？",
+    "purgeText": "此操作无法撤销，需要再次输入密码。",
+    "empty": "清空回收站",
+    "emptyTitle": "清空回收站？",
+    "emptyList": "回收站是空的。",
+    "total": "{count} 个条目，共 {size}"
+  },
+  "upload": {
+    "title": "上传",
+    "clear": "清除已结束的",
+    "replace": "替换",
+    "retry": "重试",
+    "existsTitle": "这里已有 {count} 个同名文件，要替换吗？",
+    "tooLarge": "文件太大，无法上传（最大 {size}）：{name}",
+    "noFolders": "无法上传文件夹；请上传其中的文件，或先打包成压缩包。",
+    "state": {
+      "queued": "等待中",
+      "uploading": "上传中",
+      "placing": "保存中",
+      "done": "已完成",
+      "failed": "失败",
+      "canceled": "已取消"
+    }
+  },
+  "fullDisk": {
+    "label": "全盘访问",
+    "enableTitle": "开启全盘访问？",
+    "enableText": "文件管理器将以 root 身份访问整个系统：所有有文件管理权限的人都能读取和修改任何文件，包括系统配置和其他用户的数据。请只在需要时开启。",
+    "enable": "开启",
+    "locked": "服务器配置不允许 root 访问，因此全盘访问保持关闭。",
+    "active": "全盘访问已开启：在这里的修改会影响整个系统。"
+  }
+}

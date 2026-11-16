@@ -3,7 +3,9 @@ module github.com/Kobayashi-classmate/Cairn
 go 1.27.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/go-acme/lego/v4 v4.35.2
+	github.com/klauspost/compress v1.20.4
 	github.com/libdns/alidns v1.0.7
 	github.com/libdns/cloudflare v0.2.2
 	github.com/libdns/godaddy v1.1.0
@@ -17,6 +19,7 @@ require (
 	github.com/nicksnyder/go-i18n/v2 v2.7.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/shirou/gopsutil/v4 v4.26.10
+	github.com/ulikunitz/xz v0.5.17
 	golang.org/x/crypto v0.59.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0

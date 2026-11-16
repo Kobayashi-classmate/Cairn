@@ -5,6 +5,7 @@ package execx
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -99,5 +100,51 @@ func TestStdoutIsRedirected(t *testing.T) {
 	// Redirected output is complete, not captured and not in the live log.
 	if out.String() != "0123456789" || len(res.Stdout) != 0 || res.Truncated || live.Len() != 0 {
 		t.Fatalf("out %q, captured %q, truncated %v, live %q", out.String(), res.Stdout, res.Truncated, live.String())
+	}
+}
+
+func TestStartTerminal(t *testing.T) {
+	if _, err := os.Stat("/dev/ptmx"); err != nil {
+		t.Skip("no /dev/ptmx")
+	}
+	sh := "/bin/sh"
+	if !listedShell(sh) {
+		t.Skip("/bin/sh is not in /etc/shells")
+	}
+	if _, _, err := StartTerminal(Terminal{Shell: "/usr/bin/env", Uid: uint32(os.Getuid()), Gid: uint32(os.Getgid()), Home: "/"}); err == nil {
+		t.Fatal("a program not in /etc/shells must be refused")
+	}
+	master, cmd, err := StartTerminal(Terminal{Shell: sh, Uid: uint32(os.Getuid()), Gid: uint32(os.Getgid()), Home: os.TempDir(),
+		Env: []string{"TERM=dumb"}, Cols: 100, Rows: 30, TTYGroup: -1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	if _, err := master.WriteString("stty size; echo \"marker $((40+2))\"; exit\n"); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	buf := make([]byte, 4096)
+	for !strings.Contains(out.String(), "marker 42") {
+		n, err := master.Read(buf)
+		out.Write(buf[:n])
+		if err != nil {
+			break
+		}
+	}
+	_ = cmd.Wait()
+	if !strings.Contains(out.String(), "30 100") || !strings.Contains(out.String(), "marker 42") {
+		t.Fatalf("terminal output %q", out.String())
+	}
+}
+
+func TestTerminalUnitArgs(t *testing.T) {
+	args := strings.Join(TerminalUnitArgs(Terminal{Shell: "/bin/bash", Uid: 1000, Gid: 1001, Home: "/home/a", Env: []string{"TERM=xterm-256color"}},
+		"cairn-term-x", "/dev/pts/7"), " ")
+	for _, want := range []string{"--unit=cairn-term-x", "--uid=1000 --gid=1001", "--property=TTYPath=/dev/pts/7", "--property=StandardInput=tty",
+		"--setenv=TERM=xterm-256color", "-- /bin/bash -l"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args lack %q: %s", want, args)
+		}
 	}
 }

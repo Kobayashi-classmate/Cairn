@@ -4,6 +4,7 @@
 // code and parameters; the message for code `a.b` lives at `errors.a.b`.
 import { isApiError, type ErrorParams } from '@/api/client'
 import { providerName } from '@/api/software'
+import { rootLabel } from '@/files/paths'
 import { i18n } from './index'
 import { formatBytes, formatDuration } from './format'
 
@@ -88,12 +89,26 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
   // `errors.detailed.<code>` is used when the parameters are at hand.
   // No free app port left in the panel's range.
   if (code === 'app.port_taken' && params.range !== undefined) return t('errors.app.port_range_full')
+  // An archive with more entries than the server extracts.
+  if (code === 'file.too_large' && typeof params.entries === 'number') return t('errors.file.too_many_entries', { max: params.entries })
+  // A file operation where every entry failed (the job log lists them).
+  if (code === 'op.failed' && typeof params.failed === 'number') return t('errors.op.all_failed', { failed: params.failed }, params.failed)
   const detailed = `errors.detailed.${code}`
   if (Object.keys(params).length > 0 && te(detailed)) {
-    return t(detailed, decorateFor(code, params))
+    return withOthers(t(detailed, decorateFor(code, params)), code, params)
   }
   const key = `errors.${code}`
-  return te(key) ? t(key, decorate(params)) : null
+  return te(key) ? withOthers(t(key, decorate(params)), code, params) : null
+}
+
+/**
+ * A file operation where every entry failed for the same reason names the
+ * first one; `failed` counts them all, so the others are mentioned too.
+ */
+function withOthers(text: string, code: string, params: ErrorParams): string {
+  const others = typeof params.failed === 'number' ? params.failed - 1 : 0
+  if (others < 1 || !code.startsWith('file.')) return text
+  return `${text} ${i18n.global.t('errors.sameCause', { count: others }, others)}`
 }
 
 /** Parameters with code-specific additions, such as a translated `reason`. */
@@ -105,6 +120,10 @@ function decorateFor(code: string, params: ErrorParams): NamedParams {
   }
   if (code === 'app.port_taken' || code === 'stream.port_taken') named.owner = portOwner(params)
   if (code === 'db.upload_too_large' && typeof params.max === 'number') named.size = formatBytes(params.max)
+  if (code === 'file.too_large' && typeof params.max === 'number') named.size = formatBytes(params.max)
+  if (code === 'file.no_space' && typeof params.size === 'number') named.size = formatBytes(params.size)
+  if (code === 'file.root_unavailable' && typeof params.root === 'string') named.root = rootLabel(params.root)
+  if (code === 'file.user_unknown') named.name = String(params.user ?? params.group ?? '')
   // Providers of prebuilt runtimes are shown by name (not translated).
   if (typeof params.provider === 'string') named.provider = providerName(params.provider)
   return named

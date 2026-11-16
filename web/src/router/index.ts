@@ -80,6 +80,18 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'databases.title', navKey: 'databases', permission: 'databases.read' },
       },
       {
+        path: 'files',
+        name: 'files',
+        component: () => import('@/views/FilesView.vue'),
+        meta: { titleKey: 'files.title', navKey: 'files', permission: 'files.read' },
+      },
+      {
+        path: 'terminal',
+        name: 'terminal',
+        component: () => import('@/views/TerminalView.vue'),
+        meta: { titleKey: 'terminal.title', navKey: 'terminal', permission: 'terminal.use' },
+      },
+      {
         path: 'software',
         name: 'software',
         component: () => import('@/views/SoftwareView.vue'),

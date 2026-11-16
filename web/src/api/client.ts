@@ -57,6 +57,9 @@ export interface RequestOptions {
   skipStepUp?: boolean
 }
 
+/** Header every state-changing request carries (CSRF guard); its value is "1". */
+export const CSRF_HEADER = 'X-Cairn-Request'
+
 /** Error code of a 403 response asking the user to confirm their identity again. */
 export const STEP_UP_REQUIRED = 'auth.step_up_required'
 
@@ -97,7 +100,7 @@ async function request<T>(
   const headers: Record<string, string> = { Accept: 'application/json' }
   if (method !== 'GET') {
     // CSRF guard: the server rejects state-changing requests without it.
-    headers['X-Cairn-Request'] = '1'
+    headers[CSRF_HEADER] = '1'
   }
   let payload: string | undefined
   if (body !== undefined) {

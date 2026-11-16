@@ -30,7 +30,7 @@ NODE_RUN = docker run --rm \
 	-v cairn-npm-cache:/root/.npm \
 	$(NODE_IMAGE)
 
-.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test certs-test databases-test vm-test clean
+.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test certs-test databases-test files-test vm-test clean
 
 all: check build
 
@@ -126,6 +126,10 @@ sites-test:
 ## databases-test: manage MySQL/MariaDB, PostgreSQL and Redis through the API (Debian/Ubuntu containers)
 databases-test:
 	bash test/databases/run.sh
+
+## files-test: file manager and terminal through the API (tier-1 containers)
+files-test:
+	bash test/files/run.sh
 
 ## certs-test: issue certificates against Pebble (Let's Encrypt's test CA) with a local DNS server (containers)
 certs-test:

@@ -68,6 +68,15 @@ type Cmd struct {
 	// (large outputs such as database dumps): it is neither captured nor
 	// capped, and Output does not see it. A write error stops the command.
 	Stdout io.Writer
+	// RunAs, when set, runs the command as that user instead of the
+	// caller's.
+	RunAs *RunAs
+}
+
+// RunAs is an identity a command runs as.
+type RunAs struct {
+	Uid, Gid uint32
+	Groups   []uint32
 }
 
 // Result is the outcome of a finished command.
@@ -139,6 +148,13 @@ func Run(ctx context.Context, c Cmd) (Result, error) {
 	}
 	// Run in its own process group so a timeout kills every descendant.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if c.RunAs != nil {
+		groups := c.RunAs.Groups
+		if groups == nil {
+			groups = []uint32{}
+		}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: c.RunAs.Uid, Gid: c.RunAs.Gid, Groups: groups}
+	}
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return nil

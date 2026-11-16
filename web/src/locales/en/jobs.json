@@ -61,6 +61,19 @@
     },
     "redis": {
       "config": "Change the Redis settings"
+    },
+    "file": {
+      "copy": "Copy {path} to {dest}",
+      "move": "Move {path} to {dest}",
+      "delete": "Move {path} to the trash",
+      "chmod": "Change the permissions of {path} to {mode}",
+      "chown": "Change the owner of {path}",
+      "compress": "Create archive {path}",
+      "extract": "Extract {path} to {dest}",
+      "restore": "Restore an entry from the trash",
+      "purge": "Delete an entry from the trash permanently",
+      "upload": "Upload {path}",
+      "fetch": "Download {url} to {path}"
     }
   },
   "detail": {
@@ -112,6 +125,19 @@
       "cluster": "Create a PostgreSQL cluster",
       "dump": "Create a dump",
       "restore": "Restore a dump"
+    },
+    "file": {
+      "copy": "Copy files",
+      "move": "Move files",
+      "delete": "Delete files",
+      "chmod": "Change permissions",
+      "chown": "Change owner",
+      "compress": "Create archive",
+      "extract": "Extract archive",
+      "restore": "Restore from the trash",
+      "purge": "Delete from the trash",
+      "upload": "Upload a file",
+      "fetch": "Download from URL"
     }
   },
   "variant": {
@@ -127,6 +153,32 @@
       },
       "dump": {
         "database": "Dump database {database} ({engine})"
+      }
+    },
+    "file": {
+      "copy": {
+        "many": "Copy {count} entries to {dest}"
+      },
+      "move": {
+        "many": "Move {count} entries to {dest}"
+      },
+      "chmod": {
+        "many": "Change the permissions of {count} entries to {mode}"
+      },
+      "chown": {
+        "many": "Change the owner of {count} entries"
+      },
+      "restore": {
+        "many": "Restore {count} entries from the trash"
+      },
+      "delete": {
+        "many": "Move {count} entries to the trash",
+        "permanent": "Delete {path} permanently",
+        "manyPermanent": "Delete {count} entries permanently"
+      },
+      "purge": {
+        "many": "Delete {count} entries from the trash permanently",
+        "all": "Empty the trash"
       }
     }
   }

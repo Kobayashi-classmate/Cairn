@@ -10,7 +10,8 @@
     "web": "Web 服务器",
     "runtime": "语言运行环境",
     "database": "数据库",
-    "cache": "缓存"
+    "cache": "缓存",
+    "tool": "工具"
   },
   "method": {
     "system": "系统软件源",

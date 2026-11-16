@@ -1,0 +1,199 @@
+{
+  "title": "Files",
+  "root": {
+    "sites": "Websites",
+    "backups": "Backups",
+    "system": "Whole system"
+  },
+  "side": {
+    "label": "File locations",
+    "places": "Places",
+    "favorites": "Favorites",
+    "noFavorites": "Star a folder to keep it here.",
+    "removeFavorite": "Remove from favorites",
+    "unavailable": "Not available"
+  },
+  "action": {
+    "up": "Up one level",
+    "refresh": "Refresh",
+    "newFolder": "New folder",
+    "newFile": "New file",
+    "upload": "Upload",
+    "fetch": "Download from URL",
+    "search": "Search",
+    "open": "Open",
+    "edit": "Edit",
+    "preview": "Preview",
+    "download": "Download",
+    "extract": "Extract",
+    "rename": "Rename",
+    "copy": "Copy to…",
+    "move": "Move to…",
+    "compress": "Compress",
+    "chmod": "Permissions",
+    "chown": "Owner",
+    "more": "More actions for {name}"
+  },
+  "column": {
+    "size": "Size",
+    "permissions": "Permissions",
+    "owner": "Owner",
+    "modified": "Modified"
+  },
+  "hidden": "Hidden files",
+  "empty": "This folder is empty.",
+  "dropHint": "Drop files here to upload them.",
+  "dropHere": "Drop to upload into {dir}",
+  "truncated": "This folder has more than {max} entries; only the first {max} are listed. Use search to find the others.",
+  "favorite": {
+    "add": "Add to favorites",
+    "remove": "Remove from favorites"
+  },
+  "selection": {
+    "count": "{count} entry | {count} entries",
+    "selected": "{count} selected",
+    "clear": "Clear selection",
+    "tooMany": "Select at most {max} entries at a time."
+  },
+  "newFolder": {
+    "title": "New folder"
+  },
+  "newFile": {
+    "title": "New file"
+  },
+  "rename": {
+    "title": "Rename {name}",
+    "submit": "Rename"
+  },
+  "picker": {
+    "empty": "No folders here."
+  },
+  "transfer": {
+    "copyTitle": "Copy {name}",
+    "moveTitle": "Move {name}",
+    "pick": "Choose the destination folder:",
+    "overwrite": "Replace entries that already exist",
+    "copyHere": "Copy to {dir}",
+    "moveHere": "Move to {dir}"
+  },
+  "chmod": {
+    "titleOne": "Permissions of {name}",
+    "titleMany": "Permissions of {count} entry | Permissions of {count} entries",
+    "octal": "Mode in octal",
+    "files": "Files",
+    "dirs": "Folders",
+    "owner": "Owner",
+    "group": "Group",
+    "others": "Others",
+    "read": "Read",
+    "write": "Write",
+    "execute": "Execute",
+    "setgid": "Set group ID (new entries inherit the group)",
+    "sticky": "Sticky (only owners may delete their entries)",
+    "recursive": "Also apply to everything inside the folders",
+    "hint": "The panel never sets setuid, nor setgid on files."
+  },
+  "chown": {
+    "titleOne": "Owner of {name}",
+    "titleMany": "Owner of {count} entry | Owner of {count} entries",
+    "recursive": "Also apply to everything inside the folders"
+  },
+  "compress": {
+    "title": "Compress {count} entry | Compress {count} entries",
+    "submit": "Compress"
+  },
+  "extract": {
+    "title": "Extract {name}",
+    "pick": "Extract into this folder:",
+    "overwrite": "Replace files that already exist",
+    "hint": "Entries that cannot be extracted safely are skipped and listed in the task log.",
+    "submit": "Extract to {dir}",
+    "toolMissing": "Extracting 7z and rar archives needs the unar tool, which is not installed.",
+    "installTool": "Install it on the Software page"
+  },
+  "fetch": {
+    "title": "Download from URL",
+    "intro": "The server downloads the file into {dir}.",
+    "namePlaceholder": "Taken from the URL",
+    "submit": "Download"
+  },
+  "delete": {
+    "titleOne": "Delete {name}?",
+    "titleMany": "Delete {count} entry? | Delete {count} entries?",
+    "trashText": "The entries go to the trash of this location, where you can restore them.",
+    "permanentText": "The entries are deleted for good.",
+    "permanent": "Delete permanently (skip the trash)",
+    "permanentWarning": "This cannot be undone. You will be asked for your password.",
+    "submit": "Move to trash",
+    "submitPermanent": "Delete permanently",
+    "crossDeviceTitle": "{count} entry could not go to the trash | {count} entries could not go to the trash",
+    "crossDeviceText": "The trash is on another file system than these entries. Delete them permanently instead?"
+  },
+  "editor": {
+    "modified": "Modified",
+    "readOnly": "Read only",
+    "saved": "{name} saved.",
+    "tooLarge": "The editor saves files of up to {size}.",
+    "reload": "Reload",
+    "reloadTitle": "Reload the file?",
+    "overwrite": "Overwrite their changes",
+    "discard": "Discard changes",
+    "discardTitle": "Discard your changes to {name}?",
+    "discardText": "Your unsaved changes will be lost."
+  },
+  "preview": {
+    "failed": "The image could not be shown."
+  },
+  "search": {
+    "title": "Search",
+    "placeholder": "Name or text to find",
+    "submit": "Search",
+    "content": "Search inside files",
+    "case": "Match case",
+    "contentHint": "Only text files of up to 1 MiB are searched.",
+    "none": "Nothing found.",
+    "truncated": "There are more matches than shown; narrow the search."
+  },
+  "trash": {
+    "title": "Trash of {root}",
+    "back": "Back to {root}",
+    "intro": "Entries deleted from this location. Restoring puts them back where they were.",
+    "from": "Original location",
+    "by": "Deleted by",
+    "deletedAt": "Deleted",
+    "restore": "Restore",
+    "overwrite": "Replace entries now at the original location",
+    "purge": "Delete permanently",
+    "purgeTitle": "Permanently delete {count} entry? | Permanently delete {count} entries?",
+    "purgeText": "This cannot be undone. You will be asked for your password.",
+    "empty": "Empty trash",
+    "emptyTitle": "Empty the trash?",
+    "emptyList": "The trash is empty.",
+    "total": "{count} entry, {size} | {count} entries, {size}"
+  },
+  "upload": {
+    "title": "Uploads",
+    "clear": "Clear finished",
+    "replace": "Replace",
+    "retry": "Retry",
+    "existsTitle": "{count} file already exists here. Replace it? | {count} files already exist here. Replace them?",
+    "tooLarge": "Too large to upload (at most {size}): {name}",
+    "noFolders": "Folders cannot be uploaded; upload their files or a compressed archive instead.",
+    "state": {
+      "queued": "Waiting",
+      "uploading": "Uploading",
+      "placing": "Saving",
+      "done": "Done",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    }
+  },
+  "fullDisk": {
+    "label": "Full-disk access",
+    "enableTitle": "Turn on full-disk access?",
+    "enableText": "The file manager will reach the whole system as root: everyone allowed to manage files can then read and change any file, including system configuration and other users' data. Turn it on only while you need it.",
+    "enable": "Turn on",
+    "locked": "The server's configuration does not allow root access, so full-disk access stays off.",
+    "active": "Full-disk access is on: changes here affect the whole system."
+  }
+}

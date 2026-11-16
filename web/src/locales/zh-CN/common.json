@@ -14,7 +14,9 @@
     "jobs": "任务",
     "sites": "网站",
     "certs": "证书",
-    "databases": "数据库"
+    "databases": "数据库",
+    "files": "文件",
+    "terminal": "终端"
   },
   "action": {
     "signOut": "退出登录",
@@ -27,7 +29,8 @@
     "loadMore": "加载更多",
     "edit": "编辑",
     "delete": "删除",
-    "refresh": "刷新"
+    "refresh": "刷新",
+    "create": "创建"
   },
   "language": {
     "label": "语言"
@@ -123,7 +126,20 @@
     "db": "数据库编号",
     "pattern": "匹配模式",
     "seconds": "秒数",
-    "owner": "所有者"
+    "owner": "所有者",
+    "dest": "目标位置",
+    "dirMode": "文件夹权限",
+    "format": "格式",
+    "group": "用户组",
+    "ids": "条目",
+    "mode": "权限",
+    "names": "条目",
+    "olderThan": "删除时间早于",
+    "path": "路径",
+    "paths": "条目",
+    "query": "搜索文字",
+    "size": "大小",
+    "upload": "上传"
   },
   "boot": {
     "failed": "无法加载面板"
@@ -178,6 +194,15 @@
     "databases": {
       "read": "查看数据库",
       "manage": "管理数据库"
+    },
+    "files": {
+      "read": "浏览文件",
+      "manage": "管理文件",
+      "admin": "开关全盘访问"
+    },
+    "terminal": {
+      "use": "使用网页终端",
+      "admin": "打开和允许 root 终端"
     }
   },
   "copy": {

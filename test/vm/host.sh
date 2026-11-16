@@ -48,7 +48,7 @@ for _ in $(seq 120); do ssh "${ssh_opts[@]}" tester@127.0.0.1 true 2>/dev/null &
 ssh "${ssh_opts[@]}" tester@127.0.0.1 true || { tail -30 /work/serial.log; echo "VM did not come up"; exit 1; }
 echo "   VM reachable after $(($(date +%s) - t0))s"
 
-scp -q -P 2222 -i key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /t/inside.sh tester@127.0.0.1:/tmp/inside.sh
+scp -q -P 2222 -i key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /t/inside.sh /f/ws.py tester@127.0.0.1:/tmp/
 status=0
 ssh "${ssh_opts[@]}" tester@127.0.0.1 "sudo TRUSTED_KEY='$TRUSTED_KEY' bash /tmp/inside.sh" || status=$?
 ssh "${ssh_opts[@]}" tester@127.0.0.1 'sudo poweroff' 2>/dev/null || true

@@ -209,6 +209,33 @@ follow PUT /api/v1/databases/redis/remote '{"enabled":false}'
 follow DELETE "/api/v1/databases/mysql/dbs/vmdb?dropOwner=true"
 step "databases with systemd: MariaDB remote on and off (restarted by systemctl, remote login works), service restart; PostgreSQL $pg remote through its cluster unit; Redis password and remote access"
 
+# Terminals with systemd: the shell runs in a transient unit of its own,
+# sees the system's /tmp (not the helper's private one) and outlives a
+# restart of the helper.
+login
+useradd -m -s /bin/bash alice
+touch /tmp/vm-terminal-marker
+sid=$(api -X POST "$base/api/v1/terminal/sessions" -d '{"user":"alice","cols":100,"rows":30}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+term() { python3 -I /tmp/ws.py "${base/https:/wss:}/api/v1/terminal/sessions/$sid/ws" "$jar" "$1" "$2"; }
+termdiag() {
+	echo "--- session $sid"
+	api "$base/api/v1/terminal/sessions"
+	echo "--- units"
+	systemctl list-units --all --no-legend 'cairn-term-*' || true
+	journalctl --no-pager -n 30 -u 'cairn-term-*' || true
+	echo "--- helper"
+	journalctl --no-pager -n 20 -u cairn-helper.service | grep -v ' audit ' || true
+}
+term 'id -un; cat /proc/self/cgroup; test -e /tmp/vm-terminal-marker && echo marker-$((1+1))\n' 'marker-2' >/root/term.out 2>&1 || { termdiag; fail "terminal: $(cat /root/term.out)"; }
+grep_q alice /root/term.out && grep_q 'cairn-term-' /root/term.out || fail "terminal unit: $(cat /root/term.out)"
+systemctl list-units --type=service --state=active --no-legend 'cairn-term-*' | grep_q cairn-term- || fail "no terminal unit"
+systemctl restart cairn-helper.service
+term 'echo still-$((20+22))\n' 'still-42' >/dev/null || fail "terminal after a helper restart"
+api -X DELETE "$base/api/v1/terminal/sessions/$sid" >/dev/null
+for _ in $(seq 20); do systemctl list-units --type=service --state=active --no-legend 'cairn-term-*' | grep_q cairn-term- || break; sleep 0.5; done
+systemctl list-units --type=service --state=active --no-legend 'cairn-term-*' | grep_q cairn-term- && fail "terminal unit left after closing"
+step "terminal with systemd: alice's shell in a cairn-term-* unit, the system's /tmp, survives a helper restart, gone when closed"
+
 # Online update in a transient unit: the package restarts both services.
 api -X POST "$base/api/v1/updates/check" | grep_q '"status":"available"' || fail "no update offered"
 helper_pid=$(systemctl show -p MainPID --value cairn-helper.service)

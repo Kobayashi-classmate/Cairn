@@ -61,6 +61,19 @@
     },
     "redis": {
       "config": "修改 Redis 设置"
+    },
+    "file": {
+      "copy": "将 {path} 复制到 {dest}",
+      "move": "将 {path} 移动到 {dest}",
+      "delete": "将 {path} 移入回收站",
+      "chmod": "将 {path} 的权限改为 {mode}",
+      "chown": "修改 {path} 的所有者",
+      "compress": "创建压缩包 {path}",
+      "extract": "将 {path} 解压到 {dest}",
+      "restore": "从回收站恢复 1 个条目",
+      "purge": "从回收站永久删除 1 个条目",
+      "upload": "上传 {path}",
+      "fetch": "将 {url} 下载到 {path}"
     }
   },
   "detail": {
@@ -112,6 +125,19 @@
       "cluster": "创建 PostgreSQL 集群",
       "dump": "创建备份",
       "restore": "恢复备份"
+    },
+    "file": {
+      "copy": "复制文件",
+      "move": "移动文件",
+      "delete": "删除文件",
+      "chmod": "修改权限",
+      "chown": "修改所有者",
+      "compress": "创建压缩包",
+      "extract": "解压",
+      "restore": "从回收站恢复",
+      "purge": "从回收站删除",
+      "upload": "上传文件",
+      "fetch": "从网址下载"
     }
   },
   "variant": {
@@ -127,6 +153,32 @@
       },
       "dump": {
         "database": "备份数据库 {database}（{engine}）"
+      }
+    },
+    "file": {
+      "copy": {
+        "many": "将 {count} 个条目复制到 {dest}"
+      },
+      "move": {
+        "many": "将 {count} 个条目移动到 {dest}"
+      },
+      "chmod": {
+        "many": "将 {count} 个条目的权限改为 {mode}"
+      },
+      "chown": {
+        "many": "修改 {count} 个条目的所有者"
+      },
+      "restore": {
+        "many": "从回收站恢复 {count} 个条目"
+      },
+      "delete": {
+        "many": "将 {count} 个条目移入回收站",
+        "permanent": "永久删除 {path}",
+        "manyPermanent": "永久删除 {count} 个条目"
+      },
+      "purge": {
+        "many": "从回收站永久删除 {count} 个条目",
+        "all": "清空回收站"
       }
     }
   }

@@ -1,0 +1,45 @@
+{
+  "title": "终端",
+  "new": {
+    "button": "新建终端",
+    "title": "打开终端",
+    "user": "运行身份",
+    "home": "主目录：{home}",
+    "rootWarning": "root 终端可以修改服务器上的任何内容：每条命令都以最高权限运行。",
+    "submit": "打开"
+  },
+  "user": {
+    "site": "{user}（{site}）",
+    "kind": {
+      "site": "网站所有者",
+      "user": "用户",
+      "root": "管理员"
+    },
+    "dangerous": "完全控制",
+    "rootOff": "已关闭"
+  },
+  "root": {
+    "label": "允许 root 终端",
+    "enableTitle": "允许 root 终端？",
+    "enableText": "管理员将能以 root 身份打开终端，完全控制服务器。请只在需要时开启。",
+    "enable": "允许",
+    "active": "已允许 root 终端。",
+    "locked": "服务器配置不允许 root 终端，因此它保持关闭。"
+  },
+  "close": {
+    "title": "关闭 {name}？",
+    "text": "Shell 会结束，它运行的程序也会一并结束。",
+    "submit": "关闭终端"
+  },
+  "empty": {
+    "title": "没有打开的终端",
+    "text": "打开终端后，可以以网站所有者或其他用户的身份在服务器上运行命令。"
+  },
+  "state": {
+    "reconnecting": "重新连接中",
+    "ended": "已结束"
+  },
+  "ended": "Shell 已结束。",
+  "info": "{user} · {shell} · {home} · 打开于 {created}",
+  "hint": "离开此页面后终端会继续运行 5 分钟；在此期间回来即可继续使用。"
+}

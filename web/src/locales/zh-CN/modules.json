@@ -16,6 +16,8 @@
     "cloud": "云服务",
     "sites": "网站",
     "certs": "证书",
-    "databases": "数据库"
+    "databases": "数据库",
+    "files": "文件",
+    "terminal": "终端"
   }
 }

@@ -43,7 +43,7 @@ import { useSessionStore } from '@/stores/session'
 import InstallDialog from './software/InstallDialog.vue'
 
 /** Display order of categories; unknown categories follow in name order. */
-const CATEGORY_ORDER = ['web', 'runtime', 'database', 'cache']
+const CATEGORY_ORDER = ['web', 'runtime', 'database', 'cache', 'tool']
 
 const { t, te } = useI18n()
 const router = useRouter()

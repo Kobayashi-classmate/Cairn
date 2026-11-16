@@ -11,10 +11,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -57,6 +59,28 @@ func Register[Req, Resp any](r *Registry, action string, fn func(context.Context
 		}
 		return fn(ctx, caller, req)
 	}
+}
+
+// withFile is the result of an action registered with RegisterFD.
+type withFile struct {
+	resp any
+	file *os.File
+}
+
+// RegisterFD adds a typed action that answers with an open file besides
+// its result (see helperapi.Client.CallFD). The server sends the file and
+// closes its own copy.
+func RegisterFD[Req, Resp any](r *Registry, action string, fn func(context.Context, helperapi.Caller, Req) (Resp, *os.File, error)) {
+	Register(r, action, func(ctx context.Context, c helperapi.Caller, req Req) (any, error) {
+		resp, f, err := fn(ctx, c, req)
+		if err != nil {
+			if f != nil {
+				_ = f.Close()
+			}
+			return nil, err
+		}
+		return &withFile{resp: resp, file: f}, nil
+	})
 }
 
 // Actions returns the registered action names (for diagnostics and tests).
@@ -143,8 +167,49 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(action, caller, cred, "ok", start)
+	if wf, ok := resp.(*withFile); ok {
+		s.sendFile(w, action, wf)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// sendFile writes the response by hand on the raw connection, with the
+// file's descriptor attached as SCM_RIGHTS, and closes the connection.
+func (s *Server) sendFile(w http.ResponseWriter, action string, wf *withFile) {
+	defer func() { _ = wf.file.Close() }()
+	body, err := json.Marshal(wf.resp)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, &helperapi.Error{Code: helperapi.CodeInternal})
+		return
+	}
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, &helperapi.Error{Code: helperapi.CodeInternal})
+		return
+	}
+	conn, _, err := hj.Hijack()
+	if err != nil {
+		s.Log.Error("hijack failed", "action", action, "err", err)
+		return
+	}
+	defer func() { _ = conn.Close() }()
+	pc, ok := conn.(*peerConn)
+	if !ok {
+		s.Log.Error("file response on a non-unix connection", "action", action)
+		return
+	}
+	head := fmt.Sprintf("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n%s: 1\r\nContent-Length: %d\r\nConnection: close\r\n\r\n",
+		helperapi.FDHeader, len(body))
+	msg := append([]byte(head), body...)
+	n, _, err := pc.WriteMsgUnix(msg, unix.UnixRights(int(wf.file.Fd())), nil)
+	if err == nil && n < len(msg) {
+		_, err = pc.Write(msg[n:])
+	}
+	if err != nil {
+		s.Log.Error("sending a file failed", "action", action, "err", err)
+	}
 }
 
 // audit records every action in journald. Request parameters are not logged

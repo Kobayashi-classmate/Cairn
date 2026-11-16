@@ -1,0 +1,45 @@
+{
+  "title": "Terminal",
+  "new": {
+    "button": "New terminal",
+    "title": "Open a terminal",
+    "user": "Run as",
+    "home": "Home folder: {home}",
+    "rootWarning": "A root terminal can change anything on the server: every command runs with full privileges.",
+    "submit": "Open"
+  },
+  "user": {
+    "site": "{user} ({site})",
+    "kind": {
+      "site": "Site owners",
+      "user": "Users",
+      "root": "Administrator"
+    },
+    "dangerous": "Full control",
+    "rootOff": "Turned off"
+  },
+  "root": {
+    "label": "Allow root terminals",
+    "enableTitle": "Allow root terminals?",
+    "enableText": "Administrators will be able to open terminals as root, with full control of the server. Turn this on only while you need it.",
+    "enable": "Allow",
+    "active": "Root terminals are allowed.",
+    "locked": "The server's configuration does not allow root terminals, so they stay off."
+  },
+  "close": {
+    "title": "Close {name}?",
+    "text": "The shell ends, together with the programs it runs.",
+    "submit": "Close terminal"
+  },
+  "empty": {
+    "title": "No terminal is open",
+    "text": "Open a terminal to run commands on the server as a site owner or another user."
+  },
+  "state": {
+    "reconnecting": "Reconnecting",
+    "ended": "Ended"
+  },
+  "ended": "The shell has ended.",
+  "info": "{user} · {shell} · {home} · opened {created}",
+  "hint": "Terminals keep running for 5 minutes after you leave this page; come back in time to pick them up again."
+}
