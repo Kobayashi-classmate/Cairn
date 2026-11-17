@@ -120,13 +120,14 @@
       "latency": "首次响应",
       "speed": "速度"
     },
-    "systemNote": "切换系统软件源的功能将随系统管理模块提供。",
+    "systemNote": "可以在“系统”页面切换系统软件源。",
     "warning": {
       "in_use_behind": "当前使用的源比官方落后 {duration}，此次安装可能拿不到最新的软件包。",
       "in_use_unusable": "当前使用的源没有响应，或缺少软件包索引。",
       "official_unreachable": "无法访问官方源，因此无法与镜像进行比较。下载的文件仍会按官方校验值进行校验。",
       "no_eligible": "没有任何来源提供官方文件。"
-    }
+    },
+    "use": "使用"
   },
   "estimate": {
     "packages": "软件包",

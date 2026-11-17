@@ -284,6 +284,10 @@ type SystemRepo struct {
 	// line or (MirrorListFormat "metalink") as a metalink document.
 	MirrorList       string `toml:"mirror_list"`
 	MirrorListFormat string `toml:"mirror_list_format"`
+	// Roots are the official base addresses as the distribution's .repo
+	// files write them (dnf variables unexpanded); switching the source
+	// moves every section whose baseurl starts with one of them.
+	Roots []string `toml:"roots"`
 }
 
 // Operator returns the operator with id.

@@ -15,6 +15,12 @@ case "$1" in
 			for t in /etc/systemd/system/cairn-cron-*.timer; do
 				[ -e "$t" ] && systemctl disable --now "${t##*/}" >/dev/null 2>&1 || true
 			done
+			# A pending firewall rollback would run the helper too.
+			systemctl stop 'cairn-fw-rollback-*.timer' 'cairn-ssh-port-*.timer' >/dev/null 2>&1 || true
+			# Cairn's nftables table stays loaded until the next boot; its
+			# unit file goes away with the package. firewalld and ufw keep
+			# the rules made in the panel.
+			systemctl disable cairn-firewall.service >/dev/null 2>&1 || true
 		fi
 		;;
 esac

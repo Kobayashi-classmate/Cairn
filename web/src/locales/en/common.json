@@ -19,7 +19,10 @@
     "terminal": "Terminal",
     "cron": "Scheduled tasks",
     "backups": "Backups",
-    "logs": "Logs"
+    "logs": "Logs",
+    "firewall": "Firewall",
+    "ssh": "SSH",
+    "host": "System"
   },
   "action": {
     "signOut": "Sign out",
@@ -165,7 +168,18 @@
     "timeoutMin": "Timeout",
     "limit": "Number of entries",
     "site": "Site",
-    "id": "ID"
+    "id": "ID",
+    "address": "Address",
+    "note": "Note",
+    "ports": "Ports",
+    "sources": "Sources",
+    "hostname": "Host name",
+    "timezone": "Time zone",
+    "sizeMb": "Size",
+    "value": "Value",
+    "fingerprint": "Fingerprint",
+    "closeAfterMinutes": "Close the old port after",
+    "candidate": "Source"
   },
   "boot": {
     "failed": "Cannot load the panel"
@@ -241,6 +255,18 @@
     },
     "logs": {
       "read": "Read the system journal"
+    },
+    "firewall": {
+      "read": "View the firewall",
+      "manage": "Change the firewall"
+    },
+    "ssh": {
+      "read": "View SSH settings and logins",
+      "manage": "Change SSH settings and keys"
+    },
+    "host": {
+      "read": "View system settings",
+      "manage": "Change system settings, update and restart"
     }
   },
   "copy": {

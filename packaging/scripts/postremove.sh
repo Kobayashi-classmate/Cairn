@@ -14,8 +14,19 @@ case "$1" in
 		rm -rf /etc/cairn /var/lib/cairn /var/lib/cairn-helper
 		rm -rf /etc/cairn-cron
 		rm -f /etc/systemd/system/cairn-cron-*.service /etc/systemd/system/cairn-cron-*.timer
+		# Cairn's own nftables table goes; rules in firewalld or ufw stay
+		# (removing them could close the SSH port).
+		if command -v nft >/dev/null 2>&1; then
+			nft delete table inet cairn >/dev/null 2>&1 || true
+		fi
+		rm -rf /etc/cairn-firewall
 		;;
 esac
+
+# rpm erase: drop the SELinux label rule postinstall added.
+if [ "$1" = 0 ] && command -v semanage >/dev/null 2>&1; then
+	semanage fcontext -d '/usr/lib/cairn(/.*)?' >/dev/null 2>&1 || true
+fi
 
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload >/dev/null 2>&1 || true

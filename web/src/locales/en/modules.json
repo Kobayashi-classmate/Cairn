@@ -21,6 +21,9 @@
     "terminal": "Terminal",
     "cron": "Scheduled tasks",
     "backups": "Backups",
-    "logs": "Logs"
+    "logs": "Logs",
+    "firewall": "Firewall",
+    "ssh": "SSH",
+    "host": "System management"
   }
 }

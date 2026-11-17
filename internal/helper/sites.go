@@ -79,6 +79,9 @@ type Sites struct {
 	Root string
 	// PanelPort is the panel's own port, never given to apps or streams.
 	PanelPort int
+	// Firewall opens a stream's port while it is enabled (nil: leave the
+	// firewall alone).
+	Firewall *Firewall
 }
 
 // Fixed locations (Debian layout; other families come with their profiles).

@@ -54,6 +54,9 @@ type DBs struct {
 	// backups/db/<engine>/, owned by PanelUser.
 	DataDir   string
 	PanelUser string
+	// Firewall opens an engine's port while remote access is on (nil:
+	// leave the firewall alone).
+	Firewall *Firewall
 }
 
 // RegisterDBs adds the database actions.
@@ -276,11 +279,39 @@ func (d *DBs) remote(ctx context.Context, _ helperapi.Caller, req helperapi.DBRe
 	}
 	switch e.kind {
 	case helperapi.DBMySQL:
-		return nil, d.mysqlRemote(ctx, log, e, req.Enabled)
+		err = d.mysqlRemote(ctx, log, e, req.Enabled)
 	case helperapi.DBPostgreSQL:
-		return nil, d.pgRemote(ctx, log, e, req.Enabled)
+		err = d.pgRemote(ctx, log, e, req.Enabled)
+	default:
+		err = d.redisRemote(ctx, log, e, req.Enabled)
 	}
-	return nil, d.redisRemote(ctx, log, e, req.Enabled)
+	if err != nil || d.Firewall == nil {
+		return nil, err
+	}
+	var ports []string
+	if req.Enabled {
+		ports = []string{strconv.Itoa(d.enginePort(ctx, e))}
+	}
+	if ferr := d.Firewall.SetManaged(ctx, log, helperapi.OwnerDBPrefix+e.id, helperapi.ProtoTCP, ports); ferr != nil {
+		// The database itself is set; only the firewall lags behind.
+		_, _ = fmt.Fprintf(log, "Warning: the firewall could not be updated: %v\n", ferr)
+	}
+	return nil, nil
+}
+
+// enginePort is the TCP port an engine listens on.
+func (d *DBs) enginePort(ctx context.Context, e dbEngine) int {
+	switch e.kind {
+	case helperapi.DBMySQL:
+		return 3306
+	case helperapi.DBPostgreSQL:
+		if c, err := d.pgCluster0(ctx, e); err == nil && c.port > 0 {
+			return c.port
+		}
+		return 5432
+	}
+	conf, _ := d.redisConf(e)
+	return conf.port
 }
 
 func (d *DBs) service(ctx context.Context, _ helperapi.Caller, req helperapi.DBServiceRequest, log io.Writer) (any, error) {

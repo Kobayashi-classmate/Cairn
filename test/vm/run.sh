@@ -4,6 +4,7 @@
 # End-to-end test in a real virtual machine, with systemd as PID 1:
 #
 #   bash test/vm/run.sh [debian-13]
+#   SCRIPT=security.sh bash test/vm/run.sh ubuntu-24.04   (P1 batch 9 only)
 #
 # QEMU runs inside a throwaway container (software emulation; no KVM or extra
 # privileges needed), boots the distribution's official cloud image and runs
@@ -14,8 +15,10 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 target=${1:-debian-13}
+script=${SCRIPT:-inside.sh}
 case "$target" in
 	debian-13 | debian-12) ;;
+	ubuntu-24.04 | rocky-9) [ "$script" = security.sh ] || { echo "$target runs SCRIPT=security.sh only" >&2; exit 2; } ;;
 	*) echo "unsupported VM target: $target" >&2; exit 2 ;;
 esac
 
@@ -33,5 +36,5 @@ bash test/lib/release-fixture.sh "$work/fixture" http://10.0.2.2:8080
 echo "== $target VM"
 docker run --rm --name cairn-vm \
 	-v "$PWD/test/vm:/t:ro" -v "$PWD/test/files:/f:ro" -v "$work:/work" -v cairn-vm-images:/images \
-	-e TARGET="$target" -e TRUSTED_KEY="$(awk '{print $1}' "$work/fixture/keys.txt")" \
+	-e TARGET="$target" -e SCRIPT="$script" -e TRUSTED_KEY="$(awk '{print $1}' "$work/fixture/keys.txt")" \
 	debian:trixie bash /t/host.sh

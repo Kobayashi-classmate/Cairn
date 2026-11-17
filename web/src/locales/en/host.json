@@ -1,0 +1,101 @@
+{
+  "title": "System",
+  "tabs": {
+    "general": "General",
+    "swap": "Swap",
+    "updates": "Updates",
+    "sources": "System sources"
+  },
+  "general": {
+    "hostname": "Host name",
+    "hostnameHint": "Letters, digits, hyphens and dots, as in web1 or web1.example.com.",
+    "time": "Time",
+    "ntp": "Keep the clock in sync (NTP)",
+    "synced": "In sync",
+    "notSynced": "Not in sync yet",
+    "saved": "Saved."
+  },
+  "reboot": {
+    "cardTitle": "Restart",
+    "required": "Updates installed since the last start need a restart.",
+    "running": "Running kernel",
+    "latest": "Installed kernel",
+    "submit": "Restart now",
+    "title": "Restart {host}?",
+    "text": "Every site, database and running task stops until the server is back, usually within a minute or two.",
+    "waiting": "Restarting; the panel comes back in a minute or two.",
+    "back": "The server is back."
+  },
+  "swap": {
+    "title": "Swap",
+    "usage": "{used} of {total} in use",
+    "none": "This system has no swap.",
+    "used": "Used",
+    "managed": "Panel",
+    "kind": {
+      "file": "File",
+      "partition": "Partition"
+    },
+    "fileTitle": "Swap file",
+    "fileHas": "The panel's swap file has {size}.",
+    "fileNone": "The panel can add a swap file to this system.",
+    "create": "Create",
+    "resize": "Resize",
+    "remove": "Remove",
+    "removeTitle": "Remove the swap file?",
+    "removeText": "Its contents are moved back into memory first; this needs enough free memory.",
+    "mib": "MiB",
+    "swappiness": "Swappiness",
+    "swappinessHint": "How readily the kernel moves memory to swap: 0 to 100; servers often use 10.",
+    "unsupported": {
+      "btrfs_old": "Swap files are not supported on this Btrfs version.",
+      "container": "A container cannot have swap of its own.",
+      "other": "A swap file cannot be added on this system."
+    }
+  },
+  "updates": {
+    "never": "Not checked yet.",
+    "checkedAt": "Checked {time}.",
+    "check": "Check now",
+    "installSecurity": "Install security updates ({count})",
+    "installAll": "Install all ({count})",
+    "installSecurityTitle": "Install {count} security update? | Install {count} security updates?",
+    "installAllTitle": "Install {count} update? | Install {count} updates?",
+    "installText": "Services may restart while packages are updated.",
+    "install": "Install",
+    "auto": "Install security updates automatically",
+    "autoHint": "Uses {tool} with the distribution's defaults.",
+    "none": "Everything is up to date.",
+    "security": "Security",
+    "from": "Installed",
+    "to": "Available",
+    "sourceWarning": {
+      "in_use_behind": "The {role} source in use is behind the official one, so not every update may show.",
+      "in_use_unusable": "The {role} source in use did not answer or has no package index."
+    },
+    "openSources": "Compare sources"
+  },
+  "sources": {
+    "intro": "Compare the mirrors of the distribution's packages and switch to another one. Comparing takes a few seconds.",
+    "probing": "Comparing the sources…",
+    "role": {
+      "main": "main",
+      "security": "security"
+    },
+    "switch": "Switch",
+    "switchTitle": "Switch the {role} source?",
+    "switchText": "All system packages will be updated from {name} from now on. The current files are backed up and can be restored.",
+    "backups": "Earlier sources",
+    "noBackups": "The sources have not been switched yet.",
+    "backupAt": "Switched",
+    "change": "Change",
+    "restore": "Restore",
+    "restoreTitle": "Restore the earlier sources?",
+    "restoreText": "The sources go back from {to} to {from}.",
+    "unsupportedReason": {
+      "no_source_in_use": "the source in use could not be found in the system's files",
+      "mirror_layout": "the sources files are laid out in a way the panel cannot change safely",
+      "no_entry": "there is no entry for this source"
+    }
+  }
+}

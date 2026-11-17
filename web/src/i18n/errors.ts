@@ -91,6 +91,11 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
   if (code === 'app.port_taken' && params.range !== undefined) return t('errors.app.port_range_full')
   // An archive with more entries than the server extracts.
   if (code === 'file.too_large' && typeof params.entries === 'number') return t('errors.file.too_many_entries', { max: params.entries })
+  // Some codes read differently depending on a parameter.
+  if (code === 'ssh.conflict' && params.key === 'Include') return t('errors.ssh.conflict_include', decorate(params))
+  if (code === 'ssh.selinux_port' && (params.type === 'semanage_missing' || params.type === 'semanage_failed')) {
+    return t(`errors.ssh.selinux_${params.type}`, decorate(params))
+  }
   // A file operation where every entry failed (the job log lists them).
   if (code === 'op.failed' && typeof params.failed === 'number') return t('errors.op.all_failed', { failed: params.failed }, params.failed)
   const detailed = `errors.detailed.${code}`
@@ -111,12 +116,25 @@ function withOthers(text: string, code: string, params: ErrorParams): string {
   return `${text} ${i18n.global.t('errors.sameCause', { count: others }, others)}`
 }
 
+/** Where the texts of a code's `reason` parameter live. */
+const REASON_TEXTS: Record<string, string> = {
+  'firewall.unsupported': 'firewall.unsupportedReason',
+  'host.swap_unsupported': 'host.swap.unsupported',
+  'syssrc.unsupported': 'host.sources.unsupportedReason',
+}
+
 /** Parameters with code-specific additions, such as a translated `reason`. */
 function decorateFor(code: string, params: ErrorParams): NamedParams {
   const named = decorate(params)
   if (code === 'pkg.not_available' && typeof params.reason === 'string') {
     const key = `software.reason.${params.reason}`
     named.reasonText = i18n.global.te(key) ? i18n.global.t(key) : params.reason
+  }
+  // Why something is not possible here, translated where this build knows the reason.
+  const reasons = REASON_TEXTS[code]
+  if (reasons && typeof params.reason === 'string') {
+    const key = `${reasons}.${params.reason}`
+    named.reasonText = i18n.global.te(key) ? i18n.global.t(key, named) : params.reason
   }
   if (code === 'app.port_taken' || code === 'stream.port_taken') named.owner = portOwner(params)
   if (code === 'db.upload_too_large' && typeof params.max === 'number') named.size = formatBytes(params.max)

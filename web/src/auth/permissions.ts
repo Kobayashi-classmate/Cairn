@@ -31,6 +31,12 @@ export type KnownPermission =
   | 'backups.read'
   | 'backups.manage'
   | 'logs.read'
+  | 'firewall.read'
+  | 'firewall.manage'
+  | 'ssh.read'
+  | 'ssh.manage'
+  | 'host.read'
+  | 'host.manage'
 
 /**
  * A permission name. Modules define their own at startup, so any string the

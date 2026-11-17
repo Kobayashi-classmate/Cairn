@@ -25,7 +25,10 @@
     "files": "Full-disk access",
     "terminal": "Terminal",
     "cron": "Scheduled tasks",
-    "backup": "Backups"
+    "backup": "Backups",
+    "firewall": "Firewall",
+    "ssh": "SSH",
+    "host": "System"
   },
   "column": {
     "time": "Time",
@@ -203,6 +206,38 @@
       "run": "Ran backup plan {name}",
       "delete": "Deleted backups of {name}",
       "restore": "Restored {file}"
+    },
+    "firewall": {
+      "rule_add": "Added firewall rule: {action} {ports} ({protocol})",
+      "rule_update": "Changed firewall rule: {action} {ports} ({protocol})",
+      "rule_delete": "Deleted a firewall rule",
+      "address_add": "Added firewall address {address}",
+      "address_delete": "Deleted a trusted or blocked address",
+      "ping": "Changed whether ping is blocked",
+      "confirm": "Confirmed a firewall change",
+      "enable": "Turned on the firewall",
+      "disable": "Turned off the firewall"
+    },
+    "ssh": {
+      "key_add": "Authorized an SSH key for {user}",
+      "key_delete": "Removed an SSH key of {user}",
+      "settings": "Changed the SSH login settings",
+      "port": "Moved SSH to port {port}",
+      "port_finish": "Closed the old SSH port",
+      "port_cancel": "Kept the old SSH port"
+    },
+    "host": {
+      "hostname": "Changed the host name to {hostname}",
+      "timezone": "Changed the time zone to {timezone}",
+      "ntp": "Changed time sync",
+      "swappiness": "Set swappiness to {value}",
+      "reboot": "Restarted the server",
+      "swap": "Set the swap file to {sizeMb} MiB",
+      "updates_check": "Checked for system updates",
+      "updates_install": "Installed all system updates",
+      "updates_auto": "Changed automatic updates",
+      "sources_switch": "Switched the {role} system source",
+      "sources_restore": "Restored the system sources"
     }
   },
   "variant": {
@@ -268,6 +303,32 @@
       },
       "plan_delete": {
         "files": "Deleted backup plan {name} and its backups"
+      }
+    },
+    "firewall": {
+      "address_add": {
+        "allow": "Trusted {address} on every port",
+        "deny": "Blocked {address} on every port"
+      },
+      "ping": {
+        "block": "Blocked ping",
+        "allow": "Allowed ping"
+      }
+    },
+    "host": {
+      "ntp": {
+        "enable": "Turned on time sync",
+        "disable": "Turned off time sync"
+      },
+      "swap": {
+        "remove": "Removed the swap file"
+      },
+      "updates_install": {
+        "security": "Installed security updates"
+      },
+      "updates_auto": {
+        "enable": "Turned on automatic security updates",
+        "disable": "Turned off automatic security updates"
       }
     }
   }

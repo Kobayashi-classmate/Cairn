@@ -85,6 +85,24 @@
       "run": "Run backup plan {name}",
       "delete": "Delete backups of {name}",
       "restore": "Restore {file}"
+    },
+    "firewall": {
+      "enable": "Turn on the firewall",
+      "disable": "Turn off the firewall"
+    },
+    "ssh": {
+      "settings": "Change the SSH login settings",
+      "port": "Move SSH to port {port}",
+      "port_finish": "Close the old SSH port",
+      "port_cancel": "Keep the old SSH port"
+    },
+    "host": {
+      "swap": "Set the swap file to {sizeMb} MiB",
+      "updates_check": "Check for system updates",
+      "updates_install": "Install all system updates",
+      "updates_auto": "Change automatic updates",
+      "sources_switch": "Switch the {role} system source",
+      "sources_restore": "Restore the system sources"
     }
   },
   "detail": {
@@ -160,6 +178,24 @@
       "run": "Run backup plan",
       "delete": "Delete backups",
       "restore": "Restore backup"
+    },
+    "firewall": {
+      "enable": "Turn on the firewall",
+      "disable": "Turn off the firewall"
+    },
+    "ssh": {
+      "settings": "Change the SSH login settings",
+      "port": "Move SSH to another port",
+      "port_finish": "Close the old SSH port",
+      "port_cancel": "Keep the old SSH port"
+    },
+    "host": {
+      "swap": "Change the swap file",
+      "updates_check": "Check for system updates",
+      "updates_install": "Install system updates",
+      "updates_auto": "Change automatic updates",
+      "sources_switch": "Switch the system sources",
+      "sources_restore": "Restore the system sources"
     }
   },
   "variant": {
@@ -207,6 +243,18 @@
       "restore": {
         "dest": "Restore {file} to {dest}",
         "database": "Restore {file} as a dump of {database} ({engine})"
+      }
+    },
+    "host": {
+      "swap": {
+        "remove": "Remove the swap file"
+      },
+      "updates_install": {
+        "security": "Install security updates"
+      },
+      "updates_auto": {
+        "enable": "Turn on automatic security updates",
+        "disable": "Turn off automatic security updates"
       }
     }
   }

@@ -120,13 +120,14 @@
       "latency": "First response",
       "speed": "Speed"
     },
-    "systemNote": "Switching the system's sources will come with system management.",
+    "systemNote": "The system's sources can be switched on the System page.",
     "warning": {
       "in_use_behind": "The source in use is {duration} behind the official one, so this installation may not get the newest packages.",
       "in_use_unusable": "The source in use did not answer or does not have the package index.",
       "official_unreachable": "The official source could not be reached, so the mirrors could not be compared with it. Downloads are still checked against the official checksum.",
       "no_eligible": "No source serves the official file."
-    }
+    },
+    "use": "Use"
   },
   "estimate": {
     "packages": "Packages",

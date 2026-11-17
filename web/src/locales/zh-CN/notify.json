@@ -49,6 +49,14 @@
     "backup": {
       "label": "备份",
       "description": "备份方案运行失败。"
+    },
+    "ssh": {
+      "label": "SSH",
+      "description": "通过 SSH 登录服务器。"
+    },
+    "firewall": {
+      "label": "防火墙",
+      "description": "因未确认而被撤销的防火墙修改。"
     }
   },
   "event": {
@@ -79,6 +87,12 @@
     },
     "backup": {
       "failed": "备份失败"
+    },
+    "ssh": {
+      "login": "SSH 登录"
+    },
+    "firewall": {
+      "rolled_back": "防火墙修改已撤销"
     }
   },
   "channel": {

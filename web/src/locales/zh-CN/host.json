@@ -1,0 +1,101 @@
+{
+  "title": "系统",
+  "tabs": {
+    "general": "常规",
+    "swap": "交换空间",
+    "updates": "更新",
+    "sources": "系统软件源"
+  },
+  "general": {
+    "hostname": "主机名",
+    "hostnameHint": "字母、数字、连字符和点，例如 web1 或 web1.example.com。",
+    "time": "时间",
+    "ntp": "自动同步时间（NTP）",
+    "synced": "已同步",
+    "notSynced": "尚未同步",
+    "saved": "已保存。"
+  },
+  "reboot": {
+    "cardTitle": "重启",
+    "required": "上次启动后安装的更新需要重启才能生效。",
+    "running": "运行中的内核",
+    "latest": "已安装的内核",
+    "submit": "立即重启",
+    "title": "重启 {host}？",
+    "text": "所有网站、数据库和正在运行的任务都会停止，直到服务器重新启动，通常需要一两分钟。",
+    "waiting": "正在重启，面板会在一两分钟后恢复。",
+    "back": "服务器已恢复。"
+  },
+  "swap": {
+    "title": "交换空间",
+    "usage": "已用 {used}，共 {total}",
+    "none": "此系统没有交换空间。",
+    "used": "已用",
+    "managed": "面板",
+    "kind": {
+      "file": "文件",
+      "partition": "分区"
+    },
+    "fileTitle": "交换文件",
+    "fileHas": "面板的交换文件大小为 {size}。",
+    "fileNone": "面板可以为此系统添加交换文件。",
+    "create": "创建",
+    "resize": "调整大小",
+    "remove": "删除",
+    "removeTitle": "删除交换文件？",
+    "removeText": "会先把其中的内容移回内存，需要有足够的空闲内存。",
+    "mib": "MiB",
+    "swappiness": "Swappiness",
+    "swappinessHint": "内核把内存换出到交换空间的积极程度：0 到 100，服务器常用 10。",
+    "unsupported": {
+      "btrfs_old": "此版本的 Btrfs 不支持交换文件。",
+      "container": "容器不能拥有自己的交换空间。",
+      "other": "此系统上无法添加交换文件。"
+    }
+  },
+  "updates": {
+    "never": "尚未检查。",
+    "checkedAt": "检查于{time}。",
+    "check": "立即检查",
+    "installSecurity": "安装安全更新（{count}）",
+    "installAll": "全部安装（{count}）",
+    "installSecurityTitle": "安装 {count} 个安全更新？",
+    "installAllTitle": "安装 {count} 个更新？",
+    "installText": "更新软件包时部分服务可能会重启。",
+    "install": "安装",
+    "auto": "自动安装安全更新",
+    "autoHint": "使用 {tool} 和发行版的默认设置。",
+    "none": "所有软件包都是最新的。",
+    "security": "安全",
+    "from": "已安装",
+    "to": "可更新到",
+    "sourceWarning": {
+      "in_use_behind": "当前使用的{role}软件源落后于官方源，可能看不到全部更新。",
+      "in_use_unusable": "当前使用的{role}软件源没有响应，或没有软件包索引。"
+    },
+    "openSources": "比较软件源"
+  },
+  "sources": {
+    "intro": "比较发行版软件包的各个镜像，并切换到其他镜像。比较需要几秒钟。",
+    "probing": "正在比较软件源……",
+    "role": {
+      "main": "主",
+      "security": "安全更新"
+    },
+    "switch": "切换",
+    "switchTitle": "切换{role}软件源？",
+    "switchText": "从现在起所有系统软件包都将从 {name} 更新。当前的文件会被备份，可以恢复。",
+    "backups": "以前的软件源",
+    "noBackups": "还没有切换过软件源。",
+    "backupAt": "切换时间",
+    "change": "变更",
+    "restore": "恢复",
+    "restoreTitle": "恢复以前的软件源？",
+    "restoreText": "软件源将从 {to} 恢复为 {from}。",
+    "unsupportedReason": {
+      "no_source_in_use": "在系统文件中找不到当前使用的软件源",
+      "mirror_layout": "软件源文件的写法使面板无法安全地修改",
+      "no_entry": "没有此软件源的条目"
+    }
+  }
+}

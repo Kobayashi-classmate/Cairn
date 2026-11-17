@@ -100,7 +100,8 @@
       "backup_name": "{field}不是此方案的备份。",
       "unit_name": "{field}必须是 systemd 单元名，例如 nginx.service。",
       "journal_time": "{field}必须是 journalctl 能识别的时间，例如“today”“-1h”或“2026-11-16 10:00”。",
-      "endpoint": "{field}必须是主机名，可带端口，不能带“https://”或路径。"
+      "endpoint": "{field}必须是主机名，可带端口，不能带“https://”或路径。",
+      "port_spec": "请检查{field}：每一项必须是端口（1–65535）或范围，如 8000-8100。"
     }
   },
   "locale": {
@@ -262,6 +263,28 @@
       "storage_failed": "无法访问存储，或存储拒绝了请求：{detail}",
       "storage_in_use": "仍有 {plans} 个备份方案在使用此存储，请先修改它们。",
       "plan_in_use": "仍有 {tasks} 个计划任务在运行此方案，请先删除它们。"
+    },
+    "firewall": {
+      "self_block": "封禁 {address} 会封禁你自己的地址，导致你无法再访问面板。",
+      "overlap": "{address} 与 {other} 重叠。",
+      "apply_failed": "无法应用防火墙规则：{detail}",
+      "unsupported": "此系统上无法管理防火墙：{reasonText}。"
+    },
+    "ssh": {
+      "config_invalid": "SSH 配置无效：{output}",
+      "conflict": "{key} 在 {file} 中设置，请先在那里修改或删除。",
+      "port_in_use": "端口 {port} 已被占用。",
+      "selinux_port": "SELinux 不允许 SSH 使用端口 {port}（类型 {type}）。",
+      "not_listening": "SSH 没有在端口 {port} 上监听。"
+    },
+    "host": {
+      "swap_unsupported": "{reasonText}",
+      "swap_no_space": "交换文件需要 {needMb} MiB，但只剩 {freeMb} MiB 可用。"
+    },
+    "syssrc": {
+      "mixed": "{file} 中混用了多个软件源，请手动修改。",
+      "update_failed": "无法从新软件源更新软件包索引：{detail}。已恢复原来的文件。",
+      "unsupported": "此处无法切换系统软件源：{reasonText}。"
     }
   },
   "software": {
@@ -398,5 +421,59 @@
   },
   "log": {
     "no_journal": "本服务器没有系统日志（journalctl）。"
+  },
+  "firewall": {
+    "pending": "另一项防火墙修改正在等待确认，请一分钟后再试。",
+    "self_block": "这会封禁你自己的地址，导致你无法再访问面板。",
+    "overlap": "与另一个受信任或被封禁的条目重叠。",
+    "protected": "此规则保证 SSH 和面板可以访问，不能修改。",
+    "managed": "此规则属于其他功能，请在那里修改。",
+    "not_enabled": "防火墙已关闭，请先开启。",
+    "backend_missing": "防火墙工具未安装。",
+    "conflict": "ufw 和 firewalld 同时处于活动状态。请先在服务器上关闭其中一个，再在这里管理防火墙。",
+    "apply_failed": "无法应用防火墙规则。",
+    "not_found": "此规则或地址不存在（或已被删除）。",
+    "unsupported": "此系统上无法管理防火墙。",
+    "deny_needs_source": "拒绝规则至少需要一个来源地址：未被允许的连接本来就会被拒绝。",
+    "confirm_retry": "暂时还无法确认此修改。",
+    "no_pending": "没有等待确认的修改（已被撤销或已过期）。"
+  },
+  "ssh": {
+    "not_installed": "未安装 SSH 服务器。",
+    "config_invalid": "SSH 配置无效。",
+    "conflict": "另一个配置文件设置了此选项。",
+    "no_keys": "没有任何用户设置了授权密钥，关闭密码登录会把所有人锁在外面。",
+    "port_in_use": "此端口已被占用。",
+    "port_invalid": "此端口不能用于 SSH。",
+    "pending": "端口修改正在进行中，请先完成或取消。",
+    "no_pending": "没有进行中的端口修改。",
+    "selinux_port": "SELinux 不允许 SSH 使用此端口。",
+    "not_listening": "SSH 没有在新端口上监听。",
+    "key_invalid": "这不是有效的 SSH 公钥。",
+    "key_exists": "此密钥已经授权。",
+    "user_not_found": "此用户不存在。",
+    "root_disabled": "关闭 root 访问期间不能修改 root 的密钥。",
+    "conflict_include": "sshd_config 没有读取 sshd_config.d 中的文件（{file}），请先为它们添加 Include 行。",
+    "selinux_semanage_missing": "SELinux 会阻止 SSH 使用端口 {port}，而用于放行的 semanage（policycoreutils-python-utils）没有安装。",
+    "selinux_semanage_failed": "SELinux 会阻止 SSH 使用端口 {port}，用 semanage 放行失败。"
+  },
+  "host": {
+    "hostname_invalid": "只能使用字母、数字、连字符和点，最多 253 个字符。",
+    "timezone_invalid": "无法识别此时区。",
+    "ntp_unavailable": "此系统上没有可用的时间同步服务（systemd-timesyncd 或 chrony）。",
+    "swap_unsupported": "此系统上无法添加交换文件。",
+    "swap_no_space": "磁盘剩余空间不足以创建此交换文件。",
+    "swap_not_managed": "此交换空间不是面板创建的。",
+    "updates_unavailable": "此系统上不能使用自动更新。",
+    "reboot_failed": "无法重启服务器。"
+  },
+  "syssrc": {
+    "not_eligible": "此软件源没有提供官方的软件包索引。",
+    "in_use": "已在使用此软件源。",
+    "mixed": "软件源文件中混用了多个源，请手动修改。",
+    "update_failed": "无法从新软件源更新软件包索引，已恢复原来的文件。",
+    "backup_not_found": "此软件源备份不存在（或已被删除）。",
+    "unsupported": "此系统不支持切换系统软件源。",
+    "https_required": "此软件源必须通过 HTTPS 使用。"
   }
 }

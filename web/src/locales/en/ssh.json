@@ -1,0 +1,74 @@
+{
+  "title": "SSH",
+  "tabs": {
+    "keys": "Authorized keys",
+    "logins": "Login log"
+  },
+  "status": {
+    "title": "Server",
+    "service": "Service",
+    "socket": "(socket activated)",
+    "ports": "Ports",
+    "listen": "Listens on",
+    "pubkey": "Key login",
+    "on": "On",
+    "off": "Off",
+    "firewall": "Firewall",
+    "noFirewall": "None"
+  },
+  "settings": {
+    "title": "Logging in",
+    "passwords": "Allow passwords",
+    "root": "Root login",
+    "passwordsOffTitle": "Turn off password logins?",
+    "passwordsOffText": "Only keys will work. Make sure you can log in with a key before you continue, or you may lock yourself out.",
+    "passwordsOffSubmit": "Turn off passwords"
+  },
+  "permitRootLogin": {
+    "yes": "Allowed (password or key)",
+    "prohibit-password": "With a key only",
+    "no": "Not allowed"
+  },
+  "port": {
+    "cardTitle": "Port",
+    "intro": "Moving SSH keeps the old port open for a while, so you can check the new one first.",
+    "new": "New port",
+    "closeAfter": "Close the old port after",
+    "submit": "Move SSH",
+    "title": "Move SSH to port {port}?",
+    "text": "SSH will listen on both the old and the new port. Log in on the new port to check it works (and open it in your cloud provider's security group). The old port closes automatically after {minutes} minutes, or when you close it.",
+    "pending": "SSH listens on port {old} and on the new port {port}. The old port closes in {time}.",
+    "finish": "Close the old port now",
+    "finishTitle": "Close the old port?",
+    "finishText": "Only the new port stays open. Make sure you have logged in on it.",
+    "cancel": "Keep the old port"
+  },
+  "keys": {
+    "userOption": "{name} (no keys) | {name} (one key) | {name} ({count} keys)",
+    "fingerprint": "Fingerprint",
+    "comment": "Comment",
+    "empty": "This user has no authorized keys.",
+    "placeholder": "ssh-ed25519 AAAA… you{'@'}laptop",
+    "add": "Add key",
+    "added": "Key added.",
+    "deleteTitle": "Delete this key?",
+    "deleteText": "The key {fingerprint} can no longer log in as {user}.",
+    "rootReadOnly": "Root's keys cannot be changed while root access is turned off in the settings."
+  },
+  "logins": {
+    "time": "Time",
+    "ip": "From",
+    "method": "Method",
+    "result": "Result"
+  },
+  "method": {
+    "publickey": "Key",
+    "password": "Password",
+    "keyboard-interactive": "Keyboard-interactive"
+  },
+  "result": {
+    "accepted": "Accepted",
+    "failed": "Failed",
+    "invalid_user": "Unknown user"
+  }
+}

@@ -297,9 +297,14 @@ func (s *Software) readConfig(patterns ...string) map[string][]byte {
 }
 
 // probeSystem compares the system repositories in use for a role with the
-// distribution's official address and its official mirror network. The
-// result is shown only; the panel does not change system sources yet.
-func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, role string) {
+// distribution's official address and its official mirror network. A
+// switch to one of the candidates happens only on the user's request
+// (syssrc.switch).
+//
+// only, when given, probes just those candidate IDs (with the official one
+// and the ones in use): a switch checks its target again without the
+// shortlist of a full probe skipping it.
+func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, role string, only ...string) {
 	sys, _ := s.systemRepo(role)
 	sl.Role = role
 	vars := s.dnfVars()
@@ -362,12 +367,14 @@ func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, ro
 		entries := sources.ParseAPTSources(s.readConfig("/etc/apt/sources.list", "/etc/apt/sources.list.d/*.list", "/etc/apt/sources.list.d/*.sources"))
 		for _, e := range entries {
 			if contains(suites, e.Suite) {
-				addCand(strings.TrimSuffix(e.URI, "/"), kindOf(e.URI), true, "")
+				u := s.resolveAPTURI(e.URI)
+				addCand(strings.TrimSuffix(u, "/"), kindOf(u), true, "")
 			}
 		}
 		for _, u := range append(append([]string{}, sys.Mirrors...), registry...) {
 			addCand(strings.TrimSuffix(u, "/"), sources.KindOfficialMirror, false, "")
 		}
+		cands = onlyCandidates(cands, only)
 		s.prober().ProbeAPT(ctx, cands, sources.APTTarget{Suites: suites, Components: []string{"main"}, Arch: dpkgArch(s.Arch)})
 	} else {
 		for _, sec := range sources.ParseRepoFiles(s.readConfig("/etc/yum.repos.d/*.repo")) {
@@ -396,6 +403,7 @@ func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, ro
 		for _, u := range registry {
 			addCand(u, sources.KindOfficialMirror, false, "")
 		}
+		cands = onlyCandidates(cands, only)
 		s.prober().ProbeDNF(ctx, cands)
 	}
 	sl.Candidates = cands
@@ -418,6 +426,42 @@ func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, ro
 	if sl.Warning == "" && !cands[0].Eligible {
 		sl.Warning = helperapi.WarnOfficialUnverified
 	}
+}
+
+// onlyCandidates keeps the official candidate, the ones in use and those
+// named in only (all of them when only is empty).
+func onlyCandidates(cands []sources.Candidate, only []string) []sources.Candidate {
+	if len(only) == 0 {
+		return cands
+	}
+	var out []sources.Candidate
+	for _, c := range cands {
+		if c.ID == sources.IDOfficial || c.InUse || contains(only, c.ID) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// resolveAPTURI turns apt's "mirror+file:///etc/apt/mirrors/debian.list"
+// (Debian's cloud images) into the first mirror of that list, the one apt
+// tries first; other addresses are returned as they are.
+func (s *Software) resolveAPTURI(uri string) string {
+	rest, ok := strings.CutPrefix(uri, "mirror+file:")
+	if !ok {
+		return uri
+	}
+	data, err := readSmall(s.path(strings.TrimPrefix(rest, "//")))
+	if err != nil {
+		return uri
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if f := strings.Fields(line); len(f) > 0 && !strings.HasPrefix(f[0], "#") &&
+			(strings.HasPrefix(f[0], "https://") || strings.HasPrefix(f[0], "http://")) {
+			return f[0]
+		}
+	}
+	return uri
 }
 
 func candidateIndex(cands []sources.Candidate, id string) int {

@@ -40,3 +40,7 @@
 "notify.cron.failed.body" = "计划任务 {{.name}} 的结果为 {{.result}}（退出码 {{.exitCode}}）。输出可在面板的执行记录中查看。"
 "notify.backup.failed.title" = "[Cairn] {{.host}} 上的备份失败"
 "notify.backup.failed.body" = "备份计划 {{.name}} 执行失败：{{.code}}。请在面板中查看该计划的执行记录。"
+"notify.ssh.login.title" = "[Cairn] {{.host}} 上有 SSH 登录"
+"notify.ssh.login.body" = "{{.user}} 从 {{.ip}} 通过 SSH 登录（{{.method}}）。如果不是你本人，请到面板的 SSH 页面检查。"
+"notify.firewall.rolled_back.title" = "[Cairn] {{.host}} 上的防火墙修改已撤销"
+"notify.firewall.rolled_back.body" = "有一次防火墙修改在 60 秒内没有得到确认，已自动撤销，之前的规则重新生效。"

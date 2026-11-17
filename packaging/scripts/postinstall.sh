@@ -72,6 +72,19 @@ EOF
 	chmod 0640 /etc/cairn/config.toml
 fi
 
+# SELinux (EL): /usr/lib is lib_t, and systemd runs a lib_t program in its
+# own init_t domain, where many operations are refused without a trace.
+# Labeled bin_t, the helper runs as an unconfined service, like cairn-web.
+# Done on every install and upgrade, before the services (re)start.
+if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
+	if command -v semanage >/dev/null 2>&1; then
+		semanage fcontext -a -t bin_t '/usr/lib/cairn(/.*)?' >/dev/null 2>&1 ||
+			semanage fcontext -m -t bin_t '/usr/lib/cairn(/.*)?' >/dev/null 2>&1 || true
+		restorecon -R /usr/lib/cairn >/dev/null 2>&1 || true
+	fi
+	chcon -R -t bin_t /usr/lib/cairn >/dev/null 2>&1 || true
+fi
+
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload
 	if [ "$first_install" = 1 ]; then

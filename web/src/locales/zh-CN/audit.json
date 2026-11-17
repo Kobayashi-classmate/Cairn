@@ -25,7 +25,10 @@
     "files": "全盘访问",
     "terminal": "终端",
     "cron": "计划任务",
-    "backup": "备份"
+    "backup": "备份",
+    "firewall": "防火墙",
+    "ssh": "SSH",
+    "host": "系统"
   },
   "column": {
     "time": "时间",
@@ -203,6 +206,38 @@
       "run": "运行了备份方案 {name}",
       "delete": "删除了 {name} 的备份",
       "restore": "恢复了 {file}"
+    },
+    "firewall": {
+      "rule_add": "添加了防火墙规则：{action} {ports}（{protocol}）",
+      "rule_update": "修改了防火墙规则：{action} {ports}（{protocol}）",
+      "rule_delete": "删除了防火墙规则",
+      "address_add": "添加了防火墙地址 {address}",
+      "address_delete": "删除了受信任或被封禁的地址",
+      "ping": "修改了是否禁止 ping",
+      "confirm": "确认了防火墙修改",
+      "enable": "开启了防火墙",
+      "disable": "关闭了防火墙"
+    },
+    "ssh": {
+      "key_add": "为 {user} 授权了 SSH 密钥",
+      "key_delete": "删除了 {user} 的 SSH 密钥",
+      "settings": "修改了 SSH 登录设置",
+      "port": "把 SSH 改到了端口 {port}",
+      "port_finish": "关闭了旧的 SSH 端口",
+      "port_cancel": "保留了旧的 SSH 端口"
+    },
+    "host": {
+      "hostname": "把主机名改为 {hostname}",
+      "timezone": "把时区改为 {timezone}",
+      "ntp": "修改了时间同步",
+      "swappiness": "把 swappiness 设为 {value}",
+      "reboot": "重启了服务器",
+      "swap": "把交换文件设为 {sizeMb} MiB",
+      "updates_check": "检查了系统更新",
+      "updates_install": "安装了全部系统更新",
+      "updates_auto": "修改了自动更新",
+      "sources_switch": "切换了{role}系统软件源",
+      "sources_restore": "恢复了系统软件源"
     }
   },
   "variant": {
@@ -268,6 +303,32 @@
       },
       "plan_delete": {
         "files": "删除了备份方案 {name} 及其备份"
+      }
+    },
+    "firewall": {
+      "address_add": {
+        "allow": "信任了 {address}（所有端口）",
+        "deny": "封禁了 {address}（所有端口）"
+      },
+      "ping": {
+        "block": "禁止了 ping",
+        "allow": "允许了 ping"
+      }
+    },
+    "host": {
+      "ntp": {
+        "enable": "开启了时间同步",
+        "disable": "关闭了时间同步"
+      },
+      "swap": {
+        "remove": "删除了交换文件"
+      },
+      "updates_install": {
+        "security": "安装了安全更新"
+      },
+      "updates_auto": {
+        "enable": "开启了自动安全更新",
+        "disable": "关闭了自动安全更新"
       }
     }
   }

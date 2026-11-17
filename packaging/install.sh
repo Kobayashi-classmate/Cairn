@@ -10,9 +10,11 @@
 # Cairn package of the release, checks it against the release's signed
 # checksum list and installs it with apt-get or dnf. No package repository is
 # added: dependencies come from the system's own sources, and later versions
-# are installed through the panel's online update. Nothing else changes:
-# system mirrors, /bin/sh, /etc/hosts and other global settings are left
-# alone. Every step can be reproduced by hand; see the README.
+# are installed through the panel's online update. It then switches the
+# firewall on (after showing which ports stay open; --no-firewall skips it).
+# Nothing else changes: system mirrors, /bin/sh, /etc/hosts and other global
+# settings are left alone. Every step can be reproduced by hand; see the
+# README.
 #
 # Options:
 #   --lang en|zh-CN   default language of the panel (skips the question)
@@ -24,6 +26,9 @@
 #                     install from it (the repository installer's default)
 #   --repo URL        package repository for --with-repo
 #   --yes             do not ask questions; use --lang or the system locale
+#   --no-firewall     leave the firewall alone (by default it is switched on:
+#                     incoming connections denied except SSH, the panel's
+#                     port, 80 and 443; the panel changes it later)
 #   --no-systemd-check  install even if systemd is not running (containers,
 #                     image builds, tests); the services are then not started
 set -eu
@@ -41,6 +46,7 @@ WANT_VERSION=""
 CHOSEN_LANG=""
 ASSUME_YES=0
 CHECK_SYSTEMD=1
+FIREWALL=1
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -55,6 +61,7 @@ while [ $# -gt 0 ]; do
 		--repo) MODE=repo; REPO_URL=${2:-}; shift 2 ;;
 		--repo=*) MODE=repo; REPO_URL=${1#*=}; shift ;;
 		--yes | -y) ASSUME_YES=1; shift ;;
+		--no-firewall) FIREWALL=0; shift ;;
 		*) echo "Unknown option: $1" >&2; exit 2 ;;
 	esac
 done
@@ -94,6 +101,12 @@ msg() {
 			adding_repo) text='正在添加 Cairn 软件源……' ;;
 			installing) text='正在安装 Cairn %s……' ;;
 			done) text='安装完成。请打开上面显示的初始化链接，创建管理员账号。' ;;
+			fw_plan) text='将启用防火墙（%s）：拒绝所有入站连接，只放行以下端口：%s' ;;
+			fw_install) text='需要先从系统软件源安装：%s' ;;
+			fw_prompt) text='现在启用防火墙？以后可以在面板里修改 [Y/n]：' ;;
+			fw_enabled) text='防火墙已启用。' ;;
+			fw_skipped) text='没有修改防火墙。可以以后在面板的"防火墙"页面启用。' ;;
+			fw_failed) text='启用防火墙失败，面板已安装好；可以以后在面板的"防火墙"页面重试。' ;;
 		esac
 	else
 		case "$key" in
@@ -121,6 +134,12 @@ msg() {
 			adding_repo) text='Adding the Cairn package repository...' ;;
 			installing) text='Installing Cairn %s...' ;;
 			done) text='Done. Open the setup link shown above to create the administrator account.' ;;
+			fw_plan) text='The firewall (%s) will be switched on: incoming connections are denied except on %s' ;;
+			fw_install) text='It is installed first from the system repositories: %s' ;;
+			fw_prompt) text='Switch the firewall on now? You can change it in the panel later [Y/n]: ' ;;
+			fw_enabled) text='The firewall is on.' ;;
+			fw_skipped) text='The firewall was left alone. You can switch it on later on the panel'"'"'s Firewall page.' ;;
+			fw_failed) text='Switching the firewall on failed; the panel itself is installed. You can retry on the panel'"'"'s Firewall page.' ;;
 		esac
 	fi
 	# shellcheck disable=SC2059 # the message is the format string
@@ -359,11 +378,46 @@ EOF
 	fi
 }
 
+# ---- Firewall --------------------------------------------------------------
+# The helper decides which firewall to use (a running firewalld or ufw, else
+# the system's default) and lists the ports that stay open.
+setup_firewall() {
+	helper=/usr/lib/cairn/cairn-helper
+	if [ "$FIREWALL" -eq 0 ] || [ ! -d /run/systemd/system ] || [ ! -x "$helper" ]; then
+		[ "$FIREWALL" -eq 0 ] && say fw_skipped
+		return 0
+	fi
+	fwlog=$(mktemp)
+	plan=$("$helper" firewall plan 2>"$fwlog") || { say fw_failed; tail -5 "$fwlog" >&2; rm -f "$fwlog"; return 0; }
+	backend=$(printf '%s\n' "$plan" | sed -n 's/^backend=//p')
+	ports=$(printf '%s\n' "$plan" | sed -n 's/^ports=//p')
+	install=$(printf '%s\n' "$plan" | sed -n 's/^install=//p')
+	echo
+	say fw_plan "$backend" "$ports"
+	[ -n "$install" ] && say fw_install "$install"
+	answer=""
+	if [ "$ASSUME_YES" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+		msg fw_prompt >/dev/tty
+		read -r answer </dev/tty || answer=""
+	fi
+	case "$answer" in
+		n* | N*) say fw_skipped; rm -f "$fwlog"; return 0 ;;
+	esac
+	if "$helper" firewall setup >"$fwlog" 2>&1; then
+		say fw_enabled
+	else
+		say fw_failed
+		tail -10 "$fwlog" >&2
+	fi
+	rm -f "$fwlog"
+}
+
 if [ "$MODE" = repo ]; then
 	install_from_repo
 else
 	install_from_release
 fi
+setup_firewall
 
 echo
 say done

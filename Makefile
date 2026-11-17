@@ -30,7 +30,7 @@ NODE_RUN = docker run --rm \
 	-v cairn-npm-cache:/root/.npm \
 	$(NODE_IMAGE)
 
-.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test certs-test databases-test files-test backups-test vm-test clean
+.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test certs-test databases-test files-test backups-test firewall-test vm-test clean
 
 all: check build
 
@@ -134,6 +134,10 @@ files-test:
 ## backups-test: back up and restore through the API into a local S3 server (containers)
 backups-test:
 	bash test/backups/run.sh
+
+## firewall-test: run the nftables and ufw backends for real and check reachability, firewalld's policy offline (containers)
+firewall-test:
+	bash test/firewall/run.sh
 
 ## certs-test: issue certificates against Pebble (Let's Encrypt's test CA) with a local DNS server (containers)
 certs-test:

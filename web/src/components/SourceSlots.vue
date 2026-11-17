@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   NAlert,
+  NButton,
   NCollapse,
   NCollapseItem,
   NRadio,
@@ -29,7 +30,12 @@ const props = defineProps<{
   repos: ReadonlyMap<string, Repository>
   /** Product names by catalog id, for naming runtime downloads. */
   names?: Readonly<Record<string, string>>
+  /** System slots offer switching to another source (system management). */
+  switchable?: boolean
+  /** Switching is not possible right now (another change runs). */
+  switchDisabled?: boolean
 }>()
+const emit = defineEmits<{ switch: [slot: SourceSlot, candidate: SourceCandidate] }>()
 
 /** Chosen candidate id per runtime slot id. */
 const selection = defineModel<Record<string, string>>('selection', { required: true })
@@ -207,6 +213,7 @@ function slotErrorReason(slot: SourceSlot): string {
               <th>{{ t('software.probe.column.indexTime') }}</th>
               <th>{{ t('software.probe.column.latency') }}</th>
               <th>{{ t('software.probe.column.speed') }}</th>
+              <th v-if="switchable && slot.kind === 'system'" />
             </tr>
           </thead>
           <tbody>
@@ -232,6 +239,17 @@ function slotErrorReason(slot: SourceSlot): string {
               <td>{{ indexTime(candidate) }}</td>
               <td>{{ latency(candidate) }}</td>
               <td>{{ speed(candidate) }}</td>
+              <td v-if="switchable && slot.kind === 'system'">
+                <NButton
+                  v-if="candidate.eligible && !candidate.inUse"
+                  size="tiny"
+                  :type="candidate.recommended ? 'primary' : 'default'"
+                  :disabled="switchDisabled"
+                  @click="emit('switch', slot, candidate)"
+                >
+                  {{ t('software.probe.use') }}
+                </NButton>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -248,7 +266,7 @@ function slotErrorReason(slot: SourceSlot): string {
           </ul>
         </NCollapseItem>
       </NCollapse>
-      <NText v-if="slot.kind === 'system'" depth="3" tag="p" class="note">
+      <NText v-if="slot.kind === 'system' && !switchable" depth="3" tag="p" class="note">
         {{ t('software.probe.systemNote') }}
       </NText>
     </section>

@@ -49,6 +49,14 @@
     "backup": {
       "label": "Backups",
       "description": "Backup plan runs that fail."
+    },
+    "ssh": {
+      "label": "SSH",
+      "description": "Logins to the server over SSH."
+    },
+    "firewall": {
+      "label": "Firewall",
+      "description": "Firewall changes rolled back because they were not confirmed."
     }
   },
   "event": {
@@ -79,6 +87,12 @@
     },
     "backup": {
       "failed": "Backup failed"
+    },
+    "ssh": {
+      "login": "SSH login"
+    },
+    "firewall": {
+      "rolled_back": "Firewall change rolled back"
     }
   },
   "channel": {

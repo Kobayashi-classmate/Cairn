@@ -50,7 +50,17 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
       return params.files === true ? 'files' : null
     case 'files.full_disk':
     case 'terminal.root':
+    case 'host.ntp':
+    case 'host.updates_auto':
       return typeof params.enabled === 'boolean' ? (params.enabled ? 'enable' : 'disable') : null
+    case 'host.swap':
+      return params.sizeMb === 0 ? 'remove' : null
+    case 'host.updates_install':
+      return params.securityOnly === true ? 'security' : null
+    case 'firewall.ping':
+      return typeof params.block === 'boolean' ? (params.block ? 'block' : 'allow') : null
+    case 'firewall.address_add':
+      return params.action === 'allow' || params.action === 'deny' ? params.action : null
     default:
       return null
   }
@@ -61,7 +71,21 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
  * names, file paths become absolute paths, sizes are formatted by the caller.
  */
 export function decorateParams(kind: string, named: Record<string, string | number | boolean>): void {
+  const { t, te } = i18n.global
+  const translate = (prefix: string, value: string | number | boolean | undefined) =>
+    typeof value === 'string' && te(`${prefix}.${value}`) ? t(`${prefix}.${value}`) : value
   if ((/^(db|redis)\./.test(kind) || kind === 'backup.restore') && typeof named.engine === 'string') named.engine = engineIdLabel(named.engine)
+  // Firewall rules read "Allow 80,443 (TCP)".
+  if (kind === 'firewall.rule_add' || kind === 'firewall.rule_update') {
+    const action = translate('firewall.action', named.action)
+    const protocol = translate('firewall.protocol', named.protocol)
+    if (action !== undefined) named.action = action
+    if (protocol !== undefined) named.protocol = protocol
+  }
+  if (kind.startsWith('host.sources_')) {
+    const role = translate('host.sources.role', named.role)
+    if (role !== undefined) named.role = role
+  }
   if ((kind.startsWith('file.') || kind === 'backup.restore') && typeof named.root === 'string') {
     if (typeof named.path === 'string') named.path = absolutePath(named.root, named.path)
     if (typeof named.dest === 'string') named.dest = absolutePath(named.root, named.dest)
@@ -83,8 +107,9 @@ export function jobKindLabel(kind: string, params?: Record<string, unknown>): st
   }
   const short = `jobs.kindName.${kind}`
   if (Object.keys(named).length === 0 && te(short)) return t(short)
-  decorateParams(kind, named)
+  // The variant reads the raw values; decorating translates some of them.
   const variant = labelVariant(kind, named)
+  decorateParams(kind, named)
   if (variant && te(`jobs.variant.${kind}.${variant}`)) return t(`jobs.variant.${kind}.${variant}`, named)
   const full = `jobs.kind.${kind}`
   return te(full) ? t(full, named) : kind

@@ -42,11 +42,14 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/cron"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/databases"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/files"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/firewall"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/host"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/jobcenter"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/logs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/notifications"
 	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
 	softwaremod "github.com/Kobayashi-classmate/Cairn/internal/modules/software"
+	"github.com/Kobayashi-classmate/Cairn/internal/modules/sshmod"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/system"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/terminal"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/users"
@@ -147,6 +150,10 @@ func run(cfgPath string, log *slog.Logger) error {
 	go cronMod.Run(ctx)
 	backupsMod := &backups.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Events: bus, Log: log, DataDir: cfg.Paths.DataDir}
 	go backupsMod.Run(ctx)
+	firewallMod := &firewall.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
+	go firewallMod.Run(ctx)
+	sshMod := &sshmod.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
+	go sshMod.Run(ctx)
 
 	router := api.NewRouter(core.Authenticator(db), log)
 	registry := module.NewRegistry(db)
@@ -162,6 +169,9 @@ func run(cfgPath string, log *slog.Logger) error {
 		cronMod,
 		backupsMod,
 		&logs.Module{Helper: helper, Log: log},
+		firewallMod,
+		sshMod,
+		&host.Module{Jobs: jobManager, Helper: helper, DB: db, Log: log},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
 		&users.Module{DB: db, Events: bus, Log: log},
 		&auditlog.Module{DB: db},
@@ -184,6 +194,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		Handler:           api.SecurityHeaders(api.Recover(log, mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
+		ConnContext:       api.ConnContext,
 		TLSConfig:         &tls.Config{MinVersion: tls.VersionTLS12, GetCertificate: tlsHolder.GetCertificate},
 		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
 	}

@@ -19,12 +19,14 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/buildinfo"
 	"github.com/Kobayashi-classmate/Cairn/internal/config"
 	"github.com/Kobayashi-classmate/Cairn/internal/helper"
+	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/platform"
 	"github.com/Kobayashi-classmate/Cairn/internal/sources"
 )
@@ -36,6 +38,20 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if len(os.Args) > 1 && os.Args[1] == "run-update" {
 		if err := runUpdate(os.Args[2:], log); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "firewall" {
+		if err := runFirewall(os.Args[2:], log); err != nil {
+			fmt.Fprintln(os.Stderr, "cairn firewall:", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if len(os.Args) > 1 && os.Args[1] == "ssh" {
+		if err := runSSH(os.Args[2:], log); err != nil {
+			fmt.Fprintln(os.Stderr, "cairn ssh:", err)
 			os.Exit(1)
 		}
 		return
@@ -123,6 +139,9 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	helper.RegisterBackups(reg, ops, e.backups)
 	helper.RegisterCron(reg, ops, e.cron)
 	helper.RegisterLogs(reg, "")
+	helper.RegisterFirewall(reg, ops, e.firewall)
+	helper.RegisterSSH(reg, ops, e.ssh)
+	helper.RegisterHost(reg, ops, e.host)
 	updater := &helper.Updater{
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,
@@ -156,6 +175,9 @@ type engines struct {
 	files    *helper.Files
 	backups  *helper.Backups
 	cron     *helper.Cron
+	firewall *helper.Firewall
+	ssh      *helper.SSH
+	host     *helper.Host
 }
 
 func newEngines(cfg config.Config, manager string, log *slog.Logger) (*engines, error) {
@@ -170,7 +192,91 @@ func newEngines(cfg config.Config, manager string, log *slog.Logger) (*engines, 
 	e.files = &helper.Files{DataDir: cfg.Paths.DataDir, PanelUser: "cairn", StateDir: stateDir, RootAccess: cfg.Security.RootAccess, Log: log}
 	e.backups = &helper.Backups{Files: e.files, DBs: e.dbs, Log: log}
 	e.cron = &helper.Cron{Sites: e.sites, Files: e.files, Backups: e.backups}
+	e.firewall = &helper.Firewall{StateDir: stateDir, Software: software, Default: "none", PanelPort: e.sites.PanelPort,
+		Executable: helperExecutable(), Log: log}
+	e.host = &helper.Host{StateDir: stateDir, Software: software, Log: log}
+	e.ssh = &helper.SSH{StateDir: stateDir, Files: e.files, Firewall: e.firewall, Software: software, Service: "ssh",
+		Executable: e.firewall.Executable, Log: log}
+	if p, _, err := platform.Detect(); err == nil {
+		e.firewall.Default = p.Firewall
+		if unit := p.Services["ssh"]; unit != "" {
+			e.ssh.Service = unit
+		}
+	}
+	e.sites.Firewall, e.dbs.Firewall = e.firewall, e.firewall
 	return e, nil
+}
+
+// helperExecutable is the path timers run the helper from.
+func helperExecutable() string {
+	if exe, err := os.Executable(); err == nil {
+		return exe
+	}
+	return "/usr/lib/cairn/cairn-helper"
+}
+
+// runSSH is what the SSH port timer runs:
+//
+//	cairn-helper ssh finish-port   (close the old ports of a port change)
+func runSSH(args []string, log *slog.Logger) error {
+	if os.Geteuid() != 0 || len(args) != 1 || args[0] != "finish-port" {
+		return errors.New("usage (as root): cairn-helper ssh finish-port")
+	}
+	cfg, err := config.Load(config.DefaultPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	_, manager := packageTools(slog.New(slog.DiscardHandler))
+	e, err := newEngines(cfg, manager, log)
+	if err != nil {
+		return err
+	}
+	return e.ssh.FinishPort(context.Background(), os.Stdout)
+}
+
+// runFirewall is the firewall's command line, for the installer and the
+// rollback timer:
+//
+//	cairn-helper firewall plan            (what setup would do, key=value lines)
+//	cairn-helper firewall setup           (enable it at install time)
+//	cairn-helper firewall rollback <tx>   (undo a change nobody confirmed)
+func runFirewall(args []string, log *slog.Logger) error {
+	if os.Geteuid() != 0 {
+		return errors.New("the firewall commands run as root")
+	}
+	if len(args) == 0 {
+		return errors.New("usage: cairn-helper firewall plan|setup|rollback <tx>")
+	}
+	cfg, err := config.Load(config.DefaultPath)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	_, manager := packageTools(slog.New(slog.DiscardHandler))
+	e, err := newEngines(cfg, manager, log)
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	switch {
+	case args[0] == "plan" && len(args) == 1:
+		plan, err := e.firewall.Plan(ctx)
+		if err != nil {
+			return err
+		}
+		active := "no"
+		if plan.Active {
+			active = "yes"
+		}
+		fmt.Printf("backend=%s\nactive=%s\ninstall=%s\nports=%s\n", plan.Backend, active,
+			strings.Join(plan.Install, " "), strings.Join(plan.Ports, " "))
+		return nil
+	case args[0] == "setup" && len(args) == 1:
+		return e.firewall.Setup(ctx, os.Stdout)
+	case args[0] == "rollback" && len(args) == 2 && helperapi.ValidFirewallTxID(args[1]):
+		return e.firewall.Rollback(ctx, args[1])
+	}
+	return errors.New("usage: cairn-helper firewall plan|setup|rollback <tx>")
 }
 
 // runTask is what a scheduled task's service runs:

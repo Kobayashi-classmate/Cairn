@@ -229,14 +229,14 @@ func navKeys(t *testing.T, c *client) string {
 func TestNavAndModuleSwitches(t *testing.T) {
 	e := newEnv(t, demo{})
 	admin := e.setupAdmin("admin")
-	if got := navKeys(t, admin); got != "overview,sites,certs,databases,files,terminal,cron,backups,logs,software,demo,jobs,users,messages,audit,settings" {
+	if got := navKeys(t, admin); got != "overview,sites,certs,databases,files,terminal,cron,backups,logs,firewall,ssh,host,software,demo,jobs,users,messages,audit,settings" {
 		t.Fatalf("admin menu: %s", got)
 	}
 	admin.elevate("")
 	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "aud", "password": pw, "role": "auditor"}), 201, "")
 	aud := e.client()
 	aud.expect(aud.login("aud", pw), 200, "")
-	if got := navKeys(t, aud); got != "overview,sites,certs,databases,cron,backups,logs,software,jobs,messages,audit,settings" {
+	if got := navKeys(t, aud); got != "overview,sites,certs,databases,cron,backups,logs,firewall,ssh,host,software,jobs,messages,audit,settings" {
 		t.Fatalf("auditor menu: %s", got)
 	}
 	// Module permissions reach the role defaults and /auth/me.
@@ -246,7 +246,7 @@ func TestNavAndModuleSwitches(t *testing.T) {
 	}
 
 	mods := admin.expect(admin.do("GET", "/api/v1/modules", nil), 200, "").body["modules"].([]any)
-	if len(mods) != 17 || fmt.Sprint(mods[16]) != "map[enabled:true id:demo optional:true]" {
+	if len(mods) != 20 || fmt.Sprint(mods[19]) != "map[enabled:true id:demo optional:true]" {
 		t.Fatalf("modules: %v", mods)
 	}
 	admin.expect(admin.do("PUT", "/api/v1/modules/core", map[string]any{"enabled": false}), 409, "module.not_optional")

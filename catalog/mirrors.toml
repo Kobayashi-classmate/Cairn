@@ -140,6 +140,7 @@ role = "main"
 official = "https://dl.rockylinux.org/pub/rocky/{major}/AppStream/$basearch/os/"
 section = "appstream"
 mirror_list = "https://mirrors.rockylinux.org/mirrorlist?arch=$basearch&repo=AppStream-{major}"
+roots = ["http://dl.rockylinux.org/$contentdir/", "https://dl.rockylinux.org/$contentdir/"]
 
 [[system]]
 distro = "almalinux"
@@ -147,6 +148,7 @@ role = "main"
 official = "https://repo.almalinux.org/almalinux/{major}/AppStream/$basearch/os/"
 section = "appstream"
 mirror_list = "https://mirrors.almalinux.org/mirrorlist/{major}/appstream"
+roots = ["https://repo.almalinux.org/almalinux/"]
 
 [[system]]
 distro = "centos"

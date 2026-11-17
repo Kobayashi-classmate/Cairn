@@ -21,6 +21,9 @@
     "terminal": "终端",
     "cron": "计划任务",
     "backups": "备份",
-    "logs": "日志"
+    "logs": "日志",
+    "firewall": "防火墙",
+    "ssh": "SSH",
+    "host": "系统管理"
   }
 }

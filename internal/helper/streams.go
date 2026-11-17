@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -143,7 +144,22 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 	if err := writePrivate(st.path(path.Join(streamStateDir, spec.Code+".json")), data); err != nil {
 		return nil, err
 	}
+	var ports []string
+	if spec.Enabled {
+		ports = []string{strconv.Itoa(spec.Port)}
+	}
+	st.streamFirewall(ctx, log, spec.Code, spec.Protocol, ports)
 	return spec, nil
+}
+
+// streamFirewall opens (or with nil ports closes) a stream's port.
+func (st *Sites) streamFirewall(ctx context.Context, log io.Writer, code, protocol string, ports []string) {
+	if st.Firewall == nil {
+		return
+	}
+	if err := st.Firewall.SetManaged(ctx, log, helperapi.OwnerStreamPrefix+code, protocol, ports); err != nil {
+		_, _ = fmt.Fprintf(log, "Warning: the firewall could not be updated: %v\n", err)
+	}
 }
 
 // removeStream implements stream.remove.
@@ -162,6 +178,7 @@ func (st *Sites) removeStream(ctx context.Context, _ helperapi.Caller, req helpe
 		return nil, err
 	}
 	_ = os.Remove(st.path(path.Join(nginxLogDir, "stream-"+req.Code+".log")))
+	st.streamFirewall(ctx, log, req.Code, "", nil)
 	_, _ = fmt.Fprintf(log, "Stream %s removed.\n", req.Code)
 	return req, nil
 }

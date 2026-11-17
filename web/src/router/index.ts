@@ -110,6 +110,24 @@ const routes: RouteRecordRaw[] = [
         meta: { titleKey: 'logs.title', navKey: 'logs', permission: 'logs.read' },
       },
       {
+        path: 'firewall',
+        name: 'firewall',
+        component: () => import('@/views/FirewallView.vue'),
+        meta: { titleKey: 'firewall.title', navKey: 'firewall', permission: 'firewall.read' },
+      },
+      {
+        path: 'ssh',
+        name: 'ssh',
+        component: () => import('@/views/SshView.vue'),
+        meta: { titleKey: 'ssh.title', navKey: 'ssh', permission: 'ssh.read' },
+      },
+      {
+        path: 'host',
+        name: 'host',
+        component: () => import('@/views/HostView.vue'),
+        meta: { titleKey: 'host.title', navKey: 'host', permission: 'host.read' },
+      },
+      {
         path: 'software',
         name: 'software',
         component: () => import('@/views/SoftwareView.vue'),

@@ -194,7 +194,10 @@ addr=$(hostname -I | awk '{print $1}')
 follow PUT /api/v1/databases/mysql/remote '{"enabled":true}'
 ss -ltn | grep_q '0.0.0.0:3306' || fail "MariaDB not listening on every address"
 mariadb -ufar -pfar-password-1 -h "$addr" vmdb -e "SELECT 1" >/dev/null || fail "remote login to MariaDB"
+# The installer switched the firewall on; remote access opens the port.
+nft list table inet cairn | grep_q 'tcp dport 3306 accept' || fail "remote access did not open 3306 in the firewall"
 follow PUT /api/v1/databases/mysql/remote '{"enabled":false}'
+! nft list table inet cairn | grep_q 3306 || fail "3306 still open after remote access was switched off"
 ss -ltn | grep_q '127.0.0.1:3306' || fail "MariaDB not back on 127.0.0.1"
 follow POST /api/v1/databases/mysql/service '{"action":"restart"}'
 systemctl is-active --quiet mariadb.service || fail "MariaDB not running after restart"
@@ -207,7 +210,7 @@ follow PUT /api/v1/databases/redis/remote '{"enabled":true}'
 ss -ltn | grep_q '0.0.0.0:6379' || fail "Redis not listening on every address"
 follow PUT /api/v1/databases/redis/remote '{"enabled":false}'
 follow DELETE "/api/v1/databases/mysql/dbs/vmdb?dropOwner=true"
-step "databases with systemd: MariaDB remote on and off (restarted by systemctl, remote login works), service restart; PostgreSQL $pg remote through its cluster unit; Redis password and remote access"
+step "databases with systemd: MariaDB remote on and off (restarted by systemctl, remote login works, 3306 opened and closed in the firewall), service restart; PostgreSQL $pg remote through its cluster unit; Redis password and remote access"
 
 # Terminals with systemd: the shell runs in a transient unit of its own,
 # sees the system's /tmp (not the helper's private one) and outlives a
@@ -318,5 +321,6 @@ for u in cairn-web.service cairn-helper.service cairn-helper.socket; do
 done
 [ ! -e /etc/cairn ] && [ ! -e /var/lib/cairn ] && [ ! -e /var/lib/cairn-helper ] && [ ! -e /run/cairn/helper.sock ] || fail "purge left files behind"
 ! pgrep -f 'cairn-(web|helper)' >/dev/null || fail "processes left running"
-step "purged: units, files, socket and processes gone"
+! nft list table inet cairn >/dev/null 2>&1 && [ ! -e /etc/cairn-firewall ] || fail "the firewall table or its file left behind"
+step "purged: units, files, socket, processes and Cairn's nftables table gone"
 echo "== PASS: ${PRETTY_NAME} (VM)"

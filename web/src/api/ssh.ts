@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+//
+// SSH server settings, authorized keys and the login log (`ssh.read` to
+// view, `ssh.manage` to change; changes are step-up protected). Settings
+// and port changes run as jobs.
+import { api } from './client'
+import type { FirewallBackend } from './firewall'
+import type { Job } from './jobs'
+
+export type PermitRootLogin = 'yes' | 'prohibit-password' | 'no'
+export const PERMIT_ROOT_LOGIN: readonly PermitRootLogin[] = ['prohibit-password', 'no', 'yes']
+
+export interface SshUser {
+  name: string
+  uid: number
+  /** Number of authorized keys. */
+  keys: number
+  root: boolean
+}
+
+/** A port move in progress: both ports listen until the old one closes. */
+export interface SshPortChange {
+  oldPorts: number[]
+  newPort: number
+  /** Unix seconds the old port closes. */
+  closeAt: number
+}
+
+export interface SshView {
+  installed: boolean
+  service: 'ssh' | 'sshd'
+  socketActivated: boolean
+  ports: number[]
+  listenAddresses: string[]
+  passwordAuthentication: boolean
+  permitRootLogin: PermitRootLogin
+  pubkeyAuthentication: boolean
+  pending: SshPortChange | null
+  users: SshUser[]
+  /** False: root's keys are read-only (root access is off in the settings). */
+  rootKeys: boolean
+  firewall: FirewallBackend
+}
+
+export interface SshKey {
+  type: string
+  fingerprint: string
+  comment: string
+  /** authorized_keys options, as written ("" for none). */
+  options: string
+}
+
+export type LoginMethod = 'publickey' | 'password' | 'keyboard-interactive' | ''
+export type LoginResult = 'accepted' | 'failed' | 'invalid_user'
+
+export interface SshLogin {
+  time: number
+  user: string
+  ip: string
+  method: LoginMethod
+  result: LoginResult
+}
+
+export interface SshLoginPage {
+  entries: SshLogin[]
+  /** Pass as `before` for older entries; "" on the last page. */
+  next: string
+}
+
+/** Minutes before the old port closes after a port move. */
+export const CLOSE_AFTER_MIN = 5
+export const CLOSE_AFTER_MAX = 240
+export const CLOSE_AFTER_DEFAULT = 30
+
+function jobOf(request: Promise<{ job: Job }>): Promise<Job> {
+  return request.then((body) => body.job)
+}
+
+export function fetchSsh(signal?: AbortSignal): Promise<SshView> {
+  return api.get<SshView>('/ssh', { signal })
+}
+
+export function updateSshSettings(body: { passwordAuthentication: boolean; permitRootLogin: PermitRootLogin }): Promise<Job> {
+  return jobOf(api.put('/ssh/settings', body))
+}
+
+/** Starts listening on `port` too; the old port closes after `closeAfterMinutes`. */
+export function changeSshPort(port: number, closeAfterMinutes: number): Promise<Job> {
+  return jobOf(api.post('/ssh/port', { port, closeAfterMinutes }))
+}
+
+/** Closes the old port now. */
+export function finishSshPort(): Promise<Job> {
+  return jobOf(api.post('/ssh/port/finish'))
+}
+
+/** Keeps the old port and drops the new one. */
+export function cancelSshPort(): Promise<Job> {
+  return jobOf(api.post('/ssh/port/cancel'))
+}
+
+export async function fetchSshKeys(user: string, signal?: AbortSignal): Promise<SshKey[]> {
+  return (await api.get<{ keys: SshKey[] }>(`/ssh/keys?user=${encodeURIComponent(user)}`, { signal })).keys
+}
+
+export async function addSshKey(user: string, key: string): Promise<SshKey> {
+  return (await api.post<{ key: SshKey }>('/ssh/keys', { user, key })).key
+}
+
+export function deleteSshKey(user: string, fingerprint: string): Promise<void> {
+  const query = new URLSearchParams({ user, fingerprint })
+  return api.delete<void>(`/ssh/keys?${query.toString()}`)
+}
+
+export function fetchSshLogins(limit: number, before?: string, signal?: AbortSignal): Promise<SshLoginPage> {
+  const query = new URLSearchParams({ limit: String(limit) })
+  if (before) query.set('before', before)
+  return api.get<SshLoginPage>(`/ssh/logins?${query.toString()}`, { signal })
+}

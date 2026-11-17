@@ -44,6 +44,10 @@ contents:
     dst: /usr/lib/systemd/system/cairn-helper.socket
     file_info:
       mode: 0644
+  - src: packaging/systemd/cairn-firewall.service
+    dst: /usr/lib/systemd/system/cairn-firewall.service
+    file_info:
+      mode: 0644
   - src: LICENSE
     dst: /usr/share/doc/cairn/copyright
     packager: deb

@@ -85,6 +85,24 @@
       "run": "运行备份方案 {name}",
       "delete": "删除 {name} 的备份",
       "restore": "恢复 {file}"
+    },
+    "firewall": {
+      "enable": "开启防火墙",
+      "disable": "关闭防火墙"
+    },
+    "ssh": {
+      "settings": "修改 SSH 登录设置",
+      "port": "把 SSH 改到端口 {port}",
+      "port_finish": "关闭旧的 SSH 端口",
+      "port_cancel": "保留旧的 SSH 端口"
+    },
+    "host": {
+      "swap": "把交换文件设为 {sizeMb} MiB",
+      "updates_check": "检查系统更新",
+      "updates_install": "安装全部系统更新",
+      "updates_auto": "修改自动更新",
+      "sources_switch": "切换{role}系统软件源",
+      "sources_restore": "恢复系统软件源"
     }
   },
   "detail": {
@@ -160,6 +178,24 @@
       "run": "运行备份方案",
       "delete": "删除备份",
       "restore": "恢复备份"
+    },
+    "firewall": {
+      "enable": "开启防火墙",
+      "disable": "关闭防火墙"
+    },
+    "ssh": {
+      "settings": "修改 SSH 登录设置",
+      "port": "修改 SSH 端口",
+      "port_finish": "关闭旧的 SSH 端口",
+      "port_cancel": "保留旧的 SSH 端口"
+    },
+    "host": {
+      "swap": "修改交换文件",
+      "updates_check": "检查系统更新",
+      "updates_install": "安装系统更新",
+      "updates_auto": "修改自动更新",
+      "sources_switch": "切换系统软件源",
+      "sources_restore": "恢复系统软件源"
     }
   },
   "variant": {
@@ -207,6 +243,18 @@
       "restore": {
         "dest": "将 {file} 恢复到 {dest}",
         "database": "将 {file} 恢复为 {database}（{engine}）的备份文件"
+      }
+    },
+    "host": {
+      "swap": {
+        "remove": "删除交换文件"
+      },
+      "updates_install": {
+        "security": "安装安全更新"
+      },
+      "updates_auto": {
+        "enable": "开启自动安全更新",
+        "disable": "关闭自动安全更新"
       }
     }
   }

@@ -100,7 +100,8 @@
       "backup_name": "{field} is not a backup of this plan.",
       "unit_name": "{field} must be a systemd unit name, such as nginx.service.",
       "journal_time": "{field} must be a time journalctl understands, such as “today”, “-1h” or “2026-11-16 10:00”.",
-      "endpoint": "{field} must be a host name, with an optional port, without “https://” or a path."
+      "endpoint": "{field} must be a host name, with an optional port, without “https://” or a path.",
+      "port_spec": "Check {field}: each entry must be a port (1–65535) or a range such as 8000-8100."
     }
   },
   "locale": {
@@ -262,6 +263,28 @@
       "storage_failed": "The storage could not be reached or refused the request: {detail}",
       "storage_in_use": "{plans} backup plan(s) still use this storage; change them first.",
       "plan_in_use": "{tasks} scheduled task(s) still run this plan; delete them first."
+    },
+    "firewall": {
+      "self_block": "Blocking {address} would block your own address, so you could no longer reach the panel.",
+      "overlap": "{address} overlaps with {other}.",
+      "apply_failed": "The firewall rules could not be applied: {detail}",
+      "unsupported": "The firewall cannot be managed on this system: {reasonText}."
+    },
+    "ssh": {
+      "config_invalid": "The SSH configuration is not valid: {output}",
+      "conflict": "{key} is set in {file}; change it there or remove it first.",
+      "port_in_use": "Port {port} is already in use.",
+      "selinux_port": "SELinux does not allow SSH on port {port} (type {type}).",
+      "not_listening": "SSH is not listening on port {port}."
+    },
+    "host": {
+      "swap_unsupported": "{reasonText}",
+      "swap_no_space": "The swap file needs {needMb} MiB, but only {freeMb} MiB are free."
+    },
+    "syssrc": {
+      "mixed": "{file} mixes several sources; edit it by hand.",
+      "update_failed": "The package index could not be updated from the new source: {detail}. The old files were put back.",
+      "unsupported": "Switching the system's sources is not possible here: {reasonText}."
     }
   },
   "software": {
@@ -398,5 +421,59 @@
   },
   "log": {
     "no_journal": "This server has no system journal (journalctl)."
+  },
+  "firewall": {
+    "pending": "Another firewall change is waiting for confirmation; try again in a minute.",
+    "self_block": "This would block your own address, so you could no longer reach the panel.",
+    "overlap": "This overlaps with another trusted or blocked entry.",
+    "protected": "This rule keeps SSH and the panel reachable and cannot be changed.",
+    "managed": "This rule belongs to another feature; change it there.",
+    "not_enabled": "The firewall is off; turn it on first.",
+    "backend_missing": "The firewall tool is not installed.",
+    "conflict": "Both ufw and firewalld are active. Turn one of them off on the server before managing the firewall here.",
+    "apply_failed": "The firewall rules could not be applied.",
+    "not_found": "This rule or address does not exist (any more).",
+    "unsupported": "The firewall cannot be managed on this system.",
+    "deny_needs_source": "A deny rule needs at least one source address: everything not allowed is refused already.",
+    "confirm_retry": "The change could not be confirmed yet.",
+    "no_pending": "There is no change waiting for confirmation (it was rolled back or has expired)."
+  },
+  "ssh": {
+    "not_installed": "The SSH server is not installed.",
+    "config_invalid": "The SSH configuration is not valid.",
+    "conflict": "Another configuration file sets this option.",
+    "no_keys": "No user has an authorized key, so turning off passwords would lock everyone out.",
+    "port_in_use": "This port is already in use.",
+    "port_invalid": "This port cannot be used for SSH.",
+    "pending": "A port move is in progress; finish or cancel it first.",
+    "no_pending": "There is no port move in progress.",
+    "selinux_port": "SELinux does not allow SSH on this port.",
+    "not_listening": "SSH is not listening on the new port.",
+    "key_invalid": "This is not a valid SSH public key.",
+    "key_exists": "This key is already authorized.",
+    "user_not_found": "This user does not exist.",
+    "root_disabled": "Root's keys cannot be changed while root access is turned off.",
+    "conflict_include": "sshd_config does not read the files in sshd_config.d ({file}); add an Include line for them first.",
+    "selinux_semanage_missing": "SELinux would block SSH on port {port}, and semanage (policycoreutils-python-utils) is not installed to allow it.",
+    "selinux_semanage_failed": "SELinux would block SSH on port {port}, and allowing it with semanage failed."
+  },
+  "host": {
+    "hostname_invalid": "Use letters, digits, hyphens and dots, at most 253 characters.",
+    "timezone_invalid": "This time zone is not known.",
+    "ntp_unavailable": "Time sync (systemd-timesyncd or chrony) is not available on this system.",
+    "swap_unsupported": "A swap file cannot be added on this system.",
+    "swap_no_space": "There is not enough free disk space for this swap file.",
+    "swap_not_managed": "This swap was not made by the panel.",
+    "updates_unavailable": "Automatic updates are not available on this system.",
+    "reboot_failed": "The server could not be restarted."
+  },
+  "syssrc": {
+    "not_eligible": "This source does not serve the official package index.",
+    "in_use": "This source is already in use.",
+    "mixed": "The sources file mixes several sources; edit it by hand.",
+    "update_failed": "The package index could not be updated from the new source; the old files were put back.",
+    "backup_not_found": "This backup of the sources does not exist (any more).",
+    "unsupported": "Switching the system's sources is not supported on this system.",
+    "https_required": "This source must be used over HTTPS."
   }
 }

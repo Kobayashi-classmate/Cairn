@@ -1,0 +1,92 @@
+{
+  "title": "Firewall",
+  "tabs": {
+    "rules": "Port rules",
+    "addresses": "Addresses"
+  },
+  "state": {
+    "enabled": "On",
+    "disabled": "Off"
+  },
+  "backend": "Using {backend}",
+  "backendMissing": " (installed when you turn it on)",
+  "noBackend": "No supported firewall can be used on this system.",
+  "clientIp": "Your address: {ip}",
+  "blockPing": "Block ping",
+  "alwaysOpen": "SSH ({ssh}) and the panel ({panel}) always stay open, so you cannot lock yourself out.",
+  "noSystemd": "The firewall can only be managed on systems that run systemd.",
+  "notLoaded": "The firewall is on, but its rules are not in effect right now.",
+  "reapply": "Apply again",
+  "rolledBack": "The last change ({time}) was rolled back because it was not confirmed in time.",
+  "foreignPending": "A change waits for confirmation and is rolled back in {seconds} s unless it is kept.",
+  "keep": "Keep this change",
+  "enableFirst": "Turn the firewall on to change its rules.",
+  "anywhere": "Anywhere",
+  "action": {
+    "allow": "Allow",
+    "deny": "Deny"
+  },
+  "protocol": {
+    "tcp": "TCP",
+    "udp": "UDP",
+    "both": "TCP and UDP"
+  },
+  "owner": {
+    "ssh": "SSH",
+    "panel": "Panel",
+    "stream": "Stream proxy {name}",
+    "db": "Remote access to {engine}"
+  },
+  "confirm": {
+    "checking": "Checking that the panel is still reachable… {seconds} s",
+    "kept": "The change is in effect.",
+    "rolledBack": "The change was rolled back: the panel could not confirm it in time.",
+    "explain": "After saving, the panel checks that it can still be reached; if not, the change is undone within a minute."
+  },
+  "enable": {
+    "title": "Turn on the firewall?",
+    "text": "The firewall ({backend}) blocks all incoming connections except the rules below. SSH {ssh} and the panel {panel} stay open.",
+    "submit": "Turn on"
+  },
+  "disable": {
+    "title": "Turn off the firewall?",
+    "text": "Every port of this server becomes reachable from anywhere.",
+    "submit": "Turn off"
+  },
+  "rule": {
+    "createTitle": "Add a rule",
+    "editTitle": "Change the rule",
+    "intro": "Incoming connections are refused unless a rule allows them.",
+    "owner": "Made by",
+    "protected": "Always allowed so you cannot lock yourself out",
+    "editSources": "Change sources",
+    "managedNote": "This rule belongs to {owner}; only who may connect can change here.",
+    "portsHint": "Ports such as 80 or ranges such as 8000-8100, at most {max}. Press Enter after each.",
+    "sourcesHint": "Addresses or ranges (10.0.0.0/8) that may connect; none means anywhere.",
+    "denyHint": "A deny rule needs sources: everything else is refused anyway.",
+    "addMine": "Add my address ({ip})",
+    "deleteTitle": "Delete the rule?",
+    "deleteText": "Connections to {ports} are no longer allowed by this rule."
+  },
+  "address": {
+    "createTitle": "Add an address",
+    "intro": "Trusted addresses reach every port; blocked addresses reach none, not even SSH. A block wins over any allow.",
+    "hint": "An IPv4 or IPv6 address, or a range such as 203.0.113.0/24.",
+    "allow": "Trusted",
+    "allowHint": "May connect to every port.",
+    "deny": "Blocked",
+    "denyHint": "Cannot connect to any port, SSH included.",
+    "empty": "No trusted or blocked addresses.",
+    "deleteTitle": "Delete {address}?",
+    "deleteAllowText": "The address is no longer trusted; the port rules apply to it again.",
+    "deleteDenyText": "The address is no longer blocked."
+  },
+  "external": {
+    "title": "Other rules on this system ({count})",
+    "intro": "Rules not made by the panel. They are shown as the firewall lists them and are left alone."
+  },
+  "conflict": "Two firewalls are active at once ({conflict}). Turn one of them off on the server before managing the firewall here.",
+  "unsupportedReason": {
+    "firewalld_old": "firewalld {version} is too old"
+  }
+}

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Loads Cairn's nftables table (inet cairn) at boot, on systems where Cairn
+# manages the firewall with nftables directly (Debian without firewalld or
+# ufw). Enabled by the panel when it switches the firewall on. Restarting or
+# reloading nftables.service flushes every table, so this unit follows it.
+[Unit]
+Description=Cairn firewall (nftables)
+Documentation=https://github.com/Kobayashi-classmate/Cairn
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target shutdown.target
+After=nftables.service
+PartOf=nftables.service
+ReloadPropagatedFrom=nftables.service
+Conflicts=shutdown.target
+ConditionPathExists=/etc/cairn-firewall/cairn.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/cairn-firewall/cairn.nft
+ExecReload=/usr/sbin/nft -f /etc/cairn-firewall/cairn.nft
+ExecStop=-/usr/sbin/nft delete table inet cairn
+ProtectHome=yes
+
+[Install]
+WantedBy=sysinit.target

@@ -42,3 +42,7 @@
 "notify.cron.failed.body" = "The scheduled task {{.name}} ended with {{.result}} (exit code {{.exitCode}}). Its output is in the panel's task history."
 "notify.backup.failed.title" = "[Cairn] Backup failed on {{.host}}"
 "notify.backup.failed.body" = "The backup plan {{.name}} failed: {{.code}}. See the plan's runs in the panel."
+"notify.ssh.login.title" = "[Cairn] SSH login on {{.host}}"
+"notify.ssh.login.body" = "{{.user}} logged in over SSH from {{.ip}} ({{.method}}). If this was not you, check the SSH page of the panel."
+"notify.firewall.rolled_back.title" = "[Cairn] Firewall change rolled back on {{.host}}"
+"notify.firewall.rolled_back.body" = "A firewall change was undone because it was not confirmed within 60 seconds. The previous rules are in effect again."

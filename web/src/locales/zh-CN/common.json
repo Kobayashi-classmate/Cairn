@@ -19,7 +19,10 @@
     "terminal": "终端",
     "cron": "计划任务",
     "backups": "备份",
-    "logs": "日志"
+    "logs": "日志",
+    "firewall": "防火墙",
+    "ssh": "SSH",
+    "host": "系统"
   },
   "action": {
     "signOut": "退出登录",
@@ -165,7 +168,18 @@
     "timeoutMin": "超时时间",
     "limit": "条数",
     "site": "网站",
-    "id": "ID"
+    "id": "ID",
+    "address": "地址",
+    "note": "备注",
+    "ports": "端口",
+    "sources": "来源地址",
+    "hostname": "主机名",
+    "timezone": "时区",
+    "sizeMb": "大小",
+    "value": "值",
+    "fingerprint": "指纹",
+    "closeAfterMinutes": "旧端口关闭时间",
+    "candidate": "软件源"
   },
   "boot": {
     "failed": "无法加载面板"
@@ -241,6 +255,18 @@
     },
     "logs": {
       "read": "查看系统日志"
+    },
+    "firewall": {
+      "read": "查看防火墙",
+      "manage": "修改防火墙"
+    },
+    "ssh": {
+      "read": "查看 SSH 设置和登录记录",
+      "manage": "修改 SSH 设置和密钥"
+    },
+    "host": {
+      "read": "查看系统设置",
+      "manage": "修改系统设置、更新和重启"
     }
   },
   "copy": {
