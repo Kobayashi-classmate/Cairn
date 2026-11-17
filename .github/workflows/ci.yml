@@ -18,8 +18,11 @@ jobs:
           go-version-file: go.mod
       - name: Vet
         run: go vet ./...
+      # cairn-helper runs as root, and its tests chown files and start
+      # processes as other users. The runner user cannot do that, so the tests
+      # run as root in the same container `make test` uses locally.
       - name: Test
-        run: go test ./...
+        run: make test GOPROXY=https://proxy.golang.org,direct
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
