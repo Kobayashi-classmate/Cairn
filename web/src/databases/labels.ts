@@ -10,6 +10,11 @@ const PRODUCT_NAMES: Record<string, string> = {
   valkey: 'Valkey',
 }
 
+/** Product name of a database server's catalog id ("postgresql" gives "PostgreSQL"). */
+export function productName(id: string): string {
+  return PRODUCT_NAMES[id] ?? id
+}
+
 /** "MariaDB 11.8", "PostgreSQL 17", "Redis 8.0". */
 export function engineLabel(engine: Pick<DbEngine, 'software' | 'line'>): string {
   const name = PRODUCT_NAMES[engine.software] ?? engine.software

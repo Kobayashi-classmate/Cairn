@@ -2,7 +2,7 @@
   "title": "数据库",
   "statusUnavailable": "面板无法读取数据库服务的状态。",
   "unsupported": {
-    "platform": "数据库功能目前仅支持 Debian 和 Ubuntu。"
+    "platform": "此发行版上暂时还不能使用数据库功能。"
   },
   "empty": {
     "title": "尚未安装数据库服务",
@@ -17,7 +17,7 @@
   "size": "大小",
   "owner": "所有者",
   "missing": "已丢失",
-  "unmanaged": "非面板创建",
+  "unmanaged": "已安装，但这个系统上暂时还不能在面板里管理：{names}。",
   "anyHost": "任意主机（%）",
   "noCluster": "该 PostgreSQL 版本安装时没有创建主集群，因此还没有数据库。",
   "createCluster": "创建集群",
@@ -134,5 +134,6 @@
     "deleteTitle": "删除 {count} 个键？",
     "deleteContent": "将删除这些键及其值。",
     "deleted": "已删除 {count} 个键。"
-  }
+  },
+  "listSeparator": "、"
 }

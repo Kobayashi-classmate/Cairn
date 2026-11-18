@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { NAlert, NEmpty, NH2, NSpin, NTabPane, NTabs, NText } from 'naive-ui'
 import { fetchDatabases, type DbStatus } from '@/api/databases'
-import { engineLabel } from '@/databases/labels'
+import { engineLabel, productName } from '@/databases/labels'
 import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
 import EngineHeader from './databases/EngineHeader.vue'
@@ -24,6 +24,8 @@ const version = ref(0)
 const tab = ref<string | undefined>(typeof route.query.engine === 'string' ? route.query.engine : undefined)
 
 const canManage = computed(() => session.can('databases.manage'))
+/** Installed servers the panel cannot manage here yet, by product name. */
+const unmanaged = computed(() => (status.value?.unmanaged ?? []).map(productName).join(t('databases.listSeparator')))
 /** Sub-tab asked for in the address (?tab=dumps from the backups page). */
 const subTab = route.query.tab === 'dumps' || route.query.tab === 'users' ? route.query.tab : undefined
 
@@ -60,6 +62,7 @@ watch(tab, (value) => {
         </NAlert>
         <template v-else>
           <NAlert v-if="!status.statusAvailable" type="info" class="block">{{ t('databases.statusUnavailable') }}</NAlert>
+          <NAlert v-if="unmanaged" type="info" class="block">{{ t('databases.unmanaged', { names: unmanaged }) }}</NAlert>
           <NEmpty v-if="status.engines.length === 0" :description="t('databases.empty.title')" class="empty">
             <template #extra>
               <NText depth="3" tag="p" class="empty__text">{{ t('databases.empty.text') }}</NText>

@@ -2,7 +2,7 @@
   "title": "Databases",
   "statusUnavailable": "The panel could not read the state of the database servers.",
   "unsupported": {
-    "platform": "Databases are available on Debian and Ubuntu only for now."
+    "platform": "Databases are not available on this distribution yet."
   },
   "empty": {
     "title": "No database server installed",
@@ -17,7 +17,7 @@
   "size": "Size",
   "owner": "Owner",
   "missing": "Missing",
-  "unmanaged": "Not created by the panel",
+  "unmanaged": "Installed but not managed by the panel on this system yet: {names}.",
   "anyHost": "Anywhere (%)",
   "noCluster": "This PostgreSQL version was installed without its main cluster, so it has no databases yet.",
   "createCluster": "Create cluster",
@@ -134,5 +134,6 @@
     "deleteTitle": "Delete {count} key? | Delete {count} keys?",
     "deleteContent": "The keys and their values are deleted.",
     "deleted": "Deleted {count} key. | Deleted {count} keys."
-  }
+  },
+  "listSeparator": ", "
 }

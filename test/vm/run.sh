@@ -4,7 +4,11 @@
 # End-to-end test in a real virtual machine, with systemd as PID 1:
 #
 #   bash test/vm/run.sh [debian-13]
-#   SCRIPT=security.sh bash test/vm/run.sh ubuntu-24.04   (P1 batch 9 only)
+#   SCRIPT=security.sh bash test/vm/run.sh ubuntu-24.04   (firewall, SSH, host)
+#   SCRIPT=sites.sh bash test/vm/run.sh rocky-9           (sites and databases)
+#
+# inside.sh (the full test, with the online update) needs Debian; the other
+# scripts run on every target.
 #
 # QEMU runs inside a throwaway container (software emulation; no KVM or extra
 # privileges needed), boots the distribution's official cloud image and runs
@@ -18,7 +22,7 @@ target=${1:-debian-13}
 script=${SCRIPT:-inside.sh}
 case "$target" in
 	debian-13 | debian-12) ;;
-	ubuntu-24.04 | rocky-9) [ "$script" = security.sh ] || { echo "$target runs SCRIPT=security.sh only" >&2; exit 2; } ;;
+	ubuntu-24.04 | rocky-9 | alma-10) [ "$script" != inside.sh ] || { echo "$target runs SCRIPT=security.sh or sites.sh" >&2; exit 2; } ;;
 	*) echo "unsupported VM target: $target" >&2; exit 2 ;;
 esac
 

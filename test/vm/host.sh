@@ -17,6 +17,8 @@ case "$TARGET" in
 	ubuntu-24.04) base=https://cloud-images.ubuntu.com/noble/current img=noble-server-cloudimg-amd64.img sumfile=SHA256SUMS ;;
 	rocky-9) base=https://dl.rockylinux.org/pub/rocky/9/images/x86_64 img=Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
 		sumfile=$img.CHECKSUM ;;
+	alma-10) base=https://repo.almalinux.org/almalinux/10/cloud/x86_64/images img=AlmaLinux-10-GenericCloud-latest.x86_64.qcow2
+		sumfile=CHECKSUM ;;
 esac
 # SHA512SUMS / SHA256SUMS ("hash  file", "hash *file") or BSD style
 # ("SHA256 (file) = hash").
@@ -54,7 +56,7 @@ for _ in $(seq 120); do ssh "${ssh_opts[@]}" tester@127.0.0.1 true 2>/dev/null &
 ssh "${ssh_opts[@]}" tester@127.0.0.1 true || { tail -30 /work/serial.log; echo "VM did not come up"; exit 1; }
 echo "   VM reachable after $(($(date +%s) - t0))s"
 
-scp -q -P 2222 -i key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /t/inside.sh /t/security.sh /f/ws.py tester@127.0.0.1:/tmp/
+scp -q -P 2222 -i key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /t/inside.sh /t/security.sh /t/sites.sh /f/ws.py tester@127.0.0.1:/tmp/
 status=0
 ssh "${ssh_opts[@]}" tester@127.0.0.1 "sudo TRUSTED_KEY='$TRUSTED_KEY' bash /tmp/$SCRIPT" || status=$?
 if [ "$SCRIPT" = security.sh ] && [ $status = 0 ]; then

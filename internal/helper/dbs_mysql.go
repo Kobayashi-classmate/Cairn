@@ -355,6 +355,10 @@ func (d *DBs) mysqlUserDrop(ctx context.Context, log io.Writer, _ dbEngine, name
 
 // mysqlConfDir is where the server reads its configuration snippets.
 func (d *DBs) mysqlConfDir(e dbEngine) string {
+	// EL (MariaDB and MySQL alike).
+	if _, err := os.Stat(d.path("/etc/my.cnf.d")); err == nil {
+		return "/etc/my.cnf.d"
+	}
 	if e.software == "mariadb" {
 		return "/etc/mysql/mariadb.conf.d"
 	}

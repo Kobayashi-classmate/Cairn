@@ -197,7 +197,8 @@
       "reload_failed": "重新加载 {service} 失败，已恢复之前的配置。",
       "rewrite_unknown": "伪静态规则 {rewrite} 不存在，或不适用于此类网站。",
       "cert_missing": "证书 {cert} 不在这台服务器上。",
-      "cert_coverage": "证书 {cert} 没有覆盖 {domains}。"
+      "cert_coverage": "证书 {cert} 没有覆盖 {domains}。",
+      "selinux": "无法设置 SELinux 标签：{detail}"
     },
     "cert": {
       "invalid": "证书或私钥无效：{reason}",
@@ -301,7 +302,8 @@
     "not_found": "该网站不存在。",
     "rewrite_unknown": "该伪静态规则不存在，或不适用于此类网站。",
     "cert_missing": "该网站使用的证书不在这台服务器上。",
-    "cert_coverage": "该证书没有覆盖网站的所有域名。"
+    "cert_coverage": "该证书没有覆盖网站的所有域名。",
+    "selinux": "无法设置 SELinux 标签。"
   },
   "cert": {
     "not_found": "该证书不存在。",

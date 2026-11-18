@@ -32,6 +32,7 @@ const (
 // Site error codes.
 const (
 	CodeSiteUnsupported   = "site.unsupported"    // not on this distribution yet
+	CodeSiteSELinux       = "site.selinux"        // an SELinux label could not be set
 	CodeSiteNoNginx       = "site.nginx_missing"  // nginx is not installed
 	CodeSitePHPMissing    = "site.php_missing"    // the PHP line is not installed (or has no FPM)
 	CodeSiteDomainTaken   = "site.domain_taken"   // another site serves the domain

@@ -45,9 +45,11 @@ const (
 // DBs manages the databases of this system.
 type DBs struct {
 	Software *Software
-	// Unsupported, when set, is why databases are not available here (EL
-	// for now).
+	// Unsupported, when set, is why databases are not available here.
 	Unsupported string
+	// OnlySoftware, when set, limits the engines to these catalog entries
+	// (EL: MariaDB and Redis/Valkey for now).
+	OnlySoftware []string
 	// Root prefixes every system path ("" means /; tests).
 	Root string
 	// DataDir is the panel's data directory; dumps live in its
@@ -114,6 +116,9 @@ func (d *DBs) engines(ctx context.Context) ([]dbEngine, error) {
 	}
 	var out []dbEngine
 	add := func(id, kind, sw string, newestFirst bool) {
+		if d.OnlySoftware != nil && !slices.Contains(d.OnlySoftware, sw) {
+			return
+		}
 		lines := make([]string, 0, len(st.Installed[sw]))
 		for l := range st.Installed[sw] {
 			lines = append(lines, l)
@@ -193,7 +198,7 @@ func (d *DBs) engine(ctx context.Context, id string) (dbEngine, error) {
 
 // Status reports every installed engine with its databases and users.
 func (d *DBs) Status(ctx context.Context) helperapi.DBStatus {
-	s := helperapi.DBStatus{Supported: d.Unsupported == "", Reason: d.Unsupported, Engines: []helperapi.DBEngineInfo{}}
+	s := helperapi.DBStatus{Supported: d.Unsupported == "", Reason: d.Unsupported, Engines: []helperapi.DBEngineInfo{}, Unmanaged: []string{}}
 	if !s.Supported {
 		return s
 	}
@@ -201,6 +206,15 @@ func (d *DBs) Status(ctx context.Context) helperapi.DBStatus {
 	if err != nil {
 		s.Reason = "status_failed"
 		return s
+	}
+	if d.OnlySoftware != nil {
+		if st, err := d.Software.Status(ctx); err == nil {
+			for _, sw := range []string{"mysql", "postgresql"} {
+				if len(st.Installed[sw]) > 0 && !slices.Contains(d.OnlySoftware, sw) {
+					s.Unmanaged = append(s.Unmanaged, sw)
+				}
+			}
+		}
 	}
 	for _, e := range all {
 		info := helperapi.DBEngineInfo{ID: e.id, Kind: e.kind, Software: e.software, Line: e.line, Service: e.service,

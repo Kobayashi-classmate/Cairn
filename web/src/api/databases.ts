@@ -85,10 +85,12 @@ export interface DbEngine {
 
 export interface DbStatus {
   supported: boolean
-  /** "platform": databases need Debian or Ubuntu for now. */
+  /** "platform": databases are not available on this distribution. */
   reason?: string
   statusAvailable: boolean
   engines: DbEngine[]
+  /** Installed engines the panel does not manage on this system yet (catalog ids). */
+  unmanaged?: string[]
 }
 
 export interface DbCreateRequest {

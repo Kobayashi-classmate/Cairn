@@ -386,6 +386,9 @@ type DBStatus struct {
 	Supported bool           `json:"supported"`
 	Reason    string         `json:"reason,omitempty"`
 	Engines   []DBEngineInfo `json:"engines"`
+	// Unmanaged lists installed engines the panel does not manage on this
+	// system yet (catalog IDs: "postgresql", "mysql" on EL).
+	Unmanaged []string `json:"unmanaged"`
 }
 
 // Redis persistence modes.

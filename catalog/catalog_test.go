@@ -135,7 +135,7 @@ func TestSourceRules(t *testing.T) {
 		{"nodejs", "el-10", "24", "standalone", "", "", false, "libatomic"},
 		{"nodejs", "el-10", "26", "standalone", "", "", true, "libatomic"},
 		{"nodejs", "debian-13", "20", "", "", ReasonEndOfLife, false, ""},
-		{"valkey", "el-10", "8.0", "system", "", "", true, "valkey"},
+		{"valkey", "el-10", "8.1", "system", "", "", true, "valkey"},
 	}
 	for _, tc := range cases {
 		o := offer(t, c, tc.id, tc.release, tc.line)

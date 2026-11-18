@@ -338,18 +338,24 @@ func softwareEngine(manager string, log *slog.Logger) (*helper.Software, error) 
 	return s, nil
 }
 
-// dbEngine prepares database management, Debian and Ubuntu only for now
-// (P1 batch 6).
+// dbEngine prepares database management: every engine on Debian and
+// Ubuntu; on EL MariaDB and Redis/Valkey for now, PostgreSQL and MySQL
+// after the P1 acceptance (P1 batch 10).
 func dbEngine(software *helper.Software, dataDir string) *helper.DBs {
 	d := &helper.DBs{Software: software, DataDir: dataDir, PanelUser: "cairn", Unsupported: "platform"}
-	if p, _, err := platform.Detect(); err == nil && p.Family == "debian" {
-		d.Unsupported = ""
+	if p, _, err := platform.Detect(); err == nil {
+		switch p.Family {
+		case "debian":
+			d.Unsupported = ""
+		case "el":
+			d.Unsupported, d.OnlySoftware = "", []string{"mariadb", "redis", "valkey"}
+		}
 	}
 	return d
 }
 
-// siteEngine prepares site management. Sites need the Debian layout for
-// now; on EL they wait for the SELinux verification (P1 batch 3).
+// siteEngine prepares site management for the platform's layout (on EL
+// with SELinux labels, P1 batch 10).
 func siteEngine(software *helper.Software) *helper.Sites {
 	st := &helper.Sites{Software: software, Unsupported: "platform"}
 	p, _, err := platform.Detect()
@@ -357,10 +363,8 @@ func siteEngine(software *helper.Software) *helper.Sites {
 		return st
 	}
 	switch p.Family {
-	case "debian":
-		st.Unsupported, st.NginxUser = "", p.WebUser
-	case "el":
-		st.Unsupported = "selinux_pending"
+	case "debian", "el":
+		st.Unsupported, st.NginxUser, st.Family = "", p.WebUser, p.Family
 	}
 	return st
 }

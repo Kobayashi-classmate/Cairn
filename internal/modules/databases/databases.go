@@ -169,6 +169,8 @@ type listResponse struct {
 	Reason          string       `json:"reason,omitempty"`
 	StatusAvailable bool         `json:"statusAvailable"`
 	Engines         []engineView `json:"engines"`
+	// Unmanaged are installed engines the panel does not manage here yet.
+	Unmanaged []string `json:"unmanaged"`
 }
 
 type jobResponse struct {
@@ -321,7 +323,10 @@ func (m *Module) saveUser(ctx context.Context, engine, name, password string, ho
 func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	st, known := m.status(ctx, r)
-	resp := listResponse{Supported: st.Supported || !known, Reason: st.Reason, StatusAvailable: known, Engines: []engineView{}}
+	resp := listResponse{Supported: st.Supported || !known, Reason: st.Reason, StatusAvailable: known, Engines: []engineView{}, Unmanaged: st.Unmanaged}
+	if resp.Unmanaged == nil {
+		resp.Unmanaged = []string{}
+	}
 	for _, e := range st.Engines {
 		v, err := m.engineView(ctx, e)
 		if err != nil {

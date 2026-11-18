@@ -114,7 +114,7 @@ export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>
 
 export interface SiteList {
   supported: boolean
-  /** Why sites are not supported, for example "selinux_pending". */
+  /** Why sites are not supported, for example "platform". */
   reason?: string
   /** False when the helper could not be asked about nginx and PHP. */
   statusAvailable: boolean

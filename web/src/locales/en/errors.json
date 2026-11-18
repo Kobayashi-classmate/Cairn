@@ -197,7 +197,8 @@
       "reload_failed": "Reloading {service} failed; the previous configuration was restored.",
       "rewrite_unknown": "The rewrite rule {rewrite} does not exist or does not fit this site type.",
       "cert_missing": "Certificate {cert} is not stored on this server.",
-      "cert_coverage": "Certificate {cert} does not cover {domains}."
+      "cert_coverage": "Certificate {cert} does not cover {domains}.",
+      "selinux": "An SELinux label could not be set: {detail}"
     },
     "cert": {
       "invalid": "The certificate or key is not valid: {reason}",
@@ -301,7 +302,8 @@
     "not_found": "The site does not exist.",
     "rewrite_unknown": "The rewrite rule does not exist or does not fit this site type.",
     "cert_missing": "The site's certificate is not stored on this server.",
-    "cert_coverage": "The certificate does not cover every domain of the site."
+    "cert_coverage": "The certificate does not cover every domain of the site.",
+    "selinux": "An SELinux label could not be set."
   },
   "cert": {
     "not_found": "The certificate does not exist.",

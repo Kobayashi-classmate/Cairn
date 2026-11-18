@@ -24,13 +24,24 @@ import (
 )
 
 // Four-layer proxies use nginx's stream module. The stream block lives in
-// modules-enabled/, which the distribution's nginx.conf includes at the top
-// level, so the main configuration stays untouched.
+// the directory of module files that the distribution's nginx.conf
+// includes at the top level, so the main configuration stays untouched:
+// modules-enabled/ on Debian, /usr/share/nginx/modules on EL (read in name
+// order, after mod-stream.conf).
 const (
-	streamTopFile  = "/etc/nginx/modules-enabled/99-cairn-stream.conf"
-	streamDir      = "/etc/nginx/cairn/stream"
-	streamStateDir = "/var/lib/cairn-helper/streams"
+	streamTopDebian = "/etc/nginx/modules-enabled/99-cairn-stream.conf"
+	streamTopEL     = "/usr/share/nginx/modules/zz-cairn-stream.conf"
+	streamDir       = "/etc/nginx/cairn/stream"
+	streamStateDir  = "/var/lib/cairn-helper/streams"
 )
+
+// streamTopFile is where this system's nginx takes the stream block.
+func (st *Sites) streamTopFile() string {
+	if st.Family == "el" {
+		return streamTopEL
+	}
+	return streamTopDebian
+}
 
 const streamTop = `# ` + siteManaged + `
 # Four-layer proxies (` + streamDir + `).
@@ -88,7 +99,7 @@ func (st *Sites) streamStates() (map[string]helperapi.StreamSpec, error) {
 
 // streamModule reports whether nginx loads its stream module.
 func (st *Sites) streamModule() bool {
-	files, _ := filepath.Glob(st.path("/etc/nginx/modules-enabled/*.conf"))
+	files, _ := filepath.Glob(st.path(filepath.Join(filepath.Dir(st.streamTopFile()), "*.conf")))
 	for _, f := range files {
 		if data, err := os.ReadFile(f); err == nil && bytes.Contains(data, []byte("ngx_stream_module")) { //nolint:gosec // G304: nginx module files.
 			return true
@@ -120,7 +131,7 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 	if spec.Port == st.PanelPort {
 		return nil, siteErr(helperapi.CodeStreamPortTaken, map[string]any{"port": spec.Port, "panel": true})
 	}
-	changes := []fileChange{{path: streamTopFile, data: []byte(streamTop)}}
+	changes := []fileChange{{path: st.streamTopFile(), data: []byte(streamTop)}}
 	if spec.Enabled {
 		var b bytes.Buffer
 		if err := streamTemplate.Execute(&b, map[string]any{"Managed": siteManaged, "Code": spec.Code, "Protocol": spec.Protocol,
@@ -137,6 +148,13 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 		return nil, err
 	}
 	_, _ = fmt.Fprintf(log, "Applying stream %s: %s %d -> %s\n", spec.Code, spec.Protocol, spec.Port, strings.Join(spec.Upstreams, " "))
+	var sePorts []sePort
+	if spec.Enabled {
+		sePorts = streamPorts(spec)
+	}
+	if err := st.seSetPorts(ctx, log, "stream:"+spec.Code, sePorts); err != nil {
+		return nil, err
+	}
 	if _, err := st.transact(ctx, log, changes, []configCheck{st.nginxCheck()}, []reloader{st.nginxReload()}); err != nil {
 		return nil, err
 	}
@@ -179,6 +197,9 @@ func (st *Sites) removeStream(ctx context.Context, _ helperapi.Caller, req helpe
 	}
 	_ = os.Remove(st.path(path.Join(nginxLogDir, "stream-"+req.Code+".log")))
 	st.streamFirewall(ctx, log, req.Code, "", nil)
+	if err := st.seSetPorts(ctx, log, "stream:"+req.Code, nil); err != nil {
+		_, _ = fmt.Fprintf(log, "Warning: the SELinux port labels could not be removed: %v\n", err)
+	}
 	_, _ = fmt.Fprintf(log, "Stream %s removed.\n", req.Code)
 	return req, nil
 }

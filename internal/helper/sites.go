@@ -70,11 +70,13 @@ var (
 // put the previous files back if any step fails.
 type Sites struct {
 	Software *Software
-	// Unsupported, when set, is why sites are not available here (EL until
-	// the SELinux verification).
+	// Unsupported, when set, is why sites are not available here.
 	Unsupported string
-	// NginxUser is the user nginx workers run as (www-data).
+	// NginxUser is the user nginx workers run as (www-data, nginx).
 	NginxUser string
+	// Family is the platform family (debian, el): where nginx takes
+	// module files.
+	Family string
 	// Root prefixes every path ("" means /; tests).
 	Root string
 	// PanelPort is the panel's own port, never given to apps or streams.
@@ -833,6 +835,13 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 	if err := st.ensureDirs(log, spec); err != nil {
 		return nil, err
 	}
+	// SELinux: the directories' types and the ports nginx connects to.
+	if err := st.seSite(ctx, log, spec); err != nil {
+		return nil, err
+	}
+	if err := st.seSetPorts(ctx, log, "site:"+spec.Code, sitePorts(spec)); err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(st.path(nginxLogDir), 0o750); err != nil {
 		return nil, err
 	}
@@ -939,6 +948,7 @@ func (st *Sites) remove(ctx context.Context, _ helperapi.Caller, req helperapi.S
 	if err := os.Remove(st.path(path.Join(siteStateDir, req.Code+".json"))); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
+	st.seForget(ctx, log, req.Code)
 	res := helperapi.SiteResult{Code: req.Code, Dir: siteDirOf(req.Code), Owner: ownerOf(req.Code), Runner: runnerOf(req.Code), Reloaded: reloaded}
 	if !req.DeleteFiles {
 		_, _ = fmt.Fprintf(log, "Site %s removed; its files and users are kept in %s.\n", req.Code, res.Dir)

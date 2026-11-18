@@ -24,7 +24,7 @@ fail() {
 		ps -eZ | grep -E 'cairn|firewalld' >&2 || true
 		ls -Z /usr/lib/cairn/ /usr/bin/cairn* >&2 || true
 		echo "--- recent AVC denials:" >&2
-		ausearch -m AVC,USER_AVC,SELINUX_ERR -ts recent 2>/dev/null | grep -E 'denied|SELINUX_ERR' | tail -30 >&2 || true
+		{ ausearch -m AVC,USER_AVC,SELINUX_ERR -ts recent 2>/dev/null; journalctl -b _TRANSPORT=audit --no-pager 2>/dev/null; } | grep -E 'denied|SELINUX_ERR' | tail -30 >&2 || true
 	fi
 	tail -30 /root/install.log 2>/dev/null >&2 || true
 	journalctl -u cairn-web -u cairn-helper -u 'cairn-fw-*' -u 'cairn-ssh-*' --no-pager -n 80 >&2 || true
