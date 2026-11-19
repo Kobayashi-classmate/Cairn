@@ -13,8 +13,9 @@
 #
 # 0.3.0 cannot be installed: it depends on a package that does not exist.
 # BASE_URL is where OUT/srv will be served (package URLs in releases.json).
-# Packages are built into dist/update-test/ (go-noui, amd64); the caller
-# removes it, together with dist/release and dist/feed.
+# Packages are built into dist/update-test/ (amd64, without the web UI; with
+# UI=1 the UI staged by `make web` is embedded); the caller removes it,
+# together with dist/release and dist/feed.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 out=$1
@@ -22,8 +23,10 @@ base=${2%/}
 build=dist/update-test
 mkdir -p "$out" "$build"
 
+goal=go-noui
+[ "${UI:-0}" = 1 ] && goal=go
 for v in 0.1.0 0.2.0 0.3.0; do
-	make -s go-noui VERSION=$v DIST=$build/$v >/dev/null
+	make -s $goal VERSION=$v DIST=$build/$v >/dev/null
 done
 make -s package VERSION=0.1.0 DIST=$build/0.1.0 >/dev/null
 make -s package VERSION=0.2.0 DIST=$build/0.2.0 >/dev/null

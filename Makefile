@@ -30,7 +30,7 @@ NODE_RUN = docker run --rm \
 	-v cairn-npm-cache:/root/.npm \
 	$(NODE_IMAGE)
 
-.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test certs-test databases-test files-test backups-test firewall-test vm-test clean
+.PHONY: all build web go go-noui test vet fmt lint check-cjk check package repo release release-keygen smoke repo-test update-test software-test sites-test certs-test databases-test files-test backups-test firewall-test vm-test vm-accept vm-keep clean
 
 all: check build
 
@@ -143,9 +143,17 @@ firewall-test:
 certs-test:
 	bash test/certs/run.sh
 
-## vm-test: the same in a real VM with systemd (QEMU in a container); VM=debian-13|debian-12
+## vm-test: the same in a real VM with systemd (QEMU in a container); VM=debian-13|debian-12 (SCRIPT=sites.sh|security.sh: any target)
 vm-test:
 	bash test/vm/run.sh $(or $(VM),debian-13)
+
+## vm-accept: the P1 acceptance in a VM (Pebble, DNS and a bucket in the QEMU container); VM=<target>
+vm-accept:
+	SCRIPT=accept.sh bash test/vm/run.sh $(or $(VM),debian-13)
+
+## vm-keep: install the panel in a VM and leave it running, ports on 127.0.0.1:28443/28080/28444; VM=<target>
+vm-keep:
+	KEEP=1 bash test/vm/run.sh $(or $(VM),debian-13)
 
 clean:
 	rm -rf $(DIST) internal/ui/dist web/dist repo
