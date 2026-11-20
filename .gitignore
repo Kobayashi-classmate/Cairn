@@ -27,6 +27,7 @@
 !/LICENSE
 !/README.md
 !/README.*.md
+!/CHANGELOG.md
 
 # ---- Still ignored inside allowed directories ----
 # Build output and dependencies
