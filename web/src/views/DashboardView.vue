@@ -12,6 +12,7 @@ import {
   type SystemOverview,
 } from '@/api/system'
 import type { TimeSeries } from '@/charts/echarts'
+import TotpNotice from '@/components/shell/TotpNotice.vue'
 import TimeSeriesChart from '@/components/TimeSeriesChart.vue'
 import UsageBar from '@/components/UsageBar.vue'
 import { usePolling } from '@/composables/usePolling'
@@ -133,6 +134,8 @@ const percentAxis = (value: number) => formatPercent(value, 0)
 
 <template>
   <div class="dashboard">
+    <!-- The two-step verification reminder appears here only (a dot on the avatar elsewhere). -->
+    <TotpNotice />
     <header class="dashboard__header">
       <NH2 class="dashboard__title">{{ t('dashboard.title') }}</NH2>
       <NText v-if="current" depth="3">

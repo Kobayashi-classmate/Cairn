@@ -1,68 +1,110 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  NAlert,
-  NButton,
-  NForm,
-  NFormItem,
-  NInput,
-  NSelect,
-  NText,
-  type FormInst,
-  type FormRules,
-} from 'naive-ui'
+import { LoaderCircle } from '@lucide/vue'
 import { isApiError } from '@/api/client'
+import FormField from '@/components/common/FormField.vue'
+import LocaleSelect from '@/components/common/LocaleSelect.vue'
+import Notice from '@/components/common/Notice.vue'
+import PasswordInput from '@/components/common/PasswordInput.vue'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   PASSWORD_MIN,
   USERNAME_MAX,
   USERNAME_MIN,
-  confirmPasswordRules,
-  newPasswordRules,
-  requiredRule,
-  usernameRules,
+  USERNAME_PATTERN,
+  textLength,
 } from '@/forms/rules'
 import AuthLayout from '@/layouts/AuthLayout.vue'
 import { homeLocation } from '@/layouts/navigation'
-import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
-import { errorMessage } from '@/i18n/errors'
+import { errorMessage, validationMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
 import { wizardDue } from '@/wizard/open'
 
-const { t } = useI18n()
+type Field = 'token' | 'username' | 'password' | 'passwordConfirm'
+interface Failure {
+  rule: string
+  params?: Record<string, number>
+}
+
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
-const { locale, options: localeOptions, renderLabel, switching, select } = useLocaleSwitch()
 
 // The installer prints a setup link carrying a one-time token; without it the
 // token has to be pasted by hand.
 const linkToken = typeof route.query.token === 'string' ? route.query.token.trim() : ''
 
-const formRef = ref<FormInst | null>(null)
 const form = reactive({ token: linkToken, username: '', password: '', passwordConfirm: '' })
 const submitting = ref(false)
 const error = ref<unknown>(null)
 
-const rules: FormRules = {
-  token: [requiredRule('token')],
-  username: usernameRules(),
-  password: newPasswordRules(),
-  passwordConfirm: confirmPasswordRules(() => form.password),
+// Failed checks per field, mirroring the server's rules; messages are
+// rendered on display, so they follow language switches.
+const invalid = reactive<Partial<Record<Field, Failure>>>({})
+
+function fieldError(field: Field): string | null {
+  const failure = invalid[field]
+  return failure ? validationMessage(field, failure.rule, failure.params) : null
 }
 
-function onLocaleChange(value: string) {
-  void select(value)
+for (const field of ['token', 'username', 'password', 'passwordConfirm'] as const) {
+  watch(
+    () => form[field],
+    () => {
+      delete invalid[field]
+    },
+  )
+}
+
+function check(field: Field): Failure | undefined {
+  const value = form[field]
+  if (value.trim() === '') return { rule: 'required' }
+  switch (field) {
+    case 'username':
+      if (textLength(value) < USERNAME_MIN) return { rule: 'min_length', params: { min: USERNAME_MIN } }
+      if (textLength(value) > USERNAME_MAX) return { rule: 'max_length', params: { max: USERNAME_MAX } }
+      if (!USERNAME_PATTERN.test(value)) return { rule: 'pattern' }
+      return undefined
+    case 'password':
+      if (textLength(value) < PASSWORD_MIN) return { rule: 'min_length', params: { min: PASSWORD_MIN } }
+      return undefined
+    case 'passwordConfirm':
+      return value === form.password ? undefined : { rule: 'mismatch' }
+    default:
+      return undefined
+  }
+}
+
+const FIELD_IDS: Record<Field, string> = {
+  token: 'setup-token',
+  username: 'setup-username',
+  password: 'setup-password',
+  passwordConfirm: 'setup-password-confirm',
+}
+
+function validate(): boolean {
+  const fields: Field[] = linkToken
+    ? ['username', 'password', 'passwordConfirm']
+    : ['token', 'username', 'password', 'passwordConfirm']
+  let first: Field | null = null
+  for (const field of fields) {
+    const failure = check(field)
+    if (failure) {
+      invalid[field] = failure
+      first ??= field
+    }
+  }
+  if (first) document.getElementById(FIELD_IDS[first])?.focus()
+  return first === null
 }
 
 async function submit() {
-  try {
-    await formRef.value?.validate()
-  } catch {
-    return
-  }
+  if (submitting.value || !validate()) return
   error.value = null
   submitting.value = true
   try {
@@ -88,82 +130,90 @@ async function submit() {
 
 <template>
   <AuthLayout :title="t('setup.title')" :subtitle="t('setup.intro')" :locale-switcher="false">
-    <NForm ref="formRef" :model="form" :rules="rules" :disabled="submitting" @submit.prevent="submit">
-      <NAlert v-if="error" type="error" class="setup__alert">{{ errorMessage(error) }}</NAlert>
-      <NFormItem path="locale" :label="t('common.field.locale')">
-        <div class="setup__field">
-          <NSelect
-            :value="locale"
-            :options="localeOptions"
-            :render-label="renderLabel"
-            :loading="switching"
-            @update:value="onLocaleChange"
+    <form class="flex flex-col gap-4" novalidate @submit.prevent="submit">
+      <Notice v-if="error" tone="destructive">{{ errorMessage(error) }}</Notice>
+
+      <FormField id="setup-locale" :label="t('common.field.locale')" :hint="t('setup.localeHint')">
+        <template #default="field">
+          <LocaleSelect
+            :id="field.id"
+            :described-by="field['aria-describedby']"
+            class="w-full data-[size=default]:h-10 max-md:data-[size=default]:h-11"
           />
-          <NText depth="3" class="setup__hint">{{ t('setup.localeHint') }}</NText>
-        </div>
-      </NFormItem>
-      <NFormItem v-if="!linkToken" path="token" :label="t('common.field.token')">
-        <div class="setup__field">
-          <NInput
-            v-model:value="form.token"
-            :input-props="{ autocomplete: 'off', spellcheck: false }"
+        </template>
+      </FormField>
+      <FormField
+        v-if="!linkToken"
+        :id="FIELD_IDS.token"
+        :label="t('common.field.token')"
+        :hint="t('setup.tokenHint')"
+        :error="fieldError('token')"
+      >
+        <template #default="field">
+          <Input
+            v-bind="field"
+            v-model="form.token"
+            class="h-10 font-mono max-md:h-11"
+            autocomplete="off"
+            :spellcheck="false"
+            :disabled="submitting"
           />
-          <NText depth="3" class="setup__hint">{{ t('setup.tokenHint') }}</NText>
-        </div>
-      </NFormItem>
-      <NFormItem path="username" :label="t('common.field.username')">
-        <div class="setup__field">
-          <NInput
-            v-model:value="form.username"
+        </template>
+      </FormField>
+      <FormField
+        :id="FIELD_IDS.username"
+        :label="t('common.field.username')"
+        :hint="t('setup.usernameHint', { min: USERNAME_MIN, max: USERNAME_MAX })"
+        :error="fieldError('username')"
+      >
+        <template #default="field">
+          <Input
+            v-bind="field"
+            v-model="form.username"
+            class="h-10 max-md:h-11"
             :maxlength="USERNAME_MAX"
-            :input-props="{ autocomplete: 'username', autocapitalize: 'none', spellcheck: false }"
+            autocomplete="username"
+            autocapitalize="none"
+            :spellcheck="false"
+            :disabled="submitting"
           />
-          <NText depth="3" class="setup__hint">
-            {{ t('setup.usernameHint', { min: USERNAME_MIN, max: USERNAME_MAX }) }}
-          </NText>
-        </div>
-      </NFormItem>
-      <NFormItem path="password" :label="t('common.field.password')">
-        <div class="setup__field">
-          <NInput
-            v-model:value="form.password"
-            type="password"
-            show-password-on="click"
-            :input-props="{ autocomplete: 'new-password' }"
+        </template>
+      </FormField>
+      <FormField
+        :id="FIELD_IDS.password"
+        :label="t('common.field.password')"
+        :hint="t('setup.passwordHint', { min: PASSWORD_MIN }, PASSWORD_MIN)"
+        :error="fieldError('password')"
+      >
+        <template #default="field">
+          <PasswordInput
+            v-bind="field"
+            v-model="form.password"
+            size="lg"
+            autocomplete="new-password"
+            :disabled="submitting"
           />
-          <NText depth="3" class="setup__hint">
-            {{ t('setup.passwordHint', { min: PASSWORD_MIN }, PASSWORD_MIN) }}
-          </NText>
-        </div>
-      </NFormItem>
-      <NFormItem path="passwordConfirm" :label="t('common.field.passwordConfirm')">
-        <NInput
-          v-model:value="form.passwordConfirm"
-          type="password"
-          show-password-on="click"
-          :input-props="{ autocomplete: 'new-password' }"
-        />
-      </NFormItem>
-      <NButton type="primary" attr-type="submit" block :loading="submitting">
+        </template>
+      </FormField>
+      <FormField
+        :id="FIELD_IDS.passwordConfirm"
+        :label="t('common.field.passwordConfirm')"
+        :error="fieldError('passwordConfirm')"
+      >
+        <template #default="field">
+          <PasswordInput
+            v-bind="field"
+            v-model="form.passwordConfirm"
+            size="lg"
+            autocomplete="new-password"
+            :disabled="submitting"
+          />
+        </template>
+      </FormField>
+      <Button type="submit" size="lg" class="mt-1 w-full font-semibold max-md:h-11" :disabled="submitting">
+        <LoaderCircle v-if="submitting" class="animate-spin" aria-hidden="true" />
         {{ t('setup.submit') }}
-      </NButton>
-    </NForm>
+      </Button>
+    </form>
   </AuthLayout>
 </template>
-
-<style scoped>
-.setup__alert {
-  margin-block-end: 16px;
-}
-
-.setup__field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  inline-size: 100%;
-}
-
-.setup__hint {
-  font-size: 12px;
-}
-</style>

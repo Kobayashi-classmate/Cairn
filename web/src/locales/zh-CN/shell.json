@@ -1,0 +1,29 @@
+{
+  "mainNav": "主导航",
+  "menu": "菜单",
+  "openMenu": "打开菜单",
+  "search": "搜索或跳转",
+  "skipToContent": "跳到主要内容",
+  "server": "服务器",
+  "userMenu": "{name} 的账号菜单",
+  "userMenuTotpOff": "{name} 的账号菜单，两步验证未开启",
+  "turnOnTotp": "开启两步验证",
+  "group": {
+    "apps": "应用",
+    "ops": "运维",
+    "security": "安全",
+    "system": "系统"
+  },
+  "palette": {
+    "title": "搜索或跳转",
+    "description": "输入页面名称的一部分，按回车打开。",
+    "placeholder": "搜索页面…",
+    "empty": "没有匹配的页面。",
+    "pages": "页面",
+    "account": "账号"
+  },
+  "shortcut": {
+    "mac": "⌘K",
+    "other": "Ctrl K"
+  }
+}

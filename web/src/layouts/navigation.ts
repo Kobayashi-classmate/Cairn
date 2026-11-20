@@ -1,68 +1,76 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// The sider menu comes from the server (GET /ui/nav). This file turns its
+// The sidebar menu comes from the server (GET /ui/nav). This file turns its
 // entries into menu items the client can show: icon names are mapped through
 // an allowlist, and entries pointing at routes this build does not know are
 // left out, so a newer server never breaks an older UI.
 import type { Component } from 'vue'
 import type { RouteLocationRaw, Router } from 'vue-router'
 import {
-  AppsOutline,
-  ArchiveOutline,
-  CubeOutline,
-  DocumentTextOutline,
-  FolderOutline,
-  GlobeOutline,
-  GridOutline,
-  KeyOutline,
-  ListOutline,
-  LockClosedOutline,
-  MegaphoneOutline,
-  NotificationsOutline,
-  PeopleOutline,
-  PulseOutline,
-  ReaderOutline,
-  ServerOutline,
-  SettingsOutline,
-  ShieldCheckmarkOutline,
-  ShieldOutline,
-  SpeedometerOutline,
-  TerminalOutline,
-  TimeOutline,
-} from '@vicons/ionicons5'
-import type { NavEntry } from '@/api/nav'
+  Activity,
+  Archive,
+  Bell,
+  Box,
+  Clock,
+  Database,
+  FileText,
+  Folder,
+  Gauge,
+  Globe,
+  KeyRound,
+  LayoutGrid,
+  ListChecks,
+  Lock,
+  Megaphone,
+  Package,
+  ScrollText,
+  Server,
+  Settings,
+  Shield,
+  ShieldCheck,
+  SquareTerminal,
+  Users,
+} from '@lucide/vue'
+import type { NavEntry, NavGroup } from '@/api/nav'
 import { useNavStore } from '@/stores/nav'
 
-/** Icon names the server may use. Unknown names get GENERIC_ICON. */
+/** Icon names the server may use (Lucide icons). Unknown names get GENERIC_ICON. */
 const ICONS: Record<string, Component> = {
-  apps: AppsOutline,
-  archive: ArchiveOutline,
-  cube: CubeOutline,
-  // No database icon in this set; stacked disks read the same.
-  database: ServerOutline,
-  'document-text': DocumentTextOutline,
-  folder: FolderOutline,
-  globe: GlobeOutline,
-  grid: GridOutline,
-  key: KeyOutline,
-  list: ListOutline,
-  lock: LockClosedOutline,
-  megaphone: MegaphoneOutline,
-  notifications: NotificationsOutline,
-  people: PeopleOutline,
-  pulse: PulseOutline,
-  reader: ReaderOutline,
-  server: ServerOutline,
-  settings: SettingsOutline,
-  shield: ShieldOutline,
-  'shield-checkmark': ShieldCheckmarkOutline,
-  speedometer: SpeedometerOutline,
-  terminal: TerminalOutline,
-  time: TimeOutline,
+  apps: Package,
+  archive: Archive,
+  cube: Box,
+  database: Database,
+  'document-text': FileText,
+  folder: Folder,
+  globe: Globe,
+  grid: LayoutGrid,
+  key: KeyRound,
+  list: ListChecks,
+  lock: Lock,
+  megaphone: Megaphone,
+  notifications: Bell,
+  people: Users,
+  pulse: Activity,
+  reader: ScrollText,
+  server: Server,
+  settings: Settings,
+  shield: Shield,
+  'shield-checkmark': ShieldCheck,
+  speedometer: Gauge,
+  terminal: SquareTerminal,
+  time: Clock,
 }
-const GENERIC_ICON = GridOutline
+const GENERIC_ICON = LayoutGrid
 
-/** One entry of the sider menu, ready to render. */
+const GROUPS: readonly NavGroup[] = ['apps', 'ops', 'security', 'system']
+
+/**
+ * Entries reached from the user menu and the command palette instead of the
+ * sidebar (interface spec, section 6).
+ */
+const USER_MENU_KEYS: ReadonlySet<string> = new Set(['messages'])
+
+/** One entry of the menu, ready to render. */
 export interface NavItem {
   /** Matches `meta.navKey` of the routes that highlight this entry. */
   key: string
@@ -70,6 +78,14 @@ export interface NavItem {
   labelKey: string
   icon: Component
   to: RouteLocationRaw
+  /** Heading the entry is listed under; "" for entries above every heading. */
+  group: NavGroup | ''
+}
+
+/** A run of menu items under one heading ("" has no heading). */
+export interface NavSection {
+  group: NavGroup | ''
+  items: NavItem[]
 }
 
 /** Menu items for the server's entries, keeping only routes the router knows. */
@@ -81,7 +97,25 @@ export function resolveNav(entries: readonly NavEntry[], router: Router): NavIte
       labelKey: entry.labelKey,
       icon: ICONS[entry.icon] ?? GENERIC_ICON,
       to: { name: entry.route },
+      // A heading this build does not know is shown without a heading.
+      group: entry.group && GROUPS.includes(entry.group) ? entry.group : '',
     }))
+}
+
+/**
+ * Splits the menu into sections for the sidebar, in the server's order
+ * (entries of one group are adjacent). Entries that live in the user menu
+ * are left out.
+ */
+export function sidebarSections(items: readonly NavItem[]): NavSection[] {
+  const sections: NavSection[] = []
+  for (const item of items) {
+    if (USER_MENU_KEYS.has(item.key)) continue
+    const last = sections.at(-1)
+    if (last && last.group === item.group) last.items.push(item)
+    else sections.push({ group: item.group, items: [item] })
+  }
+  return sections
 }
 
 /** Where a signed-in user lands: the first menu entry, or settings. */

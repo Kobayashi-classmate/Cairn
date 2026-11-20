@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { isApiError, type ApiError } from '@/api/client'
 import * as sessionApi from '@/api/session'
-import { isMfaChallenge } from '@/api/session'
+import { isMfaChallenge, isThemeMode } from '@/api/session'
 import type {
   ElevateRequest,
   LoginMfaRequest,
@@ -11,6 +11,7 @@ import type {
   Meta,
   SessionInfo,
   SetupRequest,
+  ThemeMode,
   User,
 } from '@/api/session'
 import type { Permission } from '@/auth/permissions'
@@ -24,6 +25,7 @@ import {
 import { matchLocale } from '@/i18n/negotiate'
 import { readStoredLocale, storeLocale } from '@/i18n/preference'
 import { useNavStore } from './nav'
+import { useThemeStore } from './theme'
 
 /** Panel metadata, the signed-in user and the UI language that follows from them. */
 export const useSessionStore = defineStore('session', () => {
@@ -49,6 +51,8 @@ export const useSessionStore = defineStore('session', () => {
     user.value = info.user
     permissions.value = info.permissions ?? []
     elevatedUntil.value = info.elevatedUntil ?? 0
+    // The account's colour scheme wins over the one remembered in this browser.
+    if (isThemeMode(info.user.theme)) useThemeStore().setMode(info.user.theme)
   }
 
   function clearSession(): void {
@@ -219,6 +223,31 @@ export const useSessionStore = defineStore('session', () => {
     await activateLocale(locale)
   }
 
+  let themeChanges = 0
+
+  /**
+   * Switches between light, dark and following the system immediately.
+   * Signed in, the choice is saved to the user's account (and undone if that
+   * fails); it is always remembered in this browser as well, for the sign-in
+   * page and the first paint.
+   */
+  async function changeTheme(mode: ThemeMode): Promise<void> {
+    const theme = useThemeStore()
+    const previous = theme.mode
+    if (mode === previous) return
+    theme.setMode(mode)
+    if (!user.value) return
+    const change = ++themeChanges
+    try {
+      await sessionApi.updateMyTheme(mode)
+      if (user.value) user.value.theme = mode
+    } catch (err) {
+      // A newer choice has been made meanwhile; that one decides.
+      if (change === themeChanges) theme.setMode(previous)
+      throw err
+    }
+  }
+
   return {
     meta,
     user,
@@ -243,5 +272,6 @@ export const useSessionStore = defineStore('session', () => {
     sessionLost,
     takeNotice,
     changeLocale,
+    changeTheme,
   }
 })

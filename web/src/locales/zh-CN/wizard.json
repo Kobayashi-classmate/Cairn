@@ -25,7 +25,8 @@
     "missing": "此系统上不可用",
     "recommendedLine": "{line}（推荐）",
     "count": "已选 {count} 个，最多 {max} 个",
-    "nothing": "暂不安装"
+    "nothing": "暂不安装",
+    "lineOf": "{name} 的版本线"
   },
   "suite": {
     "php-site": {

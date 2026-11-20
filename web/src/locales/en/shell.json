@@ -1,0 +1,29 @@
+{
+  "mainNav": "Main navigation",
+  "menu": "Menu",
+  "openMenu": "Open menu",
+  "search": "Search or jump to",
+  "skipToContent": "Skip to content",
+  "server": "Server",
+  "userMenu": "Account menu for {name}",
+  "userMenuTotpOff": "Account menu for {name}; two-step verification is off",
+  "turnOnTotp": "Turn on two-step verification",
+  "group": {
+    "apps": "Apps",
+    "ops": "Operations",
+    "security": "Security",
+    "system": "System"
+  },
+  "palette": {
+    "title": "Search or jump to",
+    "description": "Type part of a page name, then press Enter to open it.",
+    "placeholder": "Search pages…",
+    "empty": "No matching page.",
+    "pages": "Pages",
+    "account": "Account"
+  },
+  "shortcut": {
+    "mac": "⌘K",
+    "other": "Ctrl K"
+  }
+}

@@ -4,13 +4,13 @@
 // main bundle. The document lives in the editor; the parent reads it with
 // the exposed getValue() and hears about changes through `changed`.
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useOsTheme } from 'naive-ui'
 import { basicSetup } from 'codemirror'
 import { indentWithTab } from '@codemirror/commands'
 import { Annotation, Compartment, EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { languageFor } from '@/files/languages'
+import { useThemeStore } from '@/stores/theme'
 
 const props = defineProps<{
   /** Initial text; later changes replace the document. */
@@ -26,7 +26,8 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: []; save: [] }>()
 
 const host = ref<HTMLElement | null>(null)
-const osTheme = useOsTheme()
+// Follows the panel's light/dark mode (which may differ from the system's).
+const panelTheme = useThemeStore()
 const language = new Compartment()
 const theme = new Compartment()
 const editable = new Compartment()
@@ -75,7 +76,7 @@ onMounted(() => {
           indentWithTab,
         ]),
         language.of([]),
-        theme.of(themeFor(osTheme.value === 'dark')),
+        theme.of(themeFor(panelTheme.isDark)),
         editable.of([EditorState.readOnly.of(!!props.readOnly)]),
         baseTheme,
         EditorView.updateListener.of((update) => {
@@ -94,7 +95,10 @@ onBeforeUnmount(() => {
   view = null
 })
 
-watch(osTheme, (value) => view?.dispatch({ effects: theme.reconfigure(themeFor(value === 'dark')) }))
+watch(
+  () => panelTheme.isDark,
+  (dark) => view?.dispatch({ effects: theme.reconfigure(themeFor(dark)) }),
+)
 watch(
   () => props.readOnly,
   (value) => view?.dispatch({ effects: editable.reconfigure([EditorState.readOnly.of(!!value)]) }),

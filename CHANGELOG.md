@@ -31,3 +31,6 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   swap, system updates and package sources.
 - Support for SELinux in enforcing mode on Enterprise Linux.
 - English and Simplified Chinese interfaces.
+- Light, dark and system colour schemes, saved with each account; a menu
+  grouped into apps, operations, security and system, with "Search or jump
+  to" (Ctrl K / ⌘K).

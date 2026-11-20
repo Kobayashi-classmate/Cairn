@@ -15,6 +15,11 @@ declare module 'vue-router' {
     navKey?: string
     /** Permission needed to open the page. */
     permission?: Permission
+    /**
+     * The page is built with the new components; the shell then leaves out
+     * the compatibility styles kept for pages still built with Naive UI.
+     */
+    newUi?: boolean
   }
 }
 

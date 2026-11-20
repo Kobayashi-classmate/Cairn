@@ -25,7 +25,8 @@
     "missing": "not available on this system",
     "recommendedLine": "{line} (recommended)",
     "count": "{count} of at most {max} selected",
-    "nothing": "Nothing for now"
+    "nothing": "Nothing for now",
+    "lineOf": "Version line of {name}"
   },
   "suite": {
     "php-site": {

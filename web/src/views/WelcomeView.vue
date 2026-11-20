@@ -3,21 +3,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NCheckbox,
-  NH1,
-  NH3,
-  NProgress,
-  NSelect,
-  NSpin,
-  NStep,
-  NSteps,
-  NTag,
-  NText,
-} from 'naive-ui'
+import { Check, LoaderCircle } from '@lucide/vue'
+import type { AcceptableValue } from 'reka-ui'
+import { toast } from 'vue-sonner'
 import { isAbortError, isStepUpRequired } from '@/api/client'
 import {
   MAX_PROBE_ITEMS,
@@ -34,12 +22,19 @@ import {
   type Suite,
 } from '@/api/software'
 import { saveWizardState, type WizardState } from '@/api/wizard'
+import CairnLogo from '@/components/common/CairnLogo.vue'
+import LocaleSelect from '@/components/common/LocaleSelect.vue'
+import Notice from '@/components/common/Notice.vue'
+import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 import DownloadEstimate from '@/components/DownloadEstimate.vue'
 import JobStateTag from '@/components/JobStateTag.vue'
-import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
 import SourceSlots from '@/components/SourceSlots.vue'
 import TotpEnrollment from '@/components/TotpEnrollment.vue'
-import { useErrorToast } from '@/composables/useErrorToast'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useJobFollow } from '@/composables/useJobFollow'
 import { errorMessage, errorText } from '@/i18n/errors'
 import { formatPercent } from '@/i18n/format'
@@ -57,7 +52,12 @@ const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
-const showError = useErrorToast()
+
+/** Reports a failed request; a declined re-authentication is not an error. */
+function showError(err: unknown) {
+  if (isAbortError(err) || isStepUpRequired(err)) return
+  toast.error(errorMessage(err))
+}
 
 // Opened from the software page, the wizard starts at the software step.
 const step = ref<Step>(route.query.step === 'software' ? 'software' : 'security')
@@ -132,6 +132,16 @@ function lineOptions(entry: SoftwareEntry) {
 }
 
 const isTicked = (id: string) => ticked.value.includes(id)
+
+/** Checkbox state of a suite: on, off or partly ticked. */
+function suiteState(suite: Suite): boolean | 'indeterminate' {
+  if (suiteChecked(suite)) return true
+  return suiteIndeterminate(suite) ? 'indeterminate' : false
+}
+
+function onLine(id: string, value: AcceptableValue) {
+  if (typeof value === 'string') chooseLine(id, value)
+}
 const full = computed(() => ticked.value.length >= MAX_PROBE_ITEMS)
 
 function setTicked(id: string, on: boolean) {
@@ -271,6 +281,11 @@ async function startInstall() {
   }
 }
 
+const stepLabels = computed(() => STEPS.map((id) => ({ id, label: t(`wizard.steps.${id}`) })))
+const progressPercent = computed(() =>
+  job.value?.progress != null ? Math.round(job.value.progress * 100) : null,
+)
+
 const logTail = computed(() => log.value.split('\n').filter(Boolean).slice(-LOG_TAIL_LINES).join('\n'))
 const jobFinal = computed(() => (job.value ? isFinalState(job.value.state) : false))
 const jobErrorText = computed(() => {
@@ -280,338 +295,222 @@ const jobErrorText = computed(() => {
 </script>
 
 <template>
-  <div class="wizard">
-    <header class="wizard__top">
-      <span class="wizard__brand">{{ t('common.app.name') }}</span>
-      <span class="wizard__spacer" />
-      <LocaleSwitcher />
-      <NButton v-if="step !== 'start'" quaternary size="small" :loading="leaving" @click="leave('skipped')">
+  <div class="min-h-dvh bg-background text-foreground">
+    <header class="flex flex-wrap items-center gap-2.5 px-4 py-3 sm:px-6">
+      <span class="flex items-center gap-2.5">
+        <CairnLogo />
+        <span class="text-base font-bold tracking-tight">{{ t('common.app.name') }}</span>
+      </span>
+      <span class="flex-1" />
+      <LocaleSelect size="sm" />
+      <ThemeSwitcher icon-only />
+      <Button v-if="step !== 'start'" variant="ghost" size="sm" :disabled="leaving" @click="leave('skipped')">
         {{ t('wizard.skip') }}
-      </NButton>
+      </Button>
     </header>
 
-    <main class="wizard__main">
-      <NH1 class="wizard__title">{{ t('wizard.title') }}</NH1>
-      <NText depth="3" tag="p" class="wizard__intro">{{ t('wizard.intro') }}</NText>
+    <main class="mx-auto w-full max-w-[960px] px-4 pt-4 pb-12 sm:px-6">
+      <h1 class="m-0 text-page-title">{{ t('wizard.title') }}</h1>
+      <p class="mt-1 mb-6 text-muted-foreground">{{ t('wizard.intro') }}</p>
 
-      <NSteps :current="stepIndex" size="small" class="wizard__steps">
-        <NStep :title="t('wizard.steps.security')" />
-        <NStep :title="t('wizard.steps.software')" />
-        <NStep :title="t('wizard.steps.confirm')" />
-        <NStep :title="t('wizard.steps.start')" />
-      </NSteps>
+      <ol class="m-0 mb-6 flex list-none flex-wrap gap-x-6 gap-y-2 p-0">
+        <li
+          v-for="(item, index) in stepLabels"
+          :key="item.id"
+          class="flex items-center gap-2 text-detail"
+          :aria-current="index + 1 === stepIndex ? 'step' : undefined"
+        >
+          <span
+            class="flex size-6 shrink-0 items-center justify-center rounded-full border text-caption tabular-nums"
+            :class="
+              index + 1 < stepIndex
+                ? 'border-primary bg-primary text-primary-foreground'
+                : index + 1 === stepIndex
+                  ? 'border-primary text-primary'
+                  : 'border-border text-muted-foreground'
+            "
+            aria-hidden="true"
+          >
+            <Check v-if="index + 1 < stepIndex" class="size-3.5" />
+            <template v-else>{{ index + 1 }}</template>
+          </span>
+          <span :class="index + 1 === stepIndex ? 'font-semibold' : 'text-muted-foreground'">{{ item.label }}</span>
+        </li>
+      </ol>
 
       <!-- Step 1: two-step verification -->
-      <NCard v-if="step === 'security'" size="small">
-        <NH3 class="card-title">{{ t('wizard.security.title') }}</NH3>
-        <template v-if="totpOn">
-          <NAlert type="success" class="block">{{ t('wizard.security.on') }}</NAlert>
-        </template>
+      <section v-if="step === 'security'" class="rounded-lg border border-border bg-card p-5">
+        <h2 class="m-0 mb-3 text-section">{{ t('wizard.security.title') }}</h2>
+        <Notice v-if="totpOn" tone="success" class="mb-3">{{ t('wizard.security.on') }}</Notice>
         <template v-else>
-          <NText tag="p" class="para">{{ t('wizard.security.why') }}</NText>
-          <NText depth="3" tag="p" class="para">{{ t('wizard.security.how') }}</NText>
-          <TotpEnrollment v-if="enrolling" @done="enrolling = false" @cancel="enrolling = false" />
+          <p class="m-0 mb-3">{{ t('wizard.security.why') }}</p>
+          <p class="m-0 mb-3 text-muted-foreground">{{ t('wizard.security.how') }}</p>
+          <div v-if="enrolling" class="legacy-ui">
+            <TotpEnrollment @done="enrolling = false" @cancel="enrolling = false" />
+          </div>
         </template>
-        <div v-if="!enrolling" class="actions">
-          <NButton v-if="!totpOn" type="primary" @click="enrolling = true">
-            {{ t('wizard.security.setUp') }}
-          </NButton>
-          <NButton v-if="!totpOn" @click="step = 'software'">{{ t('wizard.security.later') }}</NButton>
-          <NButton v-else type="primary" @click="step = 'software'">{{ t('wizard.continue') }}</NButton>
+        <div v-if="!enrolling" class="mt-4 flex flex-wrap items-center gap-2">
+          <Button v-if="!totpOn" @click="enrolling = true">{{ t('wizard.security.setUp') }}</Button>
+          <Button v-if="!totpOn" variant="outline" @click="step = 'software'">{{ t('wizard.security.later') }}</Button>
+          <Button v-else @click="step = 'software'">{{ t('wizard.continue') }}</Button>
         </div>
-      </NCard>
+      </section>
 
       <!-- Step 2: software -->
       <template v-else-if="step === 'software'">
-        <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-        <NSpin :show="!catalog && !loadError">
-          <NText depth="3" tag="p" class="para">{{ t('wizard.software.intro') }}</NText>
-          <div class="suites">
-            <NCard v-for="suite in suites" :key="suite.id" size="small" class="suite">
-              <NCheckbox
-                :checked="suiteChecked(suite)"
-                :indeterminate="suiteIndeterminate(suite)"
-                :disabled="suiteTargets(suite).length === 0"
-                @update:checked="(on: boolean) => toggleSuite(suite, on)"
-              >
-                <span class="suite__name">{{ t(`wizard.suite.${suite.id}.name`) }}</span>
-              </NCheckbox>
-              <NText depth="3" tag="p" class="suite__description">
-                {{ t(`wizard.suite.${suite.id}.description`) }}
-              </NText>
-              <ul class="suite__items">
+        <Notice v-if="loadError" tone="destructive" class="mb-3">{{ errorMessage(loadError) }}</Notice>
+        <div v-if="!catalog && !loadError" class="grid gap-4 sm:grid-cols-2" role="status">
+          <span class="sr-only">{{ t('common.boot.loading') }}</span>
+          <Skeleton v-for="n in 2" :key="n" class="h-36 rounded-lg" />
+        </div>
+        <template v-else-if="catalog">
+          <p class="m-0 mb-3 text-muted-foreground">{{ t('wizard.software.intro') }}</p>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <section v-for="suite in suites" :key="suite.id" class="rounded-lg border border-border bg-card p-4">
+              <div class="flex items-center gap-2">
+                <Checkbox
+                  :id="`suite-${suite.id}`"
+                  :model-value="suiteState(suite)"
+                  :disabled="suiteTargets(suite).length === 0"
+                  @update:model-value="(on) => toggleSuite(suite, on === true)"
+                />
+                <label :for="`suite-${suite.id}`" class="font-semibold">{{ t(`wizard.suite.${suite.id}.name`) }}</label>
+              </div>
+              <p class="mt-1.5 mb-2 text-detail text-muted-foreground">{{ t(`wizard.suite.${suite.id}.description`) }}</p>
+              <ul class="m-0 flex list-disc flex-col gap-0.5 ps-5 text-detail">
                 <li v-for="(item, index) in suite.items" :key="index">
-                  <span :class="{ muted: item.missing }">{{ suiteItemLabel(item) }}</span>
-                  <NText v-if="item.missing" depth="3" class="small">{{ t('wizard.software.missing') }}</NText>
-                  <NTag
-                    v-else-if="item.software && item.line && installed(item.software, item.line)"
-                    size="small"
-                    type="info"
-                    :bordered="false"
-                  >
-                    {{ t('software.installed') }}
-                  </NTag>
+                  <span class="inline-flex flex-wrap items-center gap-1.5">
+                    <span :class="{ 'text-muted-foreground': item.missing }">{{ suiteItemLabel(item) }}</span>
+                    <span v-if="item.missing" class="text-muted-foreground">{{ t('wizard.software.missing') }}</span>
+                    <Badge v-else-if="item.software && item.line && installed(item.software, item.line)">
+                      {{ t('software.installed') }}
+                    </Badge>
+                  </span>
                 </li>
               </ul>
-            </NCard>
+            </section>
           </div>
 
-          <NH3 class="section-title">{{ t('wizard.software.other') }}</NH3>
-          <ul class="others">
-            <li v-for="entry in entries" :key="entry.id" class="other">
-              <NCheckbox
-                :checked="isTicked(entry.id)"
+          <h2 class="mt-6 mb-3 text-section">{{ t('wizard.software.other') }}</h2>
+          <ul class="m-0 mb-2 grid list-none gap-x-6 gap-y-2 p-0 sm:grid-cols-2">
+            <li v-for="entry in entries" :key="entry.id" class="flex items-center gap-2">
+              <Checkbox
+                :id="`software-${entry.id}`"
+                :model-value="isTicked(entry.id)"
                 :disabled="installed(entry.id, lineOf(entry.id)) || (full && !isTicked(entry.id))"
-                @update:checked="(on: boolean) => setTicked(entry.id, on)"
-              >
-                {{ entry.name }}
-              </NCheckbox>
-              <NSelect
-                :value="lineOf(entry.id)"
-                :options="lineOptions(entry)"
-                size="small"
-                class="other__line"
-                @update:value="(line: string) => chooseLine(entry.id, line)"
+                @update:model-value="(on) => setTicked(entry.id, on === true)"
               />
-              <NTag v-if="installed(entry.id, lineOf(entry.id))" size="small" type="info" :bordered="false">
-                {{ t('software.installed') }}
-              </NTag>
+              <label :for="`software-${entry.id}`" class="min-w-0 truncate">{{ entry.name }}</label>
+              <Badge v-if="installed(entry.id, lineOf(entry.id))">{{ t('software.installed') }}</Badge>
+              <Select :model-value="lineOf(entry.id)" @update:model-value="(value) => onLine(entry.id, value)">
+                <SelectTrigger
+                  size="sm"
+                  class="ms-auto w-[150px]"
+                  :aria-label="t('wizard.software.lineOf', { name: entry.name })"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="option in lineOptions(entry)" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </li>
           </ul>
 
-          <NText depth="3" tag="p" class="para small">
+          <p class="m-0 text-detail text-muted-foreground" role="status">
             {{ t('wizard.software.count', { count: items.length, max: MAX_PROBE_ITEMS }) }}
-          </NText>
-          <div class="actions">
-            <NButton v-if="route.query.step !== 'software'" @click="step = 'security'">{{ t('wizard.back') }}</NButton>
-            <span class="actions__spacer" />
-            <NButton :loading="leaving" @click="leave('done')">{{ t('wizard.software.nothing') }}</NButton>
-            <NButton type="primary" :disabled="items.length === 0" @click="toConfirm">
-              {{ t('wizard.continue') }}
-            </NButton>
+          </p>
+          <div class="mt-4 flex flex-wrap items-center gap-2">
+            <Button v-if="route.query.step !== 'software'" variant="outline" @click="step = 'security'">
+              {{ t('wizard.back') }}
+            </Button>
+            <span class="flex-1" />
+            <Button variant="outline" :disabled="leaving" @click="leave('done')">{{ t('wizard.software.nothing') }}</Button>
+            <Button :disabled="items.length === 0" @click="toConfirm">{{ t('wizard.continue') }}</Button>
           </div>
-        </NSpin>
+        </template>
       </template>
 
       <!-- Step 3: confirm -->
-      <NCard v-else-if="step === 'confirm'" size="small">
-        <NH3 class="card-title">{{ t('wizard.confirm.title') }}</NH3>
-        <div class="chosen">
-          <NTag v-for="item in items" :key="item.software" :bordered="false">{{ itemLabel(item) }}</NTag>
+      <section v-else-if="step === 'confirm'" class="rounded-lg border border-border bg-card p-5">
+        <h2 class="m-0 mb-3 text-section">{{ t('wizard.confirm.title') }}</h2>
+        <div class="mb-4 flex flex-wrap gap-1.5">
+          <Badge v-for="item in items" :key="item.software" variant="secondary">{{ itemLabel(item) }}</Badge>
         </div>
 
-        <div v-if="probing" class="probing">
-          <NSpin size="small" />
+        <div v-if="probing" class="flex items-center gap-2.5 py-5 text-muted-foreground" role="status">
+          <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
           <span>{{ t('software.install.probing') }}</span>
         </div>
-        <template v-else-if="result">
+        <div v-else-if="result" class="legacy-ui">
           <SourceSlots v-model:selection="selection" :slots="result.slots" :repos="repos" :names="names" />
-          <NH3 class="section-title">{{ t('wizard.confirm.estimate') }}</NH3>
-          <DownloadEstimate :result="result" :selection="selection" class="block" />
-        </template>
-        <NAlert v-if="probeError && !probing" type="warning" :title="t('software.install.probeFailed')" class="block">
-          {{ errorMessage(probeError) }}
-        </NAlert>
-        <NAlert v-if="startError" type="error" class="block">{{ errorMessage(startError) }}</NAlert>
-
-        <div class="actions">
-          <NButton :disabled="starting" @click="backToSoftware">{{ t('wizard.back') }}</NButton>
-          <NButton :disabled="probing || starting" @click="probe">{{ t('software.install.checkAgain') }}</NButton>
-          <span class="actions__spacer" />
-          <NButton type="primary" :loading="starting" :disabled="items.length === 0" @click="startInstall">
-            {{ t('wizard.confirm.start') }}
-          </NButton>
+          <h3 class="mt-4 mb-2 text-section">{{ t('wizard.confirm.estimate') }}</h3>
+          <DownloadEstimate :result="result" :selection="selection" class="mb-3" />
         </div>
-      </NCard>
+        <Notice v-if="probeError && !probing" tone="warning" class="mb-3">
+          {{ t('software.install.probeFailed') }} {{ errorMessage(probeError) }}
+        </Notice>
+        <Notice v-if="startError" tone="destructive" class="mb-3">{{ errorMessage(startError) }}</Notice>
+
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <Button variant="outline" :disabled="starting" @click="backToSoftware">{{ t('wizard.back') }}</Button>
+          <Button variant="outline" :disabled="probing || starting" @click="probe">
+            {{ t('software.install.checkAgain') }}
+          </Button>
+          <span class="flex-1" />
+          <Button :disabled="starting || items.length === 0" @click="startInstall">
+            <LoaderCircle v-if="starting" class="animate-spin" aria-hidden="true" />
+            {{ t('wizard.confirm.start') }}
+          </Button>
+        </div>
+      </section>
 
       <!-- Step 4: started -->
-      <NCard v-else size="small">
-        <NH3 class="card-title">{{ t('wizard.start.title') }}</NH3>
-        <NText tag="p" class="para">{{ t('wizard.start.background') }}</NText>
+      <section v-else class="rounded-lg border border-border bg-card p-5">
+        <h2 class="m-0 mb-3 text-section">{{ t('wizard.start.title') }}</h2>
+        <p class="m-0 mb-3">{{ t('wizard.start.background') }}</p>
         <template v-if="job">
-          <div class="job-line">
-            <JobStateTag :state="job.state" />
-            <RouterLink :to="{ name: 'job', params: { id: job.id } }">{{ t('software.viewOutput') }}</RouterLink>
+          <div class="mb-3 flex items-center gap-3">
+            <span class="legacy-ui"><JobStateTag :state="job.state" /></span>
+            <RouterLink :to="{ name: 'job', params: { id: job.id } }" class="text-link underline-offset-2 hover:underline">
+              {{ t('software.viewOutput') }}
+            </RouterLink>
           </div>
-          <NProgress
-            v-if="job.progress !== null && !jobFinal"
-            type="line"
-            :percentage="Math.round(job.progress * 100)"
-            class="block"
+          <div
+            v-if="progressPercent !== null && !jobFinal"
+            class="mb-3 flex items-center gap-3"
           >
-            {{ formatPercent(job.progress * 100, 0) }}
-          </NProgress>
-          <NAlert v-if="job.state === 'succeeded'" type="success" class="block">{{ t('wizard.start.done') }}</NAlert>
-          <NAlert v-else-if="jobFinal && jobErrorText" type="error" class="block">{{ jobErrorText }}</NAlert>
-          <pre v-if="logTail" class="log" dir="ltr">{{ logTail }}</pre>
+            <div
+              class="h-2 flex-1 overflow-hidden rounded-full bg-track"
+              role="progressbar"
+              :aria-valuenow="progressPercent"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              :aria-label="t('wizard.start.title')"
+            >
+              <div class="h-full rounded-full bg-primary transition-[width]" :style="{ width: `${progressPercent}%` }" />
+            </div>
+            <span class="text-detail tabular-nums">{{ formatPercent(progressPercent, 0) }}</span>
+          </div>
+          <Notice v-if="job.state === 'succeeded'" tone="success" class="mb-3">{{ t('wizard.start.done') }}</Notice>
+          <Notice v-else-if="jobFinal && jobErrorText" tone="destructive" class="mb-3">{{ jobErrorText }}</Notice>
+          <pre
+            v-if="logTail"
+            class="m-0 max-h-80 overflow-auto rounded-md bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap"
+            dir="ltr"
+          >{{ logTail }}</pre>
         </template>
-        <NSpin v-else size="small" />
-        <div class="actions">
-          <span class="actions__spacer" />
-          <NButton type="primary" @click="router.replace(homeLocation(router))">{{ t('wizard.start.overview') }}</NButton>
+        <div v-else class="flex items-center gap-2.5 text-muted-foreground" role="status">
+          <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
+          <span class="sr-only">{{ t('common.boot.loading') }}</span>
         </div>
-      </NCard>
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <span class="flex-1" />
+          <Button @click="router.replace(homeLocation(router))">{{ t('wizard.start.overview') }}</Button>
+        </div>
+      </section>
     </main>
   </div>
 </template>
-
-<style scoped>
-.wizard {
-  min-block-size: 100vh;
-  min-block-size: 100dvh;
-}
-
-.wizard__top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-block: 8px;
-  padding-inline: 16px;
-}
-
-.wizard__brand {
-  font-weight: 600;
-  opacity: 0.8;
-}
-
-.wizard__spacer,
-.actions__spacer {
-  flex: 1;
-}
-
-.wizard__main {
-  max-inline-size: 960px;
-  margin-inline: auto;
-  padding-block: 8px 48px;
-  padding-inline: 16px;
-}
-
-.wizard__title {
-  margin-block: 8px 4px;
-  font-size: 26px;
-}
-
-.wizard__intro {
-  margin-block: 0 20px;
-}
-
-.wizard__steps {
-  margin-block-end: 24px;
-}
-
-.card-title,
-.section-title {
-  margin-block: 0 12px;
-}
-
-.section-title {
-  margin-block-start: 24px;
-}
-
-.para {
-  margin-block: 0 12px;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.small {
-  font-size: 13px;
-}
-
-.muted {
-  opacity: 0.6;
-}
-
-.actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-block-start: 16px;
-}
-
-.suites {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-.suite__name {
-  font-weight: 600;
-}
-
-.suite__description {
-  margin-block: 6px 8px;
-  font-size: 13px;
-}
-
-.suite__items {
-  margin: 0;
-  padding-inline-start: 1.2em;
-}
-
-.suite__items li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-block: 2px;
-}
-
-.others {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 8px 24px;
-  margin: 0 0 8px;
-  padding: 0;
-  list-style: none;
-}
-
-.other {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.other__line {
-  inline-size: 150px;
-  margin-inline-start: auto;
-}
-
-.chosen {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-block-end: 16px;
-}
-
-.probing {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-block: 20px;
-}
-
-.job-line {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-block-end: 12px;
-}
-
-.log {
-  max-block-size: 320px;
-  margin: 0;
-  padding: 10px 12px;
-  overflow: auto;
-  border-radius: 4px;
-  background: rgb(128 128 128 / 12%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-</style>

@@ -19,6 +19,10 @@ import { finishStepUp, stepUpOpen } from '@/auth/stepUp'
 import { errorMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
 
+// Stays on Naive UI until the pages that trigger it are migrated: it often
+// opens on top of a Naive UI modal, whose focus trap and Escape handling only
+// cooperate with other Naive UI modals.
+
 const { t } = useI18n()
 const session = useSessionStore()
 

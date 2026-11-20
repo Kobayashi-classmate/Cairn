@@ -11,8 +11,13 @@ export interface NavEntry {
   /** Name of the client route to open. */
   route: string
   permission?: string
+  /** Menu heading the entry belongs to; empty or missing for entries above every heading. */
+  group?: NavGroup | ''
   order: number
 }
+
+/** Menu headings, in the order the server sorts them. */
+export type NavGroup = 'apps' | 'ops' | 'security' | 'system'
 
 /**
  * Menu entries of the enabled modules the caller may open, already filtered

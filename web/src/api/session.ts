@@ -10,10 +10,21 @@ export interface Meta {
   locales: string[]
 }
 
+/** Colour scheme of the UI: fixed light or dark, or following the operating system. */
+export type ThemeMode = 'light' | 'dark' | 'system'
+
+export const THEME_MODES: readonly ThemeMode[] = ['light', 'dark', 'system']
+
+export function isThemeMode(value: unknown): value is ThemeMode {
+  return typeof value === 'string' && (THEME_MODES as readonly string[]).includes(value)
+}
+
 export interface User {
   id: number
   username: string
   locale: string
+  /** Missing from servers older than the theme preference. */
+  theme?: ThemeMode
   role: Role
   totpEnabled: boolean
 }
@@ -94,4 +105,8 @@ export function completeSetup(body: SetupRequest): Promise<SessionInfo> {
 
 export function updateMyLocale(locale: string): Promise<void> {
   return api.put<void>('/me/locale', { locale })
+}
+
+export function updateMyTheme(theme: ThemeMode): Promise<void> {
+  return api.put<void>('/me/theme', { theme })
 }

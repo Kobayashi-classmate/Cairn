@@ -22,7 +22,7 @@
     "logs": "Logs",
     "firewall": "Firewall",
     "ssh": "SSH",
-    "host": "System"
+    "host": "Host"
   },
   "action": {
     "signOut": "Sign out",
@@ -36,10 +36,21 @@
     "edit": "Edit",
     "delete": "Delete",
     "refresh": "Refresh",
-    "create": "Create"
+    "create": "Create",
+    "close": "Close",
+    "dismiss": "Dismiss",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "language": {
     "label": "Language"
+  },
+  "theme": {
+    "label": "Colour scheme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System",
+    "saveFailed": "Could not save the colour scheme to your account."
   },
   "field": {
     "username": "Username",
@@ -182,7 +193,8 @@
     "candidate": "Source"
   },
   "boot": {
-    "failed": "Cannot load the panel"
+    "failed": "Cannot load the panel",
+    "loading": "Loading the panel…"
   },
   "format": {
     "bytes": "{value} {unit}",
@@ -286,8 +298,7 @@
     "open": "Open link"
   },
   "totpReminder": {
-    "title": "Two-step verification is off for your account",
-    "text": "Anyone who learns your password can sign in to this server.",
+    "notice": "Two-step verification is off: anyone who learns your password can sign in to this server.",
     "action": "Turn it on"
   }
 }

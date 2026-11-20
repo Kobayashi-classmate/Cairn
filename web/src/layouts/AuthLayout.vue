@@ -1,9 +1,15 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NCard, NH1, NText } from 'naive-ui'
-import LocaleSwitcher from '@/components/LocaleSwitcher.vue'
+import CairnLogo from '@/components/common/CairnLogo.vue'
+import LocaleSelect from '@/components/common/LocaleSelect.vue'
+import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
+import { useSessionStore } from '@/stores/session'
 
+// Sign-in and first-setup pages: language and colour scheme at the top
+// right (remembered in this browser only), one centred card, the version
+// below it.
 withDefaults(
   defineProps<{
     title: string
@@ -15,67 +21,38 @@ withDefaults(
 )
 
 const { t } = useI18n()
+const session = useSessionStore()
+
+// The address this panel was opened at, so it is clear which server this is.
+const address = window.location.hostname
+const version = computed(() => session.meta?.version ?? '')
 </script>
 
 <template>
-  <div class="auth">
-    <div class="auth__toolbar">
-      <LocaleSwitcher v-if="localeSwitcher" />
-    </div>
-    <main class="auth__main">
-      <NCard class="auth__card" size="large">
-        <div class="auth__brand">{{ t('common.app.name') }}</div>
-        <NH1 class="auth__title">{{ title }}</NH1>
-        <NText v-if="subtitle" depth="3" tag="p" class="auth__subtitle">{{ subtitle }}</NText>
+  <div class="flex min-h-dvh flex-col bg-background text-foreground">
+    <header class="flex flex-wrap items-center justify-end gap-2.5 px-4 py-4 sm:px-6">
+      <LocaleSelect v-if="localeSwitcher" size="sm" />
+      <ThemeSwitcher icon-only />
+    </header>
+
+    <div class="flex flex-1 flex-col items-center justify-center gap-5 px-4 pt-6 pb-16">
+      <main class="flex w-full max-w-[400px] flex-col gap-[22px] rounded-xl border border-border bg-card p-6 text-card-foreground sm:p-7">
+        <div class="flex items-center gap-2.5">
+          <CairnLogo class="size-8 rounded-[9px]" />
+          <span class="flex min-w-0 flex-col">
+            <span class="text-base leading-tight font-bold tracking-tight">{{ t('common.app.name') }}</span>
+            <span v-if="address" class="truncate text-xs text-muted-foreground">{{ address }}</span>
+          </span>
+        </div>
+        <div class="flex flex-col gap-1">
+          <h1 class="m-0 text-title tracking-tight">{{ title }}</h1>
+          <p v-if="subtitle" class="m-0 text-muted-foreground">{{ subtitle }}</p>
+        </div>
         <slot />
-      </NCard>
-    </main>
+      </main>
+      <footer v-if="version" class="text-xs text-muted-foreground">
+        {{ t('auth.footer', { version }) }}
+      </footer>
+    </div>
   </div>
 </template>
-
-<style scoped>
-.auth {
-  display: flex;
-  flex-direction: column;
-  min-block-size: 100vh;
-  min-block-size: 100dvh;
-}
-
-.auth__toolbar {
-  display: flex;
-  justify-content: flex-end;
-  min-block-size: 48px;
-  padding-block: 8px;
-  padding-inline: 16px;
-}
-
-.auth__main {
-  display: flex;
-  flex: 1;
-  align-items: flex-start;
-  justify-content: center;
-  padding-block: 4vh 48px;
-  padding-inline: 16px;
-}
-
-.auth__card {
-  inline-size: 100%;
-  max-inline-size: 420px;
-}
-
-.auth__brand {
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  opacity: 0.7;
-}
-
-.auth__title {
-  margin-block: 4px 4px;
-  font-size: 24px;
-}
-
-.auth__subtitle {
-  margin-block: 0 24px;
-}
-</style>

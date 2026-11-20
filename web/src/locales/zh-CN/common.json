@@ -22,7 +22,7 @@
     "logs": "日志",
     "firewall": "防火墙",
     "ssh": "SSH",
-    "host": "系统"
+    "host": "主机"
   },
   "action": {
     "signOut": "退出登录",
@@ -36,10 +36,21 @@
     "edit": "编辑",
     "delete": "删除",
     "refresh": "刷新",
-    "create": "创建"
+    "create": "创建",
+    "close": "关闭",
+    "dismiss": "关闭提示",
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码"
   },
   "language": {
     "label": "语言"
+  },
+  "theme": {
+    "label": "颜色模式",
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统",
+    "saveFailed": "无法把颜色模式保存到你的账号。"
   },
   "field": {
     "username": "用户名",
@@ -182,7 +193,8 @@
     "candidate": "软件源"
   },
   "boot": {
-    "failed": "无法加载面板"
+    "failed": "无法加载面板",
+    "loading": "正在加载面板…"
   },
   "format": {
     "bytes": "{value} {unit}",
@@ -286,8 +298,7 @@
     "open": "打开链接"
   },
   "totpReminder": {
-    "title": "你的账号未开启两步验证",
-    "text": "任何知道你密码的人都能登录这台服务器。",
+    "notice": "你的账号未开启两步验证，知道密码的人就能登录这台服务器。",
     "action": "立即开启"
   }
 }
