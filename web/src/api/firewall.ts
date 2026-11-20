@@ -95,8 +95,11 @@ function jobOf(request: Promise<{ job: Job }>): Promise<Job> {
   return request.then((body) => body.job)
 }
 
-export function fetchFirewall(signal?: AbortSignal): Promise<FirewallView> {
-  return api.get<FirewallView>('/firewall', { signal })
+export async function fetchFirewall(signal?: AbortSignal): Promise<FirewallView> {
+  const view = await api.get<FirewallView>('/firewall', { signal })
+  // The server leaves "sources" out of rules that apply to every address.
+  for (const rule of view.rules ?? []) rule.sources ??= []
+  return view
 }
 
 export function addRule(body: RuleRequest): Promise<ChangeResult & { rule: FirewallRule }> {
