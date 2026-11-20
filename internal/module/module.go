@@ -64,9 +64,20 @@ type NavItem struct {
 	Icon       string           `json:"icon"`
 	Route      string           `json:"route"`
 	Permission authz.Permission `json:"permission,omitempty"`
-	// Order sorts the menu; lower comes first.
+	// Group puts the entry under a heading in the menu (one of the Group
+	// constants); empty entries come first, without a heading.
+	Group string `json:"group,omitempty"`
+	// Order sorts the menu within its group; lower comes first.
 	Order int `json:"order"`
 }
+
+// Menu groups, in the order the UI shows them.
+const (
+	GroupApps     = "apps"     // sites, certificates, databases, software
+	GroupOps      = "ops"      // files, terminal, scheduled tasks, backups, logs
+	GroupSecurity = "security" // firewall, SSH
+	GroupSystem   = "system"   // host, jobs, users, messages, audit, settings
+)
 
 // State is a module as listed to administrators.
 type State struct {
@@ -214,8 +225,24 @@ func (r *Registry) Nav(can func(authz.Permission) bool) []NavItem {
 			}
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Order < out[j].Order })
+	sort.SliceStable(out, func(i, j int) bool {
+		if gi, gj := groupRank(out[i].Group), groupRank(out[j].Group); gi != gj {
+			return gi < gj
+		}
+		return out[i].Order < out[j].Order
+	})
 	return out
+}
+
+// groupRank orders the menu groups: ungrouped entries first, unknown groups
+// last.
+func groupRank(g string) int {
+	for i, name := range []string{"", GroupApps, GroupOps, GroupSecurity, GroupSystem} {
+		if g == name {
+			return i
+		}
+	}
+	return 99
 }
 
 // IDs returns the registered module IDs (for tests and diagnostics).

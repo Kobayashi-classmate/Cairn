@@ -54,7 +54,7 @@ func (m *Module) Info() module.Info {
 			{Name: Manage},
 		},
 		Nav: []module.NavItem{
-			{Key: "ssh", LabelKey: "common.nav.ssh", Icon: "key", Route: "ssh", Permission: Read, Order: 25},
+			{Key: "ssh", LabelKey: "common.nav.ssh", Icon: "key", Route: "ssh", Permission: Read, Group: module.GroupSecurity, Order: 25},
 		},
 	}
 }

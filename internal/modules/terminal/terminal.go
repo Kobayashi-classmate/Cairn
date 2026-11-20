@@ -76,7 +76,7 @@ func (m *Module) Info() module.Info {
 			{Name: Admin},
 		},
 		Nav: []module.NavItem{
-			{Key: "terminal", LabelKey: "common.nav.terminal", Icon: "terminal", Route: "terminal", Permission: Use, Order: 20},
+			{Key: "terminal", LabelKey: "common.nav.terminal", Icon: "terminal", Route: "terminal", Permission: Use, Group: module.GroupOps, Order: 20},
 		},
 	}
 }

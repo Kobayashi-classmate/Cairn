@@ -26,7 +26,7 @@ func (m *Module) ID() string { return "auditlog" }
 // Info implements module.Describer.
 func (m *Module) Info() module.Info {
 	return module.Info{Nav: []module.NavItem{
-		{Key: "audit", LabelKey: "common.nav.audit", Icon: "document-text", Route: "audit", Permission: authz.AuditRead, Order: 90},
+		{Key: "audit", LabelKey: "common.nav.audit", Icon: "document-text", Route: "audit", Permission: authz.AuditRead, Group: module.GroupSystem, Order: 90},
 	}}
 }
 

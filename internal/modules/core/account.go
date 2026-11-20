@@ -34,6 +34,25 @@ func (m *Module) setMyLocale(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+type themeRequest struct {
+	Theme string `json:"theme"` // light, dark or system
+}
+
+// setMyTheme stores the signed-in user's colour scheme; the UI applies it on
+// every device the user signs in from.
+func (m *Module) setMyTheme(w http.ResponseWriter, r *http.Request) error {
+	var req themeRequest
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	p, _ := api.PrincipalFrom(r.Context())
+	if err := auth.SetTheme(r.Context(), m.DB, p.UserID, req.Theme); err != nil {
+		return modutil.MapError(err, nil)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 type changePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
 	NewPassword     string `json:"newPassword"`

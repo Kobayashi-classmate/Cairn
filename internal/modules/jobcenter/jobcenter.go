@@ -37,7 +37,7 @@ func (m *Module) ID() string { return "jobs" }
 // Info implements module.Describer.
 func (m *Module) Info() module.Info {
 	return module.Info{Nav: []module.NavItem{
-		{Key: "jobs", LabelKey: "common.nav.jobs", Icon: "list", Route: "jobs", Order: 70},
+		{Key: "jobs", LabelKey: "common.nav.jobs", Icon: "list", Route: "jobs", Group: module.GroupSystem, Order: 70},
 	}}
 }
 

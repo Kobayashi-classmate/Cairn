@@ -71,7 +71,7 @@ func (m *Module) Info() module.Info {
 			{Name: Manage, Roles: []authz.Role{authz.Operator}},
 		},
 		Nav: []module.NavItem{
-			{Key: "backups", LabelKey: "common.nav.backups", Icon: "archive", Route: "backups", Permission: Read, Order: 22},
+			{Key: "backups", LabelKey: "common.nav.backups", Icon: "archive", Route: "backups", Permission: Read, Group: module.GroupOps, Order: 22},
 		},
 	}
 }

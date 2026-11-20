@@ -32,7 +32,7 @@ func (m *Module) ID() string { return "users" }
 // Info implements module.Describer.
 func (m *Module) Info() module.Info {
 	return module.Info{Nav: []module.NavItem{
-		{Key: "users", LabelKey: "common.nav.users", Icon: "people", Route: "users", Permission: authz.UsersManage, Order: 80},
+		{Key: "users", LabelKey: "common.nav.users", Icon: "people", Route: "users", Permission: authz.UsersManage, Group: module.GroupSystem, Order: 80},
 	}}
 }
 

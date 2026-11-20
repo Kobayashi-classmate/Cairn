@@ -56,7 +56,7 @@ func (m *Module) Info() module.Info {
 			{Name: Manage},
 		},
 		Nav: []module.NavItem{
-			{Key: "firewall", LabelKey: "common.nav.firewall", Icon: "shield-checkmark", Route: "firewall", Permission: Read, Order: 24},
+			{Key: "firewall", LabelKey: "common.nav.firewall", Icon: "shield-checkmark", Route: "firewall", Permission: Read, Group: module.GroupSecurity, Order: 24},
 		},
 	}
 }

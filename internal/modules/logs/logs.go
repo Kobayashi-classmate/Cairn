@@ -39,7 +39,7 @@ func (m *Module) Info() module.Info {
 		Optional:    true,
 		Permissions: []module.Permission{{Name: Read, Roles: []authz.Role{authz.Operator, authz.Auditor}}},
 		Nav: []module.NavItem{
-			{Key: "logs", LabelKey: "common.nav.logs", Icon: "reader", Route: "logs", Permission: Read, Order: 23},
+			{Key: "logs", LabelKey: "common.nav.logs", Icon: "reader", Route: "logs", Permission: Read, Group: module.GroupOps, Order: 23},
 		},
 	}
 }

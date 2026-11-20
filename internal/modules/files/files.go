@@ -68,7 +68,7 @@ func (m *Module) Info() module.Info {
 			{Name: Admin},
 		},
 		Nav: []module.NavItem{
-			{Key: "files", LabelKey: "common.nav.files", Icon: "folder", Route: "files", Permission: Read, Order: 19},
+			{Key: "files", LabelKey: "common.nav.files", Icon: "folder", Route: "files", Permission: Read, Group: module.GroupOps, Order: 19},
 		},
 	}
 }

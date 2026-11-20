@@ -229,14 +229,16 @@ func navKeys(t *testing.T, c *client) string {
 func TestNavAndModuleSwitches(t *testing.T) {
 	e := newEnv(t, demo{})
 	admin := e.setupAdmin("admin")
-	if got := navKeys(t, admin); got != "overview,sites,certs,databases,files,terminal,cron,backups,logs,firewall,ssh,host,software,demo,jobs,users,messages,audit,settings" {
+	// Grouped (apps, ops, security, system), each group by order; entries
+	// without a group (demo) come first.
+	if got := navKeys(t, admin); got != "overview,demo,sites,certs,databases,software,files,terminal,cron,backups,logs,firewall,ssh,host,jobs,users,messages,audit,settings" {
 		t.Fatalf("admin menu: %s", got)
 	}
 	admin.elevate("")
 	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "aud", "password": pw, "role": "auditor"}), 201, "")
 	aud := e.client()
 	aud.expect(aud.login("aud", pw), 200, "")
-	if got := navKeys(t, aud); got != "overview,sites,certs,databases,cron,backups,logs,firewall,ssh,host,software,jobs,messages,audit,settings" {
+	if got := navKeys(t, aud); got != "overview,sites,certs,databases,software,cron,backups,logs,firewall,ssh,host,jobs,messages,audit,settings" {
 		t.Fatalf("auditor menu: %s", got)
 	}
 	// Module permissions reach the role defaults and /auth/me.

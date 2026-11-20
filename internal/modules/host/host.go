@@ -47,7 +47,7 @@ func (m *Module) Info() module.Info {
 			{Name: Manage},
 		},
 		Nav: []module.NavItem{
-			{Key: "host", LabelKey: "common.nav.host", Icon: "server", Route: "host", Permission: Read, Order: 26},
+			{Key: "host", LabelKey: "common.nav.host", Icon: "server", Route: "host", Permission: Read, Group: module.GroupSystem, Order: 26},
 		},
 	}
 }

@@ -384,6 +384,15 @@ func TestSetupSessionAndLanguage(t *testing.T) {
 	admin.expect(admin.do("PUT", "/api/v1/me/locale", map[string]any{"locale": "xx"}), 400, "locale.unsupported")
 	admin.expect(admin.do("PUT", "/api/v1/me/locale", map[string]any{"locale": "en"}, "Origin", "https://evil.example"), 403, "request.csrf_failed")
 
+	if got := admin.expect(admin.do("GET", "/api/v1/auth/me", nil), 200, "").obj("user")["theme"]; got != "system" {
+		t.Fatalf("default theme: %v", got)
+	}
+	admin.expect(admin.do("PUT", "/api/v1/me/theme", map[string]any{"theme": "dark"}), 204, "")
+	admin.expect(admin.do("PUT", "/api/v1/me/theme", map[string]any{"theme": "sepia"}), 400, "validation.invalid")
+	if got := admin.expect(admin.do("GET", "/api/v1/auth/me", nil), 200, "").obj("user")["theme"]; got != "dark" {
+		t.Fatalf("theme after change: %v", got)
+	}
+
 	admin.expect(admin.do("PUT", "/api/v1/settings/default-locale", map[string]any{"locale": "zh-CN"}), 204, "")
 	if r := admin.do("GET", "/api/v1/settings", nil); r.body["defaultLocale"] != "zh-CN" {
 		t.Fatalf("settings: %v", r.body)

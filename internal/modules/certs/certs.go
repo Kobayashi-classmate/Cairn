@@ -86,7 +86,7 @@ func (m *Module) Info() module.Info {
 			{Name: Manage, Roles: []authz.Role{authz.Operator}},
 		},
 		Nav: []module.NavItem{
-			{Key: "certs", LabelKey: "common.nav.certs", Icon: "lock", Route: "certs", Permission: Read, Order: 17},
+			{Key: "certs", LabelKey: "common.nav.certs", Icon: "lock", Route: "certs", Permission: Read, Group: module.GroupApps, Order: 17},
 		},
 	}
 }

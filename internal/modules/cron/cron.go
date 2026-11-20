@@ -68,7 +68,7 @@ func (m *Module) Info() module.Info {
 			{Name: Root},
 		},
 		Nav: []module.NavItem{
-			{Key: "cron", LabelKey: "common.nav.cron", Icon: "time", Route: "cron", Permission: Read, Order: 21},
+			{Key: "cron", LabelKey: "common.nav.cron", Icon: "time", Route: "cron", Permission: Read, Group: module.GroupOps, Order: 21},
 		},
 	}
 }

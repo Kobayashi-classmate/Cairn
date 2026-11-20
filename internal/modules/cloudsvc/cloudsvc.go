@@ -91,7 +91,7 @@ func (m *Module) ID() string { return "cloud" }
 // Info implements module.Describer.
 func (m *Module) Info() module.Info {
 	return module.Info{Nav: []module.NavItem{
-		{Key: "messages", LabelKey: "common.nav.messages", Icon: "megaphone", Route: "messages", Order: 85},
+		{Key: "messages", LabelKey: "common.nav.messages", Icon: "megaphone", Route: "messages", Group: module.GroupSystem, Order: 85},
 	}}
 }
 

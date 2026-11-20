@@ -28,6 +28,7 @@ type User struct {
 	ID          int64  `json:"id"`
 	Username    string `json:"username"`
 	Locale      string `json:"locale"` // empty: panel default applies
+	Theme       string `json:"theme"`  // ThemeLight, ThemeDark or ThemeSystem
 	Role        string `json:"role"`
 	Disabled    bool   `json:"disabled"`
 	TOTPEnabled bool   `json:"totpEnabled"`
@@ -44,13 +45,20 @@ type queryer interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-const userColumns = `id, username, locale, role, disabled, totp_enabled, created_at, last_login_at, password_hash`
+const userColumns = `id, username, locale, theme, role, disabled, totp_enabled, created_at, last_login_at, password_hash`
+
+// Colour schemes a user can choose.
+const (
+	ThemeLight  = "light"
+	ThemeDark   = "dark"
+	ThemeSystem = "system" // follow the browser's prefers-color-scheme
+)
 
 type scanner interface{ Scan(dest ...any) error }
 
 func scanUser(row scanner) (*User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Username, &u.Locale, &u.Role, &u.Disabled, &u.TOTPEnabled, &u.CreatedAt, &u.LastLoginAt, &u.passwordHash)
+	err := row.Scan(&u.ID, &u.Username, &u.Locale, &u.Theme, &u.Role, &u.Disabled, &u.TOTPEnabled, &u.CreatedAt, &u.LastLoginAt, &u.passwordHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -177,6 +185,17 @@ func DeleteUser(ctx context.Context, q queryer, userID int64) error {
 // SetLocale stores a user's preferred language ("" resets to the default).
 func SetLocale(ctx context.Context, q queryer, userID int64, locale string) error {
 	_, err := q.ExecContext(ctx, `UPDATE users SET locale = ?, updated_at = ? WHERE id = ?`, locale, time.Now().Unix(), userID)
+	return err
+}
+
+// SetTheme stores a user's colour scheme.
+func SetTheme(ctx context.Context, q queryer, userID int64, theme string) error {
+	switch theme {
+	case ThemeLight, ThemeDark, ThemeSystem:
+	default:
+		return &FieldError{Field: "theme", Rule: "enum"}
+	}
+	_, err := q.ExecContext(ctx, `UPDATE users SET theme = ?, updated_at = ? WHERE id = ?`, theme, time.Now().Unix(), userID)
 	return err
 }
 

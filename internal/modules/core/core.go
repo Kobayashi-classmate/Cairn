@@ -73,7 +73,7 @@ func (m *Module) ID() string { return "core" }
 // Info implements module.Describer.
 func (m *Module) Info() module.Info {
 	return module.Info{Nav: []module.NavItem{
-		{Key: "settings", LabelKey: "common.nav.settings", Icon: "settings", Route: "settings", Order: 100},
+		{Key: "settings", LabelKey: "common.nav.settings", Icon: "settings", Route: "settings", Group: module.GroupSystem, Order: 100},
 	}}
 }
 
@@ -98,6 +98,7 @@ func (m *Module) Routes(r *api.Router) {
 		api.Body(elevateRequest{}), api.Returns(200, elevateResponse{}))
 
 	r.Handle("PUT /api/v1/me/locale", m.setMyLocale, self, accountDoc("Set my language"), api.Body(localeRequest{}), noContent)
+	r.Handle("PUT /api/v1/me/theme", m.setMyTheme, self, accountDoc("Set my colour scheme: light, dark or system"), api.Body(themeRequest{}), noContent)
 	r.Handle("PUT /api/v1/me/password", m.changePassword, self, accountDoc("Change my password; signs out other sessions"),
 		api.Body(changePasswordRequest{}), noContent)
 	r.Handle("GET /api/v1/me/sessions", m.listSessions, self, accountDoc("List my sessions"), api.Returns(200, sessionsResponse{}))
