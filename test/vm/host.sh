@@ -166,6 +166,7 @@ s.close()
 PY
 	echo "== READY"
 	sed -n '/^-- setup$/,$p' /work/guest.log | sed '1d'
+	[ "$SCRIPT" = accept.sh ] && echo "Panel: https://127.0.0.1:28443/ (the acceptance's admin account, see accept.sh)"
 	echo "TSIG key \"cairn.\" (hmac-sha256): $tsig"
 	exec sleep infinity
 fi

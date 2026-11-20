@@ -152,8 +152,9 @@ vm-accept:
 	SCRIPT=accept.sh bash test/vm/run.sh $(or $(VM),debian-13)
 
 ## vm-keep: install the panel in a VM and leave it running, ports on 127.0.0.1:28443/28080/28444; VM=<target>
+# SCRIPT=accept.sh runs the acceptance first and keeps its sites and data.
 vm-keep:
-	KEEP=1 bash test/vm/run.sh $(or $(VM),debian-13)
+	KEEP=1 SCRIPT=$(SCRIPT) bash test/vm/run.sh $(or $(VM),debian-13)
 
 clean:
 	rm -rf $(DIST) internal/ui/dist web/dist repo

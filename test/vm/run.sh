@@ -21,13 +21,15 @@
 # (Pebble, a DNS server for "test.", an S3 bucket), which run in the QEMU
 # container. KEEP=1 instead installs the panel and leaves the VM running
 # for a person to try, its ports published on this machine's 127.0.0.1
-# only (reach them through an SSH tunnel).
+# only (reach them through an SSH tunnel). KEEP=1 SCRIPT=accept.sh runs the
+# acceptance first and keeps its sites and data (signed in as admin with
+# the password in accept.sh), for screenshots and UI tests.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 target=${1:-debian-13}
 script=${SCRIPT:-inside.sh}
 keep=${KEEP:-0}
-[ "$keep" = 1 ] && script=keep.sh
+[ "$keep" = 1 ] && [ "$script" != accept.sh ] && script=keep.sh
 case "$target" in
 	debian-13 | debian-12) ;;
 	ubuntu-22.04 | ubuntu-24.04 | ubuntu-26.04 | rocky-9 | alma-10)
