@@ -41,11 +41,12 @@ const sourceFiles = import.meta.glob<MessageTree>(
 )
 
 // Every other locale is split into separate chunks and fetched when selected.
-const lazyFiles = import.meta.glob<MessageTree>([
-  '../locales/*/*.json',
-  '!../locales/en/*.json',
-  '!../locales/*/meta.json',
-])
+// Only the default export holds every key: a top-level key that is a reserved
+// word ("delete", "new") has no named export of a JSON module.
+const lazyFiles = import.meta.glob<MessageTree>(
+  ['../locales/*/*.json', '!../locales/en/*.json', '!../locales/*/meta.json'],
+  { import: 'default' },
+)
 
 const nativeNames = new Map<string, string>()
 for (const [path, meta] of Object.entries(metaFiles)) {
