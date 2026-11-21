@@ -1,246 +1,142 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NDataTable,
-  NEmpty,
-  NIcon,
-  NInput,
-  NModal,
-  NSpace,
-  NText,
-  useMessage,
-  type DataTableColumns,
-} from 'naive-ui'
-import { AddOutline } from '@vicons/ionicons5'
-import { isApiError } from '@/api/client'
-import {
-  deleteDnsAccount,
-  fetchDnsAccounts,
-  fetchDnsProviders,
-  testDnsAccount,
-  type DnsAccount,
-  type DnsProvider,
-} from '@/api/dns'
-import { useConfirm } from '@/composables/useConfirm'
-import { useErrorToast } from '@/composables/useErrorToast'
-import { errorMessage } from '@/i18n/errors'
-import { formatDateTime } from '@/i18n/format'
-import { normalizeHost } from '@/sites/validate'
+import { FlaskConical, Pencil, Plus, Trash2 } from '@lucide/vue'
+import { deleteDnsAccount, type DnsAccount } from '@/api/dns'
+import DataTable from '@/components/common/DataTable.vue'
+import RelativeTime from '@/components/common/RelativeTime.vue'
+import RowActions from '@/components/common/RowActions.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import type { RowAction } from '@/components/common/types'
+import { Button } from '@/components/ui/button'
+import { confirmAction } from '@/composables/useConfirmDialog'
+import { notifySuccess } from '@/lib/notify'
+import { useCertsStore } from '@/stores/certs'
 import { useSessionStore } from '@/stores/session'
-import DnsAccountDialog from './DnsAccountDialog.vue'
+import DnsAccountSheet from './DnsAccountSheet.vue'
+import DnsTestDialog from './DnsTestDialog.vue'
 
+// Accounts at DNS providers, used for DNS-01 validation.
 const { t } = useI18n()
-const message = useMessage()
-const confirm = useConfirm()
-const showError = useErrorToast()
+const store = useCertsStore()
 const session = useSessionStore()
 
-const providers = ref<DnsProvider[]>([])
-const accounts = ref<DnsAccount[]>([])
-const loading = ref(true)
-const loadError = ref<unknown>(null)
-const showDialog = ref(false)
+const search = ref('')
+const showSheet = ref(false)
 const editing = ref<DnsAccount | null>(null)
-
-/** The account being tested and the zone asked for. */
 const testing = ref<DnsAccount | null>(null)
-const zone = ref('')
-const testBusy = ref(false)
-const testError = ref<unknown>(null)
 
 const canManage = computed(() => session.can('certs.manage'))
 
-async function load() {
-  try {
-    const [list, provs] = await Promise.all([fetchDnsAccounts(), fetchDnsProviders()])
-    accounts.value = list
-    providers.value = provs
-    loadError.value = null
-  } catch (err) {
-    loadError.value = err
-  } finally {
-    loading.value = false
-  }
-}
+onMounted(() => {
+  if (!store.accounts) void store.loadAccounts()
+})
 
-onMounted(load)
-
-/** Opens the form for a new account (also used from the issue dialog). */
+/** Opens the form for a new account (also from the issue sheet and the page header). */
 function openCreate() {
   editing.value = null
-  showDialog.value = true
+  showSheet.value = true
 }
 
 defineExpose({ openCreate })
 
 function providerName(id: string): string {
-  return providers.value.find((p) => p.id === id)?.name ?? id
+  return store.providers.find((p) => p.id === id)?.name ?? id
 }
 
-function openTest(account: DnsAccount) {
-  testing.value = account
-  zone.value = ''
-  testError.value = null
-}
-
-async function runTest() {
-  const account = testing.value
-  const name = normalizeHost(zone.value)
-  if (!account || !name) return
-  testBusy.value = true
-  testError.value = null
-  try {
-    const records = await testDnsAccount(account.id, name)
-    message.success(t('dns.test.ok', { count: records, zone: name }, records))
-    testing.value = null
-  } catch (err) {
-    testError.value = err
-  } finally {
-    testBusy.value = false
-  }
-}
-
-const testReason = computed(() =>
-  isApiError(testError.value) && typeof testError.value.params.reason === 'string' ? testError.value.params.reason : '',
-)
-
-async function remove(account: DnsAccount) {
-  const ok = await confirm({
-    title: t('dns.delete.title', { name: account.name }),
-    content: t('dns.delete.content'),
-    confirmText: t('common.action.delete'),
-    danger: true,
-  })
-  if (!ok) return
-  try {
-    await deleteDnsAccount(account.id)
-    message.success(t('dns.delete.done', { name: account.name }))
-    await load()
-  } catch (err) {
-    showError(err)
-  }
-}
-
-const columns = computed<DataTableColumns<DnsAccount>>(() => [
-  { key: 'name', title: t('common.field.name'), minWidth: 160 },
-  { key: 'provider', title: t('dns.provider'), minWidth: 160, render: (a) => providerName(a.provider) },
-  {
-    key: 'usedBy',
-    title: t('certs.column.usedBy'),
-    width: 160,
-    render: (a) => t('dns.usedBy', { count: a.usedBy.length }, a.usedBy.length),
-  },
-  { key: 'updatedAt', title: t('sites.overview.updated'), width: 180, render: (a) => formatDateTime(a.updatedAt) },
-  {
-    key: 'actions',
-    title: '',
-    width: 240,
-    render: (a) =>
-      canManage.value
-        ? h(NSpace, { size: 4, wrap: false }, () => [
-            h(NButton, { size: 'small', onClick: () => openTest(a) }, () => t('dns.test.button')),
-            h(NButton, { size: 'small', quaternary: true, onClick: () => ((editing.value = a), (showDialog.value = true)) }, () =>
-              t('common.action.edit'),
-            ),
-            h(NButton, { size: 'small', quaternary: true, type: 'error', onClick: () => void remove(a) }, () =>
-              t('common.action.delete'),
-            ),
-          ])
-        : null,
-  },
+const columns = computed<ColumnDef<DnsAccount>[]>(() => [
+  { id: 'name', header: t('common.field.name'), accessorFn: (a) => a.name, meta: { class: 'min-w-[180px]' } },
+  { id: 'provider', header: t('dns.provider'), accessorFn: (a) => providerName(a.provider), meta: { class: 'min-w-[160px]' } },
+  { id: 'usedBy', header: t('certs.column.usedBy'), accessorFn: (a) => a.usedBy.length, meta: { class: 'w-[150px]' } },
+  { id: 'updated', header: t('sites.overview.updated'), accessorFn: (a) => a.updatedAt, meta: { class: 'w-[160px]' } },
+  { id: 'actions', header: '', enableSorting: false, meta: { class: 'w-[64px] text-end' } },
 ])
+
+function remove(account: DnsAccount) {
+  void confirmAction({
+    title: t('dns.delete.title', { name: account.name }),
+    description: t('dns.delete.content'),
+    confirmLabel: t('dns.delete.confirm'),
+    destructive: true,
+    run: async () => {
+      // Step-up protected: the client asks for the password and retries.
+      await deleteDnsAccount(account.id)
+      notifySuccess(t('dns.delete.done', { name: account.name }))
+      void store.loadAccounts()
+    },
+  })
+}
+
+function actions(account: DnsAccount): RowAction[] {
+  if (!canManage.value) return []
+  return [
+    { key: 'test', label: t('dns.test.button'), icon: FlaskConical, onSelect: () => (testing.value = account) },
+    {
+      key: 'edit',
+      label: t('common.action.edit'),
+      icon: Pencil,
+      onSelect: () => {
+        editing.value = account
+        showSheet.value = true
+      },
+    },
+    {
+      key: 'delete',
+      label: t('common.action.delete'),
+      icon: Trash2,
+      destructive: true,
+      disabled: account.usedBy.length > 0,
+      onSelect: () => remove(account),
+    },
+  ]
+}
 </script>
 
 <template>
-  <div>
-    <NText depth="3" tag="p" class="intro">{{ t('dns.intro') }}</NText>
-    <div v-if="canManage" class="toolbar">
-      <NButton type="primary" @click="openCreate">
-        <template #icon>
-          <NIcon><AddOutline /></NIcon>
-        </template>
-        {{ t('dns.dialog.createTitle') }}
-      </NButton>
-    </div>
-    <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-    <NDataTable
-      v-if="loading || accounts.length > 0"
+  <div class="flex flex-col gap-4">
+    <p class="m-0 text-muted-foreground">{{ t('dns.intro') }}</p>
+    <DataTable
+      v-model:search="search"
+      :data="store.accounts ?? []"
       :columns="columns"
-      :data="accounts"
-      :loading="loading"
-      :row-key="(a: DnsAccount) => a.id"
-      :scroll-x="800"
-      size="small"
-    />
-    <NEmpty v-else :description="t('dns.empty')" class="empty" />
-
-    <DnsAccountDialog v-model:show="showDialog" :providers="providers" :account="editing" @saved="load" />
-
-    <NModal
-      :show="testing !== null"
-      preset="card"
-      :title="testing ? t('dns.test.title', { name: testing.name }) : ''"
-      class="test-dialog"
-      @update:show="(open: boolean) => !open && (testing = null)"
+      :row-key="(account) => account.id"
+      :label="t('certs.tabs.dns')"
+      :loading="store.accountsLoading || !store.accounts"
+      :error="store.accountsError"
+      :search-placeholder="t('dns.search')"
+      :search-text="(a) => `${a.name} ${providerName(a.provider)}`"
+      :empty-title="t('dns.empty')"
+      :empty-text="t('dns.emptyText')"
+      :min-width="680"
+      @retry="store.loadAccounts()"
     >
-      <NText depth="3" tag="p" class="intro">{{ t('dns.test.intro') }}</NText>
-      <NInput
-        v-model:value="zone"
-        :placeholder="t('dns.test.zonePlaceholder')"
-        :input-props="{ autocomplete: 'off', spellcheck: false, 'aria-label': t('common.field.zone') }"
-        @keyup.enter="runTest"
-      />
-      <NAlert v-if="testError" type="error" class="block">
-        <div>{{ errorMessage(testError) }}</div>
-        <pre v-if="testReason" class="reason" dir="ltr">{{ testReason }}</pre>
-      </NAlert>
-      <div class="actions">
-        <NButton :disabled="testBusy" @click="testing = null">{{ t('common.action.cancel') }}</NButton>
-        <NButton type="primary" :loading="testBusy" :disabled="!zone.trim()" @click="runTest">
-          {{ t('dns.test.button') }}
-        </NButton>
-      </div>
-    </NModal>
+      <template #cell-name="{ row }">
+        <span class="font-medium">{{ row.name }}</span>
+      </template>
+      <template #cell-provider="{ row }">{{ providerName(row.provider) }}</template>
+      <template #cell-usedBy="{ row }">
+        <span :class="row.usedBy.length === 0 ? 'text-muted-foreground' : ''">
+          {{ t('dns.usedBy', { count: row.usedBy.length }, row.usedBy.length) }}
+        </span>
+      </template>
+      <template #cell-updated="{ row }">
+        <RelativeTime :value="row.updatedAt" class="text-muted-foreground" />
+      </template>
+      <template #cell-actions="{ row }">
+        <div class="flex justify-end">
+          <RowActions :actions="actions(row)" :label="t('dns.more', { name: row.name })" />
+        </div>
+      </template>
+      <template v-if="canManage" #empty>
+        <Button @click="openCreate">
+          <Plus aria-hidden="true" />
+          {{ t('dns.dialog.createTitle') }}
+        </Button>
+      </template>
+    </DataTable>
+
+    <DnsAccountSheet v-model:open="showSheet" :providers="store.providers" :account="editing" @saved="store.loadAccounts()" />
+    <DnsTestDialog :account="testing" @close="testing = null" />
   </div>
 </template>
-
-<style scoped>
-.intro {
-  margin-block: 0 12px;
-}
-
-.toolbar {
-  margin-block-end: 12px;
-}
-
-.block {
-  margin-block: 12px;
-}
-
-.empty {
-  padding-block: 32px;
-}
-
-.test-dialog {
-  inline-size: min(460px, calc(100vw - 32px));
-}
-
-.reason {
-  margin: 8px 0 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-block-start: 16px;
-}
-</style>

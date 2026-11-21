@@ -41,11 +41,11 @@
       "panel": "Change the panel certificate"
     },
     "stream": {
-      "create": "Create four-layer proxy {stream}",
-      "update": "Update four-layer proxy {stream}",
-      "start": "Start four-layer proxy {stream}",
-      "stop": "Stop four-layer proxy {stream}",
-      "delete": "Delete four-layer proxy {stream}"
+      "create": "Create layer-4 proxy {stream}",
+      "update": "Update layer-4 proxy {stream}",
+      "start": "Start layer-4 proxy {stream}",
+      "stop": "Stop layer-4 proxy {stream}",
+      "delete": "Delete layer-4 proxy {stream}"
     },
     "db": {
       "create": "Create database {database}",
@@ -137,11 +137,11 @@
       "delete": "Delete certificate"
     },
     "stream": {
-      "create": "Create four-layer proxy",
-      "update": "Update four-layer proxy",
-      "start": "Start four-layer proxy",
-      "stop": "Stop four-layer proxy",
-      "delete": "Delete four-layer proxy"
+      "create": "Create layer-4 proxy",
+      "update": "Update layer-4 proxy",
+      "start": "Start layer-4 proxy",
+      "stop": "Stop layer-4 proxy",
+      "delete": "Delete layer-4 proxy"
     },
     "db": {
       "create": "Create database",

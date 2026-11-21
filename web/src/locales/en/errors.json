@@ -333,12 +333,12 @@
   "stream": {
     "module_missing": "nginx's stream module is not installed.",
     "port_taken": "The port is already in use.",
-    "not_found": "The four-layer proxy does not exist.",
-    "code_taken": "This code is already used by another four-layer proxy."
+    "not_found": "The layer-4 proxy does not exist.",
+    "code_taken": "This code is already used by another layer-4 proxy."
   },
   "owner": {
     "site": "site {name}",
-    "stream": "four-layer proxy {name}",
+    "stream": "layer-4 proxy {name}",
     "panel": "the panel"
   },
   "db": {

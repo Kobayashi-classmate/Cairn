@@ -1,0 +1,92 @@
+{
+  "status": "{host} · {os} · up {uptime}",
+  "openTerminal": "Open terminal",
+  "unavailable": "Could not be checked in time: {modules}.",
+  "metric": {
+    "cpuCaption": "{cores} · load {load}",
+    "load": "Load {load}",
+    "disk": "Disk {mount}",
+    "netCaption": "In {rx} · out {tx}"
+  },
+  "sites": {
+    "all": "All sites",
+    "https": "HTTPS · {status}"
+  },
+  "services": {
+    "title": "Services",
+    "empty": "No services are installed.",
+    "state": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "failed": "Failed",
+      "unknown": "Unknown"
+    }
+  },
+  "jobs": {
+    "title": "Recent tasks",
+    "all": "All tasks",
+    "empty": "No tasks yet."
+  },
+  "security": {
+    "title": "Security",
+    "toReview": "{count} to review",
+    "allGood": "All good",
+    "empty": "Nothing to check."
+  },
+  "checkStatus": {
+    "ok": "OK",
+    "warn": "Recommended",
+    "bad": "Fix this"
+  },
+  "area": {
+    "firewall": "Firewall",
+    "ssh": "SSH",
+    "certs": "Panel certificate",
+    "auth": "Two-step verification"
+  },
+  "check": {
+    "firewall": {
+      "on": "{backend} · on · rules: {rules}",
+      "off": "{backend} · off",
+      "conflict": "Another firewall manager is active: {conflict}",
+      "unavailable": "The firewall could not be checked",
+      "not_loaded": "{backend} is on, but its rules are not in effect"
+    },
+    "ssh": {
+      "keys_only": "Port {ports} · key sign-in only",
+      "password": "Port {ports} · password sign-in allowed",
+      "root_password": "Port {ports} · root may sign in with a password"
+    },
+    "certs": {
+      "panel": "{name} · valid until {notAfter}",
+      "panel_self_signed": "Self-signed: browsers warn about it"
+    },
+    "auth": {
+      "totp_on": "On for your account",
+      "totp_off": "Off for your account"
+    }
+  },
+  "notice": {
+    "host": {
+      "updates": "{count} system update can be installed ({security} security). | {count} system updates can be installed, {security} of them security updates.",
+      "reboot": "The system needs a restart to finish installing updates."
+    },
+    "certs": {
+      "expiring": "{count} certificate expires within 14 days, on {soonest}. | {count} certificates expire within 14 days, the first on {soonest}.",
+      "failed": "{count} certificate could not be issued or renewed. | {count} certificates could not be issued or renewed."
+    },
+    "backups": {
+      "failed": "The last run of {count} backup plan failed. | The last run of {count} backup plans failed."
+    },
+    "sites": {
+      "failed": "{count} site failed to apply its last change. | {count} sites failed to apply their last change."
+    }
+  },
+  "noticeAction": {
+    "host": "View updates",
+    "certs": "View certificates",
+    "backups": "View backups",
+    "sites": "View sites",
+    "default": "Open"
+  }
+}

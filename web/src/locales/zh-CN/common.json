@@ -300,5 +300,53 @@
   "totpReminder": {
     "notice": "你的账号未开启两步验证，知道密码的人就能登录这台服务器。",
     "action": "立即开启"
+  },
+  "time": {
+    "justNow": "刚刚",
+    "today": "今天 {time}",
+    "yesterday": "昨天 {time}",
+    "tomorrow": "明天 {time}"
+  },
+  "state": {
+    "loading": "正在加载…",
+    "loadFailed": "加载失败",
+    "refreshFailed": "刷新失败，下面是上次获取的数据。",
+    "working": "正在处理…"
+  },
+  "table": {
+    "empty": "还没有内容",
+    "noMatches": "没有与“{query}”匹配的结果",
+    "clearSearch": "清除搜索",
+    "selectAll": "选择全部行",
+    "selectRow": "选择 {row}",
+    "selected": "已选 {count} 项",
+    "bulkLabel": "对所选行的操作",
+    "clearSelection": "取消选择"
+  },
+  "tags": {
+    "remove": "移除 {value}"
+  },
+  "sheet": {
+    "willDo": "将要执行"
+  },
+  "drawer": {
+    "sections": "{name} 的设置项"
+  },
+  "confirm": {
+    "typeToConfirm": "输入 {text} 以确认"
+  },
+  "dock": {
+    "label": "进行中的任务",
+    "loading": "正在读取任务…",
+    "viewLog": "查看日志",
+    "cancel": "取消任务",
+    "hide": "隐藏",
+    "reconnecting": "正在重新连接…",
+    "running": "{count} 个进行中",
+    "failed": "{count} 个失败",
+    "finished": "{count} 个已结束",
+    "collapse": "收起",
+    "expand": "展开",
+    "announce": "{job}：{state}"
   }
 }

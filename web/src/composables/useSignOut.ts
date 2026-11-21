@@ -3,12 +3,14 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { errorMessage } from '@/i18n/errors'
+import { useJobDockStore } from '@/stores/jobDock'
 import { useSessionStore } from '@/stores/session'
 
 /** Ends the session and returns to the sign-in page. */
 export function useSignOut() {
   const router = useRouter()
   const session = useSessionStore()
+  const dock = useJobDockStore()
   const signingOut = ref(false)
 
   async function signOut(): Promise<void> {
@@ -16,6 +18,8 @@ export function useSignOut() {
     signingOut.value = true
     try {
       await session.signOut()
+      // The next account to sign in on this tab does not inherit the cards.
+      dock.clear()
       await router.replace({ name: 'login' })
     } catch (err) {
       toast.error(errorMessage(err))

@@ -1,7 +1,6 @@
 {
   "title": "Certificates",
   "detail": {
-    "title": "Certificate",
     "rename": "Rename",
     "renew": "Renew now",
     "failed": "Issuing failed",
@@ -58,7 +57,11 @@
     "agreementLink": "Read the agreement",
     "addAccount": "Add a DNS account",
     "autoRenew": "Renew automatically",
-    "advanced": "Advanced"
+    "advanced": "Advanced",
+    "description": "A free certificate from an ACME certificate authority such as Let's Encrypt.",
+    "nameHint": "Shown in lists; leave it empty to name it after the first domain.",
+    "noAccounts": "Add a DNS account first",
+    "pickAccount": "Choose a DNS account"
   },
   "challenge": {
     "http01": "HTTP validation (HTTP-01)",
@@ -75,11 +78,22 @@
   "upload": {
     "title": "Upload certificate",
     "submit": "Upload",
-    "intro": "Paste the PEM certificate chain (the certificate first, then the intermediate certificates) and its private key, or choose the files."
+    "intro": "Paste the PEM certificate chain (the certificate first, then the intermediate certificates) and its private key, or choose the files.",
+    "nameHint": "Shown in lists; leave it empty to name it by the upload date.",
+    "certHint": "PEM: the certificate first, then the intermediate certificates.",
+    "keyHint": "The PEM private key of the certificate.",
+    "chooseCert": "Choose a certificate file",
+    "chooseKey": "Choose a key file",
+    "tooBig": "The file is too big for a certificate or key.",
+    "steps": {
+      "check": "Check that the key matches the certificate and the chain is complete",
+      "store": "Store the certificate and key on this server"
+    }
   },
   "delete": {
     "title": "Delete certificate {name}?",
-    "content": "The certificate and its private key are removed from this server. Sites and the panel must not be using it."
+    "confirm": "Delete certificate",
+    "consequence": "The certificate for {domains} and its private key are removed from this server. Sites and the panel must not be using it."
   },
   "acme": {
     "intro": "Certificates are requested from an ACME certificate authority. The contact address receives expiry and account notices from the CA.",
@@ -91,7 +105,13 @@
     "eabIntro": "This CA needs External Account Binding: create EAB credentials in your account at the CA and enter them here.",
     "eabKid": "EAB key ID",
     "eabHmac": "EAB HMAC key",
-    "clearHmac": "Remove the stored HMAC key"
+    "clearHmac": "Remove the stored HMAC key",
+    "account": "Account",
+    "defaultHint": "Used when a certificate is issued without choosing an authority.",
+    "nothingToSet": "Nothing to set up.",
+    "save": "Save ACME settings",
+    "saved": "ACME settings saved.",
+    "stepUp": "Saving asks for your password again."
   },
   "panel": {
     "title": "Panel certificate",
@@ -102,5 +122,59 @@
     "apply": "Use this certificate",
     "openBy": "Afterwards, open the panel at {domain} so the browser accepts the certificate.",
     "noRestart": "No restart is needed: the panel picks up the new certificate within a few seconds."
+  },
+  "expiry": {
+    "daysLeft": "{count} day left | {count} days left",
+    "today": "Expires today",
+    "expired": "Expired"
+  },
+  "status": {
+    "count": "{count} certificate | {count} certificates",
+    "expiring": "{count} expiring soon",
+    "failed": "{count} with errors",
+    "panel": "the panel uses {name}",
+    "panelSelfSigned": "the panel uses its self-signed certificate"
+  },
+  "list": {
+    "search": "Search by name or domain",
+    "more": "More actions for {name}"
+  },
+  "action": {
+    "settings": "Settings",
+    "usePanel": "Use for the panel",
+    "stopPanel": "Use the self-signed certificate",
+    "delete": "Delete certificate"
+  },
+  "panelUse": {
+    "title": "Use {name} for the panel?",
+    "text": "The panel serves this certificate from now on; no restart is needed.",
+    "selfSignedTitle": "Use the self-signed certificate for the panel?",
+    "selfSignedText": "The panel stops serving {name} and serves its own self-signed certificate; browsers will warn about it.",
+    "selfSignedConfirm": "Use self-signed"
+  },
+  "drawer": {
+    "overview": "Overview",
+    "facts": "Certificate",
+    "settings": "Name and renewal",
+    "autoRenewHint": "The panel renews the certificate about 30 days before it expires.",
+    "copyFingerprint": "Copy the fingerprint",
+    "saved": "Saved.",
+    "leaf": "Certificate",
+    "intermediate": "Intermediate {n}",
+    "noChain": "No chain is stored for this certificate.",
+    "openSite": "Open site settings",
+    "panelUses": "The panel serves this certificate",
+    "unusedText": "Neither a site nor the panel uses this certificate.",
+    "deleteNote": "A certificate in use cannot be deleted: change the HTTPS settings of these sites and the panel certificate first."
+  },
+  "steps": {
+    "order": "Ask {ca} for a certificate for {domains}",
+    "http01": "Prove control of each name over HTTP: answer the authority under /.well-known/acme-challenge/ on port 80",
+    "dns01": "Prove control of each name over DNS: add _acme-challenge TXT records through {account}, then remove them",
+    "store": "Generate a {key} key and store the certificate and key on this server",
+    "renew": "Renew it automatically before it expires",
+    "domainsPlaceholder": "the domains",
+    "caPlaceholder": "the certificate authority",
+    "accountPlaceholder": "the DNS account"
   }
 }

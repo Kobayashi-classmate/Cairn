@@ -300,5 +300,53 @@
   "totpReminder": {
     "notice": "Two-step verification is off: anyone who learns your password can sign in to this server.",
     "action": "Turn it on"
+  },
+  "time": {
+    "justNow": "just now",
+    "today": "today {time}",
+    "yesterday": "yesterday {time}",
+    "tomorrow": "tomorrow {time}"
+  },
+  "state": {
+    "loading": "Loading…",
+    "loadFailed": "Could not load this",
+    "refreshFailed": "Could not refresh; this is the last known state.",
+    "working": "Working…"
+  },
+  "table": {
+    "empty": "Nothing here yet",
+    "noMatches": "Nothing matches “{query}”",
+    "clearSearch": "Clear search",
+    "selectAll": "Select all rows",
+    "selectRow": "Select {row}",
+    "selected": "{count} selected",
+    "bulkLabel": "Actions for the selected rows",
+    "clearSelection": "Clear selection"
+  },
+  "tags": {
+    "remove": "Remove {value}"
+  },
+  "sheet": {
+    "willDo": "Will do"
+  },
+  "drawer": {
+    "sections": "Settings of {name}"
+  },
+  "confirm": {
+    "typeToConfirm": "Type {text} to confirm"
+  },
+  "dock": {
+    "label": "Tasks in progress",
+    "loading": "Loading the task…",
+    "viewLog": "View log",
+    "cancel": "Cancel task",
+    "hide": "Hide",
+    "reconnecting": "Reconnecting…",
+    "running": "{count} running",
+    "failed": "{count} failed",
+    "finished": "{count} finished",
+    "collapse": "Collapse",
+    "expand": "Expand",
+    "announce": "{job}: {state}"
   }
 }

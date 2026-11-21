@@ -8,7 +8,11 @@
     "editTitle": "编辑 DNS 账号",
     "providerSite": "{name} 官网",
     "optional": "{field}（可选）",
-    "secretStored": "已保存，留空则保持不变"
+    "secretStored": "已保存，留空则保持不变",
+    "create": "添加账号",
+    "description": "密钥保存在这台服务器上，保存后不再显示。",
+    "pickProvider": "选择服务商",
+    "stepUp": "保存时需要再次输入密码。"
   },
   "test": {
     "button": "测试",
@@ -20,7 +24,8 @@
   "delete": {
     "title": "删除 DNS 账号 {name}？",
     "content": "通过该账号验证的证书之后将无法续期。",
-    "done": "已删除 {name}。"
+    "done": "已删除 {name}。",
+    "confirm": "删除账号"
   },
   "field": {
     "api_token": "API 令牌",
@@ -40,5 +45,9 @@
     "secret_access_key": "Secret Access Key",
     "access_key_secret": "AccessKey Secret",
     "key": "密钥"
-  }
+  },
+  "search": "搜索账号",
+  "more": "{name} 的更多操作",
+  "emptyText": "添加 DNS 服务商的账号后，可以签发通配符证书，也可以为 80 端口无法访问的服务器验证域名。",
+  "saved": "已保存 {name}。"
 }

@@ -1,7 +1,6 @@
 {
   "title": "证书",
   "detail": {
-    "title": "证书",
     "rename": "重命名",
     "renew": "立即续期",
     "failed": "签发失败",
@@ -58,7 +57,11 @@
     "agreementLink": "查看协议",
     "addAccount": "添加 DNS 账号",
     "autoRenew": "自动续期",
-    "advanced": "高级选项"
+    "advanced": "高级选项",
+    "description": "从 Let's Encrypt 等 ACME 证书颁发机构申请免费证书。",
+    "nameHint": "在列表中显示，留空则使用第一个域名。",
+    "noAccounts": "请先添加 DNS 账号",
+    "pickAccount": "选择 DNS 账号"
   },
   "challenge": {
     "http01": "HTTP 验证（HTTP-01）",
@@ -75,11 +78,22 @@
   "upload": {
     "title": "上传证书",
     "submit": "上传",
-    "intro": "粘贴 PEM 格式的证书链（先是证书本身，再是中间证书）及其私钥，或选择文件。"
+    "intro": "粘贴 PEM 格式的证书链（先是证书本身，再是中间证书）及其私钥，或选择文件。",
+    "nameHint": "在列表中显示，留空则按上传日期命名。",
+    "certHint": "PEM 格式：先是证书本身，再是中间证书。",
+    "keyHint": "与证书配对的 PEM 私钥。",
+    "chooseCert": "选择证书文件",
+    "chooseKey": "选择私钥文件",
+    "tooBig": "文件太大，不像是证书或私钥。",
+    "steps": {
+      "check": "检查私钥与证书是否配对、证书链是否完整",
+      "store": "把证书和私钥保存在这台服务器上"
+    }
   },
   "delete": {
     "title": "删除证书 {name}？",
-    "content": "将从这台服务器上删除该证书及其私钥。删除前请确认网站和面板都没有在使用它。"
+    "confirm": "删除证书",
+    "consequence": "将从这台服务器删除 {domains} 的证书及其私钥。网站和面板都不能正在使用它。"
   },
   "acme": {
     "intro": "证书从 ACME 证书颁发机构申请。联系邮箱会收到颁发机构发出的到期和账号通知。",
@@ -91,7 +105,13 @@
     "eabIntro": "该颁发机构需要外部账号绑定（EAB）：请在颁发机构的账号中创建 EAB 凭据并填写在这里。",
     "eabKid": "EAB 密钥 ID",
     "eabHmac": "EAB HMAC 密钥",
-    "clearHmac": "移除已保存的 HMAC 密钥"
+    "clearHmac": "移除已保存的 HMAC 密钥",
+    "account": "账号",
+    "defaultHint": "签发证书时未选择证书颁发机构则使用它。",
+    "nothingToSet": "无需设置。",
+    "save": "保存 ACME 设置",
+    "saved": "ACME 设置已保存。",
+    "stepUp": "保存时需要再次输入密码。"
   },
   "panel": {
     "title": "面板证书",
@@ -102,5 +122,59 @@
     "apply": "使用此证书",
     "openBy": "之后请通过 {domain} 打开面板，浏览器才会接受该证书。",
     "noRestart": "无需重启：面板会在几秒内启用新证书。"
+  },
+  "expiry": {
+    "daysLeft": "剩 {count} 天",
+    "today": "今天到期",
+    "expired": "已过期"
+  },
+  "status": {
+    "count": "{count} 个证书",
+    "expiring": "{count} 个即将到期",
+    "failed": "{count} 个出错",
+    "panel": "面板使用 {name}",
+    "panelSelfSigned": "面板使用自签名证书"
+  },
+  "list": {
+    "search": "按名称或域名搜索",
+    "more": "{name} 的更多操作"
+  },
+  "action": {
+    "settings": "设置",
+    "usePanel": "用于面板",
+    "stopPanel": "改用自签名证书",
+    "delete": "删除证书"
+  },
+  "panelUse": {
+    "title": "让面板使用 {name}？",
+    "text": "面板将改用这个证书，无需重启。",
+    "selfSignedTitle": "让面板改用自签名证书？",
+    "selfSignedText": "面板将不再使用 {name}，改用自己的自签名证书，浏览器会提示不安全。",
+    "selfSignedConfirm": "改用自签名证书"
+  },
+  "drawer": {
+    "overview": "概览",
+    "facts": "证书信息",
+    "settings": "名称与续期",
+    "autoRenewHint": "面板会在到期前约 30 天自动续期。",
+    "copyFingerprint": "复制指纹",
+    "saved": "已保存。",
+    "leaf": "证书",
+    "intermediate": "中间证书 {n}",
+    "noChain": "这个证书没有保存证书链。",
+    "openSite": "打开网站设置",
+    "panelUses": "面板正在使用这个证书",
+    "unusedText": "没有网站使用这个证书，面板也没有使用。",
+    "deleteNote": "正在使用的证书不能删除：请先修改这些网站的 HTTPS 设置和面板证书。"
+  },
+  "steps": {
+    "order": "向 {ca} 申请 {domains} 的证书",
+    "http01": "通过 HTTP 证明对每个域名的控制权：在 80 端口的 /.well-known/acme-challenge/ 下应答证书颁发机构",
+    "dns01": "通过 DNS 证明对每个域名的控制权：用 {account} 添加 _acme-challenge TXT 记录，完成后删除",
+    "store": "生成 {key} 私钥，把证书和私钥保存在这台服务器上",
+    "renew": "到期前自动续期",
+    "domainsPlaceholder": "所填域名",
+    "caPlaceholder": "证书颁发机构",
+    "accountPlaceholder": "所选 DNS 账号"
   }
 }

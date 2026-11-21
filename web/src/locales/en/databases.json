@@ -135,5 +135,9 @@
     "deleteContent": "The keys and their values are deleted.",
     "deleted": "Deleted {count} key. | Deleted {count} keys."
   },
-  "listSeparator": ", "
+  "listSeparator": ", ",
+  "service": {
+    "start": "Start",
+    "stop": "Stop"
+  }
 }

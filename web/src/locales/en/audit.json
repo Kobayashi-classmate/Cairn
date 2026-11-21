@@ -18,7 +18,7 @@
     "site": "Sites",
     "cert": "Certificates",
     "dns": "DNS",
-    "stream": "Four-layer proxies",
+    "stream": "Layer-4 proxies",
     "db": "Databases",
     "redis": "Redis",
     "file": "Files",
@@ -136,11 +136,11 @@
       "account_delete": "Deleted DNS account {name} ({provider})"
     },
     "stream": {
-      "create": "Created four-layer proxy {stream}",
-      "update": "Changed four-layer proxy {stream}",
-      "start": "Started four-layer proxy {stream}",
-      "stop": "Stopped four-layer proxy {stream}",
-      "delete": "Deleted four-layer proxy {stream}"
+      "create": "Created layer-4 proxy {stream}",
+      "update": "Changed layer-4 proxy {stream}",
+      "start": "Started layer-4 proxy {stream}",
+      "stop": "Stopped layer-4 proxy {stream}",
+      "delete": "Deleted layer-4 proxy {stream}"
     },
     "db": {
       "create": "Created database {database} ({engine})",

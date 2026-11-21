@@ -80,9 +80,9 @@ function cluster() {
       </label>
       <NSpace v-if="canManage" :size="4">
         <NButton v-if="!engine.running" size="small" :disabled="busy" @click="service('start')">
-          {{ t('sites.action.start') }}
+          {{ t('databases.service.start') }}
         </NButton>
-        <NButton v-else size="small" :disabled="busy" @click="service('stop')">{{ t('sites.action.stop') }}</NButton>
+        <NButton v-else size="small" :disabled="busy" @click="service('stop')">{{ t('databases.service.stop') }}</NButton>
         <NButton size="small" :disabled="busy" @click="service('restart')">{{ t('sites.process.restart') }}</NButton>
       </NSpace>
     </div>

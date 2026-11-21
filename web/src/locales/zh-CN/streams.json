@@ -9,7 +9,10 @@
     "portHint": "1–65535，80、443 和 20000–29999（应用使用）除外。同一协议的端口不能重复。",
     "upstreamsHint": "“主机:端口”或“[IPv6]:端口”，最多 16 个。每输入一个按回车。",
     "hash": "让每个客户端固定使用一个上游",
-    "hashHint": "根据客户端地址选择上游；否则连接会轮流分配给各个上游。"
+    "hashHint": "根据客户端地址选择上游；否则连接会轮流分配给各个上游。",
+    "codeHint": "简短名称，创建后不能修改；留空则为“协议-端口”。",
+    "create": "添加四层代理",
+    "save": "保存修改"
   },
   "balance": {
     "hash": "按客户端哈希",
@@ -17,6 +20,13 @@
   },
   "delete": {
     "title": "删除四层代理 {code}？",
-    "content": "该端口将不再转发连接。"
+    "confirm": "删除四层代理",
+    "consequence": "{protocol} 端口 {port} 将不再转发连接。"
+  },
+  "search": "按端口或上游搜索",
+  "more": "{code} 的更多操作",
+  "steps": {
+    "config": "写入 nginx stream 配置：监听 {listen}，转发到 {count} 个上游",
+    "reload": "用 nginx -t 检查配置后重新加载 nginx"
   }
 }

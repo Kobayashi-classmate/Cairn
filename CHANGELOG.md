@@ -34,3 +34,9 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - Light, dark and system colour schemes, saved with each account; a menu
   grouped into apps, operations, security and system, with "Search or jump
   to" (Ctrl K / ⌘K).
+- An overview of the server: resources, sites, services and whether they
+  run, recent tasks and security checks, with notices for system updates,
+  expiring certificates and failed backups.
+- Sites and certificates in tables with tabs by type; each site shows the
+  days left on its certificate and its last backup, and opens its settings
+  in a side panel. Long tasks are followed in a corner of the screen.

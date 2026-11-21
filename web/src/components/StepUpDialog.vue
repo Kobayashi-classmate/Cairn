@@ -13,6 +13,7 @@ import {
   type FormInst,
   type FormRules,
 } from 'naive-ui'
+import { FocusScope } from 'reka-ui'
 import { isApiError } from '@/api/client'
 import { requiredRule, totpCodeRules } from '@/forms/rules'
 import { finishStepUp, stepUpOpen } from '@/auth/stepUp'
@@ -22,6 +23,10 @@ import { useSessionStore } from '@/stores/session'
 // Stays on Naive UI until the pages that trigger it are migrated: it often
 // opens on top of a Naive UI modal, whose focus trap and Escape handling only
 // cooperate with other Naive UI modals.
+//
+// It also opens on top of sheets and drawers built on Reka. Its content sits
+// in a Reka FocusScope, which pauses their focus trap while it is open; they
+// keep themselves open meanwhile (components/common/overlayGuard.ts).
 
 const { t } = useI18n()
 const session = useSessionStore()
@@ -92,45 +97,43 @@ function onShowChange(show: boolean) {
     preset="card"
     :title="t('auth.stepUp.title')"
     :mask-closable="false"
-    class="step-up"
+    :style="{ inlineSize: 'min(420px, calc(100vw - 32px))' }"
     @update:show="onShowChange"
   >
-    <NText depth="3" tag="p" class="step-up__intro">{{ t('auth.stepUp.intro') }}</NText>
-    <NForm ref="formRef" :model="form" :rules="rules" :disabled="submitting" @submit.prevent="submit">
-      <NAlert v-if="error" type="error" class="step-up__alert">{{ errorMessage(error) }}</NAlert>
-      <NFormItem path="password" :label="t('common.field.password')">
-        <NInput
-          v-model:value="form.password"
-          type="password"
-          show-password-on="click"
-          :input-props="{ autocomplete: 'current-password' }"
-          autofocus
-        />
-      </NFormItem>
-      <NFormItem v-if="askCode" path="code" :label="t('common.field.code')">
-        <NInput
-          v-model:value="form.code"
-          :maxlength="6"
-          :input-props="{ autocomplete: 'one-time-code', inputmode: 'numeric' }"
-        />
-      </NFormItem>
-      <div class="step-up__actions">
-        <NButton :disabled="submitting" @click="finishStepUp(false)">
-          {{ t('common.action.cancel') }}
-        </NButton>
-        <NButton type="primary" attr-type="submit" :loading="submitting">
-          {{ t('common.action.confirm') }}
-        </NButton>
-      </div>
-    </NForm>
+    <FocusScope>
+      <NText depth="3" tag="p" class="step-up__intro">{{ t('auth.stepUp.intro') }}</NText>
+      <NForm ref="formRef" :model="form" :rules="rules" :disabled="submitting" @submit.prevent="submit">
+        <NAlert v-if="error" type="error" class="step-up__alert">{{ errorMessage(error) }}</NAlert>
+        <NFormItem path="password" :label="t('common.field.password')">
+          <NInput
+            v-model:value="form.password"
+            type="password"
+            show-password-on="click"
+            :input-props="{ autocomplete: 'current-password' }"
+            autofocus
+          />
+        </NFormItem>
+        <NFormItem v-if="askCode" path="code" :label="t('common.field.code')">
+          <NInput
+            v-model:value="form.code"
+            :maxlength="6"
+            :input-props="{ autocomplete: 'one-time-code', inputmode: 'numeric' }"
+          />
+        </NFormItem>
+        <div class="step-up__actions">
+          <NButton :disabled="submitting" @click="finishStepUp(false)">
+            {{ t('common.action.cancel') }}
+          </NButton>
+          <NButton type="primary" attr-type="submit" :loading="submitting">
+            {{ t('common.action.confirm') }}
+          </NButton>
+        </div>
+      </NForm>
+    </FocusScope>
   </NModal>
 </template>
 
 <style scoped>
-.step-up {
-  inline-size: min(420px, calc(100vw - 32px));
-}
-
 .step-up__intro {
   margin-block: 0 16px;
 }

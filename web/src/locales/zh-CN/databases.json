@@ -135,5 +135,9 @@
     "deleteContent": "将删除这些键及其值。",
     "deleted": "已删除 {count} 个键。"
   },
-  "listSeparator": "、"
+  "listSeparator": "、",
+  "service": {
+    "start": "启动",
+    "stop": "停止"
+  }
 }

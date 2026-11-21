@@ -8,8 +8,10 @@ import { Menu } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import type { Announcement } from '@/api/announcements'
 import CairnLogo from '@/components/common/CairnLogo.vue'
+import ConfirmHost from '@/components/common/ConfirmHost.vue'
 import Notice from '@/components/common/Notice.vue'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
+import JobDock from '@/components/jobs/JobDock.vue'
 import AppSidebar from '@/components/shell/AppSidebar.vue'
 import CommandPalette from '@/components/shell/CommandPalette.vue'
 import ElevationIndicator from '@/components/shell/ElevationIndicator.vue'
@@ -174,5 +176,8 @@ async function markBannerRead(item: Announcement) {
     </div>
 
     <CommandPalette v-model:open="paletteOpen" :items="items" />
+    <!-- Long jobs started from any page, followed in the bottom right corner. -->
+    <JobDock />
+    <ConfirmHost />
   </div>
 </template>

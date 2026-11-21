@@ -23,6 +23,17 @@ declare module 'vue-router' {
   }
 }
 
+/** Sub-items of the old site page's tabs, as sub-items of the site drawer. */
+const OLD_SITE_TABS: Record<string, string> = { overview: 'overview', process: 'app', settings: 'overview', logs: 'logs' }
+
+/** The sites page query that opens a site's drawer (on a sub-item). */
+function siteDrawerQuery(code: string, tab: unknown): Record<string, string> {
+  const query: Record<string, string> = { open: `site:${code}` }
+  const sub = typeof tab === 'string' ? (OLD_SITE_TABS[tab] ?? tab) : ''
+  if (sub) query.section = sub
+  return query
+}
+
 const routes: RouteRecordRaw[] = [
   {
     path: '/setup',
@@ -52,31 +63,31 @@ const routes: RouteRecordRaw[] = [
         path: '',
         name: 'overview',
         component: () => import('@/views/DashboardView.vue'),
-        meta: { titleKey: 'dashboard.title', navKey: 'overview', permission: 'system.read' },
+        meta: { titleKey: 'dashboard.title', navKey: 'overview', permission: 'system.read', newUi: true },
       },
       {
         path: 'sites',
         name: 'sites',
         component: () => import('@/views/SitesView.vue'),
-        meta: { titleKey: 'sites.title', navKey: 'sites', permission: 'sites.read' },
+        meta: { titleKey: 'sites.title', navKey: 'sites', permission: 'sites.read', newUi: true },
       },
       {
+        // Sites have no page of their own: their settings open in a drawer of
+        // the sites page. Old links (also ?tab=logs) keep working.
         path: 'sites/:code',
         name: 'site',
-        component: () => import('@/views/sites/SiteDetailView.vue'),
-        meta: { titleKey: 'sites.detail.title', navKey: 'sites', permission: 'sites.read' },
+        redirect: (to) => ({ name: 'sites', query: siteDrawerQuery(String(to.params.code), to.query.tab) }),
       },
       {
         path: 'certs',
         name: 'certs',
         component: () => import('@/views/CertsView.vue'),
-        meta: { titleKey: 'certs.title', navKey: 'certs', permission: 'certs.read' },
+        meta: { titleKey: 'certs.title', navKey: 'certs', permission: 'certs.read', newUi: true },
       },
       {
         path: 'certs/:id',
         name: 'cert',
-        component: () => import('@/views/certs/CertDetailView.vue'),
-        meta: { titleKey: 'certs.detail.title', navKey: 'certs', permission: 'certs.read' },
+        redirect: (to) => ({ name: 'certs', query: { open: `cert:${String(to.params.id)}` } }),
       },
       {
         path: 'databases',

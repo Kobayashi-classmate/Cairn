@@ -61,6 +61,24 @@ const DURATION_UNITS = [
 ] as const
 
 /**
+ * Formats an amount with a unit, with a space between the number and the
+ * unit in every language (interface spec section 8), where Intl writes
+ * some languages without one (Chinese hours, for example).
+ */
+function unitAmount(amount: number, unit: string, unitDisplay: 'long' | 'short'): string {
+  const parts = numberFormat({ style: 'unit', unit, unitDisplay }).formatToParts(amount)
+  let out = ''
+  parts.forEach((part, i) => {
+    const prev = parts[i - 1]
+    if (prev && prev.type !== 'literal' && part.type !== 'literal' && (prev.type === 'unit') !== (part.type === 'unit')) {
+      out += ' '
+    }
+    out += part.value
+  })
+  return out
+}
+
+/**
  * Formats a duration such as "3 days, 4 hours", keeping at most `maxParts`
  * adjacent units starting from the largest non-zero one.
  */
@@ -74,21 +92,19 @@ export function formatDuration(totalSeconds: number, maxParts = 2): string {
     rest -= amount * seconds
     if (amount > 0) started = true
     if (!started) continue
-    if (amount > 0) {
-      parts.push(numberFormat({ style: 'unit', unit, unitDisplay: 'long' }).format(amount))
-    }
+    if (amount > 0) parts.push(unitAmount(amount, unit, 'long'))
     if (++used >= maxParts) break
   }
-  if (parts.length === 0) {
-    parts.push(numberFormat({ style: 'unit', unit: 'second', unitDisplay: 'long' }).format(0))
-  }
+  if (parts.length === 0) parts.push(unitAmount(0, 'second', 'long'))
   const options: Intl.ListFormatOptions = { type: 'unit', style: 'short' }
-  return cached('list', options, (locale) => new Intl.ListFormat(locale, options)).format(parts)
+  const joined = cached('list', options, (locale) => new Intl.ListFormat(locale, options)).format(parts)
+  // Languages whose unit lists have no separator (Chinese) get a space.
+  return joined === parts.join('') ? parts.join(' ') : joined
 }
 
 /** Formats a time span in minutes with a short unit, for example "15 min". */
 export function formatMinutes(minutes: number): string {
-  return numberFormat({ style: 'unit', unit: 'minute', unitDisplay: 'short' }).format(minutes)
+  return unitAmount(minutes, 'minute', 'short')
 }
 
 /** Formats a Unix timestamp (seconds) as a time of day. */
@@ -131,6 +147,60 @@ export function formatIsoDate(date: string): string {
   return cached('date', options, (locale) => new Intl.DateTimeFormat(locale, options)).format(
     Date.UTC(year, month - 1, day),
   )
+}
+
+/**
+ * Formats a Unix timestamp with the date, the time with seconds and the time
+ * zone, for tooltips next to relative times (interface spec, section 8).
+ */
+export function formatFullDateTime(unixSeconds: number): string {
+  const options: Intl.DateTimeFormatOptions = { dateStyle: 'full', timeStyle: 'long' }
+  return cached('fulldatetime', options, (locale) => new Intl.DateTimeFormat(locale, options)).format(
+    unixSeconds * 1000,
+  )
+}
+
+/** Formats a Unix timestamp (seconds) as a date without the time. */
+export function formatDate(unixSeconds: number): string {
+  const options: Intl.DateTimeFormatOptions = { dateStyle: 'medium' }
+  return cached('dateonly', options, (locale) => new Intl.DateTimeFormat(locale, options)).format(
+    unixSeconds * 1000,
+  )
+}
+
+/** Calendar days from the local day of `fromSeconds` to that of `toSeconds`. */
+function calendarDays(fromSeconds: number, toSeconds: number): number {
+  const from = new Date(fromSeconds * 1000)
+  const to = new Date(toSeconds * 1000)
+  const a = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())
+  const b = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate())
+  return Math.round((b - a) / 86_400_000)
+}
+
+/** Within this many seconds a time reads as relative ("3 hours ago"). */
+const RELATIVE_WINDOW_SECONDS = 6 * 3600
+
+/**
+ * A time as people say it (interface spec, section 8): "just now",
+ * "3 hours ago", "today 02:00", "yesterday 21:14", "tomorrow 09:00", and the
+ * date with the time further away.
+ */
+export function formatWhen(unixSeconds: number, nowSeconds: number): string {
+  const { t } = i18n.global
+  const size = Math.abs(unixSeconds - nowSeconds)
+  if (size < 45) return t('common.time.justNow')
+  if (size < RELATIVE_WINDOW_SECONDS) return formatRelativeTime(unixSeconds, nowSeconds)
+  const time = formatTime(unixSeconds, false)
+  switch (calendarDays(nowSeconds, unixSeconds)) {
+    case 0:
+      return t('common.time.today', { time })
+    case -1:
+      return t('common.time.yesterday', { time })
+    case 1:
+      return t('common.time.tomorrow', { time })
+    default:
+      return formatDateTime(unixSeconds)
+  }
 }
 
 const RELATIVE_UNITS: Array<{ unit: Intl.RelativeTimeFormatUnit; seconds: number }> = [

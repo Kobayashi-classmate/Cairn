@@ -393,6 +393,18 @@
   }
 }
 
+/*
+ * A Reka dialog (sheet, drawer, confirmation) turns off pointer events on
+ * <body> while it is open. The re-authentication dialog, toasts and the job
+ * dock stay usable meanwhile; components/common/overlayGuard.ts keeps the
+ * Reka dialog open when they are used.
+ */
+.n-modal-container,
+[data-sonner-toaster],
+[data-job-dock] {
+  pointer-events: auto;
+}
+
 /* Limited Markdown from official messages and release notes (MarkdownText). */
 .markdown > :first-child {
   margin-block-start: 0;

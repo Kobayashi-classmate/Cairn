@@ -1,22 +1,32 @@
 {
   "intro": "Forward TCP or UDP connections on a port of this server to one or more upstreams.",
   "code": "Code",
-  "empty": "No four-layer proxies yet.",
+  "empty": "No layer-4 proxies yet.",
   "firewallNote": "Opening the port in the firewall comes with the firewall settings in a later version.",
   "dialog": {
-    "createTitle": "Add four-layer proxy",
+    "createTitle": "Add layer-4 proxy",
     "editTitle": "Edit {code}",
     "portHint": "1–65535, except 80, 443 and 20000–29999 (used by apps). Each port once per protocol.",
     "upstreamsHint": "host:port or [IPv6]:port, up to 16. Press Enter after each.",
     "hash": "Keep each client on one upstream",
-    "hashHint": "Chooses the upstream by the client's address; otherwise connections go to the upstreams in turn."
+    "hashHint": "Chooses the upstream by the client's address; otherwise connections go to the upstreams in turn.",
+    "codeHint": "A short name, fixed once created. Leave it empty for protocol-port.",
+    "create": "Add proxy",
+    "save": "Save changes"
   },
   "balance": {
     "hash": "Client hash",
     "roundRobin": "Round robin"
   },
   "delete": {
-    "title": "Delete four-layer proxy {code}?",
-    "content": "The port stops forwarding connections."
+    "title": "Delete layer-4 proxy {code}?",
+    "confirm": "Delete proxy",
+    "consequence": "Port {port} ({protocol}) stops forwarding connections."
+  },
+  "search": "Search by port or upstream",
+  "more": "More actions for {code}",
+  "steps": {
+    "config": "Write the nginx stream configuration: listen on {listen} and forward to {count} upstream | Write the nginx stream configuration: listen on {listen} and forward to {count} upstreams",
+    "reload": "Check the configuration with nginx -t and reload nginx"
   }
 }

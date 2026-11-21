@@ -1,8 +1,5 @@
 {
   "title": "Sites",
-  "detail": {
-    "title": "Site"
-  },
   "type": {
     "static": {
       "name": "Static",
@@ -29,32 +26,54 @@
   },
   "list": {
     "state": "Status",
-    "target": "PHP / upstream",
     "moreDomains": "+{count} more",
-    "open": "Open"
+    "domain": "Domain",
+    "https": "HTTPS",
+    "backup": "Last backup",
+    "search": "Search by domain",
+    "hint": "Select a domain to open its settings",
+    "more": "More actions for {site}",
+    "app": "App",
+    "appWith": "{runtime} app",
+    "static": "Static site",
+    "proxy": "Reverse proxy",
+    "port": "port {port}",
+    "domainCount": "{count} domain | {count} domains"
   },
   "action": {
     "stop": "Stop",
     "start": "Start",
-    "stopping": "Stopping {site}…",
-    "starting": "Starting {site}…"
+    "visit": "Visit site",
+    "settings": "Settings",
+    "delete": "Delete site"
   },
   "create": {
-    "title": "Create site",
+    "title": "New site",
     "submit": "Create site",
     "close": "Close",
-    "openSite": "Open the site"
+    "description": "Each site gets its own directory under /srv/www and two system users.",
+    "httpsLater": "No valid certificate covers these domains yet. Once the site exists, issue one from its HTTPS settings.",
+    "advanced": "More options"
   },
   "delete": {
     "title": "Delete site {site}?",
     "text": "The web server configuration of {site} is removed, so its domains are no longer served.",
     "files": "Also delete the files and users",
     "filesOn": "{dir} and the users {owner} and {runner} are deleted. This cannot be undone.",
-    "filesOff": "{dir} and the site’s users are kept, so the files are still there if you create the site again."
+    "filesOff": "{dir} and the site’s users are kept, so the files are still there if you create the site again.",
+    "confirm": "Delete site"
   },
   "empty": {
     "title": "No sites yet",
-    "text": "A site serves one or more domains from this server: static files, a PHP application with a PHP-FPM pool of its own, or a reverse proxy to an application. Each site gets its own directory and users."
+    "text": "A site serves one or more domains from this server: static files, a PHP application with a PHP-FPM pool of its own, or a reverse proxy to an application. Each site gets its own directory and users.",
+    "nginxText": "Sites are served by nginx. Install it on the software page first.",
+    "byType": {
+      "php": "No PHP sites yet",
+      "app": "No apps yet",
+      "static": "No static sites yet",
+      "proxy": "No reverse proxies yet",
+      "stream": "No layer-4 proxies yet"
+    }
   },
   "unsupported": {
     "selinux": "Sites are not available on this system yet (SELinux support is being verified)."
@@ -86,10 +105,14 @@
     "redirect": "Redirect HTTP to HTTPS",
     "redirectHint": "Visitors who come over HTTP are sent to HTTPS.",
     "hsts": "HSTS",
-    "hstsHint": "Browsers then refuse plain HTTP for this site for a long time, even if HTTPS is turned off later. Turn it on only when HTTPS is meant to stay."
+    "hstsHint": "Browsers then refuse plain HTTP for this site for a long time, even if HTTPS is turned off later. Turn it on only when HTTPS is meant to stay.",
+    "proxyHint": "http(s)://host[:port][/path], for example an app listening on this server.",
+    "rewriteHint": "Built-in rules for common applications."
   },
   "settings": {
-    "apply": "Apply changes"
+    "apply": "Apply changes",
+    "applying": "A change is being applied; the next one can be made when it is done.",
+    "discard": "Discard changes"
   },
   "overview": {
     "dir": "Directory",
@@ -98,15 +121,23 @@
     "users": "{owner} owns the files; deploy code as this user. The site runs as {runner}, which can read the files but write only the writable directories, so a compromised site cannot change its own code.",
     "created": "Created",
     "updated": "Last changed",
-    "rootDefault": "(the site directory)"
+    "rootDefault": "(the site directory)",
+    "basics": "Basics",
+    "status": "Status",
+    "manage": "Manage",
+    "viewChange": "View the change"
   },
   "tabs": {
     "overview": "Overview",
-    "settings": "Settings",
     "logs": "Logs",
-    "process": "Process",
-    "sites": "Sites",
-    "streams": "Four-layer proxies"
+    "domains": "Domains",
+    "https": "HTTPS",
+    "php": "PHP",
+    "rewrite": "Rewrite rules",
+    "proxy": "Reverse proxy",
+    "app": "App process",
+    "dirs": "Directory & permissions",
+    "backup": "Backup"
   },
   "drift": {
     "tag": "Not applied",
@@ -127,10 +158,14 @@
       "status": "Status",
       "bytes": "Size",
       "duration": "Duration"
-    }
+    },
+    "kind": "Log"
   },
   "rewrite": {
-    "spa": "Single-page application"
+    "spa": "Single-page application",
+    "intro": "Built-in rules for common applications. Custom rules are not available yet.",
+    "rules": "Rules",
+    "noneHint": "Requests are served from files only."
   },
   "app": {
     "systemTools": "None (system tools only)",
@@ -149,9 +184,13 @@
     "limitsHint": "Memory in MB (at least 16); CPU in percent of one CPU (200 = two CPUs, at least 5). Empty means no limit.",
     "healthHint": "The panel requests this path every 30 seconds. After three failures (no answer, or status 500 or higher) it restarts the app.",
     "noSystemd": "Needs systemd, which this system does not have.",
-    "envCount": "{count} variable | {count} variables",
-    "limits": "Limits",
-    "limitsValue": "Memory: {memory}, CPU: {cpu}"
+    "portHintCreate": "1024–65535. Leave it empty to let the panel pick a free port in 20000–29999.",
+    "portHintEdit": "1024–65535. Leave it empty to keep the current port.",
+    "workDirHint": "Where the command runs, relative to the site directory.",
+    "envNameLabel": "Name of variable {index}",
+    "envValueLabel": "Value of variable {index}",
+    "removeEnv": "Remove variable {name}",
+    "noSystemdNotice": "Apps run as systemd services. This system has no systemd, so apps cannot be created here."
   },
   "process": {
     "state": {
@@ -179,6 +218,84 @@
       "core-dump": "Crashed (core dump)",
       "watchdog": "Watchdog timeout",
       "start-limit-hit": "Restarted too often"
-    }
+    },
+    "service": "Service",
+    "config": "How it runs"
+  },
+  "pageTabs": {
+    "all": "All",
+    "php": "PHP",
+    "app": "Apps",
+    "static": "Static",
+    "proxy": "Reverse proxies",
+    "stream": "Layer-4 proxies"
+  },
+  "status": {
+    "count": "{count} site | {count} sites",
+    "nginxRunning": "nginx running",
+    "nginxStopped": "nginx stopped",
+    "nginxMissing": "nginx not installed",
+    "unsupported": "Not available on this system"
+  },
+  "https": {
+    "off": "Not enabled",
+    "on": "Enabled",
+    "certificate": "Certificate",
+    "settings": "HTTPS settings",
+    "current": "{name} (in use)",
+    "openCert": "Open certificate",
+    "offNotice": "HTTPS is off: visitors reach the site over plain HTTP.",
+    "noCertAccess": "You cannot see certificates, so the certificate cannot be changed here.",
+    "noCovering": "No valid certificate covers every domain of this site yet.",
+    "issue": "Issue a certificate for these domains",
+    "issueAnother": "Issue another certificate for these domains"
+  },
+  "backup": {
+    "none": "Not backed up",
+    "never": "Never backed up",
+    "failed": "Last backup failed",
+    "ok": "Succeeded",
+    "intro": "Backups are set up as plans on the backups page; one plan can include several sites and databases.",
+    "plans": "Backup plans",
+    "noneText": "No backup plan includes this site. Add it to a plan on the backups page.",
+    "runNow": "Back up now",
+    "summary": "Backups",
+    "planCount": "{count} plan | {count} plans"
+  },
+  "steps": {
+    "users": "Create the users {owner} (owns the files) and {runner} (runs the site)",
+    "dir": "Create the directory {dir}",
+    "php": "Create a PHP {version} FPM pool running as {runner}",
+    "app": "Run the app as a systemd service as {runner}, listening on 127.0.0.1:{port}",
+    "appAuto": "Run the app as a systemd service as {runner}, on a free port in 20000–29999",
+    "nginx": "Write the nginx configuration for {domains}, check it with nginx -t and reload nginx",
+    "tls": "Serve HTTPS with the certificate {name}",
+    "codePlaceholder": "(code)",
+    "domainsPlaceholder": "the domains"
+  },
+  "domains": {
+    "intro": "The site answers for these domains; each one must point at this server. The first is the primary domain, shown in lists and opened by “Visit site”.",
+    "primary": "Primary",
+    "makePrimary": "Make primary",
+    "remove": "Remove {domain}",
+    "add": "Add domain",
+    "duplicate": "{domain} is already in the list.",
+    "certNote": "The certificate must cover every domain; saving fails for a domain it does not cover."
+  },
+  "php": {
+    "intro": "The site runs in a PHP-FPM pool of its own, as {runner}.",
+    "version": "Version",
+    "current": "In use",
+    "notInstalled": "Not installed"
+  },
+  "proxy": {
+    "upstream": "Upstream"
+  },
+  "dirs": {
+    "location": "Location",
+    "settings": "Web root and writable directories"
+  },
+  "drawer": {
+    "runner": "runs as {runner}"
   }
 }

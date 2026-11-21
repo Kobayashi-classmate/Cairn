@@ -8,7 +8,11 @@
     "editTitle": "Edit DNS account",
     "providerSite": "{name} website",
     "optional": "{field} (optional)",
-    "secretStored": "Stored — leave empty to keep"
+    "secretStored": "Stored — leave empty to keep",
+    "create": "Add account",
+    "description": "Secrets are stored on this server and never shown again.",
+    "pickProvider": "Choose a provider",
+    "stepUp": "Saving asks for your password again."
   },
   "test": {
     "button": "Test",
@@ -20,7 +24,8 @@
   "delete": {
     "title": "Delete DNS account {name}?",
     "content": "Certificates that validate through this account could then no longer be renewed.",
-    "done": "{name} was deleted."
+    "done": "{name} was deleted.",
+    "confirm": "Delete account"
   },
   "field": {
     "api_token": "API token",
@@ -40,5 +45,9 @@
     "secret_access_key": "Secret access key",
     "access_key_secret": "Access key secret",
     "key": "Key"
-  }
+  },
+  "search": "Search accounts",
+  "more": "More actions for {name}",
+  "emptyText": "Add an account at your DNS provider to issue wildcard certificates, or for servers that port 80 cannot reach.",
+  "saved": "{name} was saved."
 }

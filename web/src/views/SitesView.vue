@@ -1,309 +1,219 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NDataTable,
-  NEmpty,
-  NH2,
-  NIcon,
-  NSpace,
-  NTabPane,
-  NTabs,
-  NTag,
-  NText,
-  NTooltip,
-  useMessage,
-  type DataTableColumns,
-} from 'naive-ui'
-import { AddOutline } from '@vicons/ionicons5'
-import { fetchRewrites, fetchSites, startSite, stopSite, type RewriteRule, type SiteList, type SiteView } from '@/api/sites'
-import { useErrorToast } from '@/composables/useErrorToast'
-import { errorMessage, errorText } from '@/i18n/errors'
-import { siteDisplayState, siteStateTagType, siteTypeLabel } from '@/sites/labels'
+import { Globe, Plus } from '@lucide/vue'
+import type { SiteType } from '@/api/sites'
+import type { StreamView } from '@/api/streams'
+import Card from '@/components/common/Card.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import Notice from '@/components/common/Notice.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import type { PageTab } from '@/components/common/types'
+import { Button } from '@/components/ui/button'
+import { useDrawerRoute } from '@/composables/useDrawerRoute'
+import { useNavRoutes } from '@/composables/useNavRoutes'
+import { usePageTab } from '@/composables/usePageTab'
 import { useSessionStore } from '@/stores/session'
-import CreateSiteDialog from './sites/CreateSiteDialog.vue'
-import StreamsPanel from './sites/StreamsPanel.vue'
-import DeleteSiteDialog from './sites/DeleteSiteDialog.vue'
+import { useSitesStore } from '@/stores/sites'
+import SiteCreateSheet from './sites/SiteCreateSheet.vue'
+import SiteDrawer from './sites/SiteDrawer.vue'
+import SiteTable from './sites/SiteTable.vue'
+import StreamSheet from './sites/StreamSheet.vue'
+import StreamTable from './sites/StreamTable.vue'
+
+// The sites page ("list" skeleton, interface spec section 6): tabs by type
+// with counts, the sites table, and the four-layer proxies in a tab of
+// their own. A site's settings open in a drawer kept in the address.
+type Tab = 'all' | SiteType | 'stream'
 
 const { t } = useI18n()
-const router = useRouter()
 const route = useRoute()
-
-/** Sites or four-layer proxies; kept in the address. */
-const tab = ref<'sites' | 'streams'>(route.query.tab === 'streams' ? 'streams' : 'sites')
-watch(tab, (value) => void router.replace({ query: value === 'sites' ? {} : { tab: value } }))
+const router = useRouter()
+const store = useSitesStore()
 const session = useSessionStore()
-const showError = useErrorToast()
-const message = useMessage()
+const navRoutes = useNavRoutes()
+const drawer = useDrawerRoute('site')
 
-/** How often the list refreshes while a site change is being applied. */
-const REFRESH_MS = 3000
-let timer: ReturnType<typeof setTimeout> | undefined
-let unmounted = false
+const list = computed(() => store.list)
+const supported = computed(() => list.value?.supported !== false)
 
-const list = ref<SiteList | null>(null)
-const rewrites = ref<RewriteRule[]>([])
-const loadError = ref<unknown>(null)
-const busy = ref<string | null>(null)
-const showCreate = ref(false)
-const deleting = ref<SiteView | null>(null)
-const showDelete = ref(false)
+const TABS = computed<Tab[]>(() =>
+  supported.value ? ['all', 'php', 'app', 'static', 'proxy', 'stream'] : ['all', 'php', 'app', 'static', 'proxy'],
+)
+const { tab, tabLocation } = usePageTab(TABS, 'all')
 
 const canManage = computed(() => session.can('sites.manage'))
+const nginxInstalled = computed(() => list.value?.nginx.installed === true)
 /** Creating needs a supported system with nginx installed. */
-const canCreate = computed(() => canManage.value && !!list.value?.supported && list.value.nginx.installed)
+const canCreate = computed(() => canManage.value && supported.value && nginxInstalled.value)
 
-async function load() {
-  clearTimeout(timer)
-  try {
-    const [sites, rules] = await Promise.all([fetchSites(), fetchRewrites()])
-    list.value = sites
-    rewrites.value = rules
-    loadError.value = null
-  } catch (err) {
-    loadError.value = err
-  }
-  // Keep the states current while changes are being applied.
-  if (!unmounted && list.value?.sites.some((site) => site.state === 'applying')) {
-    timer = setTimeout(() => void load(), REFRESH_MS)
-  }
-}
+const showCreate = ref(false)
+/** The "New site" sheet loads runtimes and certificates; it is mounted when first opened. */
+const createUsed = ref(false)
+watch(showCreate, (open) => {
+  if (open) createUsed.value = true
+})
+const showStream = ref(false)
+const editingStream = ref<StreamView | null>(null)
 
-onMounted(load)
-onBeforeUnmount(() => {
-  unmounted = true
-  clearTimeout(timer)
+onMounted(() => {
+  store.watch()
+  void store.load()
+  void store.loadStreams()
+})
+onBeforeUnmount(() => store.unwatch())
+
+// Links from elsewhere (the overview) open the "New site" sheet with ?new=1.
+watch(
+  () => [route.query.new, list.value] as const,
+  ([wanted]) => {
+    if (wanted !== '1' || !list.value) return
+    if (canCreate.value) showCreate.value = true
+    const query = { ...route.query }
+    delete query.new
+    void router.replace({ query })
+  },
+  { immediate: true },
+)
+
+const counts = computed(() => {
+  const sites = store.sites
+  return {
+    all: sites.length,
+    php: sites.filter((s) => s.type === 'php').length,
+    app: sites.filter((s) => s.type === 'app').length,
+    static: sites.filter((s) => s.type === 'static').length,
+    proxy: sites.filter((s) => s.type === 'proxy').length,
+    stream: store.streams?.length,
+  }
 })
 
-async function toggle(site: SiteView) {
-  busy.value = site.code
-  try {
-    if (site.enabled) await stopSite(site.code)
-    else await startSite(site.code)
-    message.info(t(site.enabled ? 'sites.action.stopping' : 'sites.action.starting', { site: site.code }))
-    await load()
-  } catch (err) {
-    showError(err)
-  } finally {
-    busy.value = null
-  }
+const tabs = computed<PageTab<Tab>[]>(() =>
+  TABS.value.map((value) => ({
+    value,
+    label: t(`sites.pageTabs.${value}`),
+    count: list.value ? counts.value[value] : undefined,
+  })),
+)
+
+const filtered = computed(() => (tab.value === 'all' ? store.sites : store.sites.filter((s) => s.type === tab.value)))
+
+const status = computed(() => {
+  const l = list.value
+  if (!l) return ''
+  if (!l.supported) return t('sites.status.unsupported')
+  const sites = t('sites.status.count', { count: l.sites.length }, l.sites.length)
+  if (!l.statusAvailable) return sites
+  const nginx = !l.nginx.installed
+    ? t('sites.status.nginxMissing')
+    : l.nginx.running
+      ? t('sites.status.nginxRunning')
+      : t('sites.status.nginxStopped')
+  return `${sites} · ${nginx}`
+})
+
+const emptyTitle = computed(() => (tab.value === 'all' ? t('sites.empty.title') : t(`sites.empty.byType.${tab.value}`)))
+
+function openCreate() {
+  showCreate.value = true
 }
 
-function askDelete(site: SiteView) {
-  deleting.value = site
-  showDelete.value = true
+function openStreamCreate() {
+  editingStream.value = null
+  showStream.value = true
 }
 
-function target(site: SiteView): string {
-  if (site.type === 'php') return site.php ? `PHP ${site.php}` : ''
-  if (site.type === 'proxy') return site.proxy?.url ?? ''
-  if (site.type === 'app' && site.app) {
-    const runtime = site.app.runtime ? `${site.app.runtime} ${site.app.line ?? ''} ` : ''
-    return `${runtime}127.0.0.1:${site.app.port}`
-  }
-  return ''
+function openStreamEdit(stream: StreamView) {
+  editingStream.value = stream
+  showStream.value = true
 }
 
-const columns = computed<DataTableColumns<SiteView>>(() => [
-  {
-    key: 'code',
-    title: t('common.field.siteCode'),
-    width: 170,
-    render: (site) =>
-      h(RouterLink, { to: { name: 'site', params: { code: site.code } }, class: 'link' }, () => site.code),
-  },
-  {
-    key: 'domains',
-    title: t('common.field.domains'),
-    minWidth: 220,
-    render: (site) =>
-      h(NSpace, { size: 6, align: 'center', wrap: false }, () => [
-        h('span', { dir: 'ltr' }, site.domains[0] ?? ''),
-        site.domains.length > 1
-          ? h(NText, { depth: 3 }, () => t('sites.list.moreDomains', { count: site.domains.length - 1 }))
-          : null,
-      ]),
-  },
-  {
-    key: 'type',
-    title: t('common.field.type'),
-    width: 130,
-    render: (site) => h(NTag, { size: 'small', bordered: false }, () => siteTypeLabel(site.type)),
-  },
-  {
-    key: 'state',
-    title: t('sites.list.state'),
-    width: 130,
-    render: (site) => {
-      const state = siteDisplayState(site)
-      const tag = h(NTag, { size: 'small', bordered: false, type: siteStateTagType(state) }, () =>
-        t(`sites.state.${state}`),
-      )
-      // A failed change names its reason on hover.
-      if (state === 'failed' && site.errorCode) {
-        return h(NTooltip, null, { trigger: () => tag, default: () => errorText(site.errorCode!) ?? site.errorCode })
-      }
-      return site.drift ? h(NSpace, { size: 4 }, () => [tag, h(NTag, { size: 'small', type: 'warning', bordered: false }, () => t('sites.drift.tag'))]) : tag
-    },
-  },
-  {
-    key: 'target',
-    title: t('sites.list.target'),
-    minWidth: 180,
-    render: (site) => h('span', { dir: 'ltr', class: 'mono' }, target(site)),
-  },
-  {
-    key: 'actions',
-    title: '',
-    width: 230,
-    render: (site) =>
-      h(NSpace, { size: 4, wrap: false }, () => [
-        h(NButton, { size: 'small', quaternary: true, onClick: () => router.push({ name: 'site', params: { code: site.code } }) }, () =>
-          t('sites.list.open'),
-        ),
-        canManage.value
-          ? h(
-              NButton,
-              {
-                size: 'small',
-                quaternary: true,
-                loading: busy.value === site.code,
-                disabled: site.state === 'applying' || (busy.value !== null && busy.value !== site.code),
-                onClick: () => void toggle(site),
-              },
-              () => (site.enabled ? t('sites.action.stop') : t('sites.action.start')),
-            )
-          : null,
-        canManage.value
-          ? h(
-              NButton,
-              { size: 'small', quaternary: true, type: 'error', disabled: site.state === 'applying', onClick: () => askDelete(site) },
-              () => t('common.action.delete'),
-            )
-          : null,
-      ]),
-  },
-])
+const unsupportedText = computed(() =>
+  list.value?.reason === 'selinux_pending' ? t('sites.unsupported.selinux') : t('errors.site.unsupported'),
+)
 </script>
 
 <template>
-  <div class="sites">
-    <header class="sites__header">
-      <NH2 class="sites__title">{{ t('sites.title') }}</NH2>
-      <NButton
-        v-if="canManage && list?.supported && tab === 'sites'"
-        type="primary"
-        :disabled="!canCreate"
-        @click="showCreate = true"
-      >
-        <template #icon>
-          <NIcon><AddOutline /></NIcon>
+  <div>
+    <PageHeader
+      :title="t('sites.title')"
+      :status="status"
+      :status-loading="!list && !store.loadError"
+      :tabs="supported ? tabs : []"
+      :tab="tab"
+      :tab-location="tabLocation"
+    >
+      <template v-if="canManage && supported" #actions>
+        <Button v-if="tab === 'stream'" class="max-md:h-11" @click="openStreamCreate">
+          <Plus aria-hidden="true" />
+          {{ t('streams.dialog.createTitle') }}
+        </Button>
+        <Button v-else class="max-md:h-11" :disabled="!canCreate" @click="openCreate">
+          <Plus aria-hidden="true" />
+          {{ t('sites.create.title') }}
+        </Button>
+      </template>
+    </PageHeader>
+
+    <div class="flex flex-col gap-4">
+      <template v-if="list">
+        <Notice v-if="!list.supported" tone="warning">{{ unsupportedText }}</Notice>
+        <template v-else>
+          <Notice v-if="!list.statusAvailable" tone="info">{{ t('sites.statusUnavailable') }}</Notice>
+          <Notice v-else-if="!list.nginx.installed && store.sites.length > 0" tone="warning">
+            {{ t('sites.nginxMissing') }}
+            <template v-if="navRoutes.has('software')" #action>
+              <RouterLink :to="{ name: 'software' }" class="text-current underline underline-offset-2">
+                {{ t('sites.installNginx') }}
+              </RouterLink>
+            </template>
+          </Notice>
+          <Notice v-else-if="list.nginx.installed && !list.nginx.running" tone="warning">{{ t('sites.nginxStopped') }}</Notice>
+          <Notice v-if="tab === 'app' && !list.systemd" tone="info">{{ t('sites.app.noSystemdNotice') }}</Notice>
         </template>
-        {{ t('sites.create.title') }}
-      </NButton>
-    </header>
-
-    <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-
-    <template v-if="list">
-      <NAlert v-if="!list.supported" type="warning" class="block">
-        {{ list.reason === 'selinux_pending' ? t('sites.unsupported.selinux') : t('errors.site.unsupported') }}
-      </NAlert>
-      <template v-else>
-        <NAlert v-if="!list.statusAvailable" type="info" class="block">{{ t('sites.statusUnavailable') }}</NAlert>
-        <NAlert v-else-if="!list.nginx.installed" type="warning" class="block">
-          {{ t('sites.nginxMissing') }}
-          <RouterLink :to="{ name: 'software' }">{{ t('sites.installNginx') }}</RouterLink>
-        </NAlert>
-        <NAlert v-else-if="!list.nginx.running" type="warning" class="block">{{ t('sites.nginxStopped') }}</NAlert>
       </template>
 
-      <NTabs v-model:value="tab" type="line" class="tabs">
-        <NTabPane name="sites" :tab="t('sites.tabs.sites')">
-          <NCard v-if="list.sites.length > 0" size="small">
-            <NDataTable
-              :columns="columns"
-              :data="list.sites"
-              :row-key="(site: SiteView) => site.code"
-              :scroll-x="1000"
-              size="small"
-            />
-          </NCard>
-          <NCard v-else-if="list.supported" size="small">
-            <NEmpty :description="t('sites.empty.title')" class="empty">
-              <template #extra>
-                <NText depth="3" tag="p" class="empty__text">{{ t('sites.empty.text') }}</NText>
-                <NButton v-if="canCreate" type="primary" @click="showCreate = true">{{ t('sites.create.title') }}</NButton>
-              </template>
-            </NEmpty>
-          </NCard>
-        </NTabPane>
-        <NTabPane v-if="list.supported" name="streams" :tab="t('sites.tabs.streams')">
-          <StreamsPanel :can-manage="canManage" />
-        </NTabPane>
-      </NTabs>
-    </template>
+      <template v-if="supported">
+        <StreamTable
+          v-if="tab === 'stream'"
+          :streams="store.streams ?? []"
+          :loading="store.streamsLoading"
+          :error="store.streamsError"
+          :can-manage="canManage"
+          @edit="openStreamEdit"
+          @create="openStreamCreate"
+          @retry="store.loadStreams()"
+        />
+        <Card v-else-if="list && list.statusAvailable && !list.nginx.installed && store.sites.length === 0" flush>
+          <EmptyState :icon="Globe" :title="t('sites.nginxMissing')" :text="t('sites.empty.nginxText')">
+            <template v-if="navRoutes.has('software')" #actions>
+              <Button as-child>
+                <RouterLink :to="{ name: 'software' }">{{ t('sites.installNginx') }}</RouterLink>
+              </Button>
+            </template>
+          </EmptyState>
+        </Card>
+        <SiteTable
+          v-else
+          :sites="filtered"
+          :loading="store.loading || (!list && !store.loadError)"
+          :error="store.loadError"
+          :backups-known="list?.backups === true"
+          :can-manage="canManage"
+          :can-create="canCreate"
+          :empty-title="emptyTitle"
+          :empty-text="tab === 'all' ? t('sites.empty.text') : undefined"
+          @open="(code: string) => drawer.open(code)"
+          @create="openCreate"
+          @retry="store.load()"
+        />
+      </template>
+    </div>
 
-    <CreateSiteDialog
-      v-if="list"
-      v-model:show="showCreate"
-      :php-lines="list.php"
-      :rewrites="rewrites"
-      :systemd="list.systemd"
-      @changed="load"
-    />
-    <DeleteSiteDialog v-model:show="showDelete" :site="deleting" @deleted="load" />
+    <SiteDrawer />
+    <SiteCreateSheet v-if="createUsed" v-model:open="showCreate" />
+    <StreamSheet v-model:open="showStream" :stream="editingStream" />
   </div>
 </template>
-
-<style scoped>
-.sites {
-  max-inline-size: 1200px;
-}
-
-.sites__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 16px;
-  margin-block-end: 16px;
-}
-
-.sites__title {
-  margin: 0;
-}
-
-.block {
-  margin-block-end: 16px;
-}
-
-.empty {
-  padding-block: 32px;
-}
-
-.tabs {
-  margin-block-start: 4px;
-}
-
-.empty__text {
-  max-inline-size: 520px;
-  margin: 0 auto 16px;
-  text-align: center;
-}
-
-:deep(.link) {
-  color: inherit;
-  font-weight: 500;
-}
-
-:deep(.mono) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-}
-</style>

@@ -110,6 +110,30 @@ export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>
   runner: string
   /** What the system runs differs from this spec (a change failed). */
   drift: boolean
+  /** The certificate named by `tls.cert`, when it exists. */
+  cert?: SiteCertSummary
+  /** Backup plans that include the site; absent when none does (or backups are off). */
+  backup?: SiteBackupSummary
+}
+
+/** The certificate a site serves, as the site list reports it. */
+export interface SiteCertSummary {
+  id: string
+  name: string
+  state: 'issuing' | 'valid' | 'failed'
+  /** Unix seconds. */
+  notAfter?: number
+  autoRenew: boolean
+}
+
+/** The backups of a site, as the site list reports them. */
+export interface SiteBackupSummary {
+  /** Ids of the backup plans that include the site. */
+  plans: string[]
+  /** Unix seconds of the newest successful run. */
+  lastOkAt?: number
+  /** Unix seconds of the newest failed run, only when newer than `lastOkAt`. */
+  lastFailedAt?: number
 }
 
 export interface SiteList {
@@ -123,6 +147,8 @@ export interface SiteList {
   php: string[]
   /** Apps run as systemd services; without systemd they are not available. */
   systemd: boolean
+  /** The backups module is on and `backup` of each site is filled in. */
+  backups?: boolean
   sites: SiteView[]
 }
 

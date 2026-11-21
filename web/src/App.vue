@@ -11,6 +11,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { errorMessage } from '@/i18n/errors'
 import { naiveLocaleFor } from '@/i18n/naive'
+import { useJobDockStore } from '@/stores/jobDock'
 import { useSessionStore } from '@/stores/session'
 import { useThemeStore } from '@/stores/theme'
 import { naiveThemeOverrides } from '@/theme/naive'
@@ -27,6 +28,11 @@ const theme = useThemeStore()
 const naiveTheme = computed(() => (theme.isDark ? darkTheme : null))
 const naiveOverrides = computed(() => naiveThemeOverrides(theme.isDark))
 const naive = computed(() => naiveLocaleFor(locale.value))
+
+// Toasts sit above the job dock (both live in the bottom right corner).
+const dock = useJobDockStore()
+const toastOffset = computed(() => (dock.height > 0 && !dock.aside ? { bottom: dock.height + 28, right: 16 } : undefined))
+const toastMobileOffset = computed(() => (dock.height > 0 ? { bottom: dock.height + (dock.aside ? 96 : 28) } : undefined))
 
 watchEffect(() => {
   const app = t('common.app.name')
@@ -69,7 +75,13 @@ function reload() {
           </div>
           <RouterView v-else />
           <StepUpDialog v-if="session.isAuthenticated" />
-          <Toaster position="bottom-right" :theme="theme.resolved" :duration="3000" />
+          <Toaster
+            position="bottom-right"
+            :theme="theme.resolved"
+            :duration="3000"
+            :offset="toastOffset"
+            :mobile-offset="toastMobileOffset"
+          />
         </TooltipProvider>
       </NDialogProvider>
     </NMessageProvider>

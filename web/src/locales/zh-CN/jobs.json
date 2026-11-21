@@ -28,7 +28,7 @@
     "site": {
       "create": "创建网站 {site}",
       "update": "修改网站 {site}",
-      "start": "启动网站 {site}",
+      "start": "启用网站 {site}",
       "stop": "停用网站 {site}",
       "delete": "删除网站 {site}",
       "restart": "重启网站 {site}"
@@ -125,7 +125,7 @@
     "site": {
       "create": "创建网站",
       "update": "修改网站",
-      "start": "启动网站",
+      "start": "启用网站",
       "stop": "停用网站",
       "delete": "删除网站",
       "restart": "重启网站"

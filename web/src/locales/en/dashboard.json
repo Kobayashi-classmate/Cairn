@@ -1,46 +1,18 @@
 {
   "title": "Overview",
-  "updatedAt": "Updated at {time}",
-  "loadFailed": "Could not load the system status.",
   "usage": "{used} of {total}",
-  "host": {
-    "title": "Host",
-    "hostname": "Hostname",
-    "os": "Operating system",
-    "kernel": "Kernel",
-    "arch": "Architecture",
-    "cpu": "Processor",
-    "uptime": "Uptime"
-  },
   "cpu": {
     "title": "CPU",
     "cores": "{count} core | {count} cores"
   },
-  "load": {
-    "title": "Load average"
-  },
   "network": {
-    "title": "Network",
-    "receive": "Receive",
-    "transmit": "Transmit"
+    "title": "Network"
   },
   "memory": {
-    "title": "Memory",
-    "available": "{value} available"
-  },
-  "swap": {
-    "title": "Swap",
-    "none": "No swap space configured."
+    "title": "Memory"
   },
   "disks": {
     "title": "Disks",
     "none": "No disks reported."
-  },
-  "charts": {
-    "cpu": "CPU",
-    "memory": "Memory",
-    "cpuTitle": "CPU usage, last hour",
-    "memoryTitle": "Memory usage, last hour",
-    "networkTitle": "Network traffic, last hour"
   }
 }

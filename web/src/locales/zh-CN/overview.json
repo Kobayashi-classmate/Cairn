@@ -1,0 +1,92 @@
+{
+  "status": "{host} · {os} · 已运行 {uptime}",
+  "openTerminal": "打开终端",
+  "unavailable": "以下部分未能及时检查：{modules}。",
+  "metric": {
+    "cpuCaption": "{cores} · 负载 {load}",
+    "load": "负载 {load}",
+    "disk": "磁盘 {mount}",
+    "netCaption": "入站 {rx} · 出站 {tx}"
+  },
+  "sites": {
+    "all": "全部网站",
+    "https": "HTTPS · {status}"
+  },
+  "services": {
+    "title": "服务",
+    "empty": "还没有安装任何服务。",
+    "state": {
+      "running": "运行中",
+      "stopped": "已停止",
+      "failed": "失败",
+      "unknown": "未知"
+    }
+  },
+  "jobs": {
+    "title": "最近任务",
+    "all": "全部任务",
+    "empty": "还没有任务。"
+  },
+  "security": {
+    "title": "安全",
+    "toReview": "{count} 项建议",
+    "allGood": "正常",
+    "empty": "没有可检查的项目。"
+  },
+  "checkStatus": {
+    "ok": "正常",
+    "warn": "建议处理",
+    "bad": "需要处理"
+  },
+  "area": {
+    "firewall": "防火墙",
+    "ssh": "SSH",
+    "certs": "面板证书",
+    "auth": "两步验证"
+  },
+  "check": {
+    "firewall": {
+      "on": "{backend} · 已启用 · {rules} 条规则",
+      "off": "{backend} · 未启用",
+      "conflict": "另一个防火墙管理工具正在运行：{conflict}",
+      "unavailable": "无法检查防火墙",
+      "not_loaded": "{backend} 已启用，但规则没有生效"
+    },
+    "ssh": {
+      "keys_only": "端口 {ports} · 只允许密钥登录",
+      "password": "端口 {ports} · 允许密码登录",
+      "root_password": "端口 {ports} · root 可以用密码登录"
+    },
+    "certs": {
+      "panel": "{name} · 有效期至 {notAfter}",
+      "panel_self_signed": "自签名证书，浏览器会提示不安全"
+    },
+    "auth": {
+      "totp_on": "你的账号已开启",
+      "totp_off": "你的账号未开启"
+    }
+  },
+  "notice": {
+    "host": {
+      "updates": "有 {count} 个系统更新可以安装，其中 {security} 个是安全更新。",
+      "reboot": "系统需要重启才能完成更新。"
+    },
+    "certs": {
+      "expiring": "有 {count} 个证书将在 14 天内到期，最早的在 {soonest}。",
+      "failed": "有 {count} 个证书签发或续期失败。"
+    },
+    "backups": {
+      "failed": "有 {count} 个备份计划最近一次运行失败。"
+    },
+    "sites": {
+      "failed": "有 {count} 个网站最近一次修改没有生效。"
+    }
+  },
+  "noticeAction": {
+    "host": "查看更新",
+    "certs": "查看证书",
+    "backups": "查看备份",
+    "sites": "查看网站",
+    "default": "打开"
+  }
+}
