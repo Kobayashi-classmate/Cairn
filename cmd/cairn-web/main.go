@@ -138,8 +138,6 @@ func run(cfgPath string, log *slog.Logger) error {
 	}
 	go cloudMod.Run(ctx)
 
-	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log, PanelPort: panelPort(cfg.Server.Listen)}
-	go sitesMod.Run(ctx)
 	certsMod := &certsmod.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Events: bus, TLS: tlsHolder, Log: log}
 	go certsMod.Run(ctx)
 	filesMod := &files.Module{Jobs: jobManager, Helper: helper, DB: db, Log: log, DataDir: cfg.Paths.DataDir}
@@ -150,13 +148,16 @@ func run(cfgPath string, log *slog.Logger) error {
 	go cronMod.Run(ctx)
 	backupsMod := &backups.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Events: bus, Log: log, DataDir: cfg.Paths.DataDir}
 	go backupsMod.Run(ctx)
+	registry := module.NewRegistry(db)
+	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log, PanelPort: panelPort(cfg.Server.Listen),
+		Certs: certsMod, Backups: backupsMod, Modules: registry}
+	go sitesMod.Run(ctx)
 	firewallMod := &firewall.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
 	go firewallMod.Run(ctx)
 	sshMod := &sshmod.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
 	go sshMod.Run(ctx)
 
 	router := api.NewRouter(core.Authenticator(db), log)
-	registry := module.NewRegistry(db)
 	registry.Add(
 		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: collector},

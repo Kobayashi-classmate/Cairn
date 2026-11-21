@@ -197,12 +197,13 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	}
 	router := api.NewRouter(core.Authenticator(db), log)
 	registry := module.NewRegistry(db)
-	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log, PanelPort: 28443}
 	certsMod := &certsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log}
 	filesMod := &filesmod.Module{Jobs: jobManager, Helper: h, DB: db, Log: log, DataDir: dataDir}
 	termMod := &terminal.Module{Helper: h, DB: db, Log: log}
 	cronMod := &cronmod.Module{Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log}
 	backupsMod := &backupsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log, DataDir: dataDir}
+	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log, PanelPort: 28443,
+		Certs: certsMod, Backups: backupsMod, Modules: registry}
 	firewallMod := &firewallmod.Module{Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log}
 	sshMod := &sshmod.Module{Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log}
 	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),

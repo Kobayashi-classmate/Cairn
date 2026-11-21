@@ -350,4 +350,8 @@ type InstallResult struct {
 // SoftwareStatus lists the installed lines: software -> line -> packages.
 type SoftwareStatus struct {
 	Installed map[string]map[string][]InstalledPackage `json:"installed"`
+	// Services maps the systemd services of the installed lines to their
+	// ActiveState ("active", "inactive", "failed", "activating", ...).
+	// Services systemd does not know are left out; nil without systemd.
+	Services map[string]string `json:"services,omitempty"`
 }

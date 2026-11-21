@@ -125,6 +125,8 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale, api.Require(authz.SettingsManage),
 		settingsDoc("Change the panel default language"), api.Body(localeRequest{}), noContent)
 
+	r.Handle("GET /api/v1/overview", m.overview, self, api.Doc("meta", "The overview page: services, checks and notices of the modules the caller may read"),
+		api.Returns(200, module.Overview{}))
 	r.Handle("GET /api/v1/ui/nav", m.nav, self, api.Doc("meta", "Menu entries of the enabled modules the caller may open"),
 		api.Returns(200, navResponse{}))
 	r.Handle("GET /api/v1/modules", m.listModules, api.Require(authz.SettingsRead), settingsDoc("Modules and whether they are on"),

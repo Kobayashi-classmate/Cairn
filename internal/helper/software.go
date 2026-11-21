@@ -462,6 +462,75 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 
 // Status reports the installed lines of every catalog entry.
 func (s *Software) Status(ctx context.Context) (helperapi.SoftwareStatus, error) {
+	st, err := s.installedLines(ctx)
+	if err != nil {
+		return st, err
+	}
+	st.Services = s.serviceStates(ctx, st.Installed)
+	return st, nil
+}
+
+// serviceStates asks systemd for the state of the services the installed
+// lines start; nil without systemd.
+func (s *Software) serviceStates(ctx context.Context, installed map[string]map[string][]helperapi.InstalledPackage) map[string]string {
+	if !systemdRunning() {
+		return nil
+	}
+	var units []string
+	for i := range s.Catalog.Software {
+		sw := &s.Catalog.Software[i]
+		lines := installed[sw.ID]
+		if len(lines) == 0 {
+			continue
+		}
+		for _, o := range sw.Offers(s.system()) {
+			if _, ok := lines[o.Line]; !ok {
+				continue
+			}
+			for _, u := range o.Services {
+				if !slices.Contains(units, u) {
+					units = append(units, u)
+				}
+			}
+		}
+	}
+	if len(units) == 0 {
+		return nil
+	}
+	out, err := queryCommand(ctx, "systemctl", append([]string{"show", "--property=LoadState,ActiveState", "--"}, units...)...)
+	if err != nil {
+		s.Log.Warn("service states unavailable", "err", err)
+		return nil
+	}
+	return parseUnitStates(out, units)
+}
+
+// parseUnitStates reads "systemctl show" output for units, which prints one
+// block per unit in the order asked, blank lines between them. Units systemd
+// does not know are left out.
+func parseUnitStates(out string, units []string) map[string]string {
+	states := map[string]string{}
+	blocks := strings.Split(strings.TrimSpace(out), "\n\n")
+	for _, unit := range units {
+		if len(blocks) == 0 {
+			break
+		}
+		props := map[string]string{}
+		for _, line := range strings.Split(blocks[0], "\n") {
+			if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+				props[k] = v
+			}
+		}
+		blocks = blocks[1:]
+		if props["LoadState"] == "loaded" && props["ActiveState"] != "" {
+			states[unit] = props["ActiveState"]
+		}
+	}
+	return states
+}
+
+// installedLines finds the installed lines of every software.
+func (s *Software) installedLines(ctx context.Context) (helperapi.SoftwareStatus, error) {
 	st := helperapi.SoftwareStatus{Installed: map[string]map[string][]helperapi.InstalledPackage{}}
 	if s.Runtimes != nil {
 		for i := range s.Catalog.Software {

@@ -287,3 +287,30 @@ func (m *Module) Check(ctx context.Context) {
 			DedupeKey: "ssh.login:" + l.User + ":" + l.IP + ":" + strconv.FormatInt(l.Time, 10), TS: l.Time})
 	}
 }
+
+// Summarize implements module.Summarizer: whether the SSH server accepts
+// passwords.
+func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (module.Summary, error) {
+	if !can(Read) {
+		return module.Summary{}, nil
+	}
+	var st helperapi.SSHStatus
+	if err := m.call(r, helperapi.ActionSSHStatus, nil, &st); err != nil {
+		return module.Summary{}, err
+	}
+	if !st.Installed {
+		return module.Summary{}, nil
+	}
+	ports := st.Ports
+	if ports == nil {
+		ports = []int{}
+	}
+	c := module.Check{Code: "ssh.keys_only", Status: module.StatusOK, Params: map[string]any{"ports": ports}, Route: "ssh"}
+	switch {
+	case st.PasswordAuthentication && st.PermitRootLogin == "yes":
+		c.Code, c.Status = "ssh.root_password", module.StatusWarn
+	case st.PasswordAuthentication:
+		c.Code, c.Status = "ssh.password", module.StatusWarn
+	}
+	return module.Summary{Checks: []module.Check{c}}, nil
+}

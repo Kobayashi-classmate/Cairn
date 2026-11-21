@@ -436,3 +436,48 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 	modutil.Audit(r, m.DB, m.Log, who, kind, "ok", audit)
 	return api.WriteJSON(w, http.StatusAccepted, jobResponse{Job: job})
 }
+
+// Summarize implements module.Summarizer: the services of the installed
+// software and whether they run.
+func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (module.Summary, error) {
+	if !can(Read) || m.Release == "" {
+		return module.Summary{}, nil
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	var st helperapi.SoftwareStatus
+	if err := m.Helper.Call(ctx, helperapi.ActionPkgStatus, callerOf(r), nil, &st); err != nil {
+		return module.Summary{}, err
+	}
+	sys := catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}
+	var sum module.Summary
+	for i := range m.Catalog.Software {
+		sw := &m.Catalog.Software[i]
+		for _, o := range sw.Offers(sys) {
+			pkgs := st.Installed[sw.ID][o.Line]
+			if len(pkgs) == 0 {
+				continue
+			}
+			for _, unit := range o.Services {
+				sum.Services = append(sum.Services, module.Service{Software: sw.ID, Line: o.Line, Unit: unit,
+					Version: pkgs[0].Version, State: serviceState(st.Services, unit)})
+			}
+		}
+	}
+	return sum, nil
+}
+
+// serviceState maps a systemd ActiveState to a module.Service state.
+func serviceState(states map[string]string, unit string) string {
+	s, ok := states[unit]
+	switch {
+	case !ok:
+		return module.ServiceUnknown
+	case s == "active" || s == "reloading" || s == "activating":
+		return module.ServiceRunning
+	case s == "failed":
+		return module.ServiceFailed
+	default:
+		return module.ServiceStopped
+	}
+}

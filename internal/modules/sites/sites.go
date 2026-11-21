@@ -52,6 +52,11 @@ type Module struct {
 	Log     *slog.Logger
 	// PanelPort is never given to apps or streams.
 	PanelPort int
+	// Certs and Backups add each site's certificate and backups to the
+	// views; Modules tells whether their modules are on. Nil: left out.
+	Certs   module.CertLookup
+	Backups module.BackupLookup
+	Modules module.Enabler
 
 	health healthState
 }
@@ -135,6 +140,10 @@ type siteView struct {
 	// Drift is true when the helper's applied spec differs from this one
 	// (a change failed, or the helper's state was lost).
 	Drift bool `json:"drift"`
+	// Cert is the certificate TLS names, when it exists.
+	Cert *module.CertInfo `json:"cert,omitempty"`
+	// Backup is how the site is backed up; nil when no plan includes it.
+	Backup *module.SiteBackup `json:"backup,omitempty"`
 }
 
 type listResponse struct {
@@ -150,6 +159,9 @@ type listResponse struct {
 	Sites []siteView `json:"sites"`
 	// Systemd is false where apps cannot run.
 	Systemd bool `json:"systemd"`
+	// Backups is true when the sites' backups are included (the backups
+	// module is on and could be asked).
+	Backups bool `json:"backups"`
 }
 
 type rewritesResponse struct {
@@ -244,7 +256,63 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
+	resp.Backups = m.decorate(r, resp.Sites)
 	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+// decorate adds each site's certificate and backups from the modules that
+// own them, and reports whether the backups could be included.
+func (m *Module) decorate(r *http.Request, views []siteView) (backups bool) {
+	on := func(id string) bool { return m.Modules == nil || m.Modules.Enabled(id) }
+	if m.Certs != nil && on("certs") {
+		var ids []string
+		for _, v := range views {
+			if v.TLS != nil && v.TLS.Cert != "" {
+				ids = append(ids, v.TLS.Cert)
+			}
+		}
+		certs, err := m.Certs.CertInfo(r.Context(), ids)
+		if err != nil {
+			m.Log.Warn("site certificates unavailable", "err", err)
+		}
+		for i := range views {
+			if tls := views[i].TLS; tls != nil {
+				if c, ok := certs[tls.Cert]; ok {
+					views[i].Cert = &c
+				}
+			}
+		}
+	}
+	if m.Backups != nil && on("backups") {
+		found, err := m.Backups.SiteBackups(r)
+		if err != nil {
+			m.Log.Warn("site backups unavailable", "err", err)
+			return false
+		}
+		for i := range views {
+			if b, ok := found[views[i].Code]; ok {
+				views[i].Backup = &b
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// Summarize implements module.Summarizer: sites whose last change failed.
+func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (module.Summary, error) {
+	if !can(Read) {
+		return module.Summary{}, nil
+	}
+	var failed int
+	if err := m.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM sites WHERE state = ?`, StateFailed).Scan(&failed); err != nil {
+		return module.Summary{}, err
+	}
+	if failed == 0 {
+		return module.Summary{}, nil
+	}
+	return module.Summary{Notices: []module.Check{{Code: "sites.failed", Status: module.StatusBad, Route: "sites",
+		Params: map[string]any{"count": failed}}}}, nil
 }
 
 func (m *Module) rewrites(w http.ResponseWriter, _ *http.Request) error {
@@ -258,7 +326,9 @@ func (m *Module) get(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	st, known := m.status(r.Context(), r)
-	return api.WriteJSON(w, http.StatusOK, view(rw, st.Sites, known))
+	v := []siteView{view(rw, st.Sites, known)}
+	m.decorate(r, v)
+	return api.WriteJSON(w, http.StatusOK, v[0])
 }
 
 var codeJunk = regexp.MustCompile(`[^a-z0-9]+`)

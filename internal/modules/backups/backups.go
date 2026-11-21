@@ -868,3 +868,111 @@ func (m *Module) Check(ctx context.Context) {
 			Params: map[string]any{"plan": p.id, "name": p.name, "code": code}})
 	}
 }
+
+// overview and sites ---------------------------------------------------------
+
+type planRuns struct {
+	id      string
+	targets []helperapi.BackupTarget
+	runs    []helperapi.BackupRun // newest first
+}
+
+// allRuns lists every plan with its runs; the runs of a plan the helper
+// cannot report stay empty.
+func (m *Module) allRuns(r *http.Request) ([]planRuns, error) {
+	rows, err := m.DB.QueryContext(r.Context(), `SELECT id, spec FROM backup_plans ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	var plans []planRuns
+	for rows.Next() {
+		var p planRuns
+		var spec string
+		if err := rows.Scan(&p.id, &spec); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		var s helperapi.BackupPlan
+		if json.Unmarshal([]byte(spec), &s) == nil {
+			p.targets = s.Targets
+		}
+		plans = append(plans, p)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range plans {
+		var runs helperapi.BackupRuns
+		if err := m.call(r, helperapi.ActionBackupRuns, helperapi.PlanRef{Plan: plans[i].id}, &runs); err == nil {
+			plans[i].runs = runs.Runs
+		} else if r.Context().Err() != nil {
+			return nil, r.Context().Err()
+		}
+	}
+	return plans, nil
+}
+
+func runFailed(run helperapi.BackupRun) bool {
+	return run.Finished > 0 && !run.OK
+}
+
+// Summarize implements module.Summarizer: plans whose last run failed.
+func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (module.Summary, error) {
+	if !can(Read) {
+		return module.Summary{}, nil
+	}
+	plans, err := m.allRuns(r)
+	if err != nil {
+		return module.Summary{}, err
+	}
+	failed := 0
+	for _, p := range plans {
+		if len(p.runs) > 0 && runFailed(p.runs[0]) {
+			failed++
+		}
+	}
+	if failed == 0 {
+		return module.Summary{}, nil
+	}
+	return module.Summary{Notices: []module.Check{{Code: "backups.failed", Status: module.StatusBad, Route: "backups",
+		Params: map[string]any{"count": failed}}}}, nil
+}
+
+// SiteBackups implements module.BackupLookup.
+func (m *Module) SiteBackups(r *http.Request) (map[string]module.SiteBackup, error) {
+	plans, err := m.allRuns(r)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]module.SiteBackup{}
+	lastFailed := map[string]int64{}
+	for _, p := range plans {
+		var okAt, failedAt int64
+		for _, run := range p.runs {
+			switch {
+			case run.OK && run.Finished > okAt:
+				okAt = run.Finished
+			case runFailed(run) && run.Started > failedAt:
+				failedAt = run.Started
+			}
+		}
+		for _, t := range p.targets {
+			if t.Kind != helperapi.BackupSite {
+				continue
+			}
+			b := out[t.Site]
+			b.Plans = append(b.Plans, p.id)
+			b.LastOKAt = max(b.LastOKAt, okAt)
+			lastFailed[t.Site] = max(lastFailed[t.Site], failedAt)
+			out[t.Site] = b
+		}
+	}
+	for site, b := range out {
+		if f := lastFailed[site]; f > b.LastOKAt {
+			b.LastFailedAt = f
+			out[site] = b
+		}
+	}
+	return out, nil
+}

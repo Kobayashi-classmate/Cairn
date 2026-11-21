@@ -1111,3 +1111,88 @@ func (m *Module) Check(ctx context.Context, now time.Time) {
 		}
 	}
 }
+
+// overview -------------------------------------------------------------------
+
+// Summarize implements module.Summarizer: the certificate the panel serves,
+// and certificates that expire soon or failed.
+func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (module.Summary, error) {
+	if !can(Read) {
+		return module.Summary{}, nil
+	}
+	st, known := m.status(r.Context(), r)
+	rows, err := m.DB.QueryContext(r.Context(), `SELECT id, name, state, not_after FROM certificates`)
+	if err != nil {
+		return module.Summary{}, err
+	}
+	defer rows.Close()
+	now := time.Now()
+	var sum module.Summary
+	var expiring, failed int
+	var soonest int64
+	for rows.Next() {
+		var id, name, state string
+		var notAfter int64
+		if err := rows.Scan(&id, &name, &state, &notAfter); err != nil {
+			return module.Summary{}, err
+		}
+		if known && id == st.Panel {
+			sum.Checks = append(sum.Checks, module.Check{Code: "certs.panel", Status: module.StatusOK, Route: "certs",
+				Params: map[string]any{"name": name, "notAfter": notAfter}})
+		}
+		info, used := st.Certs[id]
+		inUse := !known || (used && (len(info.Sites) > 0 || info.Panel))
+		switch {
+		case state == StateFailed:
+			failed++
+		case state == StateValid && notAfter > 0 && inUse && time.Unix(notAfter, 0).Sub(now) < WarnBefore:
+			expiring++
+			if soonest == 0 || notAfter < soonest {
+				soonest = notAfter
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return module.Summary{}, err
+	}
+	if known && st.Panel == "" {
+		sum.Checks = append(sum.Checks, module.Check{Code: "certs.panel_self_signed", Status: module.StatusWarn, Route: "certs"})
+	}
+	if expiring > 0 {
+		sum.Notices = append(sum.Notices, module.Check{Code: "certs.expiring", Status: module.StatusWarn, Route: "certs",
+			Params: map[string]any{"count": expiring, "soonest": soonest}})
+	}
+	if failed > 0 {
+		sum.Notices = append(sum.Notices, module.Check{Code: "certs.failed", Status: module.StatusBad, Route: "certs",
+			Params: map[string]any{"count": failed}})
+	}
+	return sum, nil
+}
+
+// CertInfo implements module.CertLookup.
+func (m *Module) CertInfo(ctx context.Context, ids []string) (map[string]module.CertInfo, error) {
+	out := map[string]module.CertInfo{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	list, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := m.DB.QueryContext(ctx, `SELECT id, name, state, not_after, auto_renew FROM certificates
+		WHERE id IN (SELECT value FROM json_each(?))`, string(list))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var c module.CertInfo
+		var auto int
+		if err := rows.Scan(&c.ID, &c.Name, &c.State, &c.NotAfter, &auto); err != nil {
+			return nil, err
+		}
+		c.AutoRenew = auto == 1
+		out[c.ID] = c
+	}
+	return out, rows.Err()
+}

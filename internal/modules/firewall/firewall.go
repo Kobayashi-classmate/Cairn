@@ -340,3 +340,28 @@ func (m *Module) Check(ctx context.Context) {
 	m.Events.Publish(events.Event{Type: events.FirewallRolledBack, Level: events.Warning,
 		Params: map[string]any{"kind": st.LastRollback.Kind}, DedupeKey: "firewall.rollback:" + st.LastRollback.ID})
 }
+
+// Summarize implements module.Summarizer: whether the firewall is on.
+func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (module.Summary, error) {
+	if !can(Read) {
+		return module.Summary{}, nil
+	}
+	st, err := m.helperStatus(r.Context(), callerOf(r))
+	if err != nil {
+		return module.Summary{}, err
+	}
+	c := module.Check{Route: "firewall"}
+	switch {
+	case !st.Systemd || st.Backend == "":
+		c.Code, c.Status = "firewall.unavailable", module.StatusWarn
+	case st.Conflict != "":
+		c.Code, c.Status, c.Params = "firewall.conflict", module.StatusBad, map[string]any{"conflict": st.Conflict}
+	case st.Enabled && st.Loaded:
+		c.Code, c.Status, c.Params = "firewall.on", module.StatusOK, map[string]any{"backend": st.Backend, "rules": len(st.Rules)}
+	case st.Enabled:
+		c.Code, c.Status, c.Params = "firewall.not_loaded", module.StatusBad, map[string]any{"backend": st.Backend}
+	default:
+		c.Code, c.Status, c.Params = "firewall.off", module.StatusWarn, map[string]any{"backend": st.Backend}
+	}
+	return module.Summary{Checks: []module.Check{c}}, nil
+}

@@ -284,3 +284,30 @@ func (m *Module) restore(w http.ResponseWriter, r *http.Request) error {
 	}
 	return m.start(w, r, "host.sources_restore", map[string]any{"backup": q.ID}, helperapi.ActionSysSourcesRestore, q)
 }
+
+// Summarize implements module.Summarizer: updates waiting to be installed
+// and a reboot the system asks for.
+func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (module.Summary, error) {
+	if !can(Read) {
+		return module.Summary{}, nil
+	}
+	var st helperapi.HostStatus
+	if err := m.call(r.Context(), r, helperapi.ActionHostStatus, nil, &st, 30*time.Second); err != nil {
+		return module.Summary{}, err
+	}
+	var sum module.Summary
+	if n := len(st.Updates.Packages); n > 0 {
+		security := 0
+		for _, p := range st.Updates.Packages {
+			if p.Security {
+				security++
+			}
+		}
+		sum.Notices = append(sum.Notices, module.Check{Code: "host.updates", Status: module.StatusWarn, Route: "host",
+			Params: map[string]any{"count": n, "security": security}})
+	}
+	if st.RebootRequired {
+		sum.Notices = append(sum.Notices, module.Check{Code: "host.reboot", Status: module.StatusWarn, Route: "host"})
+	}
+	return sum, nil
+}

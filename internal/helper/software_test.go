@@ -199,9 +199,14 @@ func TestInstallSystemLineAndStatus(t *testing.T) {
 		t.Fatal("a system line must not add repository files")
 	}
 
+	f.systemctlShow = "LoadState=loaded\nActiveState=active\n"
 	st, err := s.Status(context.Background())
 	if err != nil || len(st.Installed["php"]["8.4"]) != 2 || len(st.Installed["php"]) != 1 {
 		t.Fatalf("status: %+v %v", st, err)
+	}
+	// The installed line's service is reported with its state.
+	if len(st.Services) != 1 || st.Services["php8.4-fpm"] != "active" || !f.ran("query systemctl show --property=LoadState,ActiveState -- php8.4-fpm") {
+		t.Fatalf("services: %+v %v", st.Services, f.cmds)
 	}
 
 	// Removing keeps configuration and data (remove, not purge).
@@ -363,5 +368,16 @@ func TestLineMatches(t *testing.T) {
 	}
 	if !lineMatches("1:10.11.6-0+deb12u1", "10.11") || lineMatches("16.4-1", "1") {
 		t.Error("epoch or prefix handling")
+	}
+}
+
+func TestParseUnitStates(t *testing.T) {
+	out := "LoadState=loaded\nActiveState=active\n\nLoadState=not-found\nActiveState=inactive\n\nLoadState=loaded\nActiveState=failed\n"
+	got := parseUnitStates(out, []string{"nginx", "missing", "mariadb"})
+	if len(got) != 2 || got["nginx"] != "active" || got["mariadb"] != "failed" {
+		t.Fatalf("states: %v", got)
+	}
+	if got := parseUnitStates("", []string{"nginx"}); len(got) != 0 {
+		t.Fatalf("empty output: %v", got)
 	}
 }
