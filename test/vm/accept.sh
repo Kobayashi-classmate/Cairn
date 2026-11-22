@@ -177,6 +177,52 @@ follow POST "/api/v1/backups/plans/$plan/restore" "{\"name\":\"$site_file\",\"de
 grep -rq "php site" /srv/www/restored || fail "restored site: $(find /srv/www/restored | head -20)"
 step "backup plan: site and database to the bucket and locally; the site restored into /srv/www/restored"
 
+# Installed lines: services, a PHP extension and configuration files, with
+# systemd. A restart that fails with a broken file puts the old one back.
+api "$base/api/v1/databases" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+shop = [x for e in d["engines"] if e["id"] == "mysql" for x in e["databases"] if x["name"] == "shop"][0]
+assert d["backups"] and shop.get("backup", {}).get("lastOkAt"), shop' || fail "database backup column: $(api "$base/api/v1/databases")"
+nginx_line=$(recommended nginx)
+follow POST /api/v1/software/nginx/service "{\"line\":\"$nginx_line\",\"action\":\"restart\"}"
+systemctl is-active --quiet nginx || fail "nginx after restart"
+follow POST "/api/v1/software/php/lines/$php/extensions" '{"install":["intl"]}'
+php_fpm=$(api "$base/api/v1/software" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+o = [o for s in d["software"] if s["id"] == "php" for o in s["offers"] if o["line"] == sys.argv[1]][0]
+print(o["units"][0]["name"], o["units"][0]["state"])' "$php")
+[ "${php_fpm#* }" = running ] || fail "PHP-FPM after the extension: $php_fpm"
+api "$base/api/v1/software/php/lines/$php/extensions" | json '[e for e in d["extensions"] if e["id"] == "intl"][0]' | grep_q "'loaded': True" || fail "intl not loaded"
+grep_q "Reloading\|systemctl reload" /root/job.log || fail "PHP-FPM not reloaded: $(tail -5 /root/job.log)"
+save_config() { # software line config content-file -> sets job_state
+	local url="/api/v1/software/$1/lines/$2/configs/$3" sha body
+	sha=$(api "$base$url" | json 'd["sha256"]') || fail "read $3"
+	body=$(python3 -c 'import json,sys; print(json.dumps({"content": open(sys.argv[1]).read(), "base": sys.argv[2]}))' "$4" "$sha")
+	follow PUT "$url" "$body"
+}
+cp /etc/nginx/nginx.conf /root/nginx.conf.new && printf '\n# acceptance\n' >>/root/nginx.conf.new
+save_config nginx "$nginx_line" nginx.conf /root/nginx.conf.new
+grep_q "systemctl reload nginx" /root/job.log || fail "nginx not reloaded: $(tail -5 /root/job.log)"
+out=$(curl -s --cacert /root/pebble-root.pem --resolve site.test:443:127.0.0.1 https://site.test/)
+[ "$out" = "php site, uploads=yes" ] || fail "PHP site after the nginx.conf change: $out"
+redis_line=$(recommended $redis_sw) redis_conf=/etc/redis/redis.conf redis_unit=$(api "$base/api/v1/databases" | json '[e for e in d["engines"] if e["id"] == "redis"][0]["service"]')
+[ "$redis_sw" = valkey ] && redis_conf=/etc/valkey/valkey.conf
+cp "$redis_conf" /root/redis.orig && { cat /root/redis.orig; printf 'bogus_directive 1\n'; } >/root/redis.bad
+url="/api/v1/software/$redis_sw/lines/$redis_line/configs/$(basename "$redis_conf")"
+r=$(api -X PUT "$base$url" -d "$(python3 -c 'import json,sys; print(json.dumps({"content": open(sys.argv[1]).read(), "base": sys.argv[2]}))' /root/redis.bad "$(api "$base$url" | json 'd["sha256"]')")")
+id=$(printf '%s' "$r" | json 'd["job"]["id"]') || fail "redis config not started: $r"
+for _ in $(seq 120); do
+	state=$(api "$base/api/v1/jobs/$id" | json 'd["job"]["state"] if "job" in d else d["state"]')
+	case "$state" in succeeded | failed) break ;; esac
+	sleep 1
+done
+[ "$state" = failed ] || fail "a broken $redis_conf was applied: $state"
+cmp -s /root/redis.orig "$redis_conf" || fail "$redis_conf not put back"
+systemctl is-active --quiet "$redis_unit" || fail "$redis_unit not running after the rollback"
+step "installed lines: nginx restarted, PHP $php has intl (PHP-FPM reloaded), nginx.conf saved and reloaded, a broken $(basename "$redis_conf") rolled back with $redis_unit running"
+
 # The firewall: changes confirmed over a new connection; SSH stays
 # reachable (run.sh logs in again afterwards).
 change() { # method path body -> confirms the pending change
