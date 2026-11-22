@@ -39,9 +39,28 @@ in=dist/release-in
 rm -rf "$rel" "$feed" "$in"
 mkdir -p "$rel" "$feed" "$in"
 pkgs=${PKG_DIR:-dist}
+# The packages spell a pre-release with "~" (0.2.0~beta.1), as the Makefile
+# builds them, so that apt and rpm sort it before 0.2.0.
+pkg_version=$(printf '%s' "$VERSION" | sed -E 's/-(alpha|beta|rc)\./~\1./')
 # Package release "1" (packaging/nfpm.yaml); exact names, so that 0.2.0 does
-# not also pick up 0.2.0-beta.1.
-cp "$pkgs"/cairn_"$VERSION"-1_*.deb "$pkgs"/cairn-"$VERSION"-1.*.rpm "$rel"/
+# not also pick up 0.2.0~beta.1.
+cp "$pkgs"/cairn_"$pkg_version"-1_*.deb "$pkgs"/cairn-"$pkg_version"-1.*.rpm "$rel"/
+# GitHub renames release assets with special characters such as "~", which
+# would break the names in SHA256SUMS and the feed: the files are uploaded
+# as 0.2.0-beta.1 (the version inside the packages keeps its "~").
+for f in "$rel"/*~*; do
+	[ -e "$f" ] || continue
+	mv "$f" "$(printf '%s' "$f" | tr '~' -)"
+done
+
+# A stable release's installer refuses to install anything older without
+# --version (a mirror could otherwise serve an older signed release as the
+# newest). A pre-release's installer does not: "latest" is then the stable
+# release before it, and sort -V orders pre-releases after their release.
+minver=""
+if printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+	minver="-version $VERSION"
+fi
 
 # Inputs are copied next to the outputs so that one bind mount is enough.
 keys=""
@@ -67,7 +86,7 @@ docker run --rm -v "$PWD:/src" -w /src -v "$key_dir:/key:ro" \
 	-e GOPROXY="$GOPROXY" -e CGO_ENABLED=0 -e GOFLAGS=-buildvcs=false "$GO_IMAGE" sh -euc "
 	go build -o /tmp/release ./tools/release
 	r=/tmp/release
-	\$r installer $keys -in packaging/install.sh -out $rel/install.sh
+	\$r installer $keys $minver -in packaging/install.sh -out $rel/install.sh
 	\$r sums -out $rel/SHA256SUMS $rel/*.deb $rel/*.rpm $rel/install.sh
 	\$r sign -key $key $rel/SHA256SUMS
 	\$r releases $keys $opts -version $VERSION -assets-url $ASSETS_URL -out $feed/releases.json $rel/*.deb $rel/*.rpm

@@ -78,3 +78,6 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   address.
 - The audit log filters by result and time range, and the jobs list by
   status and kind, over the whole history rather than the loaded page.
+- Installing the package by hand prints how to get the one-time setup link
+  (`sudo cairn setup-link`) rather than the link itself, which would stay
+  in the package manager's logs. The online installer prints the link.

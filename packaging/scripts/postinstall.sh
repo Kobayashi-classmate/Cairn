@@ -44,6 +44,21 @@ if ! getent passwd cairn >/dev/null 2>&1; then
 	useradd --system --gid cairn --home-dir /var/lib/cairn --no-create-home \
 		--shell "$shell" --comment "Cairn panel" cairn
 fi
+# The root helper extracts 7z and RAR archives as this account, in a unit of
+# its own, so that the extractor never runs as root or as a user whose
+# processes could outlive it. It owns nothing outside its scratch directory
+# (/var/lib/cairn-unpack, made by the helper when needed).
+if ! getent group cairn-unpack >/dev/null 2>&1; then
+	groupadd --system cairn-unpack
+fi
+if ! getent passwd cairn-unpack >/dev/null 2>&1; then
+	shell=/bin/false
+	for s in /usr/sbin/nologin /sbin/nologin; do
+		if [ -x "$s" ]; then shell=$s; break; fi
+	done
+	useradd --system --gid cairn-unpack --home-dir /nonexistent --no-create-home \
+		--shell "$shell" --comment "Cairn archive extraction" cairn-unpack
+fi
 
 install -d -m 0750 -o root -g cairn /etc/cairn
 install -d -m 0700 -o cairn -g cairn /var/lib/cairn
@@ -85,19 +100,34 @@ if command -v selinuxenabled >/dev/null 2>&1 && selinuxenabled; then
 	chcon -R -t bin_t /usr/lib/cairn >/dev/null 2>&1 || true
 fi
 
+# Installed again after a remove that kept the data (a deb without purge
+# arrives here as an upgrade, an rpm as a first install): preremove.sh listed
+# the units that were enabled then, scheduled tasks and the firewall included.
+reenable=/var/lib/cairn-helper/enabled-before-remove
 if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload
 	if [ "$first_install" = 1 ]; then
 		systemctl enable --now cairn-helper.socket cairn-web.service
-	else
+	fi
+	if [ -s "$reenable" ]; then
+		while read -r u; do
+			case "$u" in cairn-*.service | cairn-*.socket | cairn-cron-*.timer) ;; *) continue ;; esac
+			systemctl enable --now "$u" >/dev/null 2>&1 || true
+		done <"$reenable"
+	elif [ "$first_install" != 1 ]; then
 		systemctl try-restart cairn-helper.service cairn-web.service
 	fi
 fi
+rm -f "$reenable"
 
+
+# Only how to get the setup link: the link itself would be kept in the
+# package manager's logs (apt's term.log is readable by the adm group) while
+# it is valid. install.sh prints the link after the package is installed.
 if [ "$first_install" = 1 ]; then
 	lang=$(sed -n 's/^default_locale *= *"\(.*\)"/\1/p' /etc/cairn/config.toml)
 	echo
-	/usr/bin/cairn setup-link --lang "${lang:-en}" || true
+	/usr/bin/cairn setup-link --hint --lang "${lang:-en}" || true
 	echo
 fi
 exit 0

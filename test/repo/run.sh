@@ -23,7 +23,12 @@ docker run --rm -v "$work:/k" debian:trixie sh -euc '
 	gpg --batch --passphrase "" --quick-gen-key "Cairn Test Key <test@cairn.invalid>" rsa3072 sign 1d >/dev/null 2>&1
 	gpg --batch --armor --export-secret-keys >/k/signing.asc'
 
-OUT="$work/repo" CAIRN_SIGNING_KEY="$work/signing.asc" CAIRN_REPO_URL=http://cairn-repo sh scripts/build-repo.sh
+# The version of the packages built for the test (a development build).
+version=$(ls dist/cairn_*-1_amd64.deb | head -1)
+version=${version#dist/cairn_}
+version=${version%-1_amd64.deb}
+OUT="$work/repo" CAIRN_SIGNING_KEY="$work/signing.asc" CAIRN_REPO_URL=http://cairn-repo \
+	VERSION="$version" ALLOW_DEV_VERSION=1 sh scripts/build-repo.sh
 
 docker network create $net >/dev/null
 docker run -d --name cairn-repo --network $net -v "$work/repo:/srv:ro" python:3.12-slim \

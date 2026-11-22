@@ -52,9 +52,16 @@ func main() {
 		fmt.Println(buildinfo.Version)
 		return
 	case "setup-link":
-		app, err = newCLI("setup-link", args, nil)
+		var hint bool
+		app, err = newCLI("setup-link", args, func(f *flag.FlagSet) {
+			f.BoolVar(&hint, "hint", false, "only say how to get the link (no link is made); prints nothing once setup is done")
+		})
 		if err == nil {
-			err = app.setupLink()
+			if hint {
+				err = app.setupHint()
+			} else {
+				err = app.setupLink()
+			}
 		}
 	case "reset-password":
 		var username string
@@ -170,6 +177,18 @@ func dropPrivileges() error {
 }
 
 func (c *cli) t(id string, data map[string]any) string { return c.catalog.T(c.locale, id, data) }
+
+// setupHint tells how to get the setup link, for the package's post-install
+// script: the link itself would end up in the package manager's logs
+// (/var/log/apt/term.log is readable by the adm group) while it is valid.
+func (c *cli) setupHint() error {
+	n, err := auth.CountUsers(context.Background(), c.db)
+	if err != nil || n > 0 {
+		return err
+	}
+	fmt.Println(c.t("cli.setup_link.hint", nil))
+	return nil
+}
 
 func (c *cli) setupLink() error {
 	ctx := context.Background()

@@ -71,6 +71,11 @@ overrides:
   rpm:
     depends:
       - shadow-utils
+    # semanage, so that the helper's SELinux label (bin_t, postinstall.sh)
+    # survives a relabel; without it only chcon is used, which a relabel
+    # undoes. A weak dependency: dnf installs it by default.
+    recommends:
+      - policycoreutils-python-utils
 
 scripts:
   postinstall: packaging/scripts/postinstall.sh

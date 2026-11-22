@@ -91,6 +91,19 @@ func TestInstallerFillsKeys(t *testing.T) {
 	if err := run([]string{"installer", "-keys", empty, "-in", tmpl, "-out", out}, io.Discard); err == nil {
 		t.Fatal("empty key list accepted")
 	}
+
+	// -version fills the minimum version the installer takes without --version.
+	withMin := write(t, filepath.Join(dir, "min.sh"), "#!/bin/sh\nTRUSTED_KEYS=\"\"\nMIN_VERSION=\"\"\n")
+	must(t, run([]string{"installer", "-keys", keys, "-version", "0.3.0", "-in", withMin, "-out", out}, io.Discard))
+	if data, _ := os.ReadFile(out); !strings.Contains(string(data), "\nMIN_VERSION=\"0.3.0\"\n") {
+		t.Fatalf("minimum version not filled in:\n%s", data)
+	}
+	if err := run([]string{"installer", "-keys", keys, "-version", "0.3.0", "-in", tmpl, "-out", out}, io.Discard); err == nil {
+		t.Fatal("-version accepted for a template without MIN_VERSION")
+	}
+	if err := run([]string{"installer", "-keys", keys, "-version", "v0.3", "-in", withMin, "-out", out}, io.Discard); err == nil {
+		t.Fatal("malformed -version accepted")
+	}
 }
 
 func TestReleasesIndex(t *testing.T) {

@@ -6,6 +6,7 @@
 "cli.setup_link.already_done" = "Setup is already complete. If you lost the administrator password, run: cairn reset-password"
 "cli.setup_link.intro" = "Open one of these links within {{.Minutes}} minutes to create the administrator account:"
 "cli.setup_link.cert_note" = "Cairn starts with a self-signed certificate, so your browser will show a security warning. Make sure the address is correct before you continue."
+"cli.setup_link.hint" = "To create the administrator account, get a one-time setup link with: sudo cairn setup-link"
 "cli.reset_password.done" = "The password of {{.Username}} has been reset. New password: {{.Password}}"
 "cli.reset_password.sessions_revoked" = "All signed-in sessions of this user have been signed out."
 "cli.reset_password.no_user" = "There is no user named {{.Username}}."

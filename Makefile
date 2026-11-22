@@ -72,9 +72,13 @@ check: vet test check-cjk
 
 ## package: build .deb and .rpm packages for $(ARCH) into dist/
 # nfpm does not expand variables in file sources, so render the config first.
+# A pre-release such as 0.2.0-beta.1 is packaged as 0.2.0~beta.1, which apt
+# and rpm sort before 0.2.0 (with "-" they would sort it after the release).
+PKG_VERSION = $(shell printf '%s' '$(VERSION)' | sed -E 's/-(alpha|beta|rc)\./~\1./')
+
 package:
 	mkdir -p $(DIST)
-	sed -e 's|$${ARCH}|$(ARCH)|g' -e 's|$${VERSION}|$(VERSION)|g' -e 's|$${DIST}|$(DIST)|g' \
+	sed -e 's|$${ARCH}|$(ARCH)|g' -e 's|$${VERSION}|$(PKG_VERSION)|g' -e 's|$${DIST}|$(DIST)|g' \
 		packaging/nfpm.yaml > $(DIST)/nfpm-$(ARCH).yaml
 	for p in deb rpm; do \
 		docker run --rm -v $(CURDIR):/src -w /src $(NFPM_IMAGE) \

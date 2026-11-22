@@ -12,7 +12,9 @@ Type=simple
 ExecStart=/usr/lib/cairn/cairn-helper
 Restart=on-failure
 RestartSec=2
-PrivateTmp=yes
+# No PrivateTmp: the file manager works in the helper, and with the whole
+# disk opened it must show the real /tmp and /var/tmp. The helper's own temp
+# files use random names (os.CreateTemp), which is safe in a shared /tmp.
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectClock=yes

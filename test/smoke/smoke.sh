@@ -4,7 +4,7 @@
 # Runs inside a throwaway container of one target distribution (see run.sh).
 # Installs the package and exercises the first-run flow end to end without
 # systemd as PID 1: the root helper and the web server are started by hand,
-# the administrator is created through the setup link printed by the package,
+# the administrator is created through a setup link from `cairn setup-link`,
 # and the API is driven with curl. Finally the package is removed.
 set -euo pipefail
 # grep_q is "grep -q" that reads all of its input: with pipefail, grep -q
@@ -39,12 +39,19 @@ fi
 step "package installed"
 
 grep -q "useradd: Warning" /tmp/install.log && fail "useradd warned during install"
-grep -q "https://.*/setup?token=" /tmp/install.log || fail "setup link not printed by the package"
-token=$(grep -o 'token=[A-Za-z0-9_-]*' /tmp/install.log | head -1 | cut -d= -f2)
-step "setup link printed"
+# The package says how to get the setup link but does not print it (package
+# manager logs keep the output); the link comes from the CLI, as install.sh does.
+grep -q "token=" /tmp/install.log && fail "the package printed the setup token into the install log"
+grep -q "cairn setup-link" /tmp/install.log || fail "the package did not say how to get the setup link"
+cairn setup-link >/tmp/setup-link.log 2>&1 || fail "cairn setup-link"
+token=$(grep -o 'token=[A-Za-z0-9_-]*' /tmp/setup-link.log | head -1 | cut -d= -f2)
+[ -n "$token" ] || fail "no setup link from cairn setup-link"
+step "setup hint printed; setup link from the CLI"
 
 [ "$(stat -c '%U:%G %a' /etc/cairn/config.toml)" = "root:cairn 640" ] || fail "config ownership/mode"
 [ "$(stat -c '%U:%G %a' /var/lib/cairn)" = "cairn:cairn 700" ] || fail "data dir ownership/mode"
+# The account the helper extracts 7z and RAR archives as: no login shell.
+getent passwd cairn-unpack | grep -Eq ':(/usr/sbin/nologin|/sbin/nologin|/bin/false)$' || fail "cairn-unpack account"
 grep -q "default_locale = \"$INSTALL_LANG\"" /etc/cairn/config.toml || fail "install language not applied"
 port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 { [ "$port" -ge 20000 ] && [ "$port" -lt 60000 ]; } || fail "port $port out of range"
@@ -143,7 +150,17 @@ if [ "${SMOKE_SYSTEMD_VERIFY:-0}" = 1 ]; then
 			dnf install -y -q systemd >/tmp/systemd-install.log 2>&1 || fail "installing systemd for verification"
 		fi
 	fi
+	# The nftables units (firewall, port forwards on ufw systems) name
+	# /usr/sbin/nft, which verify wants to exist.
+	if ! command -v nft >/dev/null; then
+		if [ "$family" = deb ]; then
+			apt-get install -y -qq nftables >/tmp/nft-install.log 2>&1 || fail "installing nftables for verification"
+		else
+			dnf install -y -q nftables >/tmp/nft-install.log 2>&1 || fail "installing nftables for verification"
+		fi
+	fi
 	units="/usr/lib/systemd/system/cairn-helper.socket /usr/lib/systemd/system/cairn-helper.service /usr/lib/systemd/system/cairn-web.service"
+	units="$units /usr/lib/systemd/system/cairn-firewall.service /usr/lib/systemd/system/cairn-forward.service"
 	# No output means no findings; a container without systemd as PID 1 adds
 	# harmless working-directory noise, which is filtered out.
 	# shellcheck disable=SC2086

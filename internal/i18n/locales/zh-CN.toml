@@ -5,6 +5,7 @@
 "cli.setup_link.already_done" = "初始化已经完成。如果忘记了管理员密码，请运行：cairn reset-password"
 "cli.setup_link.intro" = "请在 {{.Minutes}} 分钟内打开下面任意一个链接，创建管理员账号："
 "cli.setup_link.cert_note" = "Cairn 首次使用自签名证书，浏览器会显示安全警告。请确认地址无误后再继续。"
+"cli.setup_link.hint" = "要创建管理员账号，请运行 sudo cairn setup-link 获取一次性的初始化链接。"
 "cli.reset_password.done" = "已重置 {{.Username}} 的密码。新密码：{{.Password}}"
 "cli.reset_password.sessions_revoked" = "该用户所有已登录的会话都已退出。"
 "cli.reset_password.no_user" = "不存在名为 {{.Username}} 的用户。"

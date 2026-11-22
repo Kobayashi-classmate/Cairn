@@ -36,6 +36,10 @@ set -eu
 # Filled in when the installer is published: by tools/release (release files,
 # ed25519 keys) and by scripts/build-repo.sh (repository mode, OpenPGP key).
 TRUSTED_KEYS=""
+# The release this installer was published with: without --version, an
+# older one is refused (a mirror could otherwise serve an older signed
+# release as the newest). Filled in by tools/release.
+MIN_VERSION=""
 MODE="release"
 REPO_URL_DEFAULT="@REPO_URL@"
 KEY_FINGERPRINT="@KEY_FINGERPRINT@"
@@ -88,11 +92,16 @@ msg() {
 			no_download) text='需要 curl 或 wget 来下载 Cairn。' ;;
 			download_failed) text='下载失败：%s' ;;
 			installing_openssl) text='正在安装 openssl，用于校验发布签名……' ;;
-			no_verifier) text='无法校验发布签名：需要 OpenSSL 3（EL 8 可从 EPEL 安装 openssl3），或者改用 --with-repo。' ;;
+			no_verifier) text='无法校验发布签名：需要 OpenSSL 3（EL 8 可从 EPEL 安装 openssl3），或者改用 Cairn 软件源自带的 install.sh 安装。' ;;
 			bad_signature) text='发布文件的签名无效，已中止，没有安装任何东西。' ;;
 			no_package) text='该版本没有适用于本系统的软件包（%s，%s）。' ;;
 			bad_checksum) text='下载的软件包与签名的校验值不一致，已中止，没有安装任何东西。' ;;
 			key_mismatch) text='签名密钥的指纹不符（得到 %s，期望 %s），已中止安装。' ;;
+			too_old) text='镜像提供的最新版本 %s 比此安装程序发布时的 %s 还旧，已中止安装。如果确实要安装旧版本，请用 --version 指定。' ;;
+			no_repo_key) text='此安装程序不知道软件源的签名密钥，无法校验。请使用软件源自带的 install.sh，或者不加 --with-repo，改用签名的发布文件安装。' ;;
+			key_count) text='软件源的密钥文件里应当只有一个主密钥，实际有 %s 个，已中止安装。' ;;
+			installing_gpg) text='正在安装 gpg，用于校验软件源的签名密钥……' ;;
+			no_gpg) text='无法安装 gpg，不能校验软件源的签名密钥，已中止安装。' ;;
 			detected) text='检测到系统：%s（%s）' ;;
 			choose_lang) text='请选择面板默认语言（以后可以在面板里随时修改）：' ;;
 			lang_prompt) text='输入序号 [%s]：' ;;
@@ -121,11 +130,16 @@ msg() {
 			no_download) text='curl or wget is needed to download Cairn.' ;;
 			download_failed) text='Download failed: %s' ;;
 			installing_openssl) text='Installing openssl to check the release signature...' ;;
-			no_verifier) text='Cannot check the release signature: OpenSSL 3 is needed (on EL 8, install openssl3 from EPEL), or use --with-repo.' ;;
+			no_verifier) text='Cannot check the release signature: OpenSSL 3 is needed (on EL 8, install openssl3 from EPEL), or install with the install.sh of the Cairn package repository.' ;;
 			bad_signature) text='The release files are not signed by a trusted key; aborting. Nothing was installed.' ;;
 			no_package) text='The release has no package for this system (%s, %s).' ;;
 			bad_checksum) text='The downloaded package does not match the signed checksum; aborting. Nothing was installed.' ;;
 			key_mismatch) text='Signing key fingerprint mismatch (got %s, expected %s); aborting.' ;;
+			too_old) text='The newest version offered, %s, is older than the release this installer came with (%s); aborting. To install an older version on purpose, pass --version.' ;;
+			no_repo_key) text='This installer does not know the repository signing key, so it cannot check it. Use the install.sh of the repository, or leave out --with-repo to install from the signed release files.' ;;
+			key_count) text='The repository key file should hold exactly one primary key, not %s; aborting.' ;;
+			installing_gpg) text='Installing gpg to check the repository signing key...' ;;
+			no_gpg) text='gpg could not be installed, so the repository signing key cannot be checked; aborting.' ;;
 			detected) text='Detected system: %s (%s)' ;;
 			choose_lang) text='Choose the panel default language (you can change it in the panel at any time):' ;;
 			lang_prompt) text='Enter a number [%s]: ' ;;
@@ -146,6 +160,14 @@ msg() {
 	printf "$text" "$@"
 }
 
+# have_tty reports whether a terminal can be asked: /dev/tty may pass a
+# permission test and still fail to open without a controlling terminal
+# (cloud-init, CI, ssh without -t). The subshell matters: a failed
+# redirection on a special builtin ends the whole shell.
+have_tty() {
+	(: >/dev/tty) 2>/dev/null
+}
+
 say() {
 	msg "$@"
 	echo
@@ -161,16 +183,16 @@ die() {
 [ "$(id -u)" -eq 0 ] || die need_root
 [ "$CHECK_SYSTEMD" -eq 0 ] || [ -d /run/systemd/system ] || die need_systemd
 
+WANT_VERSION=${WANT_VERSION#v}
+if [ -n "$WANT_VERSION" ] &&
+	! printf '%s\n' "$WANT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+	die bad_version "$WANT_VERSION"
+fi
 if [ "$MODE" = repo ]; then
 	[ -n "$REPO_URL" ] && [ "$REPO_URL" != "@REPO_URL@" ] || die no_repo
 	BASE_URL=${REPO_URL%/}
 else
 	[ -n "$TRUSTED_KEYS" ] || die no_keys
-	WANT_VERSION=${WANT_VERSION#v}
-	if [ -n "$WANT_VERSION" ] &&
-		! printf '%s\n' "$WANT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-		die bad_version "$WANT_VERSION"
-	fi
 	BASE_URL=${RELEASES_URL%/}
 fi
 case "$BASE_URL" in http://*) say http_warning ;; esac
@@ -199,7 +221,7 @@ case "$CHOSEN_LANG" in
 		default=1
 		[ "$UI_LANG" = zh-CN ] && default=2
 		answer=""
-		if [ "$ASSUME_YES" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+		if [ "$ASSUME_YES" -eq 0 ] && have_tty; then
 			{
 				echo
 				msg choose_lang
@@ -304,6 +326,10 @@ install_from_release() {
 		[ "$version" != "$(printf '%s' "$WANT_VERSION" | tr - '~')" ]; then
 		die no_package "$family" "$arch"
 	fi
+	if [ -z "$WANT_VERSION" ] && [ -n "$MIN_VERSION" ] &&
+		[ "$(printf '%s\n%s\n' "$MIN_VERSION" "$(printf '%s' "$version" | tr '~' -)" | sort -V | head -1)" != "$MIN_VERSION" ]; then
+		die too_old "$version" "$MIN_VERSION"
+	fi
 
 	fetch "$rel_url/$name" "$tmp/$name"
 	printf '%s  %s\n' "$sum" "$tmp/$name" | sha256sum -c --status || die bad_checksum
@@ -331,14 +357,35 @@ install_from_release() {
 
 # ---- Repository mode -------------------------------------------------------
 
+# check_fingerprint refuses a repository key file unless it holds exactly
+# one primary key, with the fingerprint built into this installer: apt's
+# Signed-By and dnf's gpgkey trust every key in the file.
 check_fingerprint() { # keyfile
-	case "$KEY_FINGERPRINT" in "" | "@KEY_FINGERPRINT@") return 0 ;; esac
-	command -v gpg >/dev/null 2>&1 || return 0
-	got=$(gpg --show-keys --with-colons "$1" 2>/dev/null | awk -F: '/^fpr:/ {print $10; exit}')
+	case "$KEY_FINGERPRINT" in "" | "@KEY_FINGERPRINT@") die no_repo_key ;; esac
+	if ! command -v gpg >/dev/null 2>&1; then
+		# Minimal Debian and Ubuntu systems have gpgv only.
+		say installing_gpg
+		if [ "$family" = deb ]; then
+			{ apt-get update -qq && apt-get install -y -qq gpg; } >/dev/null 2>&1 || die no_gpg
+		else
+			dnf install -y -q gnupg2 >/dev/null 2>&1 || die no_gpg
+		fi
+	fi
+	keys=$(gpg --show-keys --with-colons "$1" 2>/dev/null) || die key_mismatch "?" "$KEY_FINGERPRINT"
+	count=$(printf '%s\n' "$keys" | grep -c '^pub:' || true)
+	[ "$count" = 1 ] || die key_count "$count"
+	got=$(printf '%s\n' "$keys" | awk -F: '/^pub:/ {primary = 1; next} primary && /^fpr:/ {print $10; exit}')
 	[ "$got" = "$KEY_FINGERPRINT" ] || die key_mismatch "${got:-?}" "$KEY_FINGERPRINT"
 }
 
 install_from_repo() {
+	# --version picks that package; pre-releases are spelled with "~" in
+	# packages (0.2.0~beta.1), so that apt and dnf sort them before 0.2.0.
+	pkg=cairn
+	if [ -n "$WANT_VERSION" ]; then
+		v=$(printf '%s' "$WANT_VERSION" | sed -E 's/-(alpha|beta|rc)\./~\1./')
+		if [ "$family" = deb ]; then pkg="cairn=$v-1"; else pkg="cairn-$v"; fi
+	fi
 	say adding_repo
 	if [ "$family" = deb ]; then
 		install -d -m 0755 /etc/apt/keyrings
@@ -356,7 +403,7 @@ EOF
 		export DEBIAN_FRONTEND=noninteractive
 		apt-get update
 		say installing "(repository)"
-		CAIRN_LANG=$CHOSEN_LANG apt-get install -y cairn
+		CAIRN_LANG=$CHOSEN_LANG apt-get install -y "$pkg"
 	else
 		# Fetch and check the key ourselves instead of letting dnf download it.
 		install -d -m 0755 /etc/pki/rpm-gpg
@@ -374,7 +421,7 @@ repo_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-cairn
 EOF
 		say installing "(repository)"
-		CAIRN_LANG=$CHOSEN_LANG dnf install -y cairn
+		CAIRN_LANG=$CHOSEN_LANG dnf install -y "$pkg"
 	fi
 }
 
@@ -396,7 +443,7 @@ setup_firewall() {
 	say fw_plan "$backend" "$ports"
 	[ -n "$install" ] && say fw_install "$install"
 	answer=""
-	if [ "$ASSUME_YES" -eq 0 ] && [ -r /dev/tty ] && [ -w /dev/tty ]; then
+	if [ "$ASSUME_YES" -eq 0 ] && have_tty; then
 		msg fw_prompt >/dev/tty
 		read -r answer </dev/tty || answer=""
 	fi
@@ -419,5 +466,9 @@ else
 fi
 setup_firewall
 
+# The setup link is printed here rather than by the package, whose output
+# the package manager logs.
+echo
+/usr/bin/cairn setup-link --lang "$CHOSEN_LANG" || true
 echo
 say done

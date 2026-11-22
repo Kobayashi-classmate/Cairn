@@ -292,14 +292,22 @@ func verify(args []string, out io.Writer) error {
 
 // ---- installer -------------------------------------------------------------
 
-var keysLine = regexp.MustCompile(`(?m)^TRUSTED_KEYS=""$`)
+var semverPattern = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$`)
 
-// installer fills the trusted keys into the online installer.
+var (
+	keysLine       = regexp.MustCompile(`(?m)^TRUSTED_KEYS=""$`)
+	minVersionLine = regexp.MustCompile(`(?m)^MIN_VERSION=""$`)
+)
+
+// installer fills the trusted keys into the online installer and, with
+// -version, the lowest version it installs without --version: a mirror
+// then cannot pass off an older signed release as the newest one.
 func installer(args []string, _ io.Writer) error {
 	fs := flags("installer")
 	keysFile := fs.String("keys", "", "key list file (default: built-in keys)")
 	in := fs.String("in", "packaging/install.sh", "installer template")
 	file := fs.String("out", "", "output file")
+	version := fs.String("version", "", "release this installer is published with (its minimum version)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -315,6 +323,15 @@ func installer(args []string, _ io.Writer) error {
 		return fmt.Errorf("installer: expected one empty TRUSTED_KEYS line in %s, found %d", *in, n)
 	}
 	filled := keysLine.ReplaceAll(src, []byte(`TRUSTED_KEYS="`+strings.Join(keys, " ")+`"`))
+	if *version != "" {
+		if !semverPattern.MatchString(*version) {
+			return fmt.Errorf("installer: -version %q is not X.Y.Z or X.Y.Z-pre", *version)
+		}
+		if n := len(minVersionLine.FindAllIndex(filled, -1)); n != 1 {
+			return fmt.Errorf("installer: expected one empty MIN_VERSION line in %s, found %d", *in, n)
+		}
+		filled = minVersionLine.ReplaceAll(filled, []byte(`MIN_VERSION="`+*version+`"`))
+	}
 	return os.WriteFile(*file, filled, 0o755)
 }
 
