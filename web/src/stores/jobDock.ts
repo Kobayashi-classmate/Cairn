@@ -7,7 +7,8 @@
 // browser tab, so a reload keeps following them.
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Job } from '@/api/jobs'
+import { isApiError } from '@/api/client'
+import { fetchJob, type Job } from '@/api/jobs'
 import { i18n } from '@/i18n'
 import { isFinalState, jobKindLabel, jobStateLabel } from '@/jobs/labels'
 
@@ -28,6 +29,8 @@ export interface TrackOptions {
 const MAX_ENTRIES = 8
 /** How long a succeeded card stays. */
 const SUCCESS_LINGER_MS = 5000
+/** How often a hidden job that a page waits for is checked. */
+const HIDDEN_POLL_MS = 3000
 const STORAGE_KEY = 'cairn.jobDock'
 
 function readStored(): string[] {
@@ -71,13 +74,10 @@ export const useJobDockStore = defineStore('jobDock', () => {
     persist()
   }
 
-  /** The card's latest view of its job. */
-  function update(id: string, job: Job) {
-    const entry = entries.value.find((e) => e.id === id)
-    if (!entry || entry.done) return
-    entry.job = job
-    if (!isFinalState(job.state)) return
-    entry.done = true
+  /** Hidden jobs still followed for their callbacks, by job id. */
+  const hidden = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function notify(id: string, job: Job) {
     const callbacks = listeners.get(id) ?? []
     listeners.delete(id)
     for (const callback of callbacks) {
@@ -87,6 +87,44 @@ export const useJobDockStore = defineStore('jobDock', () => {
         console.warn('cairn: job callback failed', err)
       }
     }
+  }
+
+  /**
+   * A card hidden while its job runs: pages still wait for the job to end
+   * (to reload a list, to show an outcome), so it is checked quietly until then.
+   */
+  function followHidden(id: string) {
+    hidden.set(
+      id,
+      setTimeout(async () => {
+        try {
+          const job = await fetchJob(id)
+          if (!hidden.has(id)) return
+          if (isFinalState(job.state)) {
+            hidden.delete(id)
+            notify(id, job)
+            return
+          }
+        } catch (err) {
+          if (isApiError(err) && (err.status === 404 || err.status === 403)) {
+            hidden.delete(id)
+            listeners.delete(id)
+            return
+          }
+        }
+        if (hidden.has(id)) followHidden(id)
+      }, HIDDEN_POLL_MS),
+    )
+  }
+
+  /** The card's latest view of its job. */
+  function update(id: string, job: Job) {
+    const entry = entries.value.find((e) => e.id === id)
+    if (!entry || entry.done) return
+    entry.job = job
+    if (!isFinalState(job.state)) return
+    entry.done = true
+    notify(id, job)
     const { t } = i18n.global
     announcement.value = t('common.dock.announce', {
       job: jobKindLabel(job.kind, job.params),
@@ -98,20 +136,32 @@ export const useJobDockStore = defineStore('jobDock', () => {
 
   /** The job could not be followed (gone, or not visible to this user): drop its card. */
   function lost(id: string) {
-    dismiss(id)
+    drop(id)
   }
 
   function dismiss(id: string) {
     clearTimeout(timers.get(id))
     timers.delete(id)
-    listeners.delete(id)
-    entries.value = entries.value.filter((entry) => entry.id !== id)
+    const entry = entries.value.find((e) => e.id === id)
+    if (entry && !entry.done && (listeners.get(id)?.length ?? 0) > 0) followHidden(id)
+    else listeners.delete(id)
+    entries.value = entries.value.filter((e) => e.id !== id)
     persist()
+  }
+
+  /** Drops a card and everything waiting for its job. */
+  function drop(id: string) {
+    clearTimeout(hidden.get(id))
+    hidden.delete(id)
+    listeners.delete(id)
+    dismiss(id)
   }
 
   function clear() {
     for (const timer of timers.values()) clearTimeout(timer)
     timers.clear()
+    for (const timer of hidden.values()) clearTimeout(timer)
+    hidden.clear()
     listeners.clear()
     entries.value = []
     announcement.value = ''

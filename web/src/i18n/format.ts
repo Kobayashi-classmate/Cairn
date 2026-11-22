@@ -216,8 +216,20 @@ export function formatRelativeTime(unixSeconds: number, nowSeconds: number): str
   const size = Math.abs(diff)
   const { unit, seconds } = RELATIVE_UNITS.find((u) => size >= u.seconds) ?? RELATIVE_UNITS[3]!
   const options: Intl.RelativeTimeFormatOptions = { numeric: 'auto' }
-  return cached('relative', options, (locale) => new Intl.RelativeTimeFormat(locale, options)).format(
+  const parts = cached('relative', options, (locale) => new Intl.RelativeTimeFormat(locale, options)).formatToParts(
     Math.round(diff / seconds),
     unit,
   )
+  // A space between the number and its unit in every language (Chinese
+  // writes none; interface spec section 8): the parts around the number
+  // decide where.
+  return parts
+    .map((part, i) => {
+      if (part.type !== 'literal') return part.value
+      let text = part.value
+      if (parts[i - 1]?.type === 'integer' && !/^\s/.test(text)) text = ` ${text}`
+      if (parts[i + 1]?.type === 'integer' && !/\s$/.test(text)) text = `${text} `
+      return text
+    })
+    .join('')
 }
