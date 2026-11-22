@@ -15,6 +15,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -89,12 +90,22 @@ func (m *Module) Routes(r *api.Router) {
 		api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/software/{id}/remove", m.remove, api.Require(Manage), api.StepUp(), api.Body(lineRequest{}),
 		doc("Remove an installed line; configuration and data are kept (starts a job)"), api.Returns(202, jobResponse{}))
+	m.manageRoutes(r, doc)
 }
 
 type offerView struct {
 	catalog.Offer
 	Installed         bool                         `json:"installed"`
 	InstalledPackages []helperapi.InstalledPackage `json:"installedPackages,omitempty"`
+	// Units are the services of an installed line with their state (only
+	// when the helper could ask systemd).
+	Units []unitView `json:"units,omitempty"`
+}
+
+type unitView struct {
+	Name      string `json:"name"`
+	State     string `json:"state"` // running | stopped | failed | unknown
+	CanReload bool   `json:"canReload"`
 }
 
 type entry struct {
@@ -188,7 +199,13 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 		e := entry{Software: *sw, Offers: []offerView{}}
 		for _, o := range sw.Offers(sys) {
 			pkgs := st.Installed[sw.ID][o.Line]
-			e.Offers = append(e.Offers, offerView{Offer: o, Installed: len(pkgs) > 0, InstalledPackages: pkgs})
+			v := offerView{Offer: o, Installed: len(pkgs) > 0, InstalledPackages: pkgs}
+			if v.Installed && st.Services != nil {
+				for _, u := range o.Services {
+					v.Units = append(v.Units, unitView{Name: u, State: serviceState(st.Services, u), CanReload: slices.Contains(st.Reloadable, u)})
+				}
+			}
+			e.Offers = append(e.Offers, v)
 		}
 		resp.Software = append(resp.Software, e)
 	}

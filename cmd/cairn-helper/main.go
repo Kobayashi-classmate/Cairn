@@ -185,6 +185,7 @@ func newEngines(cfg config.Config, manager string, log *slog.Logger) (*engines, 
 	if err != nil {
 		return nil, err
 	}
+	software.RootAccess = cfg.Security.RootAccess
 	e := &engines{software: software, sites: siteEngine(software), dbs: dbEngine(software, cfg.Paths.DataDir)}
 	if _, port, err := net.SplitHostPort(cfg.Server.Listen); err == nil {
 		e.sites.PanelPort, _ = strconv.Atoi(port)

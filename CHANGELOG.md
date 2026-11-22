@@ -40,3 +40,13 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - Sites and certificates in tables with tabs by type; each site shows the
   days left on its certificate and its last backup, and opens its settings
   in a side panel. Long tasks are followed in a corner of the screen.
+- PHP extensions installed and removed from the panel for each PHP version,
+  showing which are loaded and which are built in. Removing one never
+  removes other packages with it.
+- Configuration files of nginx, PHP, MariaDB, MySQL, PostgreSQL, Redis and
+  Valkey edited in the panel. Each change is checked before it applies, and
+  the previous file comes back if the check fails or the service does not
+  start with the new one. The last ten versions are kept. Servers with
+  `root_access = "never"` show the files read-only.
+- Starting, stopping, restarting and reloading the services of installed
+  software.

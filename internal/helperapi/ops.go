@@ -325,6 +325,8 @@ type ProbeResult struct {
 	// Packages estimates the package manager download of the probed lines
 	// (nil when none of them uses it).
 	Packages *PackageEstimate `json:"packages,omitempty"`
+	// Plan says, per probed line, what installing it will do.
+	Plan []LinePlan `json:"plan"`
 	// Took is the probe time in milliseconds.
 	Took int64 `json:"took"`
 }
@@ -354,4 +356,6 @@ type SoftwareStatus struct {
 	// ActiveState ("active", "inactive", "failed", "activating", ...).
 	// Services systemd does not know are left out; nil without systemd.
 	Services map[string]string `json:"services,omitempty"`
+	// Reloadable lists the services of Services that can reload.
+	Reloadable []string `json:"reloadable,omitempty"`
 }

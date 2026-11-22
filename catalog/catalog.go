@@ -51,6 +51,75 @@ type Software struct {
 	Homepage string   `toml:"homepage" json:"homepage"`
 	Lines    []Line   `toml:"lines" json:"-"`
 	Sources  []Source `toml:"sources" json:"-"`
+	// Extensions are the PHP extensions the panel installs and removes
+	// (PHP only); a source's Ext picks their package names.
+	Extensions []Extension `toml:"extensions" json:"-"`
+}
+
+// Extension families: how a PHP source names its extension packages.
+const (
+	ExtDebian = "deb"  // Debian and Ubuntu's own PHP, and the sury and ondrej builds
+	ExtEL     = "el"   // Enterprise Linux's own PHP (AppStream)
+	ExtRemi   = "remi" // Remi's parallel-installable builds
+)
+
+// ExtFamilies lists the extension families.
+var ExtFamilies = []string{ExtDebian, ExtEL, ExtRemi}
+
+// Extension is a PHP extension that can be added to a line.
+type Extension struct {
+	ID   string `toml:"id"`
+	Name string `toml:"name"` // product name, not translated
+	// Modules are the PHP modules it provides, lowercase as "php -m"
+	// prints them.
+	Modules []string `toml:"modules"`
+	// Packages maps an extension family to the package name template
+	// ({line}, {line_nodot}); a family without an entry does not build it.
+	Packages map[string]string `toml:"packages"`
+}
+
+// ConfigFile is a configuration file of a line that administrators may
+// edit in the panel.
+type ConfigFile struct {
+	ID   string `toml:"id" json:"id"`
+	Path string `toml:"path" json:"path"`
+	// Check is the command (argv template) that validates the file once
+	// written: a non-zero exit, or "syntax error" in its output, fails.
+	Check    []string `toml:"check" json:"-"`
+	HasCheck bool     `toml:"-" json:"check"`
+	// Apply is what the service needs to read the file: reload, restart
+	// or none.
+	Apply string `toml:"apply" json:"apply"`
+	// Service is the unit to reload or restart (template); empty means the
+	// line's first service.
+	Service string `toml:"service" json:"service,omitempty"`
+}
+
+// Ways a changed configuration file is applied.
+const (
+	ApplyReload  = "reload"
+	ApplyRestart = "restart"
+	ApplyNone    = "none"
+)
+
+func (c ConfigFile) expand(line string, services []string) ConfigFile {
+	out := ConfigFile{ID: c.ID, Path: expand(c.Path, line), Apply: c.Apply, Service: expand(c.Service, line), HasCheck: len(c.Check) > 0}
+	for _, a := range c.Check {
+		out.Check = append(out.Check, expand(a, line))
+	}
+	if out.Service == "" && out.Apply != ApplyNone && len(services) > 0 {
+		out.Service = services[0]
+	}
+	return out
+}
+
+// ExtensionPackage returns the package of ext for an offer, or "" when the
+// offer's source does not build it.
+func (e Extension) ExtensionPackage(o Offer) string {
+	if o.Ext == "" {
+		return ""
+	}
+	return expand(e.Packages[o.Ext], o.Line)
 }
 
 // Line is a version line users choose from, such as PHP "8.4".
@@ -88,6 +157,13 @@ type Source struct {
 	Services []string `toml:"services"`
 	// FPM describes the line's PHP-FPM (templates), for per-site pools.
 	FPM *FPM `toml:"fpm"`
+	// CLI is the line's command-line PHP (template), which lists the
+	// loaded modules.
+	CLI string `toml:"cli"`
+	// Ext is the extension family of a PHP source (ExtDebian, ...).
+	Ext string `toml:"ext"`
+	// Configs are the line's editable configuration files.
+	Configs []ConfigFile `toml:"configs"`
 }
 
 // FPM is where a PHP line's FastCGI process manager keeps its pools.
@@ -558,6 +634,78 @@ func (c *Catalog) check(s *Software) error {
 		if err := c.checkSource(src, versions); err != nil {
 			return fmt.Errorf("source %d: %w", i, err)
 		}
+		if src.Ext != "" && len(s.Extensions) == 0 {
+			return fmt.Errorf("source %d: extension family without extensions", i)
+		}
+	}
+	var extIDs []string
+	for _, e := range s.Extensions {
+		if !extPattern.MatchString(e.ID) || e.Name == "" || len(e.Modules) == 0 || slices.Contains(extIDs, e.ID) {
+			return fmt.Errorf("extension %q: bad or duplicate id, or no name or modules", e.ID)
+		}
+		extIDs = append(extIDs, e.ID)
+		for _, m := range e.Modules {
+			if m != strings.ToLower(m) || m == "" {
+				return fmt.Errorf("extension %s: modules must be lowercase", e.ID)
+			}
+		}
+		for fam, p := range e.Packages {
+			if !slices.Contains(ExtFamilies, fam) || !packagePattern.MatchString(p) {
+				return fmt.Errorf("extension %s: bad family %q or package %q", e.ID, fam, p)
+			}
+			if err := checkPlaceholders(p); err != nil {
+				return fmt.Errorf("extension %s: %w", e.ID, err)
+			}
+		}
+	}
+	return nil
+}
+
+var (
+	extPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9_]{0,31}$`)
+	configPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+	packagePattern = regexp.MustCompile(`^[a-z0-9{}][a-z0-9.+_{}-]*$`)
+)
+
+func checkPlaceholders(p string) error {
+	for _, ph := range placeholder.FindAllString(p, -1) {
+		if ph != "{line}" && ph != "{line_nodot}" {
+			return fmt.Errorf("unknown placeholder %s", ph)
+		}
+	}
+	return nil
+}
+
+func checkConfigs(src Source) error {
+	var ids []string
+	for _, cf := range src.Configs {
+		if !configPattern.MatchString(cf.ID) || slices.Contains(ids, cf.ID) {
+			return fmt.Errorf("config %q: bad or duplicate id", cf.ID)
+		}
+		ids = append(ids, cf.ID)
+		if !strings.HasPrefix(cf.Path, "/") || strings.Contains(cf.Path, "..") {
+			return fmt.Errorf("config %s: path must be absolute", cf.ID)
+		}
+		if len(cf.Check) > 0 && !strings.HasPrefix(cf.Check[0], "/") {
+			return fmt.Errorf("config %s: check must start with an absolute path", cf.ID)
+		}
+		switch cf.Apply {
+		case ApplyReload, ApplyRestart:
+			if cf.Service == "" && len(src.Services) == 0 {
+				return fmt.Errorf("config %s: %s needs a service", cf.ID, cf.Apply)
+			}
+		case ApplyNone:
+			if cf.Service != "" {
+				return fmt.Errorf("config %s: a service without apply", cf.ID)
+			}
+		default:
+			return fmt.Errorf("config %s: apply must be reload, restart or none", cf.ID)
+		}
+		for _, t := range append([]string{cf.Path, cf.Service}, cf.Check...) {
+			if err := checkPlaceholders(t); err != nil {
+				return fmt.Errorf("config %s: %w", cf.ID, err)
+			}
+		}
 	}
 	return nil
 }
@@ -571,7 +719,16 @@ func (c *Catalog) checkSource(src Source, versions []string) error {
 			return fmt.Errorf("unknown line %q", l)
 		}
 	}
-	templates := append(append(slices.Clone(src.Packages), src.Services...), src.Stream)
+	if err := checkConfigs(src); err != nil {
+		return err
+	}
+	if src.Ext != "" && (!slices.Contains(ExtFamilies, src.Ext) || src.CLI == "" || src.FPM == nil) {
+		return fmt.Errorf("extension family %q needs a known family, cli and fpm", src.Ext)
+	}
+	if src.CLI != "" && !strings.HasPrefix(src.CLI, "/") {
+		return fmt.Errorf("cli must be an absolute path")
+	}
+	templates := append(append(slices.Clone(src.Packages), src.Services...), src.Stream, src.CLI)
 	if f := src.FPM; f != nil {
 		if !strings.HasPrefix(f.PoolDir, "/") || !strings.HasPrefix(f.Binary, "/") || f.Service == "" || !strings.HasPrefix(f.PidFile, "/") || !strings.HasPrefix(f.SocketDir, "/") {
 			return fmt.Errorf("fpm needs absolute paths and a service")
@@ -628,17 +785,22 @@ const (
 
 // Offer is one line as offered on a given system.
 type Offer struct {
-	Line        string   `json:"line"`
-	Method      string   `json:"method,omitempty"` // empty: not available
-	Repo        string   `json:"repo,omitempty"`
-	Provider    string   `json:"provider,omitempty"`
-	Packages    []string `json:"packages,omitempty"`
-	Stream      string   `json:"stream,omitempty"`
-	Services    []string `json:"services,omitempty"`
-	FPM         *FPM     `json:"fpm,omitempty"`
-	Recommended bool     `json:"recommended"`
-	LTS         bool     `json:"lts"`
-	EOL         string   `json:"eol,omitempty"`
+	Line     string   `json:"line"`
+	Method   string   `json:"method,omitempty"` // empty: not available
+	Repo     string   `json:"repo,omitempty"`
+	Provider string   `json:"provider,omitempty"`
+	Packages []string `json:"packages,omitempty"`
+	Stream   string   `json:"stream,omitempty"`
+	Services []string `json:"services,omitempty"`
+	FPM      *FPM     `json:"fpm,omitempty"`
+	CLI      string   `json:"-"`
+	Ext      string   `json:"-"`
+	// Extensions is true when the line's extensions can be managed.
+	Extensions  bool         `json:"extensions,omitempty"`
+	Configs     []ConfigFile `json:"configs,omitempty"`
+	Recommended bool         `json:"recommended"`
+	LTS         bool         `json:"lts"`
+	EOL         string       `json:"eol,omitempty"`
 	// EndOfLife is true when upstream support has ended (system packages
 	// stay maintained by the distribution and are still offered).
 	EndOfLife bool   `json:"endOfLife"`
@@ -696,6 +858,12 @@ func (sw *Software) Offers(sys System) []Offer {
 				o.Services = append(o.Services, expand(u, l.Version))
 			}
 			o.FPM = src.FPM.expand(l.Version)
+			o.CLI = expand(src.CLI, l.Version)
+			o.Ext = src.Ext
+			o.Extensions = src.Ext != "" && len(sw.Extensions) > 0
+			for _, cf := range src.Configs {
+				o.Configs = append(o.Configs, cf.expand(l.Version, o.Services))
+			}
 			if src.Method == MethodSystem {
 				o.EndOfLife = false
 			}

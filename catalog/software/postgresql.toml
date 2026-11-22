@@ -21,6 +21,9 @@ releases = ["debian-12"]
 lines = ["15"]
 packages = ["postgresql-{line}"]
 services = ["postgresql"]
+configs = [
+  { id = "postgresql.conf", path = "/etc/postgresql/{line}/main/postgresql.conf", check = ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/{line}/bin/postgres", "-D", "/etc/postgresql/{line}/main", "-C", "data_directory"], apply = "reload" },
+]
 
 [[sources]]
 method = "system"
@@ -28,6 +31,9 @@ releases = ["debian-13"]
 lines = ["17"]
 packages = ["postgresql-{line}"]
 services = ["postgresql"]
+configs = [
+  { id = "postgresql.conf", path = "/etc/postgresql/{line}/main/postgresql.conf", check = ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/{line}/bin/postgres", "-D", "/etc/postgresql/{line}/main", "-C", "data_directory"], apply = "reload" },
+]
 
 [[sources]]
 method = "system"
@@ -35,6 +41,9 @@ releases = ["ubuntu-22.04"]
 lines = ["14"]
 packages = ["postgresql-{line}"]
 services = ["postgresql"]
+configs = [
+  { id = "postgresql.conf", path = "/etc/postgresql/{line}/main/postgresql.conf", check = ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/{line}/bin/postgres", "-D", "/etc/postgresql/{line}/main", "-C", "data_directory"], apply = "reload" },
+]
 
 [[sources]]
 method = "system"
@@ -42,6 +51,9 @@ releases = ["ubuntu-24.04"]
 lines = ["16"]
 packages = ["postgresql-{line}"]
 services = ["postgresql"]
+configs = [
+  { id = "postgresql.conf", path = "/etc/postgresql/{line}/main/postgresql.conf", check = ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/{line}/bin/postgres", "-D", "/etc/postgresql/{line}/main", "-C", "data_directory"], apply = "reload" },
+]
 
 [[sources]]
 method = "system"
@@ -49,6 +61,9 @@ releases = ["ubuntu-26.04"]
 lines = ["18"]
 packages = ["postgresql-{line}"]
 services = ["postgresql"]
+configs = [
+  { id = "postgresql.conf", path = "/etc/postgresql/{line}/main/postgresql.conf", check = ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/{line}/bin/postgres", "-D", "/etc/postgresql/{line}/main", "-C", "data_directory"], apply = "reload" },
+]
 
 [[sources]]
 method = "system"
@@ -76,6 +91,9 @@ releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26
 lines = ["18", "17", "16", "15", "14", "13"]
 packages = ["postgresql-{line}"]
 services = ["postgresql"]
+configs = [
+  { id = "postgresql.conf", path = "/etc/postgresql/{line}/main/postgresql.conf", check = ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/{line}/bin/postgres", "-D", "/etc/postgresql/{line}/main", "-C", "data_directory"], apply = "reload" },
+]
 
 [[sources]]
 method = "vendor"

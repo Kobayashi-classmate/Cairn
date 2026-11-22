@@ -17,6 +17,9 @@ releases = ["ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.0"]
 packages = ["mysql-server"]
 services = ["mysql"]
+configs = [
+  { id = "mysqld.cnf", path = "/etc/mysql/mysql.conf.d/mysqld.cnf", check = ["/usr/sbin/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -24,6 +27,9 @@ releases = ["ubuntu-26.04"]
 lines = ["8.4"]
 packages = ["mysql-server"]
 services = ["mysql"]
+configs = [
+  { id = "mysqld.cnf", path = "/etc/mysql/mysql.conf.d/mysqld.cnf", check = ["/usr/sbin/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -32,6 +38,9 @@ lines = ["8.4"]
 packages = ["mysql-server"]
 stream = "mysql:{line}"
 services = ["mysqld"]
+configs = [
+  { id = "mysql-server.cnf", path = "/etc/my.cnf.d/mysql-server.cnf", check = ["/usr/libexec/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -39,6 +48,9 @@ releases = ["el-9"]
 lines = ["8.0"]
 packages = ["mysql-server"]
 services = ["mysqld"]
+configs = [
+  { id = "mysql-server.cnf", path = "/etc/my.cnf.d/mysql-server.cnf", check = ["/usr/libexec/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -46,6 +58,9 @@ releases = ["el-10"]
 lines = ["8.4"]
 packages = ["mysql8.4-server"]
 services = ["mysqld"]
+configs = [
+  { id = "mysql-server.cnf", path = "/etc/my.cnf.d/mysql-server.cnf", check = ["/usr/libexec/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
+]
 
 [[sources]]
 method = "vendor"
@@ -54,3 +69,6 @@ releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.4"]
 packages = ["mysql-server"]
 services = ["mysql"]
+configs = [
+  { id = "mysqld.cnf", path = "/etc/mysql/mysql.conf.d/mysqld.cnf", check = ["/usr/sbin/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
+]

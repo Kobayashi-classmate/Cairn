@@ -78,18 +78,27 @@ func (m *Module) listDumps(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	resp := dumpsResponse{Dumps: []helperapi.DumpInfo{}}
-	root, err := m.dumpRoot()
+	dumps, err := m.dumpInfos(engine)
 	if err != nil {
 		return err
+	}
+	return api.WriteJSON(w, http.StatusOK, dumpsResponse{Dumps: dumps})
+}
+
+// dumpInfos lists the dumps of an engine, newest first.
+func (m *Module) dumpInfos(engine string) ([]helperapi.DumpInfo, error) {
+	out := []helperapi.DumpInfo{}
+	root, err := m.dumpRoot()
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = root.Close() }()
 	entries, err := fs.ReadDir(root.FS(), path.Join(dumpsDir, engine))
 	if errors.Is(err, fs.ErrNotExist) {
-		return api.WriteJSON(w, http.StatusOK, resp)
+		return out, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, e := range entries {
 		if !e.Type().IsRegular() || !helperapi.ValidDumpName(e.Name()) {
@@ -104,10 +113,10 @@ func (m *Module) listDumps(w http.ResponseWriter, r *http.Request) error {
 		if i := strings.LastIndex(e.Name(), "_"); i > 0 && helperapi.EngineKind(engine) != helperapi.DBRedis {
 			d.Database = e.Name()[:i]
 		}
-		resp.Dumps = append(resp.Dumps, d)
+		out = append(out, d)
 	}
-	sort.Slice(resp.Dumps, func(i, j int) bool { return resp.Dumps[i].CreatedAt > resp.Dumps[j].CreatedAt })
-	return api.WriteJSON(w, http.StatusOK, resp)
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	return out, nil
 }
 
 func (m *Module) createDump(w http.ResponseWriter, r *http.Request) error {

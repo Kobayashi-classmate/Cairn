@@ -158,6 +158,67 @@ func TestSourceRules(t *testing.T) {
 	}
 }
 
+func TestConfigsAndExtensions(t *testing.T) {
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	php, _ := c.Find("php")
+	pkg := func(o Offer, ext string) string {
+		for _, e := range php.Extensions {
+			if e.ID == ext {
+				return e.ExtensionPackage(o)
+			}
+		}
+		t.Fatalf("no extension %s", ext)
+		return ""
+	}
+	cases := []struct {
+		release, line, redis, curl, ini, fpm string
+	}{
+		{"debian-13", "8.4", "php8.4-redis", "php8.4-curl", "/etc/php/8.4/fpm/php.ini", "php8.4-fpm"},
+		{"debian-13", "8.3", "php8.3-redis", "php8.3-curl", "/etc/php/8.3/fpm/php.ini", "php8.3-fpm"},
+		{"ubuntu-24.04", "8.2", "php8.2-redis", "php8.2-curl", "/etc/php/8.2/fpm/php.ini", "php8.2-fpm"},
+		{"el-9", "8.3", "php-pecl-redis6", "", "/etc/php.ini", "php-fpm"},
+		{"el-10", "8.4", "php84-php-pecl-redis6", "", "/etc/opt/remi/php84/php.ini", "php84-php-fpm"},
+	}
+	for _, tc := range cases {
+		o := offer(t, c, "php", tc.release, tc.line)
+		if !o.Extensions || pkg(o, "redis") != tc.redis || pkg(o, "curl") != tc.curl {
+			t.Errorf("php %s on %s: extensions %v redis %q curl %q", tc.line, tc.release, o.Extensions, pkg(o, "redis"), pkg(o, "curl"))
+		}
+		if len(o.Configs) < 2 || o.Configs[0].ID != "php.ini" || o.Configs[0].Path != tc.ini || o.Configs[0].Service != tc.fpm ||
+			o.Configs[0].Apply != ApplyReload || !o.Configs[0].HasCheck || o.Configs[0].Check[0] != o.FPM.Binary {
+			t.Errorf("php %s on %s: configs %+v", tc.line, tc.release, o.Configs)
+		}
+	}
+	// EL's own PHP has no imagick (EPEL only); Remi has it.
+	if pkg(offer(t, c, "php", "el-9", "8.3"), "imagick") != "" || pkg(offer(t, c, "php", "el-9", "8.2"), "imagick") != "php82-php-pecl-imagick" {
+		t.Error("imagick on EL")
+	}
+	for _, tc := range []struct{ id, release, line, config, path, apply, service string }{
+		{"nginx", "el-9", "1.26", "nginx.conf", "/etc/nginx/nginx.conf", ApplyReload, "nginx"},
+		{"mariadb", "debian-13", "11.8", "50-server.cnf", "/etc/mysql/mariadb.conf.d/50-server.cnf", ApplyRestart, "mariadb"},
+		{"mariadb", "el-10", "10.11", "mariadb-server.cnf", "/etc/my.cnf.d/mariadb-server.cnf", ApplyRestart, "mariadb"},
+		{"mysql", "el-9", "8.4", "mysql-server.cnf", "/etc/my.cnf.d/mysql-server.cnf", ApplyRestart, "mysqld"},
+		{"postgresql", "debian-13", "18", "postgresql.conf", "/etc/postgresql/18/main/postgresql.conf", ApplyReload, "postgresql"},
+		{"redis", "ubuntu-24.04", "7.0", "redis.conf", "/etc/redis/redis.conf", ApplyRestart, "redis-server"},
+		{"valkey", "el-10", "8.1", "valkey.conf", "/etc/valkey/valkey.conf", ApplyRestart, "valkey"},
+	} {
+		o := offer(t, c, tc.id, tc.release, tc.line)
+		if len(o.Configs) != 1 || o.Configs[0].ID != tc.config || o.Configs[0].Path != tc.path || o.Configs[0].Apply != tc.apply || o.Configs[0].Service != tc.service {
+			t.Errorf("%s %s on %s: %+v", tc.id, tc.line, tc.release, o.Configs)
+		}
+	}
+	// PostgreSQL on EL has no managed service yet, so nothing to edit.
+	if o := offer(t, c, "postgresql", "el-10", "18"); len(o.Configs) != 0 || o.Extensions {
+		t.Errorf("postgresql on el-10: %+v", o.Configs)
+	}
+	if o := offer(t, c, "nodejs", "debian-13", "24"); len(o.Configs) != 0 || o.Extensions {
+		t.Errorf("nodejs: %+v", o)
+	}
+}
+
 func TestCatalogRejectsBadData(t *testing.T) {
 	base := `id = "x"
 name = "X"
@@ -192,6 +253,20 @@ lines = [{ version = "1" }]
 		"bad fingerprint": {
 			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n[dnf]\nbaseurl = \"https://r.example/\"\nkey = { url = \"https://r.example/key\", fingerprints = [\"ACCC4CF8\"] }\n",
 			"software/x.toml": base,
+		},
+		"config without a service to reload": {
+			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"1\"]\npackages = [\"x\"]\n" +
+				"configs = [{ id = \"x.conf\", path = \"/etc/x.conf\", apply = \"reload\" }]\n",
+		},
+		"config with a relative check": {
+			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"1\"]\npackages = [\"x\"]\nservices = [\"x\"]\n" +
+				"configs = [{ id = \"x.conf\", path = \"/etc/x.conf\", check = [\"x\", \"-t\"], apply = \"reload\" }]\n",
+		},
+		"extension family without extensions": {
+			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"1\"]\npackages = [\"x\"]\next = \"el\"\n",
+		},
+		"extension with an unknown family": {
+			"software/x.toml": base + "[[extensions]]\nid = \"e\"\nname = \"E\"\nmodules = [\"e\"]\npackages = { apk = \"php-e\" }\n",
 		},
 		"repository without install details": {
 			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n",

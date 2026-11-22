@@ -61,6 +61,12 @@ type Software struct {
 	Runtimes *Runtimes
 	// Sources probes download sources (nil: defaults).
 	Sources *sources.Prober
+	// RootAccess is the server's [security] root_access: "never" keeps the
+	// configuration files of installed lines read-only.
+	RootAccess string
+	// ConfigVersionsDir keeps earlier versions of the configuration files
+	// saved from the panel ("" means DefaultConfigVersionsDir).
+	ConfigVersionsDir string
 
 	probing sync.Mutex
 }
@@ -85,6 +91,7 @@ func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 	RegisterOp(r, o, helperapi.ActionPkgInstall, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.install})
 	RegisterOp(r, o, helperapi.ActionPkgInstallSet, OpSpec[helperapi.InstallSetRequest]{Locks: s.setLocks, Run: s.installSet})
 	RegisterOp(r, o, helperapi.ActionPkgRemove, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.remove})
+	registerLineActions(r, o, s)
 }
 
 func pkgErr(code string, params map[string]any) error {
@@ -241,7 +248,7 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 				continue
 			}
 		}
-		v, err := s.candidates(ctx, o)
+		v, err := s.candidates(ctx, o, false)
 		if err != nil {
 			// apt keeps going when a repository does not answer; say so
 			// instead of "version unknown".
@@ -466,16 +473,13 @@ func (s *Software) Status(ctx context.Context) (helperapi.SoftwareStatus, error)
 	if err != nil {
 		return st, err
 	}
-	st.Services = s.serviceStates(ctx, st.Installed)
+	st.Services, st.Reloadable = s.serviceStates(ctx, st.Installed)
 	return st, nil
 }
 
 // serviceStates asks systemd for the state of the services the installed
-// lines start; nil without systemd.
-func (s *Software) serviceStates(ctx context.Context, installed map[string]map[string][]helperapi.InstalledPackage) map[string]string {
-	if !systemdRunning() {
-		return nil
-	}
+// lines start, and which of them can reload; nil without systemd.
+func (s *Software) serviceStates(ctx context.Context, installed map[string]map[string][]helperapi.InstalledPackage) (map[string]string, []string) {
 	var units []string
 	for i := range s.Catalog.Software {
 		sw := &s.Catalog.Software[i]
@@ -494,22 +498,15 @@ func (s *Software) serviceStates(ctx context.Context, installed map[string]map[s
 			}
 		}
 	}
-	if len(units) == 0 {
-		return nil
-	}
-	out, err := queryCommand(ctx, "systemctl", append([]string{"show", "--property=LoadState,ActiveState", "--"}, units...)...)
-	if err != nil {
-		s.Log.Warn("service states unavailable", "err", err)
-		return nil
-	}
-	return parseUnitStates(out, units)
+	return s.unitStates(ctx, units)
 }
 
 // parseUnitStates reads "systemctl show" output for units, which prints one
-// block per unit in the order asked, blank lines between them. Units systemd
-// does not know are left out.
-func parseUnitStates(out string, units []string) map[string]string {
+// block per unit in the order asked, separated by blank lines: the
+// ActiveState of each loaded unit, and the units that can reload.
+func parseUnitStates(out string, units []string) (map[string]string, []string) {
 	states := map[string]string{}
+	var reloadable []string
 	blocks := strings.Split(strings.TrimSpace(out), "\n\n")
 	for _, unit := range units {
 		if len(blocks) == 0 {
@@ -524,9 +521,12 @@ func parseUnitStates(out string, units []string) map[string]string {
 		blocks = blocks[1:]
 		if props["LoadState"] == "loaded" && props["ActiveState"] != "" {
 			states[unit] = props["ActiveState"]
+			if props["CanReload"] == "yes" {
+				reloadable = append(reloadable, unit)
+			}
 		}
 	}
-	return states
+	return states, reloadable
 }
 
 // installedLines finds the installed lines of every software.
@@ -598,7 +598,8 @@ func lineMatches(version, line string) bool {
 }
 
 // installed returns the installed version of each of names that is fully
-// installed.
+// installed. A configured package whose triggers are still pending ("it",
+// "iW": another package's installation is running them) counts.
 func (s *Software) installed(ctx context.Context, names []string) map[string]string {
 	out := map[string]string{}
 	if len(names) == 0 {
@@ -614,7 +615,7 @@ func (s *Software) installed(ctx context.Context, names []string) map[string]str
 	}
 	for _, line := range strings.Split(text, "\n") {
 		f := strings.Split(line, "\t")
-		if len(f) == 3 && strings.HasPrefix(f[2], "ii") && f[1] != "" {
+		if len(f) == 3 && len(f[2]) >= 2 && f[2][0] == 'i' && strings.ContainsRune("itW", rune(f[2][1])) && f[1] != "" {
 			out[f[0]] = f[1]
 		}
 	}
@@ -623,8 +624,9 @@ func (s *Software) installed(ctx context.Context, names []string) map[string]str
 
 // candidates picks, per package, the newest version of the line that the
 // offer's source provides, so the installed version is exactly the one
-// chosen here whatever apt's own preferences say.
-func (s *Software) candidates(ctx context.Context, o catalog.Offer) (map[string]string, error) {
+// chosen here whatever apt's own preferences say. cacheOnly keeps dnf from
+// refreshing its metadata (apt never does here).
+func (s *Software) candidates(ctx context.Context, o catalog.Offer, cacheOnly bool) (map[string]string, error) {
 	out := map[string]string{}
 	if s.Manager == "apt" {
 		text, err := queryCommand(ctx, "apt-cache", append([]string{"madison"}, o.Packages...)...)
@@ -656,6 +658,9 @@ func (s *Software) candidates(ctx context.Context, o catalog.Offer) (map[string]
 		}
 	} else {
 		args := []string{"repoquery", "--latest-limit", "1", "--qf", "%{name} %{evr}\n"}
+		if cacheOnly {
+			args = append(args, "-C")
+		}
 		if o.Method == catalog.MethodVendor {
 			args = append(args, "--repo", instance(s.Catalog.Repos[o.Repo], o.Line))
 		}

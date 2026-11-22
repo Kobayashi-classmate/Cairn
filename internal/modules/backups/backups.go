@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -940,12 +941,33 @@ func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (mo
 }
 
 // SiteBackups implements module.BackupLookup.
-func (m *Module) SiteBackups(r *http.Request) (map[string]module.SiteBackup, error) {
+func (m *Module) SiteBackups(r *http.Request) (map[string]module.TargetBackup, error) {
+	return m.targetBackups(r, func(t helperapi.BackupTarget) string {
+		if t.Kind == helperapi.BackupSite {
+			return t.Site
+		}
+		return ""
+	})
+}
+
+// DatabaseBackups implements module.BackupLookup.
+func (m *Module) DatabaseBackups(r *http.Request) (map[string]module.TargetBackup, error) {
+	return m.targetBackups(r, func(t helperapi.BackupTarget) string {
+		if t.Kind == helperapi.BackupDatabase {
+			return module.DatabaseKey(t.Engine, t.Database)
+		}
+		return ""
+	})
+}
+
+// targetBackups gathers, by key (empty keys are skipped), the plans that
+// include each target with their last good and last failed runs.
+func (m *Module) targetBackups(r *http.Request, key func(helperapi.BackupTarget) string) (map[string]module.TargetBackup, error) {
 	plans, err := m.allRuns(r)
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]module.SiteBackup{}
+	out := map[string]module.TargetBackup{}
 	lastFailed := map[string]int64{}
 	for _, p := range plans {
 		var okAt, failedAt int64
@@ -958,20 +980,23 @@ func (m *Module) SiteBackups(r *http.Request) (map[string]module.SiteBackup, err
 			}
 		}
 		for _, t := range p.targets {
-			if t.Kind != helperapi.BackupSite {
+			k := key(t)
+			if k == "" {
 				continue
 			}
-			b := out[t.Site]
-			b.Plans = append(b.Plans, p.id)
+			b := out[k]
+			if !slices.Contains(b.Plans, p.id) {
+				b.Plans = append(b.Plans, p.id)
+			}
 			b.LastOKAt = max(b.LastOKAt, okAt)
-			lastFailed[t.Site] = max(lastFailed[t.Site], failedAt)
-			out[t.Site] = b
+			lastFailed[k] = max(lastFailed[k], failedAt)
+			out[k] = b
 		}
 	}
-	for site, b := range out {
-		if f := lastFailed[site]; f > b.LastOKAt {
+	for k, b := range out {
+		if f := lastFailed[k]; f > b.LastOKAt {
 			b.LastFailedAt = f
-			out[site] = b
+			out[k] = b
 		}
 	}
 	return out, nil

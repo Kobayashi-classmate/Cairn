@@ -19,6 +19,9 @@ releases = ["ubuntu-26.04"]
 lines = ["9.0"]
 packages = ["valkey-server"]
 services = ["valkey-server"]
+configs = [
+  { id = "valkey.conf", path = "/etc/valkey/valkey.conf", apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -26,6 +29,9 @@ releases = ["debian-13"]
 lines = ["8.1"]
 packages = ["valkey-server"]
 services = ["valkey-server"]
+configs = [
+  { id = "valkey.conf", path = "/etc/valkey/valkey.conf", apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -36,9 +42,15 @@ services = ["valkey-server"]
 
 # EL 9 and 10 AppStream moved from 8.0 to 8.1 (Rocky 9.9, Alma 10.3;
 # checked 2026-11-18).
+configs = [
+  { id = "valkey.conf", path = "/etc/valkey/valkey.conf", apply = "restart" },
+]
 [[sources]]
 method = "system"
 releases = ["el-9", "el-10"]
 lines = ["8.1"]
 packages = ["valkey"]
 services = ["valkey"]
+configs = [
+  { id = "valkey.conf", path = "/etc/valkey/valkey.conf", apply = "restart" },
+]

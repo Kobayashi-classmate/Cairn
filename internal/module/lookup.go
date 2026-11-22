@@ -29,9 +29,9 @@ type CertLookup interface {
 	CertInfo(ctx context.Context, ids []string) (map[string]CertInfo, error)
 }
 
-// SiteBackup is how a site is backed up.
-type SiteBackup struct {
-	// Plans are the backup plans that include the site.
+// TargetBackup is how a site or a database is backed up.
+type TargetBackup struct {
+	// Plans are the backup plans that include it.
 	Plans []string `json:"plans"`
 	// LastOKAt is when the newest successful run of those plans finished
 	// (Unix seconds; 0: never).
@@ -45,8 +45,14 @@ type SiteBackup struct {
 type BackupLookup interface {
 	// SiteBackups reports, by site code, the sites that backup plans
 	// include; r identifies the caller to the root helper.
-	SiteBackups(r *http.Request) (map[string]SiteBackup, error)
+	SiteBackups(r *http.Request) (map[string]TargetBackup, error)
+	// DatabaseBackups reports the databases that backup plans include, by
+	// DatabaseKey.
+	DatabaseBackups(r *http.Request) (map[string]TargetBackup, error)
 }
+
+// DatabaseKey names a database of an engine in BackupLookup results.
+func DatabaseKey(engine, name string) string { return engine + "/" + name }
 
 // Enabler reports whether a module is on (the Registry).
 type Enabler interface {

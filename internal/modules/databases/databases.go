@@ -57,6 +57,10 @@ type Module struct {
 	// DataDir is the panel's data directory; dumps live in its
 	// backups/db/<engine>/.
 	DataDir string
+	// Backups tells which backup plans include a database; Modules says
+	// whether that module is on (nil: leave the backup columns out).
+	Backups module.BackupLookup
+	Modules module.Enabler
 }
 
 // ID implements module.Module.
@@ -144,6 +148,10 @@ type dbView struct {
 	Managed   bool  `json:"managed"`
 	Missing   bool  `json:"missing,omitempty"`
 	CreatedAt int64 `json:"createdAt,omitempty"`
+	// Backup lists the plans that include the database with their last
+	// runs; LastDumpAt is its newest dump in the panel's dump folder.
+	Backup     *module.TargetBackup `json:"backup,omitempty"`
+	LastDumpAt int64                `json:"lastDumpAt,omitempty"`
 }
 
 type userView struct {
@@ -171,6 +179,9 @@ type listResponse struct {
 	Engines         []engineView `json:"engines"`
 	// Unmanaged are installed engines the panel does not manage here yet.
 	Unmanaged []string `json:"unmanaged"`
+	// Backups is false when the backups module is off: databases then
+	// carry no backup information.
+	Backups bool `json:"backups"`
 }
 
 type jobResponse struct {
@@ -334,7 +345,42 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 		}
 		resp.Engines = append(resp.Engines, v)
 	}
+	resp.Backups = m.decorate(r, resp.Engines)
 	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+// decorate adds the backup plans and the newest dump of each database; it
+// reports whether backup plans could be included.
+func (m *Module) decorate(r *http.Request, engines []engineView) (backups bool) {
+	var plans map[string]module.TargetBackup
+	if m.Backups != nil && (m.Modules == nil || m.Modules.Enabled("backups")) {
+		found, err := m.Backups.DatabaseBackups(r)
+		if err != nil {
+			m.Log.Warn("database backups unavailable", "err", err)
+		} else {
+			plans, backups = found, true
+		}
+	}
+	for i := range engines {
+		e := &engines[i]
+		if e.Kind == helperapi.DBRedis {
+			continue
+		}
+		dumps := map[string]int64{}
+		if list, err := m.dumpInfos(e.ID); err == nil {
+			for _, d := range list {
+				dumps[d.Database] = max(dumps[d.Database], d.CreatedAt)
+			}
+		}
+		for j := range e.Databases {
+			d := &e.Databases[j]
+			d.LastDumpAt = dumps[d.Name]
+			if b, ok := plans[module.DatabaseKey(e.ID, d.Name)]; ok {
+				d.Backup = &b
+			}
+		}
+	}
+	return backups
 }
 
 // engineView merges what the server reports with the panel's records.

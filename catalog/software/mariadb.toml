@@ -17,10 +17,23 @@ lines = [
 
 [[sources]]
 method = "system"
-releases = ["debian-12", "ubuntu-24.04", "el-10"]
+releases = ["debian-12", "ubuntu-24.04"]
 lines = ["10.11"]
 packages = ["mariadb-server"]
 services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+[[sources]]
+method = "system"
+releases = ["el-10"]
+lines = ["10.11"]
+packages = ["mariadb-server"]
+services = ["mariadb"]
+configs = [
+  { id = "mariadb-server.cnf", path = "/etc/my.cnf.d/mariadb-server.cnf", check = ["/usr/libexec/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -28,6 +41,9 @@ releases = ["debian-13", "ubuntu-26.04"]
 lines = ["11.8"]
 packages = ["mariadb-server"]
 services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -35,6 +51,9 @@ releases = ["ubuntu-22.04"]
 lines = ["10.6"]
 packages = ["mariadb-server"]
 services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -43,6 +62,9 @@ lines = ["11.8", "10.11"]
 packages = ["mariadb-server"]
 stream = "mariadb:{line}"
 services = ["mariadb"]
+configs = [
+  { id = "mariadb-server.cnf", path = "/etc/my.cnf.d/mariadb-server.cnf", check = ["/usr/libexec/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
 
 [[sources]]
 method = "system"
@@ -50,3 +72,6 @@ releases = ["el-9"]
 lines = ["10.5"]
 packages = ["mariadb-server"]
 services = ["mariadb"]
+configs = [
+  { id = "mariadb-server.cnf", path = "/etc/my.cnf.d/mariadb-server.cnf", check = ["/usr/libexec/mariadbd", "--help", "--verbose"], apply = "restart" },
+]

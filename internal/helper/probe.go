@@ -77,11 +77,13 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 	}
 	var pkgItems []lineItem
 	var libs []string
-	for _, it := range req.Items {
+	plans := make([]helperapi.LinePlan, len(req.Items))
+	for i, it := range req.Items {
 		sw, o, err := s.offer(it)
 		if err != nil {
 			return helperapi.ProbeResult{}, err
 		}
+		runs = append(runs, func() { plans[i] = s.plan(ctx, sw, o) })
 		if o.Method == catalog.MethodStandalone {
 			libs = append(libs, o.Packages...)
 		} else {
@@ -114,11 +116,32 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 		}()
 	}
 	wg.Wait()
-	res := helperapi.ProbeResult{Slots: make([]helperapi.SourceSlot, 0, len(slots)), Packages: est, Took: time.Since(start).Milliseconds()}
+	res := helperapi.ProbeResult{Slots: make([]helperapi.SourceSlot, 0, len(slots)), Packages: est, Plan: plans, Took: time.Since(start).Milliseconds()}
 	for _, sl := range slots {
 		res.Slots = append(res.Slots, *sl)
 	}
 	return res, nil
+}
+
+// plan says what installing a line will do: the repository it adds, the
+// stream it enables, the exact package versions (when the indexes have
+// them already), the libraries of a runtime and the services it starts.
+func (s *Software) plan(ctx context.Context, sw *catalog.Software, o catalog.Offer) helperapi.LinePlan {
+	p := helperapi.LinePlan{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Stream: o.Stream,
+		Packages: []helperapi.InstalledPackage{}, Services: o.Services}
+	p.RepoReady = o.Method != catalog.MethodVendor || s.repoConfigured(o.Repo, o.Line)
+	if o.Method == catalog.MethodStandalone {
+		p.Libraries = s.missing(ctx, o.Packages)
+		return p
+	}
+	var versions map[string]string
+	if p.RepoReady {
+		versions, _ = s.candidates(ctx, o, true) // unknown versions stay "": resolved after refreshing
+	}
+	for _, name := range o.Packages {
+		p.Packages = append(p.Packages, helperapi.InstalledPackage{Name: name, Version: versions[name]})
+	}
+	return p
 }
 
 func contains(list []string, s string) bool {

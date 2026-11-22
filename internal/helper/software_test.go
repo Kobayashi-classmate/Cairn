@@ -42,6 +42,9 @@ type fakeSystem struct {
 	// systemctlShow answers "systemctl show"; journal answers journalctl;
 	// calendar answers "systemd-analyze calendar".
 	systemctlShow, journal, calendar string
+	// isActive answers "systemctl is-active"; phpModules answers "php -m";
+	// removeSim answers "apt-get remove -s".
+	isActive, phpModules, removeSim string
 }
 
 func (f *fakeSystem) use(t *testing.T) {
@@ -99,10 +102,16 @@ func (f *fakeSystem) use(t *testing.T) {
 		case "apt-cache":
 			return f.madison, nil
 		case "apt-get":
+			if args[0] == "remove" {
+				return f.removeSim, nil
+			}
 			return f.printURIs, nil
 		case "systemctl":
-			if args[0] == "show" {
+			switch args[0] {
+			case "show":
 				return f.systemctlShow, nil
+			case "is-active":
+				return f.isActive, nil
 			}
 			return "", nil
 		case "journalctl":
@@ -125,6 +134,9 @@ func (f *fakeSystem) use(t *testing.T) {
 				}
 			}
 			return b.String(), nil
+		}
+		if strings.HasPrefix(filepath.Base(name), "php") && len(args) == 1 && args[0] == "-m" {
+			return f.phpModules, nil
 		}
 		return "", fmt.Errorf("unexpected command %s", name)
 	}
@@ -205,7 +217,7 @@ func TestInstallSystemLineAndStatus(t *testing.T) {
 		t.Fatalf("status: %+v %v", st, err)
 	}
 	// The installed line's service is reported with its state.
-	if len(st.Services) != 1 || st.Services["php8.4-fpm"] != "active" || !f.ran("query systemctl show --property=LoadState,ActiveState -- php8.4-fpm") {
+	if len(st.Services) != 1 || st.Services["php8.4-fpm"] != "active" || !f.ran("query systemctl show --property=LoadState,ActiveState,CanReload -- php8.4-fpm") {
 		t.Fatalf("services: %+v %v", st.Services, f.cmds)
 	}
 
@@ -357,6 +369,19 @@ func TestDNFStreamsAndStatus(t *testing.T) {
 	}
 }
 
+func TestInstalledStates(t *testing.T) {
+	old := queryCommand
+	t.Cleanup(func() { queryCommand = old })
+	queryCommand = func(context.Context, string, ...string) (string, error) {
+		return "a\t1\tii \nb\t1\tit \nc\t1\tiW \nd\t1\tiU \ne\t1\trc \nf\t\tun \n", nil
+	}
+	s := &Software{Manager: "apt"}
+	got := s.installed(context.Background(), []string{"a", "b", "c", "d", "e", "f"})
+	if len(got) != 3 || got["a"] == "" || got["b"] == "" || got["c"] == "" {
+		t.Fatalf("installed: %v", got)
+	}
+}
+
 func TestLineMatches(t *testing.T) {
 	for v, want := range map[string]bool{
 		"8.4.16-1~deb13u1": true, "2:8.4.1-1": true,
@@ -372,12 +397,16 @@ func TestLineMatches(t *testing.T) {
 }
 
 func TestParseUnitStates(t *testing.T) {
-	out := "LoadState=loaded\nActiveState=active\n\nLoadState=not-found\nActiveState=inactive\n\nLoadState=loaded\nActiveState=failed\n"
-	got := parseUnitStates(out, []string{"nginx", "missing", "mariadb"})
+	out := "LoadState=loaded\nActiveState=active\nCanReload=yes\n\nLoadState=not-found\nActiveState=inactive\nCanReload=no\n\n" +
+		"LoadState=loaded\nActiveState=failed\nCanReload=no\n"
+	got, reloadable := parseUnitStates(out, []string{"nginx", "missing", "mariadb"})
 	if len(got) != 2 || got["nginx"] != "active" || got["mariadb"] != "failed" {
 		t.Fatalf("states: %v", got)
 	}
-	if got := parseUnitStates("", []string{"nginx"}); len(got) != 0 {
+	if len(reloadable) != 1 || reloadable[0] != "nginx" {
+		t.Fatalf("reloadable: %v", reloadable)
+	}
+	if got, _ := parseUnitStates("", []string{"nginx"}); len(got) != 0 {
 		t.Fatalf("empty output: %v", got)
 	}
 }

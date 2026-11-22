@@ -143,7 +143,7 @@ type siteView struct {
 	// Cert is the certificate TLS names, when it exists.
 	Cert *module.CertInfo `json:"cert,omitempty"`
 	// Backup is how the site is backed up; nil when no plan includes it.
-	Backup *module.SiteBackup `json:"backup,omitempty"`
+	Backup *module.TargetBackup `json:"backup,omitempty"`
 }
 
 type listResponse struct {
