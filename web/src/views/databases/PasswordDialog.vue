@@ -1,63 +1,42 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NButton, NIcon, NModal, NText } from 'naive-ui'
-import { CopyOutline } from '@vicons/ionicons5'
-import { useCopy } from '@/composables/useCopy'
+import { Copy } from '@lucide/vue'
+import { keepOpenOnCompanion, keepOpenOnEscape, trackOverlay } from '@/components/common/overlayGuard'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { copyText } from '@/lib/notify'
 
 /** Shows a revealed password once, with a copy button; it is forgotten when closed. */
 const password = defineModel<string | null>('password', { required: true })
 defineProps<{ title: string }>()
 
 const { t } = useI18n()
-const copy = useCopy()
+const open = computed(() => password.value !== null)
+trackOverlay(() => open.value)
+
+function onOpenChange(value: boolean) {
+  if (!value) password.value = null
+}
 </script>
 
 <template>
-  <NModal
-    :show="password !== null"
-    preset="card"
-    :title="title"
-    class="password-dialog"
-    @update:show="(open: boolean) => !open && (password = null)"
-  >
-    <NText depth="3" tag="p" class="hint">{{ t('databases.password.hint') }}</NText>
-    <div class="secret">
-      <code class="secret__value" dir="ltr">{{ password }}</code>
-      <NButton @click="password && copy(password)">
-        <template #icon>
-          <NIcon><CopyOutline /></NIcon>
-        </template>
-        {{ t('common.action.copy') }}
-      </NButton>
-    </div>
-  </NModal>
+  <Dialog :open="open" @update:open="onOpenChange">
+    <DialogContent class="sm:max-w-[460px]" @interact-outside="keepOpenOnCompanion" @escape-key-down="keepOpenOnEscape">
+      <div class="flex flex-col gap-1.5 pe-6">
+        <DialogTitle class="text-title [overflow-wrap:anywhere]">{{ title }}</DialogTitle>
+        <DialogDescription class="m-0 text-detail text-muted-foreground">{{ t('databases.password.hint') }}</DialogDescription>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <code class="min-w-0 flex-[1_1_220px] rounded-md bg-muted px-3 py-2 font-mono text-[13px] select-all [overflow-wrap:anywhere]" dir="ltr">
+          {{ password }}
+        </code>
+        <Button variant="outline" class="max-md:h-11" @click="password && copyText(password)">
+          <Copy aria-hidden="true" />
+          {{ t('common.action.copy') }}
+        </Button>
+      </div>
+    </DialogContent>
+  </Dialog>
 </template>
-
-<style scoped>
-.password-dialog {
-  inline-size: min(480px, calc(100vw - 32px));
-}
-
-.hint {
-  margin-block: 0 12px;
-  font-size: 13px;
-}
-
-.secret {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.secret__value {
-  flex: 1 1 220px;
-  padding: 8px 10px;
-  border-radius: 4px;
-  background: rgb(128 128 128 / 12%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  overflow-wrap: anywhere;
-  user-select: all;
-}
-</style>

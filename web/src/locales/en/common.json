@@ -348,5 +348,8 @@
     "collapse": "Collapse",
     "expand": "Expand",
     "announce": "{job}: {state}"
+  },
+  "dirBrowser": {
+    "path": "Folder path"
   }
 }

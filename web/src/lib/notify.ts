@@ -17,6 +17,11 @@ export function notifyError(err: unknown): void {
   toast.error(errorMessage(err))
 }
 
+/** Shows a problem found before any request was made (a file that cannot be uploaded). */
+export function notifyErrorText(message: string): void {
+  toast.error(message)
+}
+
 export function notifySuccess(message: string): void {
   toast.success(message)
 }

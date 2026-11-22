@@ -1,6 +1,5 @@
 {
   "title": "备份",
-  "intro": "把网站、数据库和文件夹备份到本服务器和 S3 兼容存储，可选加密，并按规则保留合适的数量。",
   "tabs": {
     "plans": "备份方案",
     "storage": "存储"
@@ -19,7 +18,8 @@
     "files": "备份文件",
     "runs": "运行记录",
     "schedule": "设置计划…",
-    "more": "{name} 的更多操作"
+    "more": "{name} 的更多操作",
+    "edit": "编辑 {name}"
   },
   "retention": {
     "last": "最新",
@@ -50,24 +50,37 @@
     "noStorage": "如需把备份复制到其他地方，请先在“存储”标签页添加存储桶。",
     "retention": "保留数量",
     "encryption": "加密",
-    "encrypted": "已加密",
     "notEncrypted": "未加密",
     "recipientsPlaceholder": "age1…（每行一个）",
     "recipientsHint": "age 公钥（“age1…”），每行一个。请在其他地方用“age-keygen -o key.txt”生成密钥对，这里只填写公钥。",
     "keyWarning": "面板从不保存私钥（AGE-SECRET-KEY-1…）。请把私钥妥善保存在本服务器之外：一旦丢失，加密的备份将永远无法恢复。",
     "encryptSuggest": "备份将以未加密的形式复制到存储桶。强烈建议添加 age 公钥。",
     "scheduled": "计划",
-    "tasks": "{count} 个任务",
     "manualOnly": "手动",
     "lastRun": "上次运行",
     "taskName": "备份 {name}",
     "deleteTitle": "删除方案 {name}？",
     "deleteText": "方案会被删除。除非你另行选择，它的备份文件会保留。",
     "deleteFiles": "同时删除它的备份文件（包括本服务器和存储桶中的）",
-    "deleted": "已删除方案 {name}。"
+    "deleted": "已删除方案 {name}。",
+    "search": "搜索方案",
+    "create": "创建方案",
+    "delete": "删除方案",
+    "deleteTextFiles": "方案及其全部备份文件（包括本服务器和存储桶中的）都会被删除。",
+    "never": "从未运行",
+    "nextRun": "下次运行",
+    "noSites": "没有网站",
+    "noDatabases": "没有数据库",
+    "pickFolder": "要备份的文件夹",
+    "pickRoot": "位置",
+    "recipientCount": "已为 {count} 个公钥加密 | 已为 {count} 个公钥加密",
+    "removeTarget": "移除 {target}",
+    "saved": "已保存方案 {name}。",
+    "scheduleMore": "{first} 等 {count} 个",
+    "separator": "、",
+    "sheetIntro": "选择要备份的内容、保存位置和保留的备份数量。"
   },
   "files": {
-    "title": "{name} 的备份文件",
     "empty": "还没有备份。",
     "local": "本服务器",
     "remote": "存储桶",
@@ -79,7 +92,10 @@
     "deleteText": "备份会从本服务器删除，需要再次输入密码。",
     "deleteRemote": "同时删除存储桶中的副本",
     "remoteError": "无法列出存储桶内容：{reason}",
-    "hint": "下载和恢复需要再次输入密码。只存在于存储桶中的副本会直接从存储桶下载。"
+    "hint": "下载和恢复需要再次输入密码。只存在于存储桶中的副本会直接从存储桶下载。",
+    "search": "搜索备份",
+    "deleteConfirm": "删除备份",
+    "deleteTextRemote": "备份会从本服务器和存储桶中删除。"
   },
   "restore": {
     "title": "恢复 {name}",
@@ -88,13 +104,19 @@
     "database": "这是数据库备份：恢复后会在“数据库”页面生成一个备份文件，再从那里恢复到数据库中。",
     "identity": "私钥",
     "identityHint": "此备份某个接收者的 AGE-SECRET-KEY-1…。仅用于本次恢复，绝不保存。",
-    "submit": "恢复到 {dir}",
     "submitDatabase": "生成数据库备份文件",
     "dumpReady": "数据库备份已生成为备份文件。",
-    "openDumps": "到数据库页面查看"
+    "openDumps": "到数据库页面查看",
+    "submitFiles": "恢复",
+    "steps": {
+      "fetch": "从存储桶下载备份",
+      "decrypt": "用私钥解密（仅用于本次恢复）",
+      "dump": "在“数据库”页面生成该数据库的备份文件",
+      "extract": "解压到 {dir}",
+      "extractOverwrite": "解压到 {dir}，并替换已存在的文件"
+    }
   },
   "runs": {
-    "title": "{name} 的运行记录",
     "empty": "方案还没有运行过。",
     "started": "开始时间",
     "duration": "耗时",
@@ -102,7 +124,8 @@
     "ok": "成功",
     "failed": "失败",
     "files": "备份数",
-    "deleted": "已清理"
+    "deleted": "已清理",
+    "running": "运行中"
   },
   "storage": {
     "intro": "备份方案复制到的 S3 兼容存储桶。密钥加密保存，之后不会再显示。",
@@ -130,6 +153,35 @@
     "test": "测试",
     "testOk": "使用这些设置可以访问存储桶。",
     "deleteTitle": "删除存储 {name}？",
-    "deleteText": "只删除这些设置；存储桶中已有的备份会保留。"
+    "deleteText": "只删除这些设置；存储桶中已有的备份会保留。",
+    "add": "添加存储",
+    "delete": "删除存储",
+    "deleted": "已删除存储 {name}。",
+    "emptyText": "添加一个 S3 兼容存储桶，把备份另存一份到本服务器之外。",
+    "more": "{name} 的更多操作",
+    "planCount": "{count} 个方案 | {count} 个方案",
+    "saved": "已保存存储 {name}。",
+    "search": "搜索存储",
+    "sheetIntro": "S3 兼容存储桶。密钥加密保存，之后不会再显示。",
+    "testConnection": "测试连接",
+    "unused": "未使用",
+    "usedBy": "使用者"
+  },
+  "status": {
+    "plans": "{count} 个方案 | {count} 个方案",
+    "failed": "{count} 个上次失败",
+    "never": "{count} 个从未运行",
+    "storages": "{count} 个存储桶 | {count} 个存储桶"
+  },
+  "drawer": {
+    "overview": "概览",
+    "lastRun": "上次运行",
+    "reason": "原因",
+    "settings": "保存位置和数量",
+    "next": "下次：",
+    "noTasks": "没有计划任务运行此方案，只能手动运行。",
+    "tasksUnknown": "有 {count} 个计划任务运行此方案。 | 有 {count} 个计划任务运行此方案。",
+    "unknown": "没有这个方案",
+    "unknownText": "它可能已被删除。"
   }
 }

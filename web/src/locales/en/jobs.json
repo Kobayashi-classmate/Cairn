@@ -23,7 +23,10 @@
       "refresh": "Refresh package indexes",
       "install": "Install {name} {line}",
       "remove": "Uninstall {name} {line}",
-      "install_set": "Install software set ({count})"
+      "install_set": "Install software set ({count})",
+      "service": "Control the services of {name} {line}",
+      "extensions": "Change the extensions of {name} {line}",
+      "config": "Save {config} of {name} {line}"
     },
     "site": {
       "create": "Create site {site}",
@@ -120,7 +123,10 @@
     "software": {
       "install": "Install software",
       "remove": "Uninstall software",
-      "install_set": "Install software set"
+      "install_set": "Install software set",
+      "service": "Control a service",
+      "extensions": "Change PHP extensions",
+      "config": "Save a configuration file"
     },
     "site": {
       "create": "Create site",
@@ -255,6 +261,14 @@
       "updates_auto": {
         "enable": "Turn on automatic security updates",
         "disable": "Turn off automatic security updates"
+      }
+    },
+    "software": {
+      "service": {
+        "start": "Start {name} {line}",
+        "stop": "Stop {name} {line}",
+        "restart": "Restart {name} {line}",
+        "reload": "Reload {name} {line}"
       }
     }
   }

@@ -50,3 +50,8 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   `root_access = "never"` show the files read-only.
 - Starting, stopping, restarting and reloading the services of installed
   software.
+- Software, databases, backups and scheduled tasks in tables with side
+  panels. Installing shows the exact versions and every step before it
+  starts. Each installed version keeps its services, versions, extensions,
+  configuration files and logs in one place. Databases show their size and
+  last backup.

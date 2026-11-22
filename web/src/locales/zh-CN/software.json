@@ -1,11 +1,9 @@
 {
   "title": "软件",
-  "intro": "可以在此系统上安装的软件，按版本线列出。",
   "refresh": "刷新软件包索引",
   "unsupported": "此系统暂不支持安装软件。",
   "homepage": "官网",
   "recommended": "推荐",
-  "noLines": "此系统上没有可用的版本。",
   "category": {
     "web": "Web 服务器",
     "runtime": "语言运行环境",
@@ -25,8 +23,6 @@
     "unknown": "此系统上不可用。"
   },
   "advanced": {
-    "title": "高级信息",
-    "notAvailable": "不可用",
     "method": "安装方式",
     "packages": "软件包",
     "systemLibraries": "系统依赖库",
@@ -41,20 +37,18 @@
   },
   "installed": "已安装",
   "statusUnavailable": "面板无法确定已安装的软件，因此所有版本都未标记为已安装。",
-  "failed": "{task}失败",
   "viewOutput": "查看输出",
   "action": {
     "install": "安装",
-    "remove": "卸载"
+    "remove": "卸载",
+    "settings": "设置"
   },
   "progress": {
     "install": "正在安装…",
-    "remove": "正在卸载…"
-  },
-  "done": {
-    "installed": "已安装 {name} {line}。",
-    "removed": "已卸载 {name} {line}。",
-    "ended": "{task}：{state}"
+    "remove": "正在卸载…",
+    "service": "正在执行…",
+    "extensions": "正在修改扩展…",
+    "config": "正在保存配置…"
   },
   "confirmRemove": {
     "title": "卸载 {name} {line}？",
@@ -62,15 +56,17 @@
     "runtimeContent": "将删除 {name} {line} 的文件。运行环境没有需要保留的配置或数据；使用它的项目在重新安装之前将无法运行。"
   },
   "install": {
-    "title": "安装 {name} {line}",
     "policy": "下载源：{policy}",
-    "changePolicy": "修改",
     "probing": "正在检测下载源…",
     "probeFailed": "无法检测下载源",
     "checkAgain": "重新检测",
     "version": "版本",
     "file": "文件",
-    "size": "大小"
+    "size": "大小",
+    "sheetTitle": "安装 {name}",
+    "line": "版本",
+    "sources": "下载来源",
+    "endOfLife": "{line} 的上游支持已于 {date} 结束，不再提供安全修复。"
   },
   "policy": {
     "title": "下载源",
@@ -83,7 +79,8 @@
     "official": {
       "short": "仅官方",
       "description": "只使用上游自己的地址和镜像站点。"
-    }
+    },
+    "saved": "已保存下载源设置。"
   },
   "probe": {
     "slot": {
@@ -139,5 +136,177 @@
     "unknown": "未知",
     "about": "约 {value}",
     "atLeast": "至少 {value}"
+  },
+  "pageTabs": {
+    "all": "全部",
+    "installed": "已安装",
+    "web": "Web 服务器",
+    "runtime": "语言运行时",
+    "database": "数据库"
+  },
+  "status": {
+    "installed": "尚未安装软件 | 已安装 {count} 个 | 已安装 {count} 个"
+  },
+  "count": "{count} 个软件 | {count} 个软件",
+  "search": "搜索软件",
+  "more": "更多操作",
+  "homepageOf": "{name} 官网",
+  "installNamed": "安装 {name}",
+  "settingsOf": "{name} 的设置",
+  "openLine": "{name} {line}，{state}：打开设置",
+  "lts": "长期支持",
+  "notInstalled": "未安装",
+  "notAvailable": "此系统不可用",
+  "column": {
+    "name": "软件",
+    "installed": "已安装",
+    "recommended": "推荐版本",
+    "source": "来源",
+    "status": "状态"
+  },
+  "empty": {
+    "title": "这里没有软件",
+    "installed": "还没有安装软件",
+    "installedText": "在“全部”标签中安装软件后，它和它的服务会显示在这里。"
+  },
+  "lineState": {
+    "running": "运行中",
+    "partial": "部分运行",
+    "stopped": "已停止",
+    "failed": "失败",
+    "installed": "已安装"
+  },
+  "unitState": {
+    "running": "运行中",
+    "stopped": "已停止",
+    "failed": "失败",
+    "unknown": "未知"
+  },
+  "source": {
+    "system": "系统源",
+    "standalone": "预编译"
+  },
+  "eol": {
+    "until": "支持到 {date}",
+    "ended": "已于 {date} 停止支持"
+  },
+  "steps": {
+    "separator": "、",
+    "addRepo": "添加 {repo} 软件源，并按预置的指纹校验其签名密钥",
+    "stream": "启用模块流 {stream}",
+    "download": "从 {source} 下载 {name} {version}（{size}），并按官方校验值校验",
+    "recommendedSource": "推荐的来源",
+    "unpack": "解压到 {dir}",
+    "downloadLine": "下载 {name} {line}，并按官方校验值校验",
+    "packages": "安装软件包：{packages}",
+    "packageVersion": "{name} {version}",
+    "packageNewest": "{name}（该版本线的最新版）",
+    "packageTotal": "（{count} 个软件包，需下载 {size}） | （{count} 个软件包，需下载 {size}）",
+    "libraries": "安装系统依赖库：{libraries}",
+    "services": "启用并启动 {services}"
+  },
+  "drawer": {
+    "service": "服务",
+    "version": "版本",
+    "extensions": "扩展",
+    "configs": "配置文件",
+    "logs": "日志",
+    "uninstall": "卸载",
+    "lineSwitch": "{name} 的版本",
+    "notInstalled": "{name} 未安装",
+    "notInstalledText": "安装后可以在这里管理它的服务和设置。",
+    "notAvailable": "{name} 在此系统上不可用",
+    "unknown": "没有软件 {name}",
+    "unknownText": "它不在此系统的软件目录中。"
+  },
+  "service": {
+    "intro": "此版本的 systemd 服务。按钮会同时作用于全部服务。",
+    "units": "服务",
+    "reloadable": "支持重新加载",
+    "start": "启动",
+    "stop": "停止",
+    "restart": "重启",
+    "reload": "重新加载配置",
+    "busy": "此软件正在执行一项更改，完成后才能继续操作。",
+    "stopTitle": "停止 {name} {line}？",
+    "stopText": {
+      "nginx": "停止后，nginx 将不再为这台服务器上的任何网站提供服务，直到再次启动。",
+      "php": "停止后，所有使用 PHP {line} 的网站都将无法运行，直到再次启动 PHP-FPM。",
+      "database": "停止后，使用 {name} 的网站和应用将断开连接，直到再次启动。",
+      "other": "停止后，{units} 将保持停止状态，直到再次启动。"
+    }
+  },
+  "version": {
+    "current": "版本 {line}",
+    "others": "其他版本",
+    "open": "打开"
+  },
+  "extensions": {
+    "intro": "PHP {line} 的扩展。安装或卸载扩展后会重新加载 PHP-FPM {line}。",
+    "search": "搜索扩展",
+    "empty": "此版本没有已知的扩展。",
+    "column": {
+      "name": "扩展",
+      "modules": "模块",
+      "state": "状态"
+    },
+    "state": {
+      "loaded": "已加载",
+      "notLoaded": "已安装，未加载",
+      "builtin": "内置",
+      "available": "未安装",
+      "unavailable": "没有适用于此系统的版本"
+    },
+    "installCount": "安装（{count}）",
+    "removeCount": "卸载（{count}）",
+    "install": "安装",
+    "remove": "卸载",
+    "installTitle": "为 PHP {line} 安装 {count} 个扩展？ | 为 PHP {line} 安装 {count} 个扩展？",
+    "removeTitle": "从 PHP {line} 卸载 {count} 个扩展？ | 从 PHP {line} 卸载 {count} 个扩展？",
+    "installText": "将安装 {names}，然后重新加载 PHP-FPM {line}。",
+    "removeText": "将卸载 {names}，然后重新加载 PHP-FPM {line}。使用这些扩展的网站可能无法运行。",
+    "modules": "已加载的模块（{count}）",
+    "noModules": "PHP 没有报告任何模块。"
+  },
+  "configs": {
+    "intro": "此版本的配置文件。配置文件中可能有密码等敏感信息，打开或保存时需要再次输入密码。",
+    "empty": "此版本没有可以编辑的配置文件。",
+    "checked": "生效前先检查",
+    "apply": {
+      "reload": "保存后重新加载 {service}",
+      "restart": "保存后重启 {service}",
+      "none": "保存后无需重新加载服务"
+    },
+    "label": {
+      "phpCli": "php.ini（命令行）"
+    },
+    "back": "全部文件",
+    "stepUp": "需要确认身份才能打开此文件",
+    "stepUpText": "配置文件中可能有密码，因此打开时需要再次输入密码。",
+    "reload": "重新读取文件",
+    "save": "保存",
+    "discard": "放弃修改",
+    "applying": "正在保存并应用文件…",
+    "saved": "已保存 {path}。",
+    "versions": "历史版本（{count}）",
+    "versionsTitle": "历史版本",
+    "versionTitle": "历史版本",
+    "viewVersion": "查看",
+    "loadVersion": "载入编辑器",
+    "steps": {
+      "keep": "把当前文件保存为历史版本",
+      "write": "写入新的 {path}",
+      "check": "检查新文件",
+      "reload": "重新加载 {service}",
+      "restart": "重启 {service}",
+      "restartDatabase": "重启 {service}，连接会短暂中断",
+      "rollback": "任何一步失败都会还原为原来的文件"
+    }
+  },
+  "logs": {
+    "unit": "服务",
+    "label": "{unit} 的日志",
+    "empty": "系统日志中没有此服务的记录。",
+    "limited": "只显示最新的 {count} 条；完整的系统日志请到“日志”页面查看。"
   }
 }

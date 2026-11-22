@@ -348,5 +348,8 @@
     "collapse": "收起",
     "expand": "展开",
     "announce": "{job}：{state}"
+  },
+  "dirBrowser": {
+    "path": "文件夹路径"
   }
 }

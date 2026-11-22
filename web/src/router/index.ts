@@ -93,7 +93,7 @@ const routes: RouteRecordRaw[] = [
         path: 'databases',
         name: 'databases',
         component: () => import('@/views/DatabasesView.vue'),
-        meta: { titleKey: 'databases.title', navKey: 'databases', permission: 'databases.read' },
+        meta: { titleKey: 'databases.title', navKey: 'databases', permission: 'databases.read', newUi: true },
       },
       {
         path: 'files',
@@ -111,13 +111,13 @@ const routes: RouteRecordRaw[] = [
         path: 'cron',
         name: 'cron',
         component: () => import('@/views/CronView.vue'),
-        meta: { titleKey: 'cron.title', navKey: 'cron', permission: 'cron.read' },
+        meta: { titleKey: 'cron.title', navKey: 'cron', permission: 'cron.read', newUi: true },
       },
       {
         path: 'backups',
         name: 'backups',
         component: () => import('@/views/BackupsView.vue'),
-        meta: { titleKey: 'backups.title', navKey: 'backups', permission: 'backups.read' },
+        meta: { titleKey: 'backups.title', navKey: 'backups', permission: 'backups.read', newUi: true },
       },
       {
         path: 'logs',
@@ -147,7 +147,7 @@ const routes: RouteRecordRaw[] = [
         path: 'software',
         name: 'software',
         component: () => import('@/views/SoftwareView.vue'),
-        meta: { titleKey: 'software.title', navKey: 'software', permission: 'software.read' },
+        meta: { titleKey: 'software.title', navKey: 'software', permission: 'software.read', newUi: true },
       },
       {
         path: 'jobs',

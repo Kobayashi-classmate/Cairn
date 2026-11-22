@@ -11,9 +11,7 @@
   },
   "running": "运行中",
   "stopped": "已停止",
-  "version": "版本 {version}",
   "port": "端口 {port}",
-  "redisStats": "{keys} 个键，已用 {memory}",
   "size": "大小",
   "owner": "所有者",
   "missing": "已丢失",
@@ -27,16 +25,19 @@
     "dumps": "备份",
     "settings": "设置",
     "keys": "键",
-    "snapshots": "快照"
+    "snapshots": "快照",
+    "label": "{name} 的内容",
+    "withCount": "{label}（{count}）"
   },
   "remote": {
-    "label": "远程访问",
     "enableTitle": "允许远程访问？",
     "enableRestart": "服务将监听所有地址，而不只是本机。这会重启服务（需要 systemd），现有连接会断开。",
     "enablePg": "PostgreSQL 将监听所有地址。用户仍需配置允许其远程地址的主机。",
     "disableTitle": "只允许本机连接？",
     "disable": "服务将只监听本机，远程客户端将无法再连接。",
-    "firewallNote": "防火墙功能将在后续版本提供：如果客户端需要访问，请另行开放该端口。"
+    "firewallNote": "已开启远程访问：其他机器上的客户端还需要在“防火墙”页面放行端口 {port}。",
+    "enable": "允许远程访问",
+    "localOnly": "只允许本机连接"
   },
   "hints": {
     "mysqlName": "字母、数字和 _，最多 64 个字符。",
@@ -49,27 +50,49 @@
     "pgHosts": "始终允许本机连接；这里填写的主机用于增加远程来源（IPv4 地址或 CIDR 网段）。"
   },
   "db": {
-    "createTitle": "创建数据库",
+    "createTitle": "新建数据库",
     "create": "创建",
     "withUser": "同时为它创建用户",
     "userPlaceholder": "与数据库同名",
     "empty": "还没有数据库。",
     "dropTitle": "删除数据库 {name}？",
     "dropContent": "将删除该数据库及其全部数据，此操作无法撤销。",
-    "dropOwner": "同时删除其所有者 {user}"
+    "dropOwner": "同时删除其所有者 {user}",
+    "search": "搜索数据库",
+    "emptyText": "创建数据库时，可以同时创建一个同名用户。",
+    "drop": "删除数据库",
+    "dropOwnerText": "它的所有者 {user} 也会被删除。",
+    "more": "{name} 的更多操作",
+    "namePlaceholder": "新数据库",
+    "withUserHint": "创建一个对该数据库拥有完全权限的用户；不在下面填写用户名时与数据库同名。",
+    "steps": {
+      "create": "在 {engine} 上创建数据库 {name}",
+      "user": "创建对它拥有完全权限的用户 {user}",
+      "userGenerated": "创建对它拥有完全权限的用户 {user}，并自动生成密码",
+      "hosts": "允许该用户从 {hosts} 连接",
+      "local": "只允许该用户从本机连接"
+    }
   },
   "user": {
     "createTitle": "添加用户",
     "editTitle": "编辑用户 {name}",
     "empty": "还没有用户。",
     "dropTitle": "删除数据库用户 {name}？",
-    "dropContent": "以该用户登录的程序将无法再连接。"
+    "dropContent": "以该用户登录的程序将无法再连接。",
+    "search": "搜索用户",
+    "create": "添加用户",
+    "drop": "删除用户",
+    "more": "{name} 的更多操作"
   },
   "grant": {
     "all": "完全权限",
     "readonly": "只读",
     "add": "添加权限",
-    "tag": "{database}：{level}"
+    "tag": "{database}：{level}",
+    "none": "还没有任何数据库的权限。",
+    "remove": "移除此权限",
+    "databaseOf": "第 {index} 项权限的数据库",
+    "levelOf": "第 {index} 项权限的级别"
   },
   "password": {
     "show": "查看密码",
@@ -88,19 +111,33 @@
     "deleteContent": "将从这台服务器上删除该备份文件。",
     "deleted": "已删除 {file}。",
     "uploaded": "已上传 {file}。",
-    "badName": "只能上传 .sql 和 .sql.gz 文件（PostgreSQL 还支持 .dump），文件名只能包含字母、数字、点、连字符和下划线。"
+    "badName": "只能上传 .sql 和 .sql.gz 文件（PostgreSQL 还支持 .dump），文件名只能包含字母、数字、点、连字符和下划线。",
+    "search": "搜索备份文件",
+    "created": "创建时间",
+    "delete": "删除备份文件",
+    "more": "{file} 的更多操作",
+    "pickDatabase": "要备份的数据库",
+    "emptySnapshots": "还没有快照。",
+    "uploading": "正在上传… {percent}"
   },
   "restore": {
     "title": "恢复备份",
     "submit": "恢复",
     "file": "备份文件",
-    "database": "数据库",
     "user": "恢复身份",
     "owner": "数据库的所有者",
     "userHint": "恢复以所有者身份执行，或以对该数据库拥有完全权限、且面板知道其密码的用户身份执行。",
     "intro": "将备份导入到已有的数据库中。",
     "warning": "备份中的对象会替换数据库中的同名对象。",
-    "needsUser": "请通过面板创建该数据库（这样会有已知的所有者），或为一个面板知道其密码的用户授予该数据库的完全权限。"
+    "needsUser": "请通过面板创建该数据库（这样会有已知的所有者），或为一个面板知道其密码的用户授予该数据库的完全权限。",
+    "action": "恢复",
+    "pickDatabase": "选择数据库",
+    "pickFile": "选择备份文件",
+    "steps": {
+      "load": "把 {file} 导入 {database}",
+      "as": "以 {user} 的身份执行",
+      "asOwner": "以数据库所有者的身份执行"
+    }
   },
   "redis": {
     "passwordOn": "已设置密码",
@@ -116,7 +153,14 @@
       "both": "快照和追加日志",
       "none": "不持久化（重启后数据丢失）"
     },
-    "persistenceHint": "不开启持久化时，Redis 重启后数据会丢失。"
+    "persistenceHint": "不开启持久化时，Redis 重启后数据会丢失。",
+    "mode": {
+      "keep": "保持当前密码",
+      "remove": "移除密码"
+    },
+    "newPassword": "新密码",
+    "save": "保存设置",
+    "discard": "放弃修改"
   },
   "keys": {
     "intro": "选择数据库编号和匹配模式后点击扫描。",
@@ -132,12 +176,42 @@
     "ttlHint": "单位为秒；0 表示取消过期时间。",
     "deleteSelected": "删除所选（{count}）",
     "deleteTitle": "删除 {count} 个键？",
-    "deleteContent": "将删除这些键及其值。",
-    "deleted": "已删除 {count} 个键。"
+    "deleteContent": "将从 {db} 中删除这些键及其值。",
+    "deleted": "已删除 {count} 个键。",
+    "delete": "删除键",
+    "ttlSaved": "已保存过期时间。",
+    "ttlSeconds": "过期时间（秒）"
   },
   "listSeparator": "、",
   "service": {
     "start": "启动",
-    "stop": "停止"
-  }
+    "stop": "停止",
+    "restart": "重启",
+    "stopTitle": "停止 {name}？",
+    "stopText": "停止后，使用 {name} 的网站和应用将断开连接，直到再次启动。"
+  },
+  "status": {
+    "none": "尚未安装数据库服务",
+    "count": "{count} 个服务 | {count} 个服务",
+    "running": "{count} 个运行中"
+  },
+  "installServer": "安装数据库服务",
+  "state": {
+    "error": "出错"
+  },
+  "card": {
+    "label": "数据库服务",
+    "settings": "服务设置",
+    "more": "{name} 的更多操作",
+    "local": "只允许本机",
+    "remote": "允许所有地址",
+    "databases": "{count} 个数据库 | {count} 个数据库",
+    "keys": "{count} 个键 | {count} 个键"
+  },
+  "lastBackup": "最近备份",
+  "backup": {
+    "never": "从未备份",
+    "failed": "失败"
+  },
+  "unmanagedTag": "非面板创建"
 }

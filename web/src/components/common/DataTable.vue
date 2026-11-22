@@ -45,6 +45,8 @@ const props = withDefaults(
     searchText?: (row: T) => string
     /** Adds a checkbox per row; the `bulk` slot gets the selected rows. */
     selectable?: boolean
+    /** Rows that may be selected (all by default); the others show a disabled checkbox. */
+    canSelect?: (row: T) => boolean
     emptyTitle?: string
     emptyText?: string
     /** Narrowest width of the table before it scrolls inside its card (px). */
@@ -60,6 +62,7 @@ const props = withDefaults(
     error: undefined,
     searchPlaceholder: undefined,
     searchText: undefined,
+    canSelect: undefined,
     emptyTitle: undefined,
     emptyText: undefined,
     minWidth: 720,
@@ -145,7 +148,9 @@ watch(
   },
 )
 
-const visibleKeys = computed(() => rows.value.map((row) => props.rowKey(row)))
+const visibleKeys = computed(() =>
+  rows.value.filter((row) => !props.canSelect || props.canSelect(row)).map((row) => props.rowKey(row)),
+)
 const selectedSet = computed(() => new Set(selection.value))
 const allSelected = computed(
   () => visibleKeys.value.length > 0 && visibleKeys.value.every((key) => selectedSet.value.has(key)),
@@ -322,6 +327,7 @@ function rowLabel(row: T): string {
               <td v-if="selectable" class="w-10 px-4 py-[11px] align-middle">
                 <Checkbox
                   :model-value="selectedSet.has(row.id)"
+                  :disabled="canSelect ? !canSelect(row.original) : false"
                   :aria-label="rowLabel(row.original)"
                   @update:model-value="(checked: boolean | 'indeterminate') => toggleRow(row.id, checked)"
                 />

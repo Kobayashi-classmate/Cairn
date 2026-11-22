@@ -1,6 +1,5 @@
 {
   "title": "Scheduled tasks",
-  "intro": "Run a script, fetch a URL or run a backup plan on a schedule. Each task is a systemd timer; its runs and output are kept by the system journal.",
   "statusUnavailable": "The next and last runs are not available right now.",
   "empty": {
     "title": "No scheduled tasks",
@@ -30,12 +29,14 @@
   "column": {
     "state": "State",
     "lastRun": "Last run",
-    "nextRun": "Next run"
+    "nextRun": "Next run",
+    "enabled": "Enabled"
   },
   "action": {
     "run": "Run now",
     "history": "Runs and output",
-    "more": "More actions for {name}"
+    "more": "More actions for {name}",
+    "edit": "Edit {name}"
   },
   "task": {
     "createTitle": "New task",
@@ -52,7 +53,24 @@
     "planPlaceholder": "Choose a backup plan",
     "noPlans": "There is no backup plan yet. Create one on the Backups page.",
     "timeout": "Stop after",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "create": "Create task",
+    "delete": "Delete task",
+    "enabledHint": "When off, the task keeps its settings but does not run on its schedule.",
+    "namePlaceholder": "the new task",
+    "rootUser": "root",
+    "sheetIntro": "Each task is a systemd service with a timer.",
+    "timeoutHint": "A run that takes longer is stopped (at most {max} minutes).",
+    "userHint": "A site owner, a login user or, where allowed, root.",
+    "steps": {
+      "create": "Create the systemd service and timer of {name}",
+      "update": "Rewrite the systemd service and timer of {name}",
+      "shell": "Run the script as {user}",
+      "url": "Request {url}",
+      "backup": "Run backup plan {plan}",
+      "schedule": "Schedule: {schedule}",
+      "disabled": "Leave it off until it is enabled"
+    }
   },
   "schedule": {
     "kind": {
@@ -76,7 +94,13 @@
       "daily": "Every day at {time}",
       "weekly": "Every {weekday} at {time}",
       "monthly": "Day {day} of every month at {time}"
-    }
+    },
+    "checking": "Checking the schedule…",
+    "every": "Every",
+    "expression": "OnCalendar expression",
+    "time": "Time",
+    "weekday": "Day of the week",
+    "timesSeparator": ", "
   },
   "weekday": {
     "Mon": "Monday",
@@ -88,13 +112,39 @@
     "Sun": "Sunday"
   },
   "runs": {
-    "title": "Runs of {name}",
     "intro": "The newest runs with their output, as the system journal keeps them.",
     "empty": "The task has not run yet.",
     "manual": "Run by hand",
     "meta": "Took {duration}, exit code {code}",
     "pick": "Pick a run to see its output.",
     "noOutput": "This run wrote no output.",
-    "truncated": "Only the end of the output is shown."
+    "truncated": "Only the end of the output is shown.",
+    "list": "Runs",
+    "output": "Output"
+  },
+  "search": "Search tasks",
+  "status": {
+    "count": "{count} task | {count} tasks",
+    "enabled": "{count} enabled",
+    "failed": "{count} failed last run"
+  },
+  "enableTask": "Enable {name}",
+  "never": "Never run",
+  "next": "Next:",
+  "typeHint": {
+    "shell": "Run a shell script as a site owner or another user",
+    "url": "Request an address; an answer other than 2xx counts as a failure",
+    "backup": "Run a backup plan"
+  },
+  "drawer": {
+    "overview": "Overview",
+    "lastRun": "Runs",
+    "what": "What it runs",
+    "when": "When",
+    "expression": "Expression",
+    "nextRuns": "Next runs",
+    "applying": "The change is being applied.",
+    "unknown": "No such task",
+    "unknownText": "It may have been deleted."
   }
 }

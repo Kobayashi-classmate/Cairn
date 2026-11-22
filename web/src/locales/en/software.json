@@ -1,11 +1,9 @@
 {
   "title": "Software",
-  "intro": "Software that can be installed on this system, by version line.",
   "refresh": "Refresh package indexes",
   "unsupported": "Software installation is not available on this system.",
   "homepage": "Website",
   "recommended": "Recommended",
-  "noLines": "No version is available on this system.",
   "category": {
     "web": "Web servers",
     "runtime": "Language runtimes",
@@ -25,8 +23,6 @@
     "unknown": "Not available on this system."
   },
   "advanced": {
-    "title": "Advanced information",
-    "notAvailable": "Not available",
     "method": "Installation",
     "packages": "Packages",
     "systemLibraries": "System libraries",
@@ -41,20 +37,18 @@
   },
   "installed": "Installed",
   "statusUnavailable": "The panel could not find out which software is installed, so no version is marked as installed.",
-  "failed": "{task} failed",
   "viewOutput": "View output",
   "action": {
     "install": "Install",
-    "remove": "Uninstall"
+    "remove": "Uninstall",
+    "settings": "Settings"
   },
   "progress": {
     "install": "Installing…",
-    "remove": "Removing…"
-  },
-  "done": {
-    "installed": "{name} {line} was installed.",
-    "removed": "{name} {line} was uninstalled.",
-    "ended": "{task}: {state}"
+    "remove": "Uninstalling…",
+    "service": "Applying…",
+    "extensions": "Changing extensions…",
+    "config": "Saving configuration…"
   },
   "confirmRemove": {
     "title": "Uninstall {name} {line}?",
@@ -62,15 +56,17 @@
     "runtimeContent": "The files of {name} {line} will be removed. A runtime has no configuration or data to keep; projects that use it will stop working until it is installed again."
   },
   "install": {
-    "title": "Install {name} {line}",
     "policy": "Download sources: {policy}",
-    "changePolicy": "Change",
     "probing": "Checking download sources…",
     "probeFailed": "The download sources could not be checked",
     "checkAgain": "Check again",
     "version": "Version",
     "file": "File",
-    "size": "Size"
+    "size": "Size",
+    "sheetTitle": "Install {name}",
+    "line": "Version",
+    "sources": "Download sources",
+    "endOfLife": "Upstream support for {line} ended on {date}: it no longer gets security fixes."
   },
   "policy": {
     "title": "Download sources",
@@ -83,7 +79,8 @@
     "official": {
       "short": "Official only",
       "description": "Only the upstream's own addresses and mirror sites."
-    }
+    },
+    "saved": "Download sources saved."
   },
   "probe": {
     "slot": {
@@ -139,5 +136,177 @@
     "unknown": "Unknown",
     "about": "About {value}",
     "atLeast": "At least {value}"
+  },
+  "pageTabs": {
+    "all": "All",
+    "installed": "Installed",
+    "web": "Web servers",
+    "runtime": "Runtimes",
+    "database": "Databases"
+  },
+  "status": {
+    "installed": "Nothing installed | {count} installed | {count} installed"
+  },
+  "count": "{count} product | {count} products",
+  "search": "Search software",
+  "more": "More actions",
+  "homepageOf": "Website of {name}",
+  "installNamed": "Install {name}",
+  "settingsOf": "Settings of {name}",
+  "openLine": "{name} {line}, {state}: open its settings",
+  "lts": "LTS",
+  "notInstalled": "Not installed",
+  "notAvailable": "Not available here",
+  "column": {
+    "name": "Software",
+    "installed": "Installed",
+    "recommended": "Recommended",
+    "source": "Source",
+    "status": "Status"
+  },
+  "empty": {
+    "title": "No software here",
+    "installed": "Nothing installed yet",
+    "installedText": "Install software from the All tab; it then shows here with its services."
+  },
+  "lineState": {
+    "running": "Running",
+    "partial": "Partly running",
+    "stopped": "Stopped",
+    "failed": "Failed",
+    "installed": "Installed"
+  },
+  "unitState": {
+    "running": "Running",
+    "stopped": "Stopped",
+    "failed": "Failed",
+    "unknown": "Unknown"
+  },
+  "source": {
+    "system": "System",
+    "standalone": "Prebuilt"
+  },
+  "eol": {
+    "until": "Supported until {date}",
+    "ended": "Support ended {date}"
+  },
+  "steps": {
+    "separator": ", ",
+    "addRepo": "Add the {repo} repository and check its signing key against the pinned fingerprint",
+    "stream": "Enable module stream {stream}",
+    "download": "Download {name} {version} ({size}) from {source} and check it against the official checksum",
+    "recommendedSource": "the recommended source",
+    "unpack": "Unpack it into {dir}",
+    "downloadLine": "Download {name} {line} and check it against the official checksum",
+    "packages": "Install packages: {packages}",
+    "packageVersion": "{name} {version}",
+    "packageNewest": "{name} (newest of the line)",
+    "packageTotal": "({count} package, {size} to download) | ({count} packages, {size} to download)",
+    "libraries": "Install system libraries: {libraries}",
+    "services": "Enable and start {services}"
+  },
+  "drawer": {
+    "service": "Service",
+    "version": "Version",
+    "extensions": "Extensions",
+    "configs": "Configuration files",
+    "logs": "Logs",
+    "uninstall": "Uninstall",
+    "lineSwitch": "Version of {name}",
+    "notInstalled": "{name} is not installed",
+    "notInstalledText": "Install it to manage its service and settings here.",
+    "notAvailable": "{name} is not available on this system",
+    "unknown": "No software {name}",
+    "unknownText": "It is not in the catalog of this system."
+  },
+  "service": {
+    "intro": "The systemd services of this version. The buttons act on all of them at once.",
+    "units": "Services",
+    "reloadable": "Can reload",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "reload": "Reload configuration",
+    "busy": "A change to this software is running; the buttons wait until it ends.",
+    "stopTitle": "Stop {name} {line}?",
+    "stopText": {
+      "nginx": "nginx stops serving every site on this server until it is started again.",
+      "php": "Every site that uses PHP {line} stops working until PHP-FPM is started again.",
+      "database": "Sites and apps that use {name} lose their connection until it is started again.",
+      "other": "{units} stop until they are started again."
+    }
+  },
+  "version": {
+    "current": "Version {line}",
+    "others": "Other versions",
+    "open": "Open"
+  },
+  "extensions": {
+    "intro": "Extensions of PHP {line}. Installing or removing them reloads PHP-FPM {line}.",
+    "search": "Search extensions",
+    "empty": "No extensions are known for this version.",
+    "column": {
+      "name": "Extension",
+      "modules": "Modules",
+      "state": "State"
+    },
+    "state": {
+      "loaded": "Loaded",
+      "notLoaded": "Installed, not loaded",
+      "builtin": "Built in",
+      "available": "Not installed",
+      "unavailable": "Not built for this system"
+    },
+    "installCount": "Install ({count})",
+    "removeCount": "Remove ({count})",
+    "install": "Install",
+    "remove": "Remove",
+    "installTitle": "Install {count} extension for PHP {line}? | Install {count} extensions for PHP {line}?",
+    "removeTitle": "Remove {count} extension from PHP {line}? | Remove {count} extensions from PHP {line}?",
+    "installText": "{names} will be installed, then PHP-FPM {line} reloads.",
+    "removeText": "{names} will be removed, then PHP-FPM {line} reloads. Sites that use them may stop working.",
+    "modules": "Loaded modules ({count})",
+    "noModules": "PHP reported no modules."
+  },
+  "configs": {
+    "intro": "Configuration files of this version. Opening or saving one asks for your password: they can hold secrets.",
+    "empty": "This version has no editable configuration files.",
+    "checked": "Checked before applying",
+    "apply": {
+      "reload": "Saving reloads {service}",
+      "restart": "Saving restarts {service}",
+      "none": "No service needs reloading"
+    },
+    "label": {
+      "phpCli": "php.ini (command line)"
+    },
+    "back": "All files",
+    "stepUp": "Confirm your identity to open this file",
+    "stepUpText": "Configuration files can hold passwords, so opening one asks for your password.",
+    "reload": "Reload the file",
+    "save": "Save",
+    "discard": "Discard changes",
+    "applying": "Saving and applying the file…",
+    "saved": "{path} was saved.",
+    "versions": "Earlier versions ({count})",
+    "versionsTitle": "Earlier versions",
+    "versionTitle": "Earlier version",
+    "viewVersion": "View",
+    "loadVersion": "Load into the editor",
+    "steps": {
+      "keep": "Keep the current file as an earlier version",
+      "write": "Write the new {path}",
+      "check": "Check the new file",
+      "reload": "Reload {service}",
+      "restart": "Restart {service}",
+      "restartDatabase": "Restart {service}: its connections are briefly interrupted",
+      "rollback": "Put the previous file back if any of this fails"
+    }
+  },
+  "logs": {
+    "unit": "Service",
+    "label": "Journal of {unit}",
+    "empty": "The journal has no entries for this service.",
+    "limited": "Only the newest {count} entries are shown; the Logs page has the whole journal."
   }
 }

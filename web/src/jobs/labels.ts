@@ -22,6 +22,7 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
   const many = typeof params.count === 'number' && params.count > 1
   switch (kind) {
     case 'db.service':
+    case 'software.service':
       return typeof params.action === 'string' && /^[a-z]+$/.test(params.action) ? params.action : null
     case 'db.remote':
       return typeof params.enabled === 'boolean' ? (params.enabled ? 'enable' : 'disable') : null

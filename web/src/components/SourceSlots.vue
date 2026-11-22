@@ -2,27 +2,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCollapse,
-  NCollapseItem,
-  NRadio,
-  NRadioGroup,
-  NTag,
-  NText,
-  NTooltip,
-  useThemeVars,
-} from 'naive-ui'
+import { ChevronRight } from '@lucide/vue'
+import { RadioGroupIndicator, RadioGroupItem, RadioGroupRoot, type AcceptableValue } from 'reka-ui'
 import type { Repository, SourceCandidate, SourceSlot } from '@/api/software'
+import Notice from '@/components/common/Notice.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useNow } from '@/composables/useNow'
 import { errorText } from '@/i18n/errors'
 import { formatBytes, formatDuration, formatNumber, formatRelativeTime } from '@/i18n/format'
+import { cn } from '@/lib/utils'
 
 /**
  * The download sources of a probe: runtime downloads with a choice of
  * candidate each, then repository and system slots for information only.
- * Shared by the install dialog and the first-login wizard.
+ * Shared by the install sheet, the first-login wizard and the host page.
  */
 const props = defineProps<{
   slots: SourceSlot[]
@@ -41,7 +36,6 @@ const emit = defineEmits<{ switch: [slot: SourceSlot, candidate: SourceCandidate
 const selection = defineModel<Record<string, string>>('selection', { required: true })
 
 const { t, te } = useI18n()
-const themeVars = useThemeVars()
 const now = useNow(60_000)
 
 /** Runtime downloads, whose source can be chosen. */
@@ -49,8 +43,8 @@ const downloadSlots = computed(() => props.slots.filter((slot) => slot.selectabl
 /** Repository and system slots, shown for information only. */
 const infoSlots = computed(() => props.slots.filter((slot) => !slot.selectable))
 
-function choose(slotId: string, candidateId: string) {
-  selection.value = { ...selection.value, [slotId]: candidateId }
+function choose(slotId: string, value: AcceptableValue) {
+  if (typeof value === 'string') selection.value = { ...selection.value, [slotId]: value }
 }
 
 function label(prefix: string, value: string): string {
@@ -113,279 +107,161 @@ function slotErrorReason(slot: SourceSlot): string {
   const reason = slot.error?.params?.reason
   return typeof reason === 'string' ? reason : ''
 }
+
+const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-muted-foreground' : 'text-destructive')
 </script>
 
 <template>
-  <div class="source-slots">
+  <div class="flex flex-col gap-5">
     <!-- The runtime download: choose where the official file comes from. -->
-    <section v-for="slot in downloadSlots" :key="slot.id" class="slot">
-      <h4 class="slot__title">{{ slotTitle(slot) }}</h4>
-      <dl class="slot__facts">
+    <section v-for="slot in downloadSlots" :key="slot.id" class="flex flex-col gap-2.5">
+      <h4 class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</h4>
+      <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-detail">
         <template v-if="slot.version">
-          <dt>{{ t('software.install.version') }}</dt>
-          <dd class="mono" dir="ltr">{{ slot.version }}</dd>
+          <dt class="text-muted-foreground">{{ t('software.install.version') }}</dt>
+          <dd class="m-0 font-mono text-[12.5px]" dir="ltr">{{ slot.version }}</dd>
         </template>
         <template v-if="slot.file">
-          <dt>{{ t('software.install.file') }}</dt>
-          <dd class="mono" dir="ltr">{{ slot.file }}</dd>
+          <dt class="text-muted-foreground">{{ t('software.install.file') }}</dt>
+          <dd class="m-0 font-mono text-[12.5px] [overflow-wrap:anywhere]" dir="ltr">{{ slot.file }}</dd>
         </template>
         <template v-if="slot.size">
-          <dt>{{ t('software.install.size') }}</dt>
-          <dd>{{ formatBytes(slot.size) }}</dd>
+          <dt class="text-muted-foreground">{{ t('software.install.size') }}</dt>
+          <dd class="m-0 tabular-nums">{{ formatBytes(slot.size) }}</dd>
         </template>
       </dl>
-      <NAlert v-if="slot.error" type="error" class="block">
-        <div>{{ slotErrorText(slot) }}</div>
-        <code v-if="slotErrorReason(slot)" class="mono reason" dir="ltr">{{ slotErrorReason(slot) }}</code>
-      </NAlert>
-      <NAlert
-        v-if="slot.warning"
-        :type="slot.warning === 'no_eligible' ? 'error' : 'warning'"
-        class="block"
+      <Notice v-if="slot.error" tone="destructive">
+        {{ slotErrorText(slot) }}
+        <code v-if="slotErrorReason(slot)" class="mt-1 block font-mono text-xs font-normal whitespace-pre-wrap [overflow-wrap:anywhere]" dir="ltr">
+          {{ slotErrorReason(slot) }}
+        </code>
+      </Notice>
+      <Notice v-if="slot.warning" :tone="slot.warning === 'no_eligible' ? 'destructive' : 'warning'">{{ warningText(slot) }}</Notice>
+      <RadioGroupRoot
+        :model-value="selection[slot.id]"
+        :aria-label="slotTitle(slot)"
+        class="flex flex-col gap-2"
+        @update:model-value="(value: AcceptableValue) => choose(slot.id, value)"
       >
-        {{ warningText(slot) }}
-      </NAlert>
-      <NRadioGroup
-        :value="selection[slot.id] ?? null"
-        class="candidates"
-        @update:value="(id: string) => choose(slot.id, id)"
-      >
-        <NRadio
+        <RadioGroupItem
           v-for="candidate in split(slot).compared"
           :key="candidate.id"
           :value="candidate.id"
           :disabled="!candidate.eligible"
-          class="candidate"
+          class="group flex w-full items-start gap-2.5 rounded-md border bg-card px-3 py-2.5 text-start outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 data-[state=checked]:border-primary data-[state=checked]:bg-primary-soft"
         >
-          <span class="candidate__line">
-            <span class="candidate__name">{{ candidate.name }}</span>
-            <NTag size="small" :bordered="false">{{ label('software.probe.kind', candidate.kind) }}</NTag>
-            <NTag v-if="candidate.recommended" size="small" type="success" :bordered="false">
-              {{ t('software.recommended') }}
-            </NTag>
+          <span
+            class="mt-[3px] inline-flex size-4 shrink-0 items-center justify-center rounded-full border-[1.5px] border-muted-foreground group-data-[state=checked]:border-primary"
+            aria-hidden="true"
+          >
+            <RadioGroupIndicator class="size-2 rounded-full bg-primary" />
           </span>
-          <span class="candidate__meta">
-            <NTooltip v-if="candidate.status === 'unreachable' && candidate.error">
-              <template #trigger>
-                <span class="status status--bad">{{ statusText(candidate) }}</span>
-              </template>
-              <span class="mono" dir="ltr">{{ candidate.error }}</span>
-            </NTooltip>
-            <span v-else class="status" :class="{ 'status--bad': !candidate.eligible }">
-              {{ statusText(candidate) }}
+          <span class="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span class="flex flex-wrap items-center gap-1.5">
+              <span class="font-medium">{{ candidate.name }}</span>
+              <StatusPill>{{ label('software.probe.kind', candidate.kind) }}</StatusPill>
+              <StatusPill v-if="candidate.recommended" tone="success">{{ t('software.recommended') }}</StatusPill>
             </span>
-            <span>{{ latency(candidate) }}</span>
-            <span>{{ speed(candidate) }}</span>
+            <span class="flex flex-wrap gap-x-4 gap-y-0.5 text-xs tabular-nums">
+              <span :class="statusClass(candidate)" :title="candidate.status === 'unreachable' ? candidate.error : undefined">
+                {{ statusText(candidate) }}
+              </span>
+              <span class="text-muted-foreground">{{ latency(candidate) }}</span>
+              <span class="text-muted-foreground">{{ speed(candidate) }}</span>
+            </span>
           </span>
-        </NRadio>
-      </NRadioGroup>
-      <NCollapse v-if="split(slot).skipped.length > 0" class="skipped">
-        <NCollapseItem
-          :title="t('software.probe.skipped', { count: split(slot).skipped.length }, split(slot).skipped.length)"
-          :name="`${slot.id}:skipped`"
-        >
-          <ul class="skipped__list">
-            <li v-for="candidate in split(slot).skipped" :key="candidate.id">
-              {{ candidate.name }} · {{ label('software.probe.kind', candidate.kind) }} · {{ latency(candidate) }}
-            </li>
-          </ul>
-        </NCollapseItem>
-      </NCollapse>
+        </RadioGroupItem>
+      </RadioGroupRoot>
+      <details v-if="split(slot).skipped.length > 0" class="group text-detail">
+        <summary class="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+          <ChevronRight class="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+          {{ t('software.probe.skipped', { count: split(slot).skipped.length }, split(slot).skipped.length) }}
+        </summary>
+        <ul class="m-0 mt-1.5 flex list-none flex-col gap-0.5 p-0 ps-5 text-xs text-muted-foreground">
+          <li v-for="candidate in split(slot).skipped" :key="candidate.id">
+            {{ candidate.name }} · {{ label('software.probe.kind', candidate.kind) }} · {{ latency(candidate) }}
+          </li>
+        </ul>
+      </details>
     </section>
 
     <!-- Repositories and system sources: shown for information only. -->
-    <section v-for="slot in infoSlots" :key="slot.id" class="slot">
-      <h4 class="slot__title">{{ slotTitle(slot) }}</h4>
-      <NAlert v-if="slot.error" type="error" class="block">
-        <div>{{ slotErrorText(slot) }}</div>
-        <code v-if="slotErrorReason(slot)" class="mono reason" dir="ltr">{{ slotErrorReason(slot) }}</code>
-      </NAlert>
-      <NAlert v-if="slot.warning" :type="slot.warning === 'no_eligible' ? 'error' : 'warning'" class="block">
-        {{ warningText(slot) }}
-      </NAlert>
-      <div v-if="split(slot).compared.length > 0" class="table-wrap">
-        <table class="sources">
+    <section v-for="slot in infoSlots" :key="slot.id" class="flex flex-col gap-2.5">
+      <h4 class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</h4>
+      <Notice v-if="slot.error" tone="destructive">
+        {{ slotErrorText(slot) }}
+        <code v-if="slotErrorReason(slot)" class="mt-1 block font-mono text-xs font-normal whitespace-pre-wrap [overflow-wrap:anywhere]" dir="ltr">
+          {{ slotErrorReason(slot) }}
+        </code>
+      </Notice>
+      <Notice v-if="slot.warning" :tone="slot.warning === 'no_eligible' ? 'destructive' : 'warning'">{{ warningText(slot) }}</Notice>
+      <div v-if="split(slot).compared.length > 0" class="min-w-0 overflow-x-auto rounded-md border">
+        <table class="w-full min-w-[520px] border-collapse text-detail">
           <thead>
-            <tr>
-              <th>{{ t('software.probe.column.name') }}</th>
-              <th>{{ t('software.probe.column.kind') }}</th>
-              <th>{{ t('software.probe.column.status') }}</th>
-              <th>{{ t('software.probe.column.indexTime') }}</th>
-              <th>{{ t('software.probe.column.latency') }}</th>
-              <th>{{ t('software.probe.column.speed') }}</th>
-              <th v-if="switchable && slot.kind === 'system'" />
+            <tr class="bg-muted text-caption text-muted-foreground">
+              <th scope="col" class="px-3 py-1.5 text-start font-medium">{{ t('software.probe.column.name') }}</th>
+              <th scope="col" class="px-3 py-1.5 text-start font-medium">{{ t('software.probe.column.kind') }}</th>
+              <th scope="col" class="px-3 py-1.5 text-start font-medium">{{ t('software.probe.column.status') }}</th>
+              <th scope="col" class="px-3 py-1.5 text-start font-medium">{{ t('software.probe.column.indexTime') }}</th>
+              <th scope="col" class="px-3 py-1.5 text-end font-medium">{{ t('software.probe.column.latency') }}</th>
+              <th scope="col" class="px-3 py-1.5 text-end font-medium">{{ t('software.probe.column.speed') }}</th>
+              <th v-if="switchable && slot.kind === 'system'" scope="col" class="px-3 py-1.5">
+                <span class="sr-only">{{ t('common.field.action') }}</span>
+              </th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="candidate in split(slot).compared" :key="candidate.id">
-              <td>
-                <span class="candidate__name">{{ candidate.name }}</span>
-                <NTag v-if="candidate.inUse" size="small" type="info" :bordered="false" class="in-use">
-                  {{ t('software.probe.inUse') }}
-                </NTag>
-              </td>
-              <td>{{ label('software.probe.kind', candidate.kind) }}</td>
-              <td>
-                <NTooltip v-if="candidate.status === 'unreachable' && candidate.error">
-                  <template #trigger>
-                    <span class="status status--bad">{{ statusText(candidate) }}</span>
-                  </template>
-                  <span class="mono" dir="ltr">{{ candidate.error }}</span>
-                </NTooltip>
-                <span v-else class="status" :class="{ 'status--bad': !candidate.eligible }">
-                  {{ statusText(candidate) }}
+            <tr v-for="candidate in split(slot).compared" :key="candidate.id" class="border-t">
+              <td class="px-3 py-1.5">
+                <span class="inline-flex flex-wrap items-center gap-1.5">
+                  <span class="font-medium">{{ candidate.name }}</span>
+                  <StatusPill v-if="candidate.inUse" tone="progress">{{ t('software.probe.inUse') }}</StatusPill>
                 </span>
               </td>
-              <td>{{ indexTime(candidate) }}</td>
-              <td>{{ latency(candidate) }}</td>
-              <td>{{ speed(candidate) }}</td>
-              <td v-if="switchable && slot.kind === 'system'">
-                <NButton
+              <td class="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{{ label('software.probe.kind', candidate.kind) }}</td>
+              <td class="px-3 py-1.5">
+                <Tooltip v-if="candidate.status === 'unreachable' && candidate.error">
+                  <TooltipTrigger as-child>
+                    <button type="button" class="rounded-sm text-destructive underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                      {{ statusText(candidate) }}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent><span class="font-mono" dir="ltr">{{ candidate.error }}</span></TooltipContent>
+                </Tooltip>
+                <span v-else :class="cn(statusClass(candidate), candidate.eligible && 'text-foreground')">{{ statusText(candidate) }}</span>
+              </td>
+              <td class="px-3 py-1.5 whitespace-nowrap text-muted-foreground">{{ indexTime(candidate) }}</td>
+              <td class="px-3 py-1.5 text-end whitespace-nowrap tabular-nums text-muted-foreground">{{ latency(candidate) }}</td>
+              <td class="px-3 py-1.5 text-end whitespace-nowrap tabular-nums text-muted-foreground">{{ speed(candidate) }}</td>
+              <td v-if="switchable && slot.kind === 'system'" class="px-3 py-1.5 text-end">
+                <Button
                   v-if="candidate.eligible && !candidate.inUse"
-                  size="tiny"
-                  :type="candidate.recommended ? 'primary' : 'default'"
+                  size="sm"
+                  :variant="candidate.recommended ? 'default' : 'outline'"
                   :disabled="switchDisabled"
                   @click="emit('switch', slot, candidate)"
                 >
                   {{ t('software.probe.use') }}
-                </NButton>
+                </Button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <NCollapse v-if="split(slot).skipped.length > 0" class="skipped">
-        <NCollapseItem
-          :title="t('software.probe.skipped', { count: split(slot).skipped.length }, split(slot).skipped.length)"
-          :name="slot.id"
-        >
-          <ul class="skipped__list">
-            <li v-for="candidate in split(slot).skipped" :key="candidate.id">
-              {{ candidate.name }} · {{ label('software.probe.kind', candidate.kind) }} · {{ latency(candidate) }}
-            </li>
-          </ul>
-        </NCollapseItem>
-      </NCollapse>
-      <NText v-if="slot.kind === 'system' && !switchable" depth="3" tag="p" class="note">
+      <details v-if="split(slot).skipped.length > 0" class="group text-detail">
+        <summary class="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+          <ChevronRight class="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+          {{ t('software.probe.skipped', { count: split(slot).skipped.length }, split(slot).skipped.length) }}
+        </summary>
+        <ul class="m-0 mt-1.5 flex list-none flex-col gap-0.5 p-0 ps-5 text-xs text-muted-foreground">
+          <li v-for="candidate in split(slot).skipped" :key="candidate.id">
+            {{ candidate.name }} · {{ label('software.probe.kind', candidate.kind) }} · {{ latency(candidate) }}
+          </li>
+        </ul>
+      </details>
+      <p v-if="slot.kind === 'system' && !switchable" class="m-0 text-xs text-muted-foreground">
         {{ t('software.probe.systemNote') }}
-      </NText>
+      </p>
     </section>
   </div>
 </template>
-
-<style scoped>
-.slot {
-  margin-block-end: 20px;
-}
-
-.slot__title {
-  margin: 0 0 8px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.slot__facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 2px 12px;
-  margin: 0 0 12px;
-  font-size: 13px;
-}
-
-.slot__facts dt {
-  opacity: 0.7;
-}
-
-.slot__facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.candidates {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.candidate__line {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-
-.candidate__name {
-  font-weight: 500;
-}
-
-.candidate__meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin-block-start: 2px;
-  font-size: 12px;
-  opacity: 0.8;
-}
-
-.status--bad {
-  color: v-bind('themeVars.errorColor');
-}
-
-.table-wrap {
-  overflow-x: auto;
-}
-
-.sources {
-  inline-size: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.sources th,
-.sources td {
-  padding: 6px 8px;
-  border-block-end: 1px solid rgb(128 128 128 / 15%);
-  text-align: start;
-  white-space: nowrap;
-}
-
-.sources th {
-  font-weight: 500;
-  opacity: 0.7;
-}
-
-.in-use {
-  margin-inline-start: 6px;
-}
-
-.skipped {
-  margin-block-start: 8px;
-}
-
-.skipped__list {
-  margin: 0;
-  padding-inline-start: 1.2em;
-  font-size: 13px;
-}
-
-.note {
-  margin: 8px 0 0;
-  font-size: 13px;
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.reason {
-  display: block;
-  margin-block-start: 6px;
-  font-size: 12px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-</style>

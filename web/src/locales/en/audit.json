@@ -104,7 +104,10 @@
       "install": "Started installing {name} {line}",
       "remove": "Started uninstalling {name} {line}",
       "settings": "Changed the download sources to {downloadPolicy}",
-      "install_set": "Started installing {names}"
+      "install_set": "Started installing {names}",
+      "service": "Controlled the services of {name} {line}",
+      "extensions": "Started changing the extensions of {name} {line}",
+      "config": "Started saving {path} ({name} {line})"
     },
     "module": {
       "enable": "Turned on module {module}",
@@ -329,6 +332,14 @@
       "updates_auto": {
         "enable": "Turned on automatic security updates",
         "disable": "Turned off automatic security updates"
+      }
+    },
+    "software": {
+      "service": {
+        "start": "Started {name} {line}",
+        "stop": "Stopped {name} {line}",
+        "restart": "Restarted {name} {line}",
+        "reload": "Reloaded {name} {line}"
       }
     }
   }

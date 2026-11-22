@@ -2,11 +2,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NText } from 'naive-ui'
 import type { ProbeResult } from '@/api/software'
 import { formatBytes, formatDuration } from '@/i18n/format'
 import { estimateDownload } from '@/software/estimate'
 
+// How much the probed lines download and roughly how long it takes; parts
+// that cannot be estimated say so instead of guessing.
 const props = defineProps<{
   result: ProbeResult
   /** Chosen candidate per runtime slot id. */
@@ -32,10 +33,10 @@ const time = computed(() => {
 </script>
 
 <template>
-  <dl class="estimate">
+  <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 rounded-md border px-3 py-2.5 text-detail">
     <template v-if="estimate.hasPackages">
-      <dt>{{ t('software.estimate.packages') }}</dt>
-      <dd>
+      <dt class="text-muted-foreground">{{ t('software.estimate.packages') }}</dt>
+      <dd class="m-0 tabular-nums">
         {{
           estimate.packageBytes === null
             ? t('software.estimate.unknown')
@@ -45,51 +46,18 @@ const time = computed(() => {
                 estimate.packageCount,
               )
         }}
-        <NText v-if="estimate.partial" depth="3" tag="div" class="estimate__note">
-          {{ t('software.estimate.partial') }}
-        </NText>
+        <span v-if="estimate.partial" class="block text-xs text-muted-foreground">{{ t('software.estimate.partial') }}</span>
       </dd>
     </template>
     <template v-if="estimate.hasRuntimes">
-      <dt>{{ t('software.estimate.runtimes') }}</dt>
-      <dd>
-        {{
-          estimate.runtimeUnknown && estimate.runtimeBytes === 0
-            ? t('software.estimate.unknown')
-            : formatBytes(estimate.runtimeBytes)
-        }}
+      <dt class="text-muted-foreground">{{ t('software.estimate.runtimes') }}</dt>
+      <dd class="m-0 tabular-nums">
+        {{ estimate.runtimeUnknown && estimate.runtimeBytes === 0 ? t('software.estimate.unknown') : formatBytes(estimate.runtimeBytes) }}
       </dd>
     </template>
-    <dt>{{ t('software.estimate.total') }}</dt>
-    <dd class="estimate__strong">{{ total }}</dd>
-    <dt>{{ t('software.estimate.time') }}</dt>
-    <dd class="estimate__strong">{{ time }}</dd>
+    <dt class="text-muted-foreground">{{ t('software.estimate.total') }}</dt>
+    <dd class="m-0 font-semibold tabular-nums">{{ total }}</dd>
+    <dt class="text-muted-foreground">{{ t('software.estimate.time') }}</dt>
+    <dd class="m-0 font-semibold tabular-nums">{{ time }}</dd>
   </dl>
 </template>
-
-<style scoped>
-.estimate {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 4px 16px;
-  margin: 0;
-  font-size: 13px;
-}
-
-.estimate dt {
-  opacity: 0.7;
-}
-
-.estimate dd {
-  margin: 0;
-}
-
-.estimate__strong {
-  font-weight: 600;
-}
-
-.estimate__note {
-  font-size: 12px;
-  font-weight: normal;
-}
-</style>

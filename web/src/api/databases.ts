@@ -23,6 +23,17 @@ export interface DbDatabase {
   /** Recorded by the panel but no longer on the server. */
   missing?: boolean
   createdAt?: number
+  /** Backup plans that include this database, with their last runs; absent when none does. */
+  backup?: DbBackupSummary
+  /** Newest dump of this database in the panel's dump folder (Unix seconds). */
+  lastDumpAt?: number
+}
+
+export interface DbBackupSummary {
+  plans: string[]
+  lastOkAt?: number
+  /** Only when later than the last successful run. */
+  lastFailedAt?: number
 }
 
 export interface DbUser {
@@ -91,6 +102,8 @@ export interface DbStatus {
   engines: DbEngine[]
   /** Installed engines the panel does not manage on this system yet (catalog ids). */
   unmanaged?: string[]
+  /** False when the backups module is off: last backups are then unknown, not missing. */
+  backups?: boolean
 }
 
 export interface DbCreateRequest {

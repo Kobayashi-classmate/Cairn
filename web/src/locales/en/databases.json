@@ -11,9 +11,7 @@
   },
   "running": "Running",
   "stopped": "Stopped",
-  "version": "Version {version}",
   "port": "Port {port}",
-  "redisStats": "{keys} keys, {memory} used",
   "size": "Size",
   "owner": "Owner",
   "missing": "Missing",
@@ -27,16 +25,19 @@
     "dumps": "Dumps",
     "settings": "Settings",
     "keys": "Keys",
-    "snapshots": "Snapshots"
+    "snapshots": "Snapshots",
+    "label": "Sections of {name}",
+    "withCount": "{label} ({count})"
   },
   "remote": {
-    "label": "Remote access",
     "enableTitle": "Allow remote access?",
     "enableRestart": "The server will listen on every address instead of only locally. This restarts the service (it needs systemd), so open connections are dropped.",
     "enablePg": "PostgreSQL will listen on every address. Users still need hosts that allow their remote address.",
     "disableTitle": "Allow local connections only?",
     "disable": "The server will listen locally only; remote clients can no longer connect.",
-    "firewallNote": "The firewall comes in a later version: open the port there separately if clients need it."
+    "firewallNote": "Remote access is on: clients on other machines also need port {port} opened on the Firewall page.",
+    "enable": "Allow remote access",
+    "localOnly": "Allow local connections only"
   },
   "hints": {
     "mysqlName": "Letters, digits and _, up to 64 characters.",
@@ -56,20 +57,42 @@
     "empty": "No databases yet.",
     "dropTitle": "Delete database {name}?",
     "dropContent": "The database and all its data are deleted. This cannot be undone.",
-    "dropOwner": "Also delete its owner {user}"
+    "dropOwner": "Also delete its owner {user}",
+    "search": "Search databases",
+    "emptyText": "Create a database; a user of the same name can be created with it.",
+    "drop": "Delete database",
+    "dropOwnerText": "Its owner {user} is deleted too.",
+    "more": "More actions for {name}",
+    "namePlaceholder": "the new database",
+    "withUserHint": "A user with full access to it, named like the database unless you name it below.",
+    "steps": {
+      "create": "Create database {name} on {engine}",
+      "user": "Create user {user} with full access to it",
+      "userGenerated": "Create user {user} with full access to it and a generated password",
+      "hosts": "Let the user connect from {hosts}",
+      "local": "Let the user connect from this server only"
+    }
   },
   "user": {
     "createTitle": "Add user",
     "editTitle": "Edit user {name}",
     "empty": "No users yet.",
     "dropTitle": "Delete database user {name}?",
-    "dropContent": "Programs that sign in as this user will no longer be able to connect."
+    "dropContent": "Programs that sign in as this user will no longer be able to connect.",
+    "search": "Search users",
+    "create": "Add user",
+    "drop": "Delete user",
+    "more": "More actions for {name}"
   },
   "grant": {
     "all": "Full access",
     "readonly": "Read only",
     "add": "Add access",
-    "tag": "{database}: {level}"
+    "tag": "{database}: {level}",
+    "none": "No access to any database yet.",
+    "remove": "Remove this access",
+    "databaseOf": "Database of access {index}",
+    "levelOf": "Level of access {index}"
   },
   "password": {
     "show": "Show password",
@@ -88,19 +111,33 @@
     "deleteContent": "The dump file is deleted from this server.",
     "deleted": "{file} was deleted.",
     "uploaded": "{file} was uploaded.",
-    "badName": "Only .sql and .sql.gz files (and .dump for PostgreSQL) can be uploaded, with a name of letters, digits, dots, dashes and underscores."
+    "badName": "Only .sql and .sql.gz files (and .dump for PostgreSQL) can be uploaded, with a name of letters, digits, dots, dashes and underscores.",
+    "search": "Search dumps",
+    "created": "Created",
+    "delete": "Delete dump",
+    "more": "More actions for {file}",
+    "pickDatabase": "Database to dump",
+    "emptySnapshots": "No snapshots yet.",
+    "uploading": "Uploading… {percent}"
   },
   "restore": {
     "title": "Restore a dump",
     "submit": "Restore",
     "file": "Dump file",
-    "database": "Database",
     "user": "Restore as",
     "owner": "The owner of the database",
     "userHint": "Restoring runs as the owner, or as a user with full access to the database whose password the panel knows.",
     "intro": "The dump is loaded into an existing database.",
     "warning": "Objects in the dump replace the ones in the database with the same names.",
-    "needsUser": "Create the database through the panel (it then has a known owner), or give a user whose password the panel knows full access to it."
+    "needsUser": "Create the database through the panel (it then has a known owner), or give a user whose password the panel knows full access to it.",
+    "action": "Restore",
+    "pickDatabase": "Choose a database",
+    "pickFile": "Choose a dump",
+    "steps": {
+      "load": "Load {file} into {database}",
+      "as": "Run it as {user}",
+      "asOwner": "Run it as the owner of the database"
+    }
   },
   "redis": {
     "passwordOn": "Password set",
@@ -116,7 +153,14 @@
       "both": "Snapshots and append-only file",
       "none": "None (data is lost on restart)"
     },
-    "persistenceHint": "Without persistence, the data is lost when Redis restarts."
+    "persistenceHint": "Without persistence, the data is lost when Redis restarts.",
+    "mode": {
+      "keep": "Keep the current password",
+      "remove": "Remove the password"
+    },
+    "newPassword": "New password",
+    "save": "Save settings",
+    "discard": "Discard changes"
   },
   "keys": {
     "intro": "Choose a database number and a pattern, then scan.",
@@ -132,12 +176,42 @@
     "ttlHint": "Seconds; 0 removes the expiry.",
     "deleteSelected": "Delete selected ({count})",
     "deleteTitle": "Delete {count} key? | Delete {count} keys?",
-    "deleteContent": "The keys and their values are deleted.",
-    "deleted": "Deleted {count} key. | Deleted {count} keys."
+    "deleteContent": "The keys and their values are deleted from {db}.",
+    "deleted": "Deleted {count} key. | Deleted {count} keys.",
+    "delete": "Delete keys",
+    "ttlSaved": "Expiry saved.",
+    "ttlSeconds": "Expires in (seconds)"
   },
   "listSeparator": ", ",
   "service": {
     "start": "Start",
-    "stop": "Stop"
-  }
+    "stop": "Stop",
+    "restart": "Restart",
+    "stopTitle": "Stop {name}?",
+    "stopText": "Sites and apps that use {name} lose their connection until it is started again."
+  },
+  "status": {
+    "none": "No database server installed",
+    "count": "{count} server | {count} servers",
+    "running": "{count} running"
+  },
+  "installServer": "Install a server",
+  "state": {
+    "error": "Error"
+  },
+  "card": {
+    "label": "Database servers",
+    "settings": "Service settings",
+    "more": "More actions for {name}",
+    "local": "Local only",
+    "remote": "All addresses",
+    "databases": "{count} database | {count} databases",
+    "keys": "{count} key | {count} keys"
+  },
+  "lastBackup": "Last backup",
+  "backup": {
+    "never": "Never backed up",
+    "failed": "Failed"
+  },
+  "unmanagedTag": "Not created here"
 }

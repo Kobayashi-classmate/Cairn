@@ -1,6 +1,5 @@
 {
   "title": "计划任务",
-  "intro": "按计划运行脚本、访问网址或执行备份方案。每个任务是一个 systemd 定时器，运行记录和输出保存在系统日志中。",
   "statusUnavailable": "暂时无法获取下次和上次运行时间。",
   "empty": {
     "title": "还没有计划任务",
@@ -30,12 +29,14 @@
   "column": {
     "state": "状态",
     "lastRun": "上次运行",
-    "nextRun": "下次运行"
+    "nextRun": "下次运行",
+    "enabled": "启用"
   },
   "action": {
     "run": "立即运行",
     "history": "运行记录和输出",
-    "more": "{name} 的更多操作"
+    "more": "{name} 的更多操作",
+    "edit": "编辑 {name}"
   },
   "task": {
     "createTitle": "新建任务",
@@ -52,7 +53,24 @@
     "planPlaceholder": "选择备份方案",
     "noPlans": "还没有备份方案，请先到备份页面创建。",
     "timeout": "超时时间",
-    "enabled": "启用"
+    "enabled": "启用",
+    "create": "创建任务",
+    "delete": "删除任务",
+    "enabledHint": "关闭后任务保留设置，但不会按计划运行。",
+    "namePlaceholder": "新任务",
+    "rootUser": "root",
+    "sheetIntro": "每个任务是一个带定时器的 systemd 服务。",
+    "timeoutHint": "运行超过这个时间会被停止（最长 {max} 分钟）。",
+    "userHint": "网站所有者、登录用户，或在允许时使用 root。",
+    "steps": {
+      "create": "创建 {name} 的 systemd 服务和定时器",
+      "update": "重写 {name} 的 systemd 服务和定时器",
+      "shell": "以 {user} 的身份运行脚本",
+      "url": "访问 {url}",
+      "backup": "运行备份方案 {plan}",
+      "schedule": "运行计划：{schedule}",
+      "disabled": "保持停用，直到手动启用"
+    }
   },
   "schedule": {
     "kind": {
@@ -76,7 +94,13 @@
       "daily": "每天 {time}",
       "weekly": "每{weekday} {time}",
       "monthly": "每月 {day} 日 {time}"
-    }
+    },
+    "checking": "正在检查计划…",
+    "every": "每隔",
+    "expression": "OnCalendar 表达式",
+    "time": "时间",
+    "weekday": "星期",
+    "timesSeparator": "、"
   },
   "weekday": {
     "Mon": "周一",
@@ -88,13 +112,39 @@
     "Sun": "周日"
   },
   "runs": {
-    "title": "{name} 的运行记录",
     "intro": "最近的运行及其输出，来自系统日志。",
     "empty": "任务还没有运行过。",
     "manual": "手动运行",
     "meta": "耗时 {duration}，退出码 {code}",
     "pick": "选择一次运行以查看输出。",
     "noOutput": "这次运行没有输出。",
-    "truncated": "只显示了输出的末尾部分。"
+    "truncated": "只显示了输出的末尾部分。",
+    "list": "运行记录",
+    "output": "输出"
+  },
+  "search": "搜索任务",
+  "status": {
+    "count": "{count} 个任务 | {count} 个任务",
+    "enabled": "{count} 个已启用",
+    "failed": "{count} 个上次运行失败"
+  },
+  "enableTask": "启用 {name}",
+  "never": "从未运行",
+  "next": "下次：",
+  "typeHint": {
+    "shell": "以网站所有者或其他用户的身份运行 Shell 脚本",
+    "url": "访问一个网址；返回非 2xx 状态即视为失败",
+    "backup": "运行一个备份方案"
+  },
+  "drawer": {
+    "overview": "概览",
+    "lastRun": "运行情况",
+    "what": "运行内容",
+    "when": "运行时间",
+    "expression": "表达式",
+    "nextRuns": "接下来的运行",
+    "applying": "正在应用更改。",
+    "unknown": "没有这个任务",
+    "unknownText": "它可能已被删除。"
   }
 }

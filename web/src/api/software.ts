@@ -34,6 +34,43 @@ export interface Offer {
   installed: boolean
   /** Exact installed versions of the line's packages. */
   installedPackages?: InstalledPackage[]
+  /**
+   * Configuration files of the line that can be edited (catalog data,
+   * present whether or not the line is installed).
+   */
+  configs?: ConfigFile[]
+  /** The line has PHP extension management (PHP lines only). */
+  extensions?: boolean
+  /**
+   * The line's systemd services with their state; only for installed lines,
+   * when the status is available and the system runs systemd.
+   */
+  units?: ServiceUnit[]
+}
+
+/** What happens after a configuration file is saved. */
+export type ConfigApply = 'reload' | 'restart' | 'none'
+
+/** An editable configuration file of a line. */
+export interface ConfigFile {
+  /** "nginx.conf", "php.ini", "50-server.cnf", ... */
+  id: string
+  /** Absolute path. */
+  path: string
+  apply: ConfigApply
+  /** The unit reloaded or restarted after saving. */
+  service?: string
+  /** A syntax check runs before the change is applied. */
+  check: boolean
+}
+
+export type UnitState = 'running' | 'stopped' | 'failed' | 'unknown'
+
+/** A systemd service of an installed line. */
+export interface ServiceUnit {
+  name: string
+  state: UnitState
+  canReload: boolean
 }
 
 export interface InstalledPackage {
@@ -110,6 +147,99 @@ export async function installSoftware(id: string, line: string, source?: string)
  */
 export async function removeSoftware(id: string, line: string): Promise<Job> {
   return (await api.post<{ job: Job }>(`/software/${encodeURIComponent(id)}/remove`, { line })).job
+}
+
+export type ServiceAction = 'start' | 'stop' | 'restart' | 'reload'
+
+/** Starts, stops, restarts or reloads every service of a line (`software.manage`); follow the job. */
+export async function controlSoftwareService(id: string, line: string, action: ServiceAction): Promise<Job> {
+  return (await api.post<{ job: Job }>(`/software/${encodeURIComponent(id)}/service`, { line, action })).job
+}
+
+/** A PHP extension of a line. */
+export interface PhpExtension {
+  id: string
+  /** Product name; not translated. */
+  name: string
+  /** Modules it provides, as `php -m` prints them (lower case). */
+  modules: string[]
+  /** It can be installed on this system. */
+  available: boolean
+  /** Its package is installed. */
+  installed: boolean
+  /** All its modules are loaded. */
+  loaded: boolean
+  /** Loaded without a package of its own: cannot be installed or removed. */
+  builtin: boolean
+}
+
+export interface ExtensionsResponse {
+  extensions: PhpExtension[]
+  /** Every module the line's PHP loads, lower case and sorted. */
+  modules: string[]
+}
+
+function linePath(id: string, line: string): string {
+  return `/software/${encodeURIComponent(id)}/lines/${encodeURIComponent(line)}`
+}
+
+export function fetchExtensions(id: string, line: string, signal?: AbortSignal): Promise<ExtensionsResponse> {
+  return api.get<ExtensionsResponse>(`${linePath(id, line)}/extensions`, { signal })
+}
+
+/** Installs and removes extensions in one job, then reloads the line's PHP-FPM. */
+export async function changeExtensions(id: string, line: string, change: { install?: string[]; remove?: string[] }): Promise<Job> {
+  return (await api.post<{ job: Job }>(`${linePath(id, line)}/extensions`, change)).job
+}
+
+/** One configuration file as read from the server. */
+export interface ConfigView {
+  id: string
+  path: string
+  /** UTF-8 text, at most 1 MiB. */
+  content: string
+  /** Sent back as `base` when saving. */
+  sha256: string
+  size: number
+  /** Unix seconds. */
+  modTime: number
+  /** False when the server does not allow editing (`root_access = "never"`). */
+  editable: boolean
+  /** Earlier versions kept when saving, newest first. */
+  versions: ConfigVersion[]
+}
+
+export interface ConfigVersion {
+  id: string
+  savedAt: number
+  size: number
+}
+
+export interface ConfigVersionContent extends ConfigVersion {
+  content: string
+}
+
+function configPath(id: string, line: string, config: string): string {
+  return `${linePath(id, line)}/configs/${encodeURIComponent(config)}`
+}
+
+/** Step-up protected. */
+export function fetchConfig(id: string, line: string, config: string, signal?: AbortSignal): Promise<ConfigView> {
+  return api.get<ConfigView>(configPath(id, line, config), { signal })
+}
+
+/** Step-up protected. */
+export function fetchConfigVersion(id: string, line: string, config: string, version: string): Promise<ConfigVersionContent> {
+  return api.get<ConfigVersionContent>(`${configPath(id, line, config)}/versions/${encodeURIComponent(version)}`)
+}
+
+/**
+ * Saves a configuration file (step-up protected); follow the job, which
+ * checks the file and reloads or restarts its service, putting the previous
+ * file back when either fails. `base` is the sha256 of the file as read.
+ */
+export async function saveConfig(id: string, line: string, config: string, content: string, base: string): Promise<Job> {
+  return (await api.put<{ job: Job }>(configPath(id, line, config), { content, base })).job
 }
 
 /** Lines the panel can install and remove: packages and prebuilt runtimes. */
@@ -220,6 +350,25 @@ export interface PackageEstimate {
   partial?: boolean
 }
 
+/** What installing one probed line will do, step by step. */
+export interface LinePlan {
+  software: string
+  line: string
+  method: InstallMethod
+  /** Vendor lines: catalog repository id. */
+  repo?: string
+  /** Vendor lines: the repository is already added (otherwise it is added first and its key checked). */
+  repoReady: boolean
+  /** Module stream enabled first, for example "php:8.3". */
+  stream?: string
+  /** Packages with the exact version that will be installed; "" when not known yet. */
+  packages: InstalledPackage[]
+  /** Standalone runtimes: system libraries installed first. */
+  libraries?: string[]
+  /** Services enabled and started afterwards. */
+  services?: string[]
+}
+
 export interface ProbeResult {
   policy: DownloadPolicy
   /** Probe time in milliseconds. */
@@ -228,6 +377,8 @@ export interface ProbeResult {
   slots: SourceSlot[]
   /** Absent when none of the lines uses the package manager. */
   packages?: PackageEstimate
+  /** One plan per probed item. */
+  plan?: LinePlan[]
 }
 
 /** Slot id of a line's runtime download. */

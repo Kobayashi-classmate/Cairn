@@ -104,7 +104,10 @@
       "install": "开始安装 {name} {line}",
       "remove": "开始卸载 {name} {line}",
       "settings": "将下载源改为{downloadPolicy}",
-      "install_set": "开始安装 {names}"
+      "install_set": "开始安装 {names}",
+      "service": "控制了 {name} {line} 的服务",
+      "extensions": "开始修改 {name} {line} 的扩展",
+      "config": "开始保存 {path}（{name} {line}）"
     },
     "module": {
       "enable": "开启了模块 {module}",
@@ -329,6 +332,14 @@
       "updates_auto": {
         "enable": "开启了自动安全更新",
         "disable": "关闭了自动安全更新"
+      }
+    },
+    "software": {
+      "service": {
+        "start": "启动了 {name} {line}",
+        "stop": "停止了 {name} {line}",
+        "restart": "重启了 {name} {line}",
+        "reload": "重新加载了 {name} {line}"
       }
     }
   }

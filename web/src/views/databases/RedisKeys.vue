@@ -1,123 +1,138 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, h, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NDataTable,
-  NEmpty,
-  NInput,
-  NInputNumber,
-  NModal,
-  NSelect,
-  NTag,
-  NText,
-  useMessage,
-  type DataTableColumns,
-  type DataTableRowKey,
-} from 'naive-ui'
+import { LoaderCircle, Search, Trash2 } from '@lucide/vue'
 import { isStepUpRequired } from '@/api/client'
-import {
-  deleteRedisKeys,
-  fetchRedisValue,
-  scanRedisKeys,
-  setRedisTtl,
-  type RedisKey,
-  type RedisValue,
-} from '@/api/databases'
-import { useConfirm } from '@/composables/useConfirm'
-import { useErrorToast } from '@/composables/useErrorToast'
+import { deleteRedisKeys, fetchRedisValue, scanRedisKeys, setRedisTtl, type RedisKey, type RedisValue } from '@/api/databases'
+import Card from '@/components/common/Card.vue'
+import DataTable from '@/components/common/DataTable.vue'
+import Notice from '@/components/common/Notice.vue'
+import SelectField from '@/components/common/SelectField.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import { keepOpenOnCompanion, keepOpenOnEscape, trackOverlay } from '@/components/common/overlayGuard'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { confirmAction } from '@/composables/useConfirmDialog'
 import { errorMessage } from '@/i18n/errors'
 import { formatDuration, formatNumber } from '@/i18n/format'
+import { notifyError, notifySuccess } from '@/lib/notify'
 
-const props = defineProps<{ canManage: boolean }>()
+// Browses the keys of the system Redis/Valkey instance: pick a database
+// number and a pattern, scan, open a key to see its value and change its
+// expiry, select keys to delete them (step-up protected).
+defineProps<{ canManage: boolean }>()
 
 const { t } = useI18n()
-const message = useMessage()
-const confirm = useConfirm()
-const showError = useErrorToast()
 
-const db = ref(0)
+const db = ref('0')
 const pattern = ref('*')
 const keys = ref<RedisKey[]>([])
-/** "0" once the scan reached the end. */
+/** "0" once the scan reached the end; null before the first scan. */
 const cursor = ref<string | null>(null)
 const scanning = ref(false)
 const scanError = ref<unknown>(null)
-const checked = ref<DataTableRowKey[]>([])
+const selection = ref<string[]>([])
 
 const value = ref<RedisValue | null>(null)
-const valueError = ref<unknown>(null)
-const ttlSeconds = ref<number | null>(null)
+const ttl = ref('0')
 const savingTtl = ref(false)
+const ttlError = ref<unknown>(null)
+const opening = ref<string | null>(null)
 
-const dbOptions = Array.from({ length: 16 }, (_, index) => ({ value: index, label: `db${index}` }))
+const showValue = computed(() => value.value !== null)
+trackOverlay(() => showValue.value)
+
+const dbOptions = Array.from({ length: 16 }, (_, index) => ({ value: String(index), label: `db${index}` }))
+
+/** The database and pattern the listed keys come from; "Load more" continues that scan. */
+const scanned = ref<{ db: number; pattern: string } | null>(null)
+/** Numbers the scans, so an answer for an earlier scan is dropped. */
+let seq = 0
 
 async function scan(reset: boolean) {
+  const target = reset || !scanned.value ? { db: Number(db.value), pattern: pattern.value.trim() || '*' } : scanned.value
+  const mine = ++seq
   scanning.value = true
   scanError.value = null
+  if (reset) {
+    scanned.value = target
+    keys.value = []
+    cursor.value = null
+    selection.value = []
+  }
   try {
-    const page = await scanRedisKeys(db.value, pattern.value.trim() || '*', reset ? '0' : (cursor.value ?? '0'))
-    keys.value = reset ? page.keys : [...keys.value, ...page.keys]
+    const page = await scanRedisKeys(target.db, target.pattern, reset ? '0' : (cursor.value ?? '0'))
+    if (mine !== seq) return
+    keys.value = reset ? page.keys : [...keys.value, ...page.keys.filter((k) => !keys.value.some((known) => known.key === k.key))]
     cursor.value = page.cursor
-    if (reset) checked.value = []
   } catch (err) {
-    scanError.value = err
+    if (mine === seq) scanError.value = err
   } finally {
-    scanning.value = false
+    if (mine === seq) scanning.value = false
   }
 }
 
+function onDb(next: string) {
+  db.value = next
+  void scan(true)
+}
+
 async function open(key: RedisKey) {
-  valueError.value = null
+  opening.value = key.key
+  ttlError.value = null
   try {
-    value.value = await fetchRedisValue(db.value, key.key)
-    ttlSeconds.value = value.value.ttl > 0 ? value.value.ttl : 0
+    value.value = await fetchRedisValue(scanned.value?.db ?? Number(db.value), key.key)
+    ttl.value = String(value.value.ttl > 0 ? value.value.ttl : 0)
   } catch (err) {
-    valueError.value = err
-    showError(err)
+    notifyError(err)
+  } finally {
+    opening.value = null
   }
 }
 
 async function saveTtl() {
   const current = value.value
-  if (!current || ttlSeconds.value === null) return
+  const seconds = Number(ttl.value)
+  if (!current || !Number.isInteger(seconds) || seconds < 0) return
   savingTtl.value = true
+  ttlError.value = null
   try {
     // Step-up protected; 0 removes the expiry.
-    await setRedisTtl(db.value, current.key, ttlSeconds.value)
-    message.success(t('settings.panel.saved'))
-    value.value = await fetchRedisValue(db.value, current.key)
+    const number = scanned.value?.db ?? Number(db.value)
+    await setRedisTtl(number, current.key, seconds)
+    notifySuccess(t('databases.keys.ttlSaved'))
+    value.value = await fetchRedisValue(number, current.key)
+    const listed = keys.value.find((k) => k.key === current.key)
+    if (listed && value.value) listed.ttl = value.value.ttl
   } catch (err) {
-    if (!isStepUpRequired(err)) showError(err)
+    if (!isStepUpRequired(err)) ttlError.value = err
   } finally {
     savingTtl.value = false
   }
 }
 
-async function removeChecked() {
-  const list = checked.value.map(String)
-  if (list.length === 0) return
-  const ok = await confirm({
+async function removeSelected(list: string[], clear: () => void) {
+  if (list.length === 0 || !scanned.value) return
+  const number = scanned.value.db
+  const ok = await confirmAction({
     title: t('databases.keys.deleteTitle', { count: list.length }, list.length),
-    content: t('databases.keys.deleteContent'),
-    confirmText: t('common.action.delete'),
-    danger: true,
+    description: t('databases.keys.deleteContent', { db: `db${number}` }),
+    confirmLabel: t('databases.keys.delete'),
+    destructive: true,
+    run: async () => {
+      const deleted = await deleteRedisKeys(number, list)
+      notifySuccess(t('databases.keys.deleted', { count: deleted }, deleted))
+      keys.value = keys.value.filter((k) => !list.includes(k.key))
+    },
   })
-  if (!ok) return
-  try {
-    const deleted = await deleteRedisKeys(db.value, list)
-    message.success(t('databases.keys.deleted', { count: deleted }, deleted))
-    keys.value = keys.value.filter((k) => !list.includes(k.key))
-    checked.value = []
-  } catch (err) {
-    if (!isStepUpRequired(err)) showError(err)
-  }
+  if (ok) clear()
 }
 
-function ttlText(ttl: number): string {
-  return ttl < 0 ? t('databases.keys.noExpiry') : formatDuration(ttl)
+function ttlText(seconds: number): string {
+  return seconds < 0 ? t('databases.keys.noExpiry') : formatDuration(seconds)
 }
 
 /** zset and hash items come as pairs; everything else one per row. */
@@ -130,178 +145,129 @@ const rows = computed(() => {
   return out
 })
 
-const columns = computed<DataTableColumns<RedisKey>>(() => [
-  ...(props.canManage ? [{ type: 'selection' as const }] : []),
-  {
-    key: 'key',
-    title: t('databases.keys.key'),
-    minWidth: 240,
-    render: (k) => h(NButton, { text: true, onClick: () => void open(k) }, () => h('span', { class: 'mono', dir: 'ltr' }, k.key)),
-  },
-  { key: 'type', title: t('common.field.type'), width: 100, render: (k) => h(NTag, { size: 'small', bordered: false }, () => k.type) },
-  { key: 'ttl', title: t('databases.keys.ttl'), width: 160, render: (k) => ttlText(k.ttl) },
+const columns = computed<ColumnDef<RedisKey>[]>(() => [
+  { id: 'key', header: t('databases.keys.key'), accessorFn: (k) => k.key, meta: { class: 'min-w-[260px]' } },
+  { id: 'type', header: t('common.field.type'), accessorFn: (k) => k.type, meta: { class: 'w-[110px]' } },
+  { id: 'ttl', header: t('databases.keys.ttl'), accessorFn: (k) => (k.ttl < 0 ? Number.MAX_SAFE_INTEGER : k.ttl), meta: { class: 'w-[160px]' } },
 ])
+
+function closeValue(open: boolean) {
+  if (!open) value.value = null
+}
 </script>
 
 <template>
-  <div>
-    <div class="toolbar">
-      <NSelect v-model:value="db" :options="dbOptions" class="toolbar__db" @update:value="() => scan(true)" />
-      <NInput
-        v-model:value="pattern"
-        :placeholder="t('databases.keys.pattern')"
-        :input-props="{ spellcheck: false, 'aria-label': t('databases.keys.pattern') }"
-        class="toolbar__pattern"
-        @keyup.enter="scan(true)"
+  <Card :level="3" flush>
+    <form class="flex flex-wrap items-end gap-2 border-b px-4 py-3 md:px-[18px]" @submit.prevent="scan(true)">
+      <SelectField
+        :model-value="db"
+        :options="dbOptions"
+        :aria-label="t('common.field.db')"
+        :disabled="scanning"
+        class="w-28 font-mono max-md:h-11"
+        @update:model-value="onDb"
       />
-      <NButton type="primary" :loading="scanning" @click="scan(true)">{{ t('databases.keys.scan') }}</NButton>
-      <NButton v-if="canManage" type="error" ghost :disabled="checked.length === 0" @click="removeChecked">
-        {{ t('databases.keys.deleteSelected', { count: checked.length }) }}
-      </NButton>
-    </div>
-    <NAlert v-if="scanError" type="error" class="block">{{ errorMessage(scanError) }}</NAlert>
-    <NDataTable
-      v-if="cursor !== null && keys.length > 0"
-      v-model:checked-row-keys="checked"
-      :columns="columns"
+      <Input
+        v-model="pattern"
+        :aria-label="t('databases.keys.pattern')"
+        :placeholder="t('databases.keys.pattern')"
+        autocomplete="off"
+        spellcheck="false"
+        autocapitalize="none"
+        class="min-w-40 flex-[1_1_220px] font-mono sm:max-w-80 max-md:h-11"
+      />
+      <Button type="submit" class="max-md:h-11" :disabled="scanning">
+        <LoaderCircle v-if="scanning" class="animate-spin" aria-hidden="true" />
+        <Search v-else aria-hidden="true" />
+        {{ t('databases.keys.scan') }}
+      </Button>
+    </form>
+
+    <Notice v-if="scanError" tone="destructive" class="m-4">{{ errorMessage(scanError) }}</Notice>
+    <p v-if="cursor === null && !scanning" class="m-0 px-4 py-6 text-center text-detail text-muted-foreground md:px-[18px]">{{ t('databases.keys.intro') }}</p>
+    <DataTable
+      v-else
+      v-model:selection="selection"
       :data="keys"
-      :row-key="(k: RedisKey) => k.key"
-      :scroll-x="600"
-      size="small"
-    />
-    <NEmpty v-else-if="cursor !== null" :description="t('databases.keys.empty')" class="empty" />
-    <NText v-else depth="3" tag="p" class="intro">{{ t('databases.keys.intro') }}</NText>
-    <div v-if="cursor && cursor !== '0'" class="more">
-      <NButton :loading="scanning" @click="scan(false)">{{ t('common.action.loadMore') }}</NButton>
-    </div>
-
-    <NModal
-      :show="value !== null"
-      preset="card"
-      :title="value?.key ?? ''"
-      class="value-dialog"
-      @update:show="(open: boolean) => !open && (value = null)"
+      :columns="columns"
+      :row-key="(k) => k.key"
+      :label="t('databases.tabs.keys')"
+      :loading="scanning && keys.length === 0"
+      :selectable="canManage"
+      :empty-title="t('databases.keys.empty')"
+      :min-width="560"
+      flat
     >
-      <template v-if="value">
-        <div class="meta">
-          <NTag size="small" :bordered="false">{{ value.type }}</NTag>
-          <NText depth="3">{{ t('databases.keys.length', { count: formatNumber(value.length) }) }}</NText>
-          <NText depth="3">{{ ttlText(value.ttl) }}</NText>
-        </div>
-        <pre v-if="value.value !== undefined && !value.items" class="value" dir="ltr">{{ value.value }}</pre>
-        <table v-else class="items">
-          <tbody>
-            <tr v-for="(row, index) in rows" :key="index">
-              <td v-for="(cell, cellIndex) in row" :key="cellIndex" class="mono" dir="ltr">{{ cell }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <NText v-if="value.truncated" depth="3" tag="p" class="hint">{{ t('databases.keys.truncated') }}</NText>
-        <div v-if="canManage" class="ttl">
-          <NInputNumber v-model:value="ttlSeconds" :min="0" :show-button="false" class="ttl__input" />
-          <NButton :loading="savingTtl" @click="saveTtl">{{ t('databases.keys.setTtl') }}</NButton>
-          <NText depth="3" class="hint">{{ t('databases.keys.ttlHint') }}</NText>
-        </div>
+      <template #cell-key="{ row }">
+        <button
+          type="button"
+          class="inline-flex max-w-full items-center gap-1.5 rounded-sm text-start font-mono text-[12.5px] underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+          dir="ltr"
+          :disabled="opening !== null"
+          @click="open(row)"
+        >
+          <span class="truncate">{{ row.key }}</span>
+          <LoaderCircle v-if="opening === row.key" class="size-3.5 shrink-0 animate-spin" aria-hidden="true" />
+        </button>
       </template>
-    </NModal>
-  </div>
+      <template #cell-type="{ row }"><StatusPill class="font-mono">{{ row.type }}</StatusPill></template>
+      <template #cell-ttl="{ row }">
+        <span :class="row.ttl < 0 ? 'text-muted-foreground' : ''">{{ ttlText(row.ttl) }}</span>
+      </template>
+      <template #bulk="{ keys: picked, clear }">
+        <Button size="sm" variant="outline" class="text-destructive hover:text-destructive" @click="removeSelected([...picked], clear)">
+          <Trash2 aria-hidden="true" />
+          {{ t('databases.keys.deleteSelected', { count: picked.length }) }}
+        </Button>
+      </template>
+    </DataTable>
+    <div v-if="cursor && cursor !== '0'" class="flex justify-center border-t px-4 py-3">
+      <Button variant="outline" size="sm" :disabled="scanning" @click="scan(false)">
+        <LoaderCircle v-if="scanning" class="animate-spin" aria-hidden="true" />
+        {{ t('common.action.loadMore') }}
+      </Button>
+    </div>
+  </Card>
+
+  <Dialog :open="showValue" @update:open="closeValue">
+    <DialogContent class="sm:max-w-[720px]" @interact-outside="keepOpenOnCompanion" @escape-key-down="keepOpenOnEscape">
+      <template v-if="value">
+        <div class="flex min-w-0 flex-col gap-1.5 pe-6">
+          <DialogTitle class="m-0 font-mono text-base font-semibold [overflow-wrap:anywhere]" dir="ltr">{{ value.key }}</DialogTitle>
+          <DialogDescription class="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 text-detail text-muted-foreground">
+            <StatusPill class="font-mono">{{ value.type }}</StatusPill>
+            <span>{{ t('databases.keys.length', { count: formatNumber(value.length) }) }}</span>
+            <span>{{ ttlText(value.ttl) }}</span>
+          </DialogDescription>
+        </div>
+        <pre
+          v-if="value.value !== undefined && !value.items"
+          class="m-0 max-h-[50vh] overflow-auto rounded-md bg-muted px-3 py-2.5 font-mono text-[12.5px] whitespace-pre-wrap [overflow-wrap:anywhere]"
+          dir="ltr"
+        >{{ value.value }}</pre>
+        <div v-else class="max-h-[50vh] overflow-auto rounded-md border">
+          <table class="w-full border-collapse font-mono text-[12.5px]" dir="ltr">
+            <tbody>
+              <tr v-for="(row, index) in rows" :key="index" class="border-t first:border-t-0">
+                <td v-for="(cell, cellIndex) in row" :key="cellIndex" class="px-3 py-1.5 align-top [overflow-wrap:anywhere]">{{ cell }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-if="value.truncated" class="m-0 text-xs text-muted-foreground">{{ t('databases.keys.truncated') }}</p>
+        <form v-if="canManage" class="flex flex-wrap items-end gap-2" novalidate @submit.prevent="saveTtl">
+          <label class="flex flex-col gap-1.5 text-detail font-medium">
+            {{ t('databases.keys.ttlSeconds') }}
+            <Input v-model="ttl" type="number" min="0" step="1" inputmode="numeric" class="w-40 tabular-nums" />
+          </label>
+          <Button type="submit" variant="outline" class="max-md:h-11" :disabled="savingTtl">
+            <LoaderCircle v-if="savingTtl" class="animate-spin" aria-hidden="true" />
+            {{ t('databases.keys.setTtl') }}
+          </Button>
+          <span class="basis-full text-xs text-muted-foreground">{{ t('databases.keys.ttlHint') }}</span>
+        </form>
+        <Notice v-if="ttlError" tone="destructive">{{ errorMessage(ttlError) }}</Notice>
+      </template>
+    </DialogContent>
+  </Dialog>
 </template>
-
-<style scoped>
-.toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-block-end: 12px;
-}
-
-.toolbar__db {
-  inline-size: 100px;
-}
-
-.toolbar__pattern {
-  inline-size: 240px;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.intro {
-  margin: 0;
-  font-size: 13px;
-}
-
-.empty {
-  padding-block: 24px;
-}
-
-.more {
-  display: flex;
-  justify-content: center;
-  margin-block-start: 12px;
-}
-
-.value-dialog {
-  inline-size: min(760px, calc(100vw - 32px));
-}
-
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-  margin-block-end: 12px;
-}
-
-.value,
-.items {
-  max-block-size: 50vh;
-  overflow: auto;
-}
-
-.value {
-  margin: 0;
-  padding: 10px 12px;
-  border-radius: 4px;
-  background: rgb(128 128 128 / 10%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12.5px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.items {
-  display: block;
-  border-collapse: collapse;
-  font-size: 12.5px;
-}
-
-.items td {
-  padding: 4px 8px;
-  border-block-end: 1px solid rgb(128 128 128 / 15%);
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-
-.hint {
-  font-size: 12px;
-}
-
-.ttl {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-block-start: 16px;
-}
-
-.ttl__input {
-  inline-size: 160px;
-}
-
-.mono,
-:deep(.mono) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-</style>

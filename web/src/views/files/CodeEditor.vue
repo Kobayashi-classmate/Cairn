@@ -8,7 +8,8 @@ import { basicSetup } from 'codemirror'
 import { indentWithTab } from '@codemirror/commands'
 import { Annotation, Compartment, EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
-import { oneDark } from '@codemirror/theme-one-dark'
+import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
+import { oneDarkHighlightStyle } from '@codemirror/theme-one-dark'
 import { languageFor } from '@/files/languages'
 import { useThemeStore } from '@/stores/theme'
 
@@ -37,11 +38,37 @@ let view: EditorView | null = null
 
 const baseTheme = EditorView.theme({
   '&': { height: '100%', fontSize: '13px' },
-  '.cm-scroller': { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace' },
+  '.cm-scroller': { fontFamily: 'var(--font-mono, ui-monospace, monospace)' },
 })
 
+/**
+ * The editor's colours come from the panel's tokens (interface spec,
+ * section 3), which switch with the light and dark mode; only the syntax
+ * colours have a light and a dark set.
+ */
+const chrome = {
+  '&': { color: 'var(--foreground)', backgroundColor: 'var(--card)' },
+  '.cm-content': { caretColor: 'var(--foreground)' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--foreground)' },
+  '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection':
+    { backgroundColor: 'color-mix(in srgb, var(--primary) 22%, transparent)' },
+  '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--accent) 70%, transparent)' },
+  '.cm-gutters': { backgroundColor: 'var(--muted)', color: 'var(--muted-foreground)', borderRight: '1px solid var(--border)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--accent)', color: 'var(--foreground)' },
+  '.cm-foldPlaceholder': { backgroundColor: 'var(--muted)', border: '1px solid var(--border)', color: 'var(--muted-foreground)' },
+  '.cm-tooltip': { backgroundColor: 'var(--popover)', color: 'var(--popover-foreground)', border: '1px solid var(--border)' },
+  '.cm-panels': { backgroundColor: 'var(--muted)', color: 'var(--foreground)' },
+  '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--border)' },
+  '.cm-panels.cm-panels-bottom': { borderTop: '1px solid var(--border)' },
+  '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--warning) 30%, transparent)' },
+  '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: 'color-mix(in srgb, var(--primary) 35%, transparent)' },
+  '.cm-matchingBracket, .cm-nonmatchingBracket': { backgroundColor: 'color-mix(in srgb, var(--primary) 20%, transparent)' },
+}
+const lightTheme = [EditorView.theme(chrome, { dark: false }), syntaxHighlighting(defaultHighlightStyle)]
+const darkTheme = [EditorView.theme(chrome, { dark: true }), syntaxHighlighting(oneDarkHighlightStyle)]
+
 function themeFor(dark: boolean) {
-  return dark ? oneDark : []
+  return dark ? darkTheme : lightTheme
 }
 
 function goToLine(line: number | undefined) {
@@ -133,8 +160,8 @@ defineExpose({
 .code-editor {
   block-size: 100%;
   min-block-size: 0;
-  border: 1px solid var(--n-border-color, rgba(128, 128, 128, 0.3));
-  border-radius: 3px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
   overflow: hidden;
 }
 

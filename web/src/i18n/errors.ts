@@ -96,6 +96,8 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
   if (code === 'ssh.selinux_port' && (params.type === 'semanage_missing' || params.type === 'semanage_failed')) {
     return t(`errors.ssh.selinux_${params.type}`, decorate(params))
   }
+  // A line without a service because the system does not run systemd.
+  if (code === 'pkg.service_none' && params.reason === 'no_systemd') return t('errors.pkg.service_no_systemd')
   // A file operation where every entry failed (the job log lists them).
   if (code === 'op.failed' && typeof params.failed === 'number') return t('errors.op.all_failed', { failed: params.failed }, params.failed)
   const detailed = `errors.detailed.${code}`
@@ -139,6 +141,9 @@ function decorateFor(code: string, params: ErrorParams): NamedParams {
   if (code === 'app.port_taken' || code === 'stream.port_taken') named.owner = portOwner(params)
   if (code === 'db.upload_too_large' && typeof params.max === 'number') named.size = formatBytes(params.max)
   if (code === 'file.too_large' && typeof params.max === 'number') named.size = formatBytes(params.max)
+  if (code === 'pkg.config_too_large' && typeof params.max === 'number') named.size = formatBytes(params.max)
+  // Older helpers name the failed services `units`.
+  if (code === 'pkg.service_failed' && params.service === undefined && typeof params.units === 'string') named.service = params.units
   if (code === 'file.no_space' && typeof params.size === 'number') named.size = formatBytes(params.size)
   if (code === 'file.root_unavailable' && typeof params.root === 'string') named.root = rootLabel(params.root)
   if (code === 'file.user_unknown') named.name = String(params.user ?? params.group ?? '')

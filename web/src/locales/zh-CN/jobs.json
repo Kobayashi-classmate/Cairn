@@ -23,7 +23,10 @@
       "refresh": "刷新软件包索引",
       "install": "安装 {name} {line}",
       "remove": "卸载 {name} {line}",
-      "install_set": "安装软件组合（{count}）"
+      "install_set": "安装软件组合（{count}）",
+      "service": "控制 {name} {line} 的服务",
+      "extensions": "修改 {name} {line} 的扩展",
+      "config": "保存 {name} {line} 的 {config}"
     },
     "site": {
       "create": "创建网站 {site}",
@@ -120,7 +123,10 @@
     "software": {
       "install": "安装软件",
       "remove": "卸载软件",
-      "install_set": "安装软件组合"
+      "install_set": "安装软件组合",
+      "service": "控制服务",
+      "extensions": "修改 PHP 扩展",
+      "config": "保存配置文件"
     },
     "site": {
       "create": "创建网站",
@@ -255,6 +261,14 @@
       "updates_auto": {
         "enable": "开启自动安全更新",
         "disable": "关闭自动安全更新"
+      }
+    },
+    "software": {
+      "service": {
+        "start": "启动 {name} {line}",
+        "stop": "停止 {name} {line}",
+        "restart": "重启 {name} {line}",
+        "reload": "重新加载 {name} {line}"
       }
     }
   }

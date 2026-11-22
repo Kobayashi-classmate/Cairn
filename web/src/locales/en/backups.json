@@ -1,6 +1,5 @@
 {
   "title": "Backups",
-  "intro": "Back up sites, databases and folders to this server and to S3-compatible storage, encrypted if you like, and keep a sensible number of them.",
   "tabs": {
     "plans": "Plans",
     "storage": "Storage"
@@ -19,7 +18,8 @@
     "files": "Backups",
     "runs": "Run history",
     "schedule": "Schedule…",
-    "more": "More actions for {name}"
+    "more": "More actions for {name}",
+    "edit": "Edit {name}"
   },
   "retention": {
     "last": "Newest",
@@ -50,24 +50,37 @@
     "noStorage": "To copy backups off this server, add a bucket on the Storage tab.",
     "retention": "How many to keep",
     "encryption": "Encryption",
-    "encrypted": "Encrypted",
     "notEncrypted": "Not encrypted",
     "recipientsPlaceholder": "age1… (one per line)",
     "recipientsHint": "age public keys (\"age1…\"), one per line. Make a key pair elsewhere with \"age-keygen -o key.txt\"; enter only the public key here.",
     "keyWarning": "The panel never stores the private keys (AGE-SECRET-KEY-1…). Keep them safe and away from this server: without one, encrypted backups can never be restored.",
     "encryptSuggest": "The backups will be copied to a bucket unencrypted. Adding an age public key is strongly recommended.",
     "scheduled": "Schedule",
-    "tasks": "{count} task | {count} tasks",
     "manualOnly": "By hand",
     "lastRun": "Last run",
     "taskName": "Back up {name}",
     "deleteTitle": "Delete plan {name}?",
     "deleteText": "The plan is deleted. Its backups are kept unless you choose otherwise.",
     "deleteFiles": "Also delete its backups, here and in the bucket",
-    "deleted": "Plan {name} deleted."
+    "deleted": "Plan {name} deleted.",
+    "search": "Search plans",
+    "create": "Create plan",
+    "delete": "Delete plan",
+    "deleteTextFiles": "The plan and all its backups, here and in the bucket, are deleted.",
+    "never": "Never run",
+    "nextRun": "Next run",
+    "noSites": "No sites",
+    "noDatabases": "No databases",
+    "pickFolder": "Folder to back up",
+    "pickRoot": "Location",
+    "recipientCount": "Encrypted for {count} key | Encrypted for {count} keys",
+    "removeTarget": "Remove {target}",
+    "saved": "Plan {name} saved.",
+    "scheduleMore": "{first} and {count} more",
+    "separator": ", ",
+    "sheetIntro": "What to back up, where to keep it and how many backups to keep."
   },
   "files": {
-    "title": "Backups of {name}",
     "empty": "There are no backups yet.",
     "local": "This server",
     "remote": "Bucket",
@@ -79,7 +92,10 @@
     "deleteText": "The backups are deleted from this server. You will be asked for your password.",
     "deleteRemote": "Also delete the copies in the bucket",
     "remoteError": "The bucket could not be listed: {reason}",
-    "hint": "Downloading and restoring ask for your password. A copy that is only in the bucket downloads from the bucket directly."
+    "hint": "Downloading and restoring ask for your password. A copy that is only in the bucket downloads from the bucket directly.",
+    "search": "Search backups",
+    "deleteConfirm": "Delete backups",
+    "deleteTextRemote": "The backups are deleted from this server and from the bucket."
   },
   "restore": {
     "title": "Restore {name}",
@@ -88,13 +104,19 @@
     "database": "This is a database backup: restoring it makes a dump on the Databases page, which you then restore into a database there.",
     "identity": "Private key",
     "identityHint": "AGE-SECRET-KEY-1… of a recipient of this backup. It is used for this restore only and never stored.",
-    "submit": "Restore into {dir}",
     "submitDatabase": "Make a dump",
     "dumpReady": "The database backup is now a dump.",
-    "openDumps": "Open the dumps on the Databases page"
+    "openDumps": "Open the dumps on the Databases page",
+    "submitFiles": "Restore",
+    "steps": {
+      "fetch": "Download the backup from the bucket",
+      "decrypt": "Decrypt it with the private key (used for this restore only)",
+      "dump": "Make a dump of the database on the Databases page",
+      "extract": "Extract it into {dir}",
+      "extractOverwrite": "Extract it into {dir}, replacing files that already exist"
+    }
   },
   "runs": {
-    "title": "Runs of {name}",
     "empty": "The plan has not run yet.",
     "started": "Started",
     "duration": "Took",
@@ -102,7 +124,8 @@
     "ok": "Succeeded",
     "failed": "Failed",
     "files": "Backups",
-    "deleted": "Removed"
+    "deleted": "Removed",
+    "running": "Running"
   },
   "storage": {
     "intro": "S3-compatible buckets that backup plans copy to. The secret key is kept encrypted and never shown again.",
@@ -130,6 +153,35 @@
     "test": "Test",
     "testOk": "The bucket can be reached with these settings.",
     "deleteTitle": "Delete storage {name}?",
-    "deleteText": "Only the settings are deleted; backups already in the bucket stay there."
+    "deleteText": "Only the settings are deleted; backups already in the bucket stay there.",
+    "add": "Add storage",
+    "delete": "Delete storage",
+    "deleted": "Storage {name} deleted.",
+    "emptyText": "Add an S3-compatible bucket to keep copies of the backups off this server.",
+    "more": "More actions for {name}",
+    "planCount": "{count} plan | {count} plans",
+    "saved": "Storage {name} saved.",
+    "search": "Search storage",
+    "sheetIntro": "An S3-compatible bucket. The secret key is kept encrypted and never shown again.",
+    "testConnection": "Test connection",
+    "unused": "Not used",
+    "usedBy": "Used by"
+  },
+  "status": {
+    "plans": "{count} plan | {count} plans",
+    "failed": "{count} failed last time",
+    "never": "{count} never run",
+    "storages": "{count} bucket | {count} buckets"
+  },
+  "drawer": {
+    "overview": "Overview",
+    "lastRun": "Last run",
+    "reason": "Reason",
+    "settings": "Where to and how many",
+    "next": "Next:",
+    "noTasks": "No scheduled task runs this plan; it runs only by hand.",
+    "tasksUnknown": "{count} scheduled task runs this plan. | {count} scheduled tasks run this plan.",
+    "unknown": "No such plan",
+    "unknownText": "It may have been deleted."
   }
 }
