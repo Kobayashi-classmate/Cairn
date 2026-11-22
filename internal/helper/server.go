@@ -140,6 +140,8 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, &helperapi.Error{Code: helperapi.CodeInvalidRequest})
 		return
 	}
+	// Who the peer is comes from the kernel, not from what it says.
+	caller.PeerRoot = cred != nil && cred.Uid == 0
 
 	h, ok := s.Registry.handlers[action]
 	if !ok {

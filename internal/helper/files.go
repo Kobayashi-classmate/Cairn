@@ -133,14 +133,18 @@ func (f *Files) setAccess(_ context.Context, c helperapi.Caller, s helperapi.Acc
 
 // Roots -------------------------------------------------------------------
 
+// rootPath is a root's directory; "" for an id that names no root (never
+// the whole disk by default).
 func (f *Files) rootPath(id string) string {
 	switch id {
 	case helperapi.RootSites:
 		return sitesDir
 	case helperapi.RootBackups:
 		return path.Join(f.DataDir, "backups")
+	case helperapi.RootSystem:
+		return "/"
 	}
-	return "/"
+	return ""
 }
 
 func (f *Files) roots() helperapi.FileRoots {
@@ -161,39 +165,60 @@ func (f *Files) roots() helperapi.FileRoots {
 	return out
 }
 
-// openRoot opens a root for a request.
+// openRoot opens a root for a request; an unknown id is refused.
 func (f *Files) openRoot(id string) (*os.Root, error) {
 	unavailable := fileErr(helperapi.CodeFileRootUnavailable, map[string]any{"root": id})
-	if id == helperapi.RootSystem && !f.access().FullDisk {
+	switch id {
+	case helperapi.RootSystem:
+		if !f.access().FullDisk {
+			return nil, unavailable
+		}
+	case helperapi.RootSites:
+	case helperapi.RootBackups:
+		return f.backupsRoot()
+	default:
 		return nil, unavailable
 	}
-	p := f.path(f.rootPath(id))
-	if id == helperapi.RootBackups {
-		if err := f.ensureBackups(); err != nil {
-			return nil, err
-		}
-	}
-	r, err := os.OpenRoot(p)
+	r, err := os.OpenRoot(f.path(f.rootPath(id)))
 	if err != nil {
 		return nil, unavailable
 	}
 	return r, nil
 }
 
-// ensureBackups makes the backups root, owned by the panel.
-func (f *Files) ensureBackups() error {
+// backupsRoot opens (making it first) the backups root, owned by the
+// panel. The data directory belongs to the unprivileged panel, so
+// backups/ is opened through a root of the data directory and must be a
+// real directory: a link put in its place leads nowhere, not to "/".
+func (f *Files) backupsRoot() (*os.Root, error) {
+	unavailable := fileErr(helperapi.CodeFileRootUnavailable, map[string]any{"root": helperapi.RootBackups})
 	data, err := os.OpenRoot(f.path(f.DataDir))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = data.Close() }()
 	if err := data.Mkdir("backups", 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
-		return err
+		return nil, err
+	}
+	fi, err := data.Lstat("backups")
+	if err != nil || !fi.IsDir() {
+		return nil, unavailable
 	}
 	if uid, gid, err := lookupUser(f.PanelUser); err == nil {
-		return data.Lchown("backups", uid, gid)
+		if err := data.Lchown("backups", uid, gid); err != nil {
+			return nil, err
+		}
 	}
-	return nil
+	r, err := data.OpenRoot("backups")
+	if err != nil {
+		return nil, unavailable
+	}
+	// Still the directory checked above, not something swapped in since.
+	if got, err := r.Stat("."); err != nil || !os.SameFile(fi, got) {
+		_ = r.Close()
+		return nil, unavailable
+	}
+	return r, nil
 }
 
 // trashOf is a root's trash directory (relative to the root).
@@ -441,7 +466,9 @@ func (f *Files) read(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 		return helperapi.FileContent{}, err
 	}
 	defer func() { _ = root.Close() }()
-	file, err := root.Open(rel(req.Path))
+	// Non-blocking, so that a pipe someone put there cannot hang it; only
+	// regular files are read (checked below).
+	file, err := root.OpenFile(rel(req.Path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return helperapi.FileContent{}, notFound(err, req.Path)
 	}
@@ -468,6 +495,29 @@ func (f *Files) read(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 	e := entryOf(root, req.Path, fi, newNames())
 	e.Name = path.Base("/" + req.Path)
 	return helperapi.FileContent{Entry: e, Content: string(data), ETag: etagOf(fi)}, nil
+}
+
+// readRegular reads a small regular file through root: not through a link
+// at its end, not a pipe or device (opened non-blocking, so that a pipe
+// cannot hang the request), at most limit bytes.
+func readRegular(root *os.Root, p string, limit int64) ([]byte, error) {
+	file, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	fi, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", p)
+	}
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err == nil && int64(len(data)) > limit {
+		err = fmt.Errorf("%s is larger than %d bytes", p, limit)
+	}
+	return data, err
 }
 
 func randomName(prefix string) string {
@@ -724,7 +774,7 @@ func (f *Files) search(ctx context.Context, _ helperapi.Caller, req helperapi.Fi
 		if err != nil || info.Size() > helperapi.FileSearchBytes {
 			return nil //nolint:nilerr // skipped
 		}
-		data, err := root.ReadFile(p)
+		data, err := readRegular(root, p, helperapi.FileSearchBytes)
 		if err != nil || looksBinary(data) {
 			return nil //nolint:nilerr // skipped
 		}

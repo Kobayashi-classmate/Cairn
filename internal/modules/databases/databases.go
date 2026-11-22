@@ -93,7 +93,7 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("POST /api/v1/databases/{engine}/users", m.createUser, api.Require(Manage), api.Body(userRequest{}),
 		doc("Create a user (starts a job)"), job)
 	r.Handle("PUT /api/v1/databases/{engine}/users/{name}", m.updateUser, api.Require(Manage), api.StepUp(), api.Body(userRequest{}),
-		doc("Change a user's password, hosts or access; an empty password keeps it (starts a job)"), job)
+		doc("Change a user's password, hosts or access; an empty password, absent hosts and absent grants keep what it has (starts a job)"), job)
 	r.Handle("DELETE /api/v1/databases/{engine}/users/{name}", m.dropUser, api.Require(Manage), api.StepUp(),
 		doc("Drop a user (starts a job)"), job)
 	r.Handle("GET /api/v1/databases/{engine}/users/{name}/password", m.revealPassword, api.Require(Manage), api.StepUp(),
@@ -121,10 +121,12 @@ type createRequest struct {
 }
 
 type userRequest struct {
-	Name     string              `json:"name,omitempty"` // create only
-	Password string              `json:"password,omitempty"`
-	Hosts    []string            `json:"hosts"`
-	Grants   []helperapi.DBGrant `json:"grants"`
+	Name     string `json:"name,omitempty"` // create only
+	Password string `json:"password,omitempty"`
+	// Hosts and Grants: on a change, absent (or null) keeps what the user
+	// has; only a list changes them ([] for grants revokes every one).
+	Hosts  []string            `json:"hosts,omitempty"`
+	Grants []helperapi.DBGrant `json:"grants,omitempty"`
 }
 
 type remoteRequest struct {
@@ -224,14 +226,21 @@ func sqlEngineOf(r *http.Request) (string, error) {
 const passwordChars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 
 // newPassword returns a random password that is safe in any connection
-// string.
+// string. Bytes that would favour the first characters of the alphabet
+// (256 is no multiple of its length) are drawn again.
 func newPassword() string {
-	b := make([]byte, passwordLen)
-	_, _ = rand.Read(b)
-	for i := range b {
-		b[i] = passwordChars[int(b[i])%len(passwordChars)]
+	limit := 256 - 256%len(passwordChars)
+	out := make([]byte, 0, passwordLen)
+	buf := make([]byte, 2*passwordLen)
+	for len(out) < passwordLen {
+		_, _ = rand.Read(buf)
+		for _, c := range buf {
+			if int(c) < limit && len(out) < passwordLen {
+				out = append(out, passwordChars[int(c)%len(passwordChars)])
+			}
+		}
 	}
-	return string(b)
+	return string(out)
 }
 
 func defaultHosts(engine string) []string {
@@ -658,26 +667,45 @@ func (m *Module) updateUser(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// Nil hosts or grants leave them as they are: changing the password of
+	// a user the panel did not create never revokes its privileges.
 	u := helperapi.DBUserRequest{Engine: engine, Name: name, Password: req.Password, Hosts: req.Hosts, Grants: req.Grants}
-	if u.Grants == nil {
-		u.Grants = []helperapi.DBGrant{}
-	}
 	if err := u.Validate(); err != nil {
 		return badRequest(err)
 	}
 	// New host entries need the password; the panel sends the one it has.
 	send := u
+	// New host entries of a user the panel made get the privileges it
+	// knows, even when the caller sent only the hosts.
+	if have && send.Hosts != nil && send.Grants == nil {
+		send.Grants = rec.grants
+		if send.Grants == nil {
+			send.Grants = []helperapi.DBGrant{}
+		}
+	}
 	if send.Password == "" && have {
 		if send.Password, err = m.password(rec); err != nil {
 			return err
 		}
 	}
-	params := map[string]any{"user": name, "password": req.Password != ""}
+	params := map[string]any{"user": name, "password": req.Password != "", "hosts": req.Hosts != nil, "grants": req.Grants != nil}
 	return m.start(w, r, "db.user_update", engine, params, func(ctx context.Context, j *jobs.Job) error {
 		if err := j.RunOp(helperapi.ActionDBUserSet, send, nil); err != nil {
 			return err
 		}
-		return m.saveUser(context.WithoutCancel(ctx), engine, name, req.Password, u.Hosts, u.Grants)
+		// A user the panel did not create stays unmanaged: the panel does
+		// not know its privileges, so it keeps no record of them.
+		if !have {
+			return nil
+		}
+		hosts, grants := rec.hosts, rec.grants
+		if u.Hosts != nil {
+			hosts = u.Hosts
+		}
+		if u.Grants != nil {
+			grants = u.Grants
+		}
+		return m.saveUser(context.WithoutCancel(ctx), engine, name, req.Password, hosts, grants)
 	})
 }
 

@@ -19,11 +19,28 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 )
 
+// Revoker ends what an account holds outside the database: the terminal
+// module's open shells, which are checked only when they are opened and
+// attached.
+type Revoker interface {
+	RevokeUser(userID int64)
+}
+
 // Module implements module.Module.
 type Module struct {
 	DB     *sql.DB
 	Events *events.Bus // may be nil
 	Log    *slog.Logger
+	// Revokers are told when an account is disabled, deleted, changes role
+	// or gets a new password.
+	Revokers []Revoker
+}
+
+// revoke ends what the account holds in other modules.
+func (m *Module) revoke(userID int64) {
+	for _, rv := range m.Revokers {
+		rv.RevokeUser(userID)
+	}
 }
 
 // ID implements module.Module.
@@ -185,6 +202,9 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	if newRole != u.Role || newDisabled && !u.Disabled {
+		m.revoke(u.ID)
+	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "users.update", "ok", params)
 	m.changed(r, "update", u.Username)
 	u, err = auth.UserByID(ctx, m.DB, id)
@@ -218,6 +238,7 @@ func (m *Module) setPassword(w http.ResponseWriter, r *http.Request) error {
 	if err := auth.DeleteUserSessions(ctx, m.DB, u.ID); err != nil {
 		return err
 	}
+	m.revoke(u.ID)
 	if err := auth.ResetFailures(ctx, m.DB, auth.UserKey(u.Username)); err != nil {
 		return err
 	}
@@ -277,6 +298,7 @@ func (m *Module) delete(w http.ResponseWriter, r *http.Request) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+	m.revoke(u.ID)
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "users.delete", "ok", map[string]any{"username": u.Username})
 	m.changed(r, "delete", u.Username)
 	w.WriteHeader(http.StatusNoContent)

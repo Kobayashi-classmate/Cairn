@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/Kobayashi-classmate/Cairn/internal/execx"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // Scheduled tasks: a oneshot service and a timer per task. The service
@@ -78,7 +80,8 @@ func (c *Cron) stateDir(parts ...string) string {
 
 // checkSchedule asks systemd to read an OnCalendar expression.
 func checkSchedule(ctx context.Context, s string, n int) (helperapi.ScheduleInfo, error) {
-	out, err := queryCommand(ctx, "systemd-analyze", "calendar", "--iterations="+strconv.Itoa(n), s)
+	// "--": the expression is never read as an option.
+	out, err := queryCommand(ctx, "systemd-analyze", "calendar", "--iterations="+strconv.Itoa(n), "--", s)
 	if errors.Is(err, execx.ErrNotFound) {
 		return helperapi.ScheduleInfo{}, cronErr(helperapi.CodeCronSystemd, nil)
 	}
@@ -207,7 +210,10 @@ func (c *Cron) render(spec helperapi.CronSpec) ([]fileChange, error) {
 		changes = append(changes, fileChange{path: cronEnv(spec.ID), data: []byte(`CAIRN_URL="` + envFileQuote(spec.URL) + "\"\n"), mode: 0o600})
 		data["Exec"] = helperBinary + " task url"
 		extra = append(extra, "DynamicUser=yes", "EnvironmentFile="+cronEnv(spec.ID), "NoNewPrivileges=yes", "PrivateTmp=yes",
-			"ProtectSystem=strict", "ProtectHome=yes", "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX")
+			"ProtectSystem=strict", "ProtectHome=yes", "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+			// The task's own check (TaskURL) again, by the kernel: link-local
+			// and cloud metadata addresses stay out of reach.
+			"IPAddressDeny="+cronURLDeny)
 	case helperapi.CronBackup:
 		if _, err := c.Backups.plan(spec.Plan); err != nil {
 			return nil, cronErr(helperapi.CodeCronPlanNotFound, map[string]any{"plan": spec.Plan})
@@ -265,23 +271,25 @@ func (c *Cron) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.Cro
 			_ = os.Lchown(c.Sites.path(cronScript(spec.ID)), 0, e.gid)
 		}
 	}
+	// The task is saved as soon as its files are in place, before systemd
+	// takes them up: if that fails, the saved task still describes the
+	// files, so applying it again or removing it cleans up.
+	data, _ := json.Marshal(spec)
+	if err := os.MkdirAll(c.stateDir(), 0o700); err != nil {
+		return nil, err
+	}
+	if err := writeFileMode(c.stateDir(spec.ID+".json"), data, 0o600); err != nil {
+		return nil, err
+	}
 	if err := runCommand(ctx, log, "systemctl", "daemon-reload"); err != nil {
 		return nil, err
 	}
 	timer := cronUnit(spec.ID) + ".timer"
 	if spec.Enabled {
-		err = runCommand(ctx, log, "systemctl", "enable", "--now", timer)
-	} else {
-		_ = runCommand(ctx, log, "systemctl", "disable", "--now", timer)
+		return nil, runCommand(ctx, log, "systemctl", "enable", "--now", timer)
 	}
-	if err != nil {
-		return nil, err
-	}
-	data, _ := json.Marshal(spec)
-	if err := os.MkdirAll(c.stateDir(), 0o700); err != nil {
-		return nil, err
-	}
-	return nil, writeFileMode(c.stateDir(spec.ID+".json"), data, 0o600)
+	_ = runCommand(ctx, log, "systemctl", "disable", "--now", timer)
+	return nil, nil
 }
 
 func (c *Cron) spec(id string) (helperapi.CronSpec, error) {
@@ -455,15 +463,19 @@ func (c *Cron) TaskStart(id string) error {
 func (c *Cron) TaskDone(id string) error {
 	runs := c.runs(id)
 	inv := os.Getenv("INVOCATION_ID")
-	i := 0
+	i := -1
 	for j, r := range runs {
 		if r.Invocation == inv {
 			i = j
 			break
 		}
 	}
-	if len(runs) == 0 {
-		runs = []helperapi.CronRun{{Invocation: inv, Started: time.Now().Unix()}}
+	if i < 0 {
+		// No start was recorded for this run (its start step failed, or
+		// refused a root task): it gets a record of its own, rather than
+		// ending an earlier run.
+		runs = append([]helperapi.CronRun{{Invocation: inv, Started: time.Now().Unix()}}, runs...)
+		i = 0
 	}
 	r := &runs[i]
 	r.Finished = time.Now().Unix()
@@ -479,6 +491,23 @@ func (c *Cron) TaskDone(id string) error {
 	return c.saveRuns(id, runs)
 }
 
+// cronURLDeny are the addresses a URL task's unit may not reach: link-local
+// ranges and the cloud metadata services outside them.
+const cronURLDeny = "169.254.0.0/16 fe80::/10 100.100.100.200/32 fd00:ec2::254/128"
+
+// taskURLClient is the client of URL tasks. This host and the local network
+// stay reachable (a site's own cron URL on 127.0.0.1 is the common case);
+// link-local addresses and cloud metadata services do not, checked after
+// name resolution for every connection, redirects included. No proxy from
+// the environment: the check must see the real destination.
+func taskURLClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.Proxy = nil
+	tr.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second,
+		Control: netx.DialControl(netx.IsMetadata)}).DialContext
+	return &http.Client{Timeout: 10 * time.Minute, Transport: tr}
+}
+
 // TaskURL fetches $CAIRN_URL; an HTTP error fails the run.
 func TaskURL(ctx context.Context, out io.Writer) error {
 	u := os.Getenv("CAIRN_URL")
@@ -487,7 +516,7 @@ func TaskURL(ctx context.Context, out io.Writer) error {
 		return err
 	}
 	req.Header.Set("User-Agent", "Cairn")
-	res, err := (&http.Client{Timeout: 10 * time.Minute}).Do(req) //nolint:gosec // G704: as above.
+	res, err := taskURLClient().Do(req) //nolint:gosec // G704: as above, link-local and metadata addresses refused.
 	if err != nil {
 		return err
 	}

@@ -67,19 +67,19 @@ func (m *Module) changePassword(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	p, _ := api.PrincipalFrom(ctx)
-	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(p.Username)}
-	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
+	// As for step-up, failures count for this session only.
+	keys := []string{auth.SessionKey(p.SessionID)}
+	if err := m.attempt(r, keys...); err != nil {
 		return err
-	} else if wait > 0 {
-		return modutil.RateLimited(wait)
 	}
 	if err := auth.CheckPassword(ctx, m.DB, p.UserID, req.CurrentPassword); errors.Is(err, auth.ErrWrongPassword) {
-		if err := m.recordFailure(r, p.Username, keys...); err != nil {
-			return err
-		}
+		m.failed(r, p.Username, keys...)
 		m.audit(r, modutil.ActorOf(r), "auth.change_password", "auth.wrong_password", nil)
 		return modutil.MapError(err, nil)
 	} else if err != nil {
+		return modutil.MapError(err, nil)
+	}
+	if err := auth.ResetFailures(ctx, m.DB, keys...); err != nil {
 		return err
 	}
 	if err := auth.SetPassword(ctx, m.DB, p.UserID, req.NewPassword); err != nil {

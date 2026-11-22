@@ -3,13 +3,18 @@
 package helper
 
 import (
+	"errors"
+	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 const calendarOut = `  Original form: daily
@@ -136,7 +141,8 @@ func TestCronURLAndBackupTasks(t *testing.T) {
 		t.Fatalf("url: %+v\n%s", op, log)
 	}
 	unit := e.read("/etc/systemd/system/cairn-cron-t1123456789abcde.service")
-	if !strings.Contains(unit, "DynamicUser=yes") || strings.Contains(unit, "s3cret") {
+	if !strings.Contains(unit, "DynamicUser=yes") || strings.Contains(unit, "s3cret") ||
+		!strings.Contains(unit, "IPAddressDeny=169.254.0.0/16 fe80::/10 100.100.100.200/32 fd00:ec2::254/128") {
 		t.Fatalf("url service:\n%s", unit)
 	}
 	env := e.read("/etc/cairn-cron/t1123456789abcde.env")
@@ -179,6 +185,69 @@ func TestCronURLAndBackupTasks(t *testing.T) {
 	}
 }
 
+func TestCronRunRecordsAndFailedEnable(t *testing.T) {
+	e := newCronEnv(t)
+	spec := helperapi.CronSpec{ID: "t4123456789abcde", Type: "shell", Schedule: "daily", User: "alice", Script: "true", Enabled: true}
+	if op, log := e.run(helperapi.ActionCronApply, spec); op.State != helperapi.OpSucceeded {
+		t.Fatalf("apply: %+v\n%s", op, log)
+	}
+	// The expression is never an option of systemd-analyze.
+	if !e.f.ran("query systemd-analyze calendar --iterations=1 -- daily") {
+		t.Fatal("schedule checked without --")
+	}
+	for _, s := range []string{"-h", "--version", "-*-* 00:00"} {
+		if helperapi.ValidSchedule(s) {
+			t.Errorf("schedule %q accepted", s)
+		}
+	}
+	if !helperapi.ValidSchedule("*-*-* 00:00:00") {
+		t.Error("a schedule starting with * refused")
+	}
+
+	t.Setenv("INVOCATION_ID", strings.Repeat("a1", 16))
+	if err := e.c.TaskStart(spec.ID); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SERVICE_RESULT", "success")
+	t.Setenv("EXIT_STATUS", "0")
+	if err := e.c.TaskDone(spec.ID); err != nil {
+		t.Fatal(err)
+	}
+	// A run whose start was not recorded gets a record of its own; the
+	// earlier run keeps its result.
+	t.Setenv("INVOCATION_ID", strings.Repeat("b2", 16))
+	t.Setenv("SERVICE_RESULT", "exit-code")
+	t.Setenv("EXIT_STATUS", "1")
+	if err := e.c.TaskDone(spec.ID); err != nil {
+		t.Fatal(err)
+	}
+	runs := e.c.runs(spec.ID)
+	if len(runs) != 2 || runs[0].Invocation != strings.Repeat("b2", 16) || runs[0].Result != "failed" || runs[0].Started == 0 ||
+		runs[1].Invocation != strings.Repeat("a1", 16) || runs[1].Result != "success" {
+		t.Fatalf("runs %+v", runs)
+	}
+
+	// systemd failing to take a new task up: the task is saved with its
+	// files, so removing it cleans them up.
+	other := helperapi.CronSpec{ID: "t5123456789abcde", Type: "shell", Schedule: "daily", User: "alice", Script: "true", Enabled: true}
+	e.f.failPrefix = "systemctl enable"
+	if op, _ := e.run(helperapi.ActionCronApply, other); op.State != helperapi.OpFailed {
+		t.Fatalf("apply with a failing enable: %+v", op)
+	}
+	e.f.failPrefix = ""
+	if _, err := e.c.spec(other.ID); err != nil || !e.exists("/etc/systemd/system/cairn-cron-t5123456789abcde.timer") {
+		t.Fatalf("task not saved with its files: %v", err)
+	}
+	if op, log := e.run(helperapi.ActionCronRemove, helperapi.CronRef{ID: other.ID}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("remove: %+v\n%s", op, log)
+	}
+	for _, p := range []string{"/etc/systemd/system/cairn-cron-t5123456789abcde.timer", "/etc/systemd/system/cairn-cron-t5123456789abcde.service", "/etc/cairn-cron/t5123456789abcde.sh"} {
+		if e.exists(p) {
+			t.Errorf("%s left behind", p)
+		}
+	}
+}
+
 func TestJournal(t *testing.T) {
 	e := newCronEnv(t)
 	writeSystemFile(t, e.st.Root, "/usr/bin/journalctl", "#!binary")
@@ -195,5 +264,31 @@ func TestJournal(t *testing.T) {
 	}
 	if _, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournal, helperapi.JournalRequest{Unit: "nginx; rm"}); err == nil {
 		t.Fatal("a bad unit name must be refused")
+	}
+}
+
+func TestTaskURLAddresses(t *testing.T) {
+	// A site's own cron URL on this host is fine.
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits++ }))
+	t.Cleanup(srv.Close)
+	t.Setenv("CAIRN_URL", srv.URL+"/cron")
+	var out strings.Builder
+	if err := TaskURL(t.Context(), &out); err != nil || hits != 1 {
+		t.Fatalf("loopback: %v (%d requests) %s", err, hits, out.String())
+	}
+	// Metadata services and link-local addresses are refused before any
+	// packet leaves, also through a proxy from the environment.
+	t.Setenv("HTTP_PROXY", srv.URL)
+	for _, u := range []string{"http://169.254.169.254/latest/meta-data/", "http://100.100.100.200/latest/meta-data/", "http://[fd00:ec2::254]/", "http://[fe80::1]/"} {
+		t.Setenv("CAIRN_URL", u)
+		err := TaskURL(t.Context(), io.Discard)
+		var denied *netx.DeniedError
+		if !errors.As(err, &denied) {
+			t.Errorf("%s: %v", u, err)
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("the proxy was used: %d requests", hits)
 	}
 }

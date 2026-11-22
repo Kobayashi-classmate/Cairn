@@ -6,6 +6,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -14,6 +15,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"golang.org/x/crypto/argon2"
@@ -78,8 +80,35 @@ func ValidatePassword(p string) error {
 	return nil
 }
 
+// hashSlots bounds how many argon2 computations run at once. Each takes
+// argonMemory (64 MiB): unbounded, a burst of sign-in requests would run
+// the server out of memory. Requests beyond it wait, as long as their
+// context lets them and at most hashWait; then they fail with ErrBusy.
+var (
+	hashSlots = make(chan struct{}, 4)
+	hashWait  = 10 * time.Second
+)
+
+// ErrBusy is returned when no hashing slot became free in time.
+var ErrBusy = errors.New("auth: too many password checks at once")
+
+// argon2Key runs argon2id in a slot.
+func argon2Key(ctx context.Context, password, salt []byte, iter, mem uint32, threads uint8) ([]byte, error) {
+	timer := time.NewTimer(hashWait)
+	defer timer.Stop()
+	select {
+	case hashSlots <- struct{}{}:
+	case <-timer.C:
+		return nil, ErrBusy
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	defer func() { <-hashSlots }()
+	return argon2.IDKey(password, salt, iter, mem, threads, argonKeyLen), nil
+}
+
 // HashPassword returns an argon2id hash in PHC string format.
-func HashPassword(password string) (string, error) {
+func HashPassword(ctx context.Context, password string) (string, error) {
 	if len(password) > MaxPasswordLen {
 		return "", errors.New("auth: password too long")
 	}
@@ -87,14 +116,17 @@ func HashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	key, err := argon2Key(ctx, []byte(password), salt, argonTime, argonMemory, argonThreads)
+	if err != nil {
+		return "", err
+	}
 	b64 := base64.RawStdEncoding
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, argonMemory, argonTime, argonThreads, b64.EncodeToString(salt), b64.EncodeToString(key)), nil
 }
 
 // VerifyPassword reports whether password matches the PHC-encoded hash.
-func VerifyPassword(password, encoded string) (bool, error) {
+func VerifyPassword(ctx context.Context, password, encoded string) (bool, error) {
 	if len(password) > MaxPasswordLen {
 		return false, nil
 	}
@@ -123,7 +155,10 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	if len(want) != argonKeyLen {
 		return false, errors.New("auth: unsupported argon2 key length")
 	}
-	got := argon2.IDKey([]byte(password), salt, iter, mem, threads, argonKeyLen)
+	got, err := argon2Key(ctx, []byte(password), salt, iter, mem, threads)
+	if err != nil {
+		return false, err
+	}
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
@@ -131,7 +166,7 @@ func VerifyPassword(password, encoded string) (bool, error) {
 // response time does not reveal which usernames are valid. Computed lazily:
 // hashing costs 64 MiB and should not run at every process start.
 var dummyHash = sync.OnceValue(func() string {
-	h, err := HashPassword("cairn-timing-equalizer-not-a-password")
+	h, err := HashPassword(context.Background(), "cairn-timing-equalizer-not-a-password")
 	if err != nil {
 		panic(err)
 	}

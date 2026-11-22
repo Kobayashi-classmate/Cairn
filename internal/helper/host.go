@@ -332,10 +332,26 @@ func (h *Host) setSwap(ctx context.Context, _ helperapi.Caller, q helperapi.Swap
 		return nil, hostErr(helperapi.CodeHostSwapUnsupported, map[string]any{"reason": st.Reason})
 	}
 	p := h.path(swapFile)
-	if info, err := os.Lstat(p); err == nil && !info.Mode().IsRegular() {
-		return nil, hostErr(helperapi.CodeHostSwapNotManaged, map[string]any{"path": swapFile})
+	oldMB := 0 // the managed swap file's size, made again if the new one fails
+	if info, err := os.Lstat(p); err == nil {
+		if !info.Mode().IsRegular() {
+			return nil, hostErr(helperapi.CodeHostSwapNotManaged, map[string]any{"path": swapFile})
+		}
+		oldMB = int(info.Size() >> 20)
 	}
-	if h.swapActive() {
+	// Space first: nothing is turned off for a swap file that cannot fit
+	// (the old file's space counts, it goes first).
+	if q.SizeMB > 0 {
+		var sfs unix.Statfs_t
+		if err := unix.Statfs(h.path("/"), &sfs); err == nil {
+			free := int64(sfs.Bavail)*int64(sfs.Bsize)>>20 + int64(oldMB) //nolint:gosec // G115: block counts fit.
+			if need := int64(q.SizeMB) + 512; free < need {
+				return nil, hostErr(helperapi.CodeHostSwapNoSpace, map[string]any{"needMb": need, "freeMb": free})
+			}
+		}
+	}
+	wasActive := h.swapActive()
+	if wasActive {
 		_, _ = fmt.Fprintf(log, "Turning off %s (its pages move back to memory).\n", swapFile)
 		if err := runCommand(ctx, log, "swapoff", swapFile); err != nil {
 			return nil, err
@@ -352,15 +368,30 @@ func (h *Host) setSwap(ctx context.Context, _ helperapi.Caller, q helperapi.Swap
 		return nil, nil
 	}
 	_ = os.Remove(p)
-	var sfs unix.Statfs_t
-	if err := unix.Statfs(h.path("/"), &sfs); err == nil {
-		free := int64(sfs.Bavail) * int64(sfs.Bsize) >> 20 //nolint:gosec // G115: block counts fit.
-		if need := int64(q.SizeMB) + 512; free < need {
-			return nil, hostErr(helperapi.CodeHostSwapNoSpace, map[string]any{"needMb": need, "freeMb": free})
+	_, _ = fmt.Fprintf(log, "Creating a %d MiB swap file at %s.\n", q.SizeMB, swapFile)
+	if err := h.makeSwap(ctx, log, q.SizeMB); err != nil {
+		_ = os.Remove(p)
+		// The system had swap before: it gets the previous file back
+		// rather than none and a boot-time line for a missing file.
+		if wasActive && oldMB > 0 {
+			_, _ = fmt.Fprintf(log, "Making the previous %d MiB swap file again.\n", oldMB)
+			if rerr := h.makeSwap(ctx, log, oldMB); rerr == nil {
+				return nil, err
+			}
+			_ = os.Remove(p)
 		}
+		if ferr := h.fstabSwap(false); ferr != nil {
+			_, _ = fmt.Fprintf(log, "Warning: %s still names the swap file: %v\n", "/etc/fstab", ferr)
+		}
+		return nil, err
 	}
-	size := strconv.Itoa(q.SizeMB)
-	_, _ = fmt.Fprintf(log, "Creating a %s MiB swap file at %s.\n", size, swapFile)
+	return nil, h.fstabSwap(true)
+}
+
+// makeSwap creates the managed swap file of sizeMB and turns it on.
+func (h *Host) makeSwap(ctx context.Context, log io.Writer, sizeMB int) error {
+	p := h.path(swapFile)
+	size := strconv.Itoa(sizeMB)
 	var err error
 	dd := func() error {
 		return runCommand(ctx, log, "dd", "if=/dev/zero", "of="+swapFile, "bs=1M", "count="+size, "status=none")
@@ -390,14 +421,7 @@ func (h *Host) setSwap(ctx context.Context, _ helperapi.Caller, q helperapi.Swap
 	if err == nil {
 		err = runCommand(ctx, log, "swapon", swapFile)
 	}
-	if err == nil {
-		err = h.fstabSwap(true)
-	}
-	if err != nil {
-		_ = os.Remove(p)
-		return nil, err
-	}
-	return nil, nil
+	return err
 }
 
 func (h *Host) setSwappiness(_ context.Context, _ helperapi.Caller, q helperapi.SwappinessRequest) (helperapi.Empty, error) {

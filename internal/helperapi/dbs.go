@@ -186,7 +186,10 @@ type DBGrant struct {
 }
 
 // DBUserRequest makes a user match: it exists with Password (empty keeps
-// the current one), may connect from Hosts and has exactly Grants.
+// the current one), may connect from Hosts and has exactly Grants. For an
+// existing user, nil Hosts keep where it may connect from and nil Grants
+// keep its privileges untouched (a user the panel did not create has
+// privileges the panel does not know); an empty Grants list revokes them.
 type DBUserRequest struct {
 	Engine string `json:"engine"`
 	Name   string `json:"name"`
@@ -209,7 +212,8 @@ func (r DBUserRequest) Validate() error {
 	if r.Password != "" && !ValidDBPassword(r.Password) {
 		return invalid("password", "db_password")
 	}
-	if len(r.Hosts) == 0 || len(r.Hosts) > 32 {
+	// A new user needs hosts; for an existing one nil keeps them.
+	if (r.New || r.Hosts != nil) && (len(r.Hosts) == 0 || len(r.Hosts) > 32) {
 		return invalid("hosts", "count")
 	}
 	for _, h := range r.Hosts {

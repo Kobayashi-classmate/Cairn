@@ -28,7 +28,7 @@ func (e *env) bearer(token, method, path string, body any) reply {
 func TestAPITokens(t *testing.T) {
 	e := newEnv(t)
 	admin := e.setupAdmin("admin")
-	req := map[string]any{"name": "ci", "permissions": []string{"system.read", "settings.read"}, "expiresInDays": 30, "allowedIps": []string{"127.0.0.1"}}
+	req := map[string]any{"name": "ci", "permissions": []string{"system.read", "settings.read", "settings.manage"}, "expiresInDays": 30, "allowedIps": []string{"127.0.0.1"}}
 	admin.expect(admin.do("POST", "/api/v1/me/tokens", req), 403, "auth.step_up_required")
 	admin.elevate("")
 	created := admin.expect(admin.do("POST", "/api/v1/me/tokens", req), 201, "")
@@ -57,9 +57,19 @@ func TestAPITokens(t *testing.T) {
 	if r := e.bearer(token, "POST", "/api/v1/auth/elevate", map[string]any{"password": pw}); r.status != 403 || r.code() != "auth.forbidden" {
 		t.Fatalf("token elevate: %d %s", r.status, r.code())
 	}
-	if r := e.bearer(token, "DELETE", "/api/v1/me/totp", nil); r.code() != "auth.step_up_required" {
-		t.Fatalf("token on step-up route: %d %s", r.status, r.code())
+	// The account's own security is closed to every token, whatever its
+	// scopes: no token can sign its owner out, revoke tokens, change the
+	// password or two-step sign-in, or list the sessions.
+	for _, c := range []struct{ method, path string }{
+		{"DELETE", "/api/v1/me/totp"}, {"DELETE", "/api/v1/me/sessions"}, {"GET", "/api/v1/me/sessions"},
+		{"DELETE", "/api/v1/me/sessions/0000"}, {"GET", "/api/v1/me/tokens"}, {"DELETE", fmt.Sprintf("/api/v1/me/tokens/%d", int64(info["id"].(float64)))},
+		{"PUT", "/api/v1/me/password"}, {"POST", "/api/v1/me/totp/confirm"}, {"POST", "/api/v1/me/recovery-codes"},
+	} {
+		if r := e.bearer(token, c.method, c.path, map[string]any{}); r.status != 403 || r.code() != "auth.forbidden" {
+			t.Fatalf("token on %s %s: %d %s", c.method, c.path, r.status, r.code())
+		}
 	}
+	admin.expect(admin.do("GET", "/api/v1/auth/me", nil), 200, "")
 	if r := e.bearer("cairn_bogus", "GET", "/api/v1/system/overview", nil); r.status != 401 || r.code() != "auth.token_invalid" {
 		t.Fatalf("bogus token: %d %s", r.status, r.code())
 	}
@@ -69,11 +79,11 @@ func TestAPITokens(t *testing.T) {
 	}
 
 	// Audited actions done with a token are recorded with source "api".
-	if r := e.bearer(token, "DELETE", "/api/v1/me/sessions", nil); r.status != 200 {
-		t.Fatalf("token revoking sessions: %d %v", r.status, r.body)
+	if r := e.bearer(token, "PUT", "/api/v1/settings/default-locale", map[string]any{"locale": "en"}); r.status != 204 {
+		t.Fatalf("token changing a setting: %d %v", r.status, r.body)
 	}
 	var src string
-	_ = e.db.QueryRow(`SELECT source FROM audit_log WHERE action = 'auth.session_revoke' ORDER BY id DESC LIMIT 1`).Scan(&src)
+	_ = e.db.QueryRow(`SELECT source FROM audit_log WHERE action = 'settings.default_locale' ORDER BY id DESC LIMIT 1`).Scan(&src)
 	if src != "api" {
 		t.Fatalf("token action audited with source %q", src)
 	}
@@ -82,9 +92,6 @@ func TestAPITokens(t *testing.T) {
 		t.Fatalf("browser elevate audited as %q", src)
 	}
 
-	// The token's revocation of all sessions signed the browser out; sign in again to revoke it.
-	admin = e.client()
-	admin.expect(admin.login("admin", pw), 200, "")
 	id := int64(info["id"].(float64))
 	admin.expect(admin.do("DELETE", fmt.Sprintf("/api/v1/me/tokens/%d", id), nil), 204, "")
 	if r := e.bearer(token, "GET", "/api/v1/system/overview", nil); r.status != 401 {
@@ -194,6 +201,27 @@ func TestNotificationsEndToEnd(t *testing.T) {
 	if reason, _ := r.params()["reason"].(string); reason == "" {
 		t.Fatalf("missing reason: %v", r.body)
 	}
+
+	// The stored secret does not go to another destination: a new URL needs
+	// the secret again (or "" to drop it).
+	r = admin.expect(admin.do("PATCH", path, map[string]any{"config": map[string]any{"url": "https://elsewhere.example/hook"}}), 400, "validation.invalid")
+	if r.params()["field"] != "secret" || r.params()["rule"] != "required" {
+		t.Fatalf("new destination kept the secret: %v", r.params())
+	}
+	admin.expect(admin.do("PATCH", path, map[string]any{"config": map[string]any{"url": "https://elsewhere.example/hook", "secret": "n3w"}}), 200, "")
+	mailCh := admin.expect(admin.do("POST", "/api/v1/notify/channels", map[string]any{"type": "email", "name": "mail", "locale": "en", "enabled": false,
+		"events": []string{"security."}, "minLevel": "info", "config": map[string]any{"host": "smtp.example.com", "port": 587, "security": "starttls",
+			"username": "u", "password": "smtp-pass", "from": "panel@example.com", "to": []string{"ops@example.com"}}}), 201, "").obj("channel")
+	mailPath := fmt.Sprintf("/api/v1/notify/channels/%d", int64(mailCh["id"].(float64)))
+	for _, change := range []map[string]any{{"host": "smtp.evil.example"}, {"port": 2525}, {"security": "none"}} {
+		r = admin.expect(admin.do("PATCH", mailPath, map[string]any{"config": change}), 400, "validation.invalid")
+		if r.params()["field"] != "password" || r.params()["rule"] != "required" {
+			t.Fatalf("new mail server kept the password: %v", r.params())
+		}
+	}
+	admin.expect(admin.do("PATCH", mailPath, map[string]any{"config": map[string]any{"from": "cairn@example.com"}}), 200, "")
+	admin.expect(admin.do("PATCH", mailPath, map[string]any{"config": map[string]any{"security": "tls"}}), 200, "")
+	admin.expect(admin.do("PATCH", mailPath, map[string]any{"config": map[string]any{"host": "smtp2.example.com", "password": "other-pass"}}), 200, "")
 
 	// Clearing the secret with "" works.
 	got = admin.expect(admin.do("PATCH", path, map[string]any{"config": map[string]any{"secret": ""}}), 200, "").obj("channel")

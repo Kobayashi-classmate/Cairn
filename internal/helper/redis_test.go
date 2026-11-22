@@ -30,7 +30,9 @@ type fakeRedis struct {
 	ttl      map[string]int64
 	cmds     []string
 	// oldBind refuses CONFIG SET bind, like Redis 6.
-	oldBind  bool
+	oldBind bool
+	// failGet makes CONFIG GET of this parameter fail.
+	failGet  string
 	saves    int
 	dataFile string
 }
@@ -134,6 +136,9 @@ func (f *fakeRedis) answer(args []string, authed *bool, e *dbEnv) string {
 	case "CONFIG":
 		switch strings.ToUpper(args[1]) {
 		case "GET":
+			if args[2] == f.failGet {
+				return "-ERR unsupported CONFIG parameter\r\n"
+			}
 			return bulks(args[2], f.config[args[2]])
 		case "SET":
 			if args[2] == "bind" && f.oldBind {
@@ -296,6 +301,25 @@ func TestRedisStatusAndConfig(t *testing.T) {
 	}
 	if conf, _ := os.ReadFile(filepath.Join(e.d.Root, "/etc/redis/redis.conf")); !strings.Contains(string(conf), "\nbind 127.0.0.1\n") {
 		t.Fatalf("config file %q", conf)
+	}
+}
+
+func TestRedisPasswordRemoval(t *testing.T) {
+	e, f := newRedisEnv(t)
+	empty := ""
+	// Bound to loopback addresses only, the instance may go without one.
+	if op, log := e.run(helperapi.ActionRedisConfig, helperapi.RedisConfigRequest{Password: &empty}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("removal on loopback: %+v\n%s", op, log)
+	}
+	// No bind is every interface, as the status says; an unknown bind may
+	// be one too.
+	for _, tc := range []struct{ bind, failGet string }{{"", ""}, {"127.0.0.1", "bind"}} {
+		f.mu.Lock()
+		f.config["bind"], f.failGet = tc.bind, tc.failGet
+		f.mu.Unlock()
+		if op, _ := e.run(helperapi.ActionRedisConfig, helperapi.RedisConfigRequest{Password: &empty}); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeRedisNeedsPass {
+			t.Fatalf("removal with bind %q (failing %q): %+v", tc.bind, tc.failGet, op)
+		}
 	}
 }
 

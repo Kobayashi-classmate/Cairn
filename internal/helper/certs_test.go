@@ -11,7 +11,11 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"io"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +25,7 @@ import (
 	"github.com/libdns/libdns"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // testCA signs leaf certificates for tests.
@@ -87,6 +92,10 @@ func newCertEnv(t *testing.T) (*siteEnv, *Certs) {
 	t.Helper()
 	e := newSiteEnv(t)
 	c := &Certs{Sites: e.st, Root: e.st.Root, PanelUser: "cairn"}
+	// The panel's data directory exists from the package install.
+	if err := os.MkdirAll(filepath.Join(c.Root, panelDataDir), 0o750); err != nil {
+		t.Fatal(err)
+	}
 	// The panel's user exists on a real system from the package install.
 	e.f.mu.Lock()
 	e.f.cmds = append(e.f.cmds, "useradd --system cairn")
@@ -247,6 +256,133 @@ func TestCertIssueRequestValidation(t *testing.T) {
 		mutate(&r)
 		if err := r.Validate(); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+func TestCertPanelCopyStaysInDataDir(t *testing.T) {
+	e, c := newCertEnv(t)
+	ca := newTestCA(t)
+	const id = "c0123456789abcde"
+	chain, key := ca.leaf(t, time.Now().Add(90*24*time.Hour), "panel.example.com")
+	// Text around the PEM blocks never reaches a file.
+	junk := "#!/bin/sh\necho pwned\n"
+	op, log := e.run(helperapi.ActionCertImport, helperapi.CertImportRequest{ID: id, CertPEM: junk + chain + junk, KeyPEM: junk + key + junk})
+	if op.State != helperapi.OpSucceeded {
+		t.Fatalf("import: %+v\n%s", op.Error, log)
+	}
+	for _, name := range []string{"cert.pem", "key.pem"} {
+		data := e.read(certStateDir + "/" + id + "/" + name)
+		if strings.Contains(data, "pwned") || !strings.HasPrefix(data, "-----BEGIN ") || !strings.HasSuffix(data, "-----\n") {
+			t.Fatalf("stored %s:\n%s", name, data)
+		}
+	}
+
+	// The web process owns the data directory: a tls/ replaced by a link
+	// is refused, nothing is written where it points.
+	tls := filepath.Join(c.Root, panelTLSDir)
+	elsewhere := filepath.Join(c.Root, "etc", "bash_completion.d")
+	if err := os.MkdirAll(elsewhere, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, tls); err != nil {
+		t.Fatal(err)
+	}
+	if op, _ := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpFailed {
+		t.Fatal("a linked tls directory was written to")
+	}
+	if entries, _ := os.ReadDir(elsewhere); len(entries) > 0 {
+		t.Fatalf("written through the link: %v", entries)
+	}
+	// Going back to self-signed does not remove anything through it either.
+	writeSystemFile(t, c.Root, "/etc/bash_completion.d/panel.crt", "keep")
+	if op, _ := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{}); op.State != helperapi.OpFailed || !e.exists("/etc/bash_completion.d/panel.crt") {
+		t.Fatalf("removed through the link: %+v", op.Error)
+	}
+	if err := os.Remove(tls); err != nil {
+		t.Fatal(err)
+	}
+
+	// A missing tls/ is made for the panel; a planted link in it is
+	// replaced, not followed.
+	if op, log := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("panel: %+v\n%s", op.Error, log)
+	}
+	if err := os.Remove(filepath.Join(tls, "panel.key")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(elsewhere, "panel.crt"), filepath.Join(tls, "panel.key")); err != nil {
+		t.Fatal(err)
+	}
+	if op, log := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("panel again: %+v\n%s", op.Error, log)
+	}
+	if got := e.read("/etc/bash_completion.d/panel.crt"); got != "keep" {
+		t.Fatalf("written through a link in tls/: %q", got)
+	}
+	for _, name := range []string{"panel.key", "panel.crt"} {
+		info, err := os.Lstat(filepath.Join(tls, name))
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s: %v %v", name, info, err)
+		}
+	}
+	if entries, _ := os.ReadDir(tls); len(entries) != 2 {
+		t.Fatalf("temporary files left: %v", entries)
+	}
+}
+
+func TestCertReissueKeepsCoverage(t *testing.T) {
+	e, c := newCertEnv(t)
+	ca := newTestCA(t)
+	const id = "c0123456789abcde"
+	chain, key := ca.leaf(t, time.Now().Add(90*24*time.Hour), "shop.example.com", "www.shop.example.com")
+	if op, log := e.run(helperapi.ActionCertImport, helperapi.CertImportRequest{ID: id, CertPEM: chain, KeyPEM: key}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("import: %+v\n%s", op.Error, log)
+	}
+	spec := helperapi.SiteSpec{Code: "shop", Type: helperapi.SiteStatic, Domains: []string{"shop.example.com", "www.shop.example.com"},
+		TLS: &helperapi.SiteTLS{Cert: id}, Enabled: true}
+	if op, log := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpSucceeded {
+		t.Fatalf("site: %+v\n%s", op.Error, log)
+	}
+	// The keys' directory is root's alone.
+	if info, err := os.Stat(filepath.Join(c.Root, nginxCertDir)); err != nil || info.Mode().Perm() != 0o700 {
+		t.Fatalf("certificate directory: %v %v", info, err)
+	}
+	// A re-issue for fewer names is refused before the CA is asked.
+	req := helperapi.CertIssueRequest{ID: id, Domains: []string{"shop.example.com"}, CA: helperapi.ACMECA{Name: "letsencrypt"},
+		Challenge: helperapi.ChallengeHTTP01, KeyType: "ec256"}
+	if _, err := c.issue(t.Context(), helperapi.Caller{}, req, io.Discard); code(err) != helperapi.CodeCertCoverage {
+		t.Fatalf("narrow re-issue: %v", err)
+	}
+	if e.exists(acmeStateDir) {
+		t.Fatal("the CA was contacted")
+	}
+}
+
+func TestACMEClientRefusesMetadata(t *testing.T) {
+	c := &Certs{}
+	hc, err := c.httpClient(helperapi.ACMECA{Name: "custom", Directory: "https://ca.example/dir"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A private CA on this host or the LAN is fine.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	t.Cleanup(srv.Close)
+	resp, err := hc.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("loopback CA: %v", err)
+	}
+	_ = resp.Body.Close()
+	// Metadata services are not, and no proxy stands in between.
+	t.Setenv("HTTP_PROXY", srv.URL)
+	for _, u := range []string{"http://169.254.169.254/latest/meta-data/", "http://100.100.100.200/", "http://[fe80::1]/"} {
+		resp, err := hc.Get(u)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		var denied *netx.DeniedError
+		if !errors.As(err, &denied) {
+			t.Errorf("%s: %v", u, err)
 		}
 	}
 }

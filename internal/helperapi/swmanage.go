@@ -33,6 +33,11 @@ const (
 	CodePkgConfigApplyFailed = "pkg.config_apply_failed"
 	CodePkgConfigVersion     = "pkg.config_version_unknown"
 	CodePkgConfigNotText     = "pkg.config_not_text"
+	// CodePkgRemoveTakes: removing the line would remove other installed
+	// packages with it (params: packages, by).
+	CodePkgRemoveTakes = "pkg.remove_takes"
+	// CodePkgInUse: sites use the line (params: software, line, sites).
+	CodePkgInUse = "pkg.in_use"
 )
 
 // ServiceReload reloads a line's services (beside ServiceStart,

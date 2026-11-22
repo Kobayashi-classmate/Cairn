@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
@@ -72,7 +73,14 @@ type Module struct {
 	Events *events.Bus
 	TLS    TLSReloader
 	Log    *slog.Logger
+
+	// issueMu makes checking for a running issue and starting one atomic.
+	issueMu sync.Mutex
 }
+
+// codeBusy refuses a second issue or renewal of a certificate while one is
+// queued or running (each would place an ACME order).
+const codeBusy = "cert.busy"
 
 // ID implements module.Module.
 func (m *Module) ID() string { return "certs" }
@@ -524,6 +532,8 @@ func (m *Module) issue(w http.ResponseWriter, r *http.Request) error {
 	who := modutil.ActorOf(r)
 	job, err := m.startIssue(r.Context(), "cert.issue", id, req.DNSAccount, jobs.Actor{UserID: who.UserID, Username: who.Username, Source: who.Source, Remote: api.ClientIP(r)})
 	if err != nil {
+		// No job will issue it: the row goes again rather than stay issuing.
+		_, _ = m.DB.ExecContext(context.WithoutCancel(r.Context()), `DELETE FROM certificates WHERE id = ?`, id)
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, who, "cert.issue", "ok", map[string]any{"cert": id, "domains": spec.Domains, "ca": spec.CA.Name, "challenge": spec.Challenge, "job": job.ID})
@@ -537,6 +547,16 @@ func (m *Module) startIssue(ctx context.Context, kind, id, account string, actor
 	v, err := m.load(ctx, id)
 	if err != nil {
 		return jobs.Record{}, err
+	}
+	m.issueMu.Lock()
+	defer m.issueMu.Unlock()
+	var busy int
+	if err := m.DB.QueryRowContext(ctx, `SELECT count(*) FROM jobs WHERE kind IN ('cert.issue', 'cert.renew') AND state IN (?, ?)
+		AND json_extract(params, '$.cert') = ?`, jobs.Queued, jobs.Running, id).Scan(&busy); err != nil {
+		return jobs.Record{}, err
+	}
+	if busy > 0 {
+		return jobs.Record{}, api.NewError(http.StatusConflict, codeBusy, map[string]any{"id": id})
 	}
 	return m.Jobs.Start(ctx, jobs.Spec{
 		Kind: kind, Params: map[string]any{"cert": id, "name": v.Name, "domain": v.Domains[0]}, Permission: Read, ManagePermission: Manage,
@@ -635,6 +655,7 @@ func (m *Module) upload(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	})
 	if err != nil {
+		_, _ = m.DB.ExecContext(context.WithoutCancel(r.Context()), `DELETE FROM certificates WHERE id = ?`, id)
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, who, "cert.upload", "ok", map[string]any{"cert": id, "name": name, "job": job.ID})

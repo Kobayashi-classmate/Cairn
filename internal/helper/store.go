@@ -5,6 +5,7 @@ package helper
 import (
 	"context"
 	"io"
+	"net"
 	"net/url"
 	"path"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // objectStore is a bucket, keys relative to the storage's prefix.
@@ -43,8 +45,21 @@ func newMinioStore(s helperapi.S3Storage) (objectStore, error) {
 	if s.PathStyle {
 		lookup = minio.BucketLookupPath
 	}
+	tr, err := minio.DefaultTransport(!s.Insecure)
+	if err != nil {
+		return nil, err
+	}
+	// The panel checks the endpoint when it is saved, but its name may
+	// resolve to this host or a metadata service by the time the helper
+	// connects (DNS rebinding): every connection is checked after
+	// resolution. Storage on the local network stays allowed.
+	tr.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second,
+		Control: netx.DialControl(netx.LocalOrMetadata)}).DialContext
+	// Through a proxy the check would see only the proxy's address.
+	tr.Proxy = nil
 	c, err := minio.New(s.Endpoint, &minio.Options{
 		Creds: credentials.NewStaticV4(s.AccessKey, s.SecretKey, ""), Secure: !s.Insecure, Region: s.Region, BucketLookup: lookup,
+		Transport: tr,
 	})
 	if err != nil {
 		return nil, err

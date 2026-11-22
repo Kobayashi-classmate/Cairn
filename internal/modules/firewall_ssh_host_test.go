@@ -4,6 +4,7 @@ package modules_test
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -61,17 +62,31 @@ func TestFirewallChangeAndConfirm(t *testing.T) {
 	future := helperapi.FirewallPending{ID: "x00000000000000f", Expires: time.Now().Add(time.Hour).Unix(), Kind: "ping"}
 	e.helper.respond(helperapi.ActionFirewallStatus, helperapi.FirewallStatus{Enabled: true, Pending: &future})
 	admin.expect(admin.do("POST", "/api/v1/firewall/confirm", map[string]any{"id": future.ID}), 409, helperapi.CodeFirewallConfirmRetry)
+	// Nor one opened in the second of the change, which is known to the
+	// second only: it may be older than the change.
+	for time.Now().Nanosecond() > 500_000_000 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	same := helperapi.FirewallPending{ID: "x00000000000000e", Expires: time.Now().Unix() + helperapi.FirewallConfirmSeconds, Kind: "ping"}
+	e.helper.respond(helperapi.ActionFirewallStatus, helperapi.FirewallStatus{Enabled: true, Pending: &same})
+	admin.hc.CloseIdleConnections()
+	admin.expect(admin.do("POST", "/api/v1/firewall/confirm", map[string]any{"id": same.ID}), 409, helperapi.CodeFirewallConfirmRetry)
 
 	// Helper refusals keep their codes.
 	e.helper.fail(helperapi.ActionFirewallAddressSet, &helperapi.Error{Code: helperapi.CodeFirewallSelfBlock, Params: map[string]any{"address": "127.0.0.1"}})
 	admin.expect(admin.do("POST", "/api/v1/firewall/addresses", map[string]any{"address": "127.0.0.1", "action": "deny"}), 400, helperapi.CodeFirewallSelfBlock)
 	admin.expect(admin.do("DELETE", "/api/v1/firewall/rules/ssh", nil), 404, helperapi.CodeFirewallNotFound)
 
-	// Enabling is a job.
-	e.opsSucceed(helperapi.ActionFirewallEnable)
-	admin.runJob(admin.expect(admin.do("POST", "/api/v1/firewall/enable", nil), 202, ""))
+	// Enabling is a job; it names the change to confirm.
+	change, _ := json.Marshal(helperapi.FirewallChange{Pending: &helperapi.FirewallPending{ID: "x00000000000000a", Expires: time.Now().Unix() + 60, Kind: "enable"}})
+	e.helper.respond(helperapi.ActionFirewallEnable, helperapi.OpRef{ID: opID})
+	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpSucceeded, Result: change}})
+	final := admin.runJob(admin.expect(admin.do("POST", "/api/v1/firewall/enable", nil), 202, ""))
 	if q := sentAs[helperapi.FirewallEnableRequest](t, e, helperapi.ActionFirewallEnable); !q.Confirm {
 		t.Fatal("enable without the rollback window")
+	}
+	if p, _ := final["params"].(map[string]any); p["pending"] != "x00000000000000a" {
+		t.Fatalf("enable job %v", final)
 	}
 
 	// A rollback is reported once.

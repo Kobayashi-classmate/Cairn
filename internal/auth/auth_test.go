@@ -36,20 +36,21 @@ func testDB(t *testing.T) *sql.DB {
 const goodPassword = "correct horse battery"
 
 func TestPasswordHashRoundTrip(t *testing.T) {
-	h, err := HashPassword(goodPassword)
+	ctx := context.Background()
+	h, err := HashPassword(ctx, goodPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(h, "$argon2id$v=19$m=65536,t=3,p=1$") {
 		t.Fatalf("unexpected encoding %s", h)
 	}
-	if ok, err := VerifyPassword(goodPassword, h); !ok || err != nil {
+	if ok, err := VerifyPassword(ctx, goodPassword, h); !ok || err != nil {
 		t.Fatalf("verify failed: %v %v", ok, err)
 	}
-	if ok, _ := VerifyPassword("wrong password!!", h); ok {
+	if ok, _ := VerifyPassword(ctx, "wrong password!!", h); ok {
 		t.Fatal("wrong password accepted")
 	}
-	if _, err := VerifyPassword(goodPassword, "$2y$10$bcrypt"); err == nil {
+	if _, err := VerifyPassword(ctx, goodPassword, "$2y$10$bcrypt"); err == nil {
 		t.Fatal("foreign hash format should error")
 	}
 }
@@ -215,5 +216,24 @@ func TestRandomPassword(t *testing.T) {
 	}
 	if strings.ContainsAny(p, "0O1lI") {
 		t.Fatalf("ambiguous characters in %q", p)
+	}
+}
+
+func TestDeleteOtherSessionsNeedsASessionToKeep(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	u, _ := CreateUser(ctx, db, "alice", goodPassword, "", "admin")
+	a, _ := CreateSession(ctx, db, u.ID, "", "")
+	_, _ = CreateSession(ctx, db, u.ID, "", "")
+	// An API token's request has no session: "keep none" must not mean
+	// "sign out everywhere".
+	if _, err := DeleteOtherSessions(ctx, db, u.ID, ""); err == nil {
+		t.Fatal("an empty session to keep was accepted")
+	}
+	if list, _ := ListSessions(ctx, db, u.ID, ""); len(list) != 2 {
+		t.Fatalf("sessions after a refused call: %d", len(list))
+	}
+	if n, err := DeleteOtherSessions(ctx, db, u.ID, SessionID(a)); err != nil || n != 1 {
+		t.Fatalf("delete others: %d %v", n, err)
 	}
 }

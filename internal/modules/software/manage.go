@@ -26,12 +26,12 @@ func (m *Module) manageRoutes(r *api.Router, doc func(string) api.RouteOption) {
 		api.Returns(200, helperapi.ExtStatus{}))
 	r.Handle("POST /api/v1/software/{id}/lines/{line}/extensions", m.applyExtensions, api.Require(Manage), api.Body(extensionsRequest{}),
 		doc("Install and remove PHP extensions of a line, then reload its PHP-FPM (starts a job)"), job)
-	r.Handle("GET /api/v1/software/{id}/lines/{line}/configs/{config}", m.config, api.Require(Manage), api.StepUp(),
+	r.Handle("GET /api/v1/software/{id}/lines/{line}/configs/{config}", m.config, api.Require(Config), api.StepUp(),
 		doc("A configuration file of an installed line, with the versions kept from earlier saves"),
 		api.Returns(200, helperapi.ConfigFile{}))
-	r.Handle("GET /api/v1/software/{id}/lines/{line}/configs/{config}/versions/{version}", m.configVersion, api.Require(Manage), api.StepUp(),
+	r.Handle("GET /api/v1/software/{id}/lines/{line}/configs/{config}/versions/{version}", m.configVersion, api.Require(Config), api.StepUp(),
 		doc("A kept earlier version of a configuration file"), api.Returns(200, helperapi.ConfigFile{}))
-	r.Handle("PUT /api/v1/software/{id}/lines/{line}/configs/{config}", m.saveConfig, api.Require(Manage), api.StepUp(), api.Body(configRequest{}),
+	r.Handle("PUT /api/v1/software/{id}/lines/{line}/configs/{config}", m.saveConfig, api.Require(Config), api.StepUp(), api.Body(configRequest{}),
 		doc("Save a configuration file: it is checked and the service reloaded or restarted; on failure the previous file comes back (starts a job). base is the sha256 the file was read with"),
 		job)
 }

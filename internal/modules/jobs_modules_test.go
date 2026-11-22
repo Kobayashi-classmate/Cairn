@@ -71,6 +71,11 @@ func TestSoftwareRefreshJob(t *testing.T) {
 	if len(list) != 1 || list[0].(map[string]any)["id"] != id {
 		t.Fatalf("list: %v", list)
 	}
+	// Whether the caller may cancel the job comes with it, wherever it is served.
+	if list[0].(map[string]any)["canCancel"] != true || final["canCancel"] != true ||
+		admin.expect(admin.do("GET", "/api/v1/jobs/"+id, nil), 200, "").obj("job")["canCancel"] != true {
+		t.Fatalf("admin may cancel: list %v, log %v", list[0], final)
+	}
 	// Filters by state and by kind (exact, or a prefix ending in ".").
 	for _, c := range []struct {
 		query string
@@ -102,7 +107,15 @@ func TestSoftwareRefreshJob(t *testing.T) {
 	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "aud", "password": pw, "role": "auditor"}), 201, "")
 	aud := e.client()
 	aud.expect(aud.login("aud", pw), 200, "")
-	aud.expect(aud.do("GET", "/api/v1/jobs/"+id, nil), 200, "")
+	if got := aud.expect(aud.do("GET", "/api/v1/jobs/"+id, nil), 200, "").obj("job"); got["canCancel"] != false {
+		t.Fatalf("auditor job: %v", got)
+	}
+	if got := aud.expect(aud.do("GET", "/api/v1/jobs", nil), 200, "").body["jobs"].([]any); len(got) != 1 || got[0].(map[string]any)["canCancel"] != false {
+		t.Fatalf("auditor list: %v", got)
+	}
+	if got := aud.expect(aud.do("GET", "/api/v1/jobs/"+id+"/log", nil), 200, "").obj("job"); got["canCancel"] != false {
+		t.Fatalf("auditor log: %v", got)
+	}
 	aud.expect(aud.do("POST", "/api/v1/jobs/"+id+"/cancel", nil), 403, "auth.forbidden")
 	aud.expect(aud.do("POST", "/api/v1/software/refresh", nil), 403, "auth.forbidden")
 

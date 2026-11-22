@@ -78,6 +78,28 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   address.
 - The audit log filters by result and time range, and the jobs list by
   status and kind, over the whole history rather than the loaded page.
+- Roles keep root-level work for administrators: editing the configuration
+  files of services, the backup directory and the whole disk in the file
+  manager (where reading, downloading and changing backup plans also asks
+  for the password again), terminals and shell tasks as users other than
+  site owners and the logs of such tasks, and layer-4 proxies to the
+  server itself or to host names. Read-only accounts do not see app
+  environment values, task scripts or Redis values.
+- Signing in from a browser that signed in before keeps working while
+  someone guesses the account's password elsewhere; repeated failures for
+  an account otherwise lock it for up to 15 minutes. API tokens cannot
+  change the password, sessions, tokens or two-step sign-in, and terminals
+  end with the session that opened them or when the account changes.
+- Fetching a file from a URL refuses addresses on the server, the local
+  network and cloud metadata services; backup storages, URL tasks and ACME
+  servers refuse cloud metadata addresses.
+- Web servers do not follow a site's links to files of other owners, so
+  one site cannot serve another's files; a switch allows such links for a
+  site that needs them (Laravel's public/storage, for example).
 - Installing the package by hand prints how to get the one-time setup link
   (`sudo cairn setup-link`) rather than the link itself, which would stay
   in the package manager's logs. The online installer prints the link.
+- Database users the panel did not create keep their privileges: the
+  panel only sets their password.
+- A site, layer-4 proxy or scheduled task whose change was cut off by a
+  restart of the panel shows as failed and can be saved again.

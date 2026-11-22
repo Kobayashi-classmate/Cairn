@@ -157,8 +157,13 @@ func DeleteSessionByID(ctx context.Context, q queryer, userID int64, id string) 
 	return n > 0, err
 }
 
-// DeleteOtherSessions signs a user out everywhere except keepID.
+// DeleteOtherSessions signs a user out everywhere except keepID. keepID
+// must name a session: an empty one (an API token's request has none)
+// would sign the user out everywhere.
 func DeleteOtherSessions(ctx context.Context, q queryer, userID int64, keepID string) (int64, error) {
+	if keepID == "" {
+		return 0, errors.New("auth: no session to keep")
+	}
 	res, err := q.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = ? AND id != ?`, userID, keepID)
 	if err != nil {
 		return 0, err
@@ -172,13 +177,43 @@ func DeleteUserSessions(ctx context.Context, q queryer, userID int64) error {
 	return err
 }
 
-// PurgeExpired removes stale sessions and MFA challenges.
+// PurgeExpired removes stale sessions, MFA challenges and quiet throttle
+// counters.
 func PurgeExpired(ctx context.Context, q queryer) error {
 	now := time.Now()
 	if _, err := q.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ? OR last_seen_at < ?`,
 		now.Unix(), now.Add(-IdleTimeout).Unix()); err != nil {
 		return err
 	}
-	_, err := q.ExecContext(ctx, `DELETE FROM mfa_challenges WHERE expires_at < ?`, now.Unix())
+	if _, err := q.ExecContext(ctx, `DELETE FROM mfa_challenges WHERE expires_at < ?`, now.Unix()); err != nil {
+		return err
+	}
+	if _, err := q.ExecContext(ctx, `DELETE FROM known_devices WHERE expires_at < ?`, now.Unix()); err != nil {
+		return err
+	}
+	return purgeFailures(ctx, q, now)
+}
+
+// SessionAlive reports whether a session still exists and has timed out
+// neither absolutely nor idle, as LookupSession would find it. Things a
+// session opened (terminals) end with it.
+func SessionAlive(ctx context.Context, q queryer, id string) (bool, error) {
+	if id == "" {
+		return false, nil
+	}
+	now := time.Now()
+	var n int
+	err := q.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE id = ? AND expires_at >= ? AND last_seen_at >= ?`,
+		id, now.Unix(), now.Add(-IdleTimeout).Unix()).Scan(&n)
+	return n > 0, err
+}
+
+// TouchSession counts use of a live session made outside API requests
+// (typing in a terminal) as activity, so it does not time out idle
+// meanwhile. A session already timed out stays so.
+func TouchSession(ctx context.Context, q queryer, id string) error {
+	now := time.Now()
+	_, err := q.ExecContext(ctx, `UPDATE sessions SET last_seen_at = ? WHERE id = ? AND expires_at >= ? AND last_seen_at >= ?`,
+		now.Unix(), id, now.Unix(), now.Add(-IdleTimeout).Unix())
 	return err
 }

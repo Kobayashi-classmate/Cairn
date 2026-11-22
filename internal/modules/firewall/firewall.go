@@ -334,8 +334,10 @@ func (m *Module) confirm(w http.ResponseWriter, r *http.Request) error {
 	if st.Pending == nil || st.Pending.ID != q.ID {
 		return api.NewError(http.StatusConflict, helperapi.CodeFirewallNoPending, map[string]any{"id": q.ID})
 	}
+	// The change's time is known to the second only (it was made somewhen
+	// in that second): a connection is new for sure from the next second.
 	created := time.Unix(st.Pending.Expires-helperapi.FirewallConfirmSeconds, 0)
-	if started := api.ConnStarted(r); started.IsZero() || !started.After(created) {
+	if started := api.ConnStarted(r); started.IsZero() || started.Before(created.Add(time.Second)) {
 		api.CloseConnection(w)
 		return api.NewError(http.StatusConflict, helperapi.CodeFirewallConfirmRetry, nil)
 	}
@@ -383,7 +385,15 @@ func (m *Module) startJob(w http.ResponseWriter, r *http.Request, kind string, f
 
 func (m *Module) enable(w http.ResponseWriter, r *http.Request) error {
 	return m.startJob(w, r, "firewall.enable", func(_ context.Context, j *jobs.Job) error {
-		return j.RunOp(helperapi.ActionFirewallEnable, helperapi.FirewallEnableRequest{Confirm: true}, nil)
+		var res helperapi.FirewallChange
+		if err := j.RunOp(helperapi.ActionFirewallEnable, helperapi.FirewallEnableRequest{Confirm: true}, &res); err != nil {
+			return err
+		}
+		// The page confirms this change: it finds it by its ID.
+		if res.Pending != nil {
+			j.SetParam("pending", res.Pending.ID)
+		}
+		return nil
 	})
 }
 

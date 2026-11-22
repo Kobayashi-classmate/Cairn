@@ -3,6 +3,7 @@
 package modules_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -22,7 +23,7 @@ func TestSitesAPI(t *testing.T) {
 
 	// The code comes from the first domain.
 	r := admin.expect(admin.do("POST", "/api/v1/sites", map[string]any{"type": "php", "domains": []string{"www.Example.com", "example.com"},
-		"php": "8.4", "rewrite": "wordpress", "writable": []string{"wp-content/uploads"}}), 202, "")
+		"php": "8.4", "rewrite": "wordpress", "writable": []string{"wp-content/uploads"}, "allowSymlinks": true}), 202, "")
 	job := r.obj("job")
 	if job["kind"] != "site.create" || job["params"].(map[string]any)["site"] != "example-com" {
 		t.Fatalf("job: %v", job)
@@ -32,7 +33,7 @@ func TestSitesAPI(t *testing.T) {
 	}
 	var sent helperapi.SiteSpec
 	_ = json.Unmarshal([]byte(e.helper.sent(helperapi.ActionSiteApply)), &sent)
-	if sent.Code != "example-com" || sent.Domains[0] != "www.example.com" || !sent.Enabled || sent.Rewrite != "wordpress" {
+	if sent.Code != "example-com" || sent.Domains[0] != "www.example.com" || !sent.Enabled || sent.Rewrite != "wordpress" || !sent.AllowSymlinks {
 		t.Fatalf("sent: %+v", sent)
 	}
 	site := admin.expect(admin.do("GET", "/api/v1/sites/example-com", nil), 200, "")
@@ -109,4 +110,58 @@ func TestSitesAPI(t *testing.T) {
 	aud.expect(aud.do("GET", "/api/v1/sites", nil), 200, "")
 	aud.expect(aud.do("GET", "/api/v1/sites/rewrites", nil), 200, "")
 	aud.expect(aud.do("POST", "/api/v1/sites/example-com-cn/start", nil), 403, "auth.forbidden")
+
+	// An app's environment values are for those who manage sites: readers
+	// see the names only.
+	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpSucceeded, Result: result}})
+	waitJob(t, admin, admin.expect(admin.do("POST", "/api/v1/sites", map[string]any{"type": "app", "domains": []string{"app.example.com"},
+		"app": map[string]any{"command": "node server.js", "port": 0, "env": []map[string]any{{"name": "DB_PASSWORD", "value": "hunter2-secret"}}}}), 202, "").obj("job")["id"].(string))
+	for _, path := range []string{"/api/v1/sites", "/api/v1/sites/app-example-com"} {
+		if r := aud.expect(aud.do("GET", path, nil), 200, ""); strings.Contains(r.raw, "hunter2-secret") || !strings.Contains(r.raw, "DB_PASSWORD") {
+			t.Fatalf("reader's view of %s: %s", path, r.raw)
+		}
+		if r := admin.expect(admin.do("GET", path, nil), 200, ""); !strings.Contains(r.raw, "hunter2-secret") {
+			t.Fatalf("manager's view of %s lacks the value", path)
+		}
+	}
+
+	// Helper refusals of a log read keep their code.
+	e.helper.fail(helperapi.ActionSiteLog, &helperapi.Error{Code: helperapi.CodeSiteNotFound})
+	admin.expect(admin.do("GET", "/api/v1/sites/example-com-cn/log", nil), 409, helperapi.CodeSiteNotFound)
+}
+
+// A change interrupted by a restart leaves no site or stream applying
+// forever; one whose job still runs stays.
+func TestSitesRecoverInterrupted(t *testing.T) {
+	e := newEnv(t)
+	for _, q := range []string{
+		`INSERT INTO jobs (id, kind, permission, manage_permission, state, created_at) VALUES
+			('aaaaaaaaaaaaaaaaaaaaaaaa', 'site.update', 'sites.read', 'sites.manage', 'interrupted', 1),
+			('bbbbbbbbbbbbbbbbbbbbbbbb', 'site.update', 'sites.read', 'sites.manage', 'running', 1)`,
+		`INSERT INTO sites (code, type, spec, state, last_job, created_at, updated_at) VALUES
+			('gone', 'static', '{}', 'applying', 'aaaaaaaaaaaaaaaaaaaaaaaa', 1, 1),
+			('never', 'static', '{}', 'applying', '', 1, 1),
+			('busy', 'static', '{}', 'applying', 'bbbbbbbbbbbbbbbbbbbbbbbb', 1, 1),
+			('fine', 'static', '{}', 'active', 'aaaaaaaaaaaaaaaaaaaaaaaa', 1, 1)`,
+		`INSERT INTO streams (code, spec, state, last_job, created_at, updated_at) VALUES ('tcp', '{}', 'applying', 'aaaaaaaaaaaaaaaaaaaaaaaa', 1, 1)`,
+	} {
+		if _, err := e.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.sites.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for table, want := range map[string]map[string]string{
+		"sites":   {"gone": "failed job.interrupted", "never": "failed job.interrupted", "busy": "applying ", "fine": "active "},
+		"streams": {"tcp": "failed job.interrupted"},
+	} {
+		for code, w := range want {
+			var state, errCode string
+			_ = e.db.QueryRow(`SELECT state, error_code FROM `+table+` WHERE code = ?`, code).Scan(&state, &errCode)
+			if got := state + " " + errCode; got != w {
+				t.Errorf("%s %s: %q, want %q", table, code, got, w)
+			}
+		}
+	}
 }

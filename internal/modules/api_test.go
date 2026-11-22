@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"slices"
@@ -128,6 +130,33 @@ func (f *fakeHelper) Call(_ context.Context, action string, _ helperapi.Caller, 
 	return nil
 }
 
+// testResolver answers the names it lists and no others, so tests never
+// look names up on the network.
+type testResolver struct {
+	mu    sync.Mutex
+	names map[string][]netip.Addr
+}
+
+func (r *testResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ips, ok := r.names[host]; ok {
+		return ips, nil
+	}
+	return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+}
+
+func (r *testResolver) set(host string, ips ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.names == nil {
+		r.names = map[string][]netip.Addr{}
+	}
+	for _, ip := range ips {
+		r.names[host] = append(r.names[host], netip.MustParseAddr(ip))
+	}
+}
+
 type env struct {
 	t        *testing.T
 	srv      *httptest.Server
@@ -148,6 +177,7 @@ type env struct {
 	dataDir  string
 	modules  *module.Registry
 	jobs     *jobs.Manager
+	resolver *testResolver
 }
 
 // newEnv wires the panel like cmd/cairn-web; extra modules are added last.
@@ -201,7 +231,8 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	filesMod := &filesmod.Module{Jobs: jobManager, Helper: h, DB: db, Log: log, DataDir: dataDir}
 	termMod := &terminal.Module{Helper: h, DB: db, Log: log}
 	cronMod := &cronmod.Module{Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log}
-	backupsMod := &backupsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log, DataDir: dataDir}
+	resolver := &testResolver{}
+	backupsMod := &backupsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log, DataDir: dataDir, Resolver: resolver}
 	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log, PanelPort: 28443,
 		Certs: certsMod, Backups: backupsMod, Modules: registry}
 	firewallMod := &firewallmod.Module{Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log}
@@ -226,7 +257,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		sshMod,
 		&hostmod.Module{Jobs: jobManager, Helper: h, DB: db, Log: log},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
-		&users.Module{DB: db, Events: bus, Log: log},
+		&users.Module{DB: db, Events: bus, Log: log, Revokers: []users.Revoker{termMod}},
 		&auditlog.Module{DB: db},
 		&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log},
 		cloudMod,
@@ -243,7 +274,8 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
 	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod, sites: sitesMod,
-		files: filesMod, terminal: termMod, cron: cronMod, backups: backupsMod, firewall: firewallMod, ssh: sshMod, dataDir: dataDir, modules: registry, jobs: jobManager}
+		files: filesMod, terminal: termMod, cron: cronMod, backups: backupsMod, firewall: firewallMod, ssh: sshMod, dataDir: dataDir, modules: registry, jobs: jobManager,
+		resolver: resolver}
 }
 
 // client is one browser with its own cookie jar.
@@ -257,6 +289,17 @@ func (e *env) client() *client {
 	jar, _ := cookiejar.New(nil)
 	hc = &http.Client{Transport: hc.Transport, Jar: jar}
 	return &client{e: e, hc: hc}
+}
+
+// clientFrom is a browser connecting from another loopback address (the
+// whole of 127.0.0.0/8 reaches the test server), for per-address limits.
+func (e *env) clientFrom(ip string) *client {
+	tr := e.srv.Client().Transport.(*http.Transport).Clone()
+	dialer := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.ParseIP(ip)}, Timeout: 5 * time.Second}
+	tr.DialContext = dialer.DialContext
+	e.t.Cleanup(tr.CloseIdleConnections)
+	jar, _ := cookiejar.New(nil)
+	return &client{e: e, hc: &http.Client{Transport: tr, Jar: jar}}
 }
 
 type reply struct {
@@ -419,6 +462,74 @@ func TestLoginThrottling(t *testing.T) {
 	if s, _ := r.params()["retryAfterSeconds"].(float64); s < 1 || s > 60 {
 		t.Fatalf("retryAfterSeconds: %v", r.params())
 	}
+}
+
+// Knowing an administrator's name must not let anyone keep them out: a
+// browser they signed in from before is exempt from the username's lock,
+// which still stops guessing spread over many addresses; failures of
+// signed-in sessions count per session.
+func TestThrottleKeepsOwnersIn(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	owner := e.clientFrom("127.0.0.2")
+	owner.expect(owner.login("admin", pw), 200, "")
+	owner.expect(owner.do("POST", "/api/v1/auth/logout", nil), 204, "")
+	// A sprayer: a few guesses from each of many addresses, under the
+	// limit of each address.
+	for i := 0; i < 5; i++ {
+		sprayer := e.clientFrom(fmt.Sprintf("127.0.1.%d", i+1))
+		sprayer.expect(sprayer.login("admin", "definitely wrong"), 401, "auth.invalid_credentials")
+	}
+	// The username is locked now, also for the right password from a new
+	// browser ...
+	sprayer := e.clientFrom("127.0.1.10")
+	if r := sprayer.expect(sprayer.login("admin", pw), 429, "auth.rate_limited"); r.params()["retryAfterSeconds"].(float64) < 30 {
+		t.Fatalf("username lock %v", r.params())
+	}
+	// ... but not on the owner's browser.
+	owner.expect(owner.login("admin", pw), 200, "")
+	// A known device of another account does not count.
+	admin.elevate("")
+	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "eve", "password": pw, "role": "auditor"}), 201, "")
+	eve := e.clientFrom("127.0.1.11")
+	eve.expect(eve.login("eve", pw), 200, "")
+	eve.expect(eve.login("admin", pw), 429, "auth.rate_limited")
+	// IPv6 addresses of one /64 share their address's counter.
+	if auth.IPKey("2001:db8:1:2::5") != auth.IPKey("2001:db8:1:2:ffff::1") || auth.IPKey("2001:db8:1:2::5") == auth.IPKey("2001:db8:1:3::5") ||
+		auth.IPKey("::ffff:198.51.100.7") != auth.IPKey("198.51.100.7") {
+		t.Fatalf("address keys %s %s", auth.IPKey("2001:db8:1:2::5"), auth.IPKey("::ffff:198.51.100.7"))
+	}
+
+	// A session guessing its password locks itself, not the account.
+	for i := 0; i < 5; i++ {
+		owner.expect(owner.do("POST", "/api/v1/auth/elevate", map[string]any{"password": "definitely wrong"}), 400, "auth.wrong_password")
+	}
+	owner.expect(owner.do("POST", "/api/v1/auth/elevate", map[string]any{"password": pw}), 429, "auth.rate_limited")
+	owner.expect(owner.do("PUT", "/api/v1/me/password", map[string]any{"currentPassword": pw, "newPassword": "another long password"}), 429, "auth.rate_limited")
+	admin.elevate("")
+	admin.expect(admin.do("PUT", "/api/v1/me/password", map[string]any{"currentPassword": pw, "newPassword": pw}), 204, "")
+}
+
+// A refused (rate-limited) second step does not use up the challenge.
+func TestThrottledSecondStepKeepsTheChallenge(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	admin.elevate("")
+	secret, _ := admin.expect(admin.do("POST", "/api/v1/me/totp/begin", nil), 200, "").body["secret"].(string)
+	admin.expect(admin.do("POST", "/api/v1/me/totp/confirm", map[string]any{"code": totp(t, secret, 0)}), 200, "")
+	c := e.clientFrom("127.0.2.1")
+	token := c.expect(c.login("admin", pw), 200, "").body["mfaToken"].(string)
+	// The address gets locked meanwhile (by others' failures from it).
+	if err := auth.RecordFailure(context.Background(), e.db, slices.Repeat([]string{auth.IPKey("127.0.2.1")}, 5)...); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 8; i++ {
+		c.expect(c.do("POST", "/api/v1/auth/login/mfa", map[string]any{"mfaToken": token, "code": "000000"}), 429, "auth.rate_limited")
+	}
+	if err := auth.ResetFailures(context.Background(), e.db, auth.IPKey("127.0.2.1")); err != nil {
+		t.Fatal(err)
+	}
+	c.expect(c.do("POST", "/api/v1/auth/login/mfa", map[string]any{"mfaToken": token, "code": totp(t, secret, 30*time.Second)}), 200, "")
 }
 
 func TestPasswordChangeAndSessions(t *testing.T) {

@@ -83,60 +83,104 @@ func noFollow(root *os.Root, p string) (*os.File, fs.FileInfo, error) {
 // within reports whether p is base or below it.
 func within(p, base string) bool { return base == "" || p == base || strings.HasPrefix(p, base+"/") }
 
+// linked reports whether fi is a regular file with more than one name
+// (backup files must have none: see openBackup).
+func linked(fi fs.FileInfo) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && fi.Mode().IsRegular() && st.Nlink > 1
+}
+
 // copyTree copies src to dst (which must not exist); new entries belong to
 // the owner of dst's directory. Links are copied as links; devices, pipes
-// and sockets are skipped.
+// and sockets are skipped. Both sides are walked one level at a time (see
+// walkTree): a directory swapped for a link meanwhile, in the source or
+// in the copy being made, is never followed.
 func copyTree(ctx context.Context, root *os.Root, src, dst string, uid, gid int, log io.Writer) error {
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	fi, err := root.Lstat(src)
+	sdir, sname, sdone, err := openParent(root, src)
 	if err != nil {
 		return notFound(err, src)
 	}
-	switch m := fi.Mode(); {
+	defer sdone()
+	ddir, dname, ddone, err := openParent(root, dst)
+	if err != nil {
+		return notFound(err, dst)
+	}
+	defer ddone()
+	info, err := sdir.Lstat(sname)
+	if err != nil {
+		return notFound(err, src)
+	}
+	return copyAt(ctx, sdir, sname, info, ddir, dname, uid, gid, src, log)
+}
+
+func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, ddir *os.Root, dname string, uid, gid int, p string, log io.Writer) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	switch m := info.Mode(); {
 	case m&fs.ModeSymlink != 0:
-		target, err := root.Readlink(src)
+		target, err := sdir.Readlink(sname)
 		if err != nil {
 			return err
 		}
-		if err := root.Symlink(target, dst); err != nil {
+		if err := ddir.Symlink(target, dname); err != nil {
 			return err
 		}
-		return root.Lchown(dst, uid, gid)
+		return ddir.Lchown(dname, uid, gid)
 	case m.IsDir():
-		if err := root.Mkdir(dst, m.Perm()|0o700); err != nil {
-			return err
+		ssub, err := enterDir(sdir, sname, info)
+		if errors.Is(err, errSwapped) {
+			_, _ = fmt.Fprintf(log, "  skipped %s (it changed meanwhile)\n", p)
+			return nil
 		}
-		if err := root.Lchown(dst, uid, gid); err != nil {
-			return err
-		}
-		d, err := root.Open(src)
 		if err != nil {
 			return err
 		}
-		entries, err := d.ReadDir(-1)
-		_ = d.Close()
+		defer func() { _ = ssub.Close() }()
+		if err := ddir.Mkdir(dname, m.Perm()|0o700); err != nil {
+			return err
+		}
+		made, err := ddir.Lstat(dname)
 		if err != nil {
 			return err
 		}
-		for _, e := range entries {
-			if err := copyTree(ctx, root, src+"/"+e.Name(), dst+"/"+e.Name(), uid, gid, log); err != nil {
+		dsub, err := enterDir(ddir, dname, made)
+		if err != nil {
+			return fileErr(helperapi.CodeFileIsLink, map[string]any{"path": p})
+		}
+		defer func() { _ = dsub.Close() }()
+		if err := dsub.Lchown(".", uid, gid); err != nil {
+			return err
+		}
+		names, err := dirNames(ssub)
+		if err != nil {
+			return err
+		}
+		for _, n := range names {
+			ci, err := ssub.Lstat(n)
+			if err != nil {
+				continue // gone meanwhile
+			}
+			if err := copyAt(ctx, ssub, n, ci, dsub, n, uid, gid, join(p, n), log); err != nil {
 				return err
 			}
 		}
-		return root.Chmod(dst, m.Perm())
+		return dsub.Chmod(".", m.Perm())
 	case m.IsRegular():
-		in, _, err := noFollow(root, src)
+		in, fi, err := openEntry(sdir, sname, info)
+		if errors.Is(err, errSwapped) {
+			_, _ = fmt.Fprintf(log, "  skipped %s (it changed meanwhile)\n", p)
+			return nil
+		}
 		if err != nil {
 			return err
 		}
 		defer func() { _ = in.Close() }()
-		out, err := root.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		out, err := ddir.OpenFile(dname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(out, in); err != nil {
+		if _, err := io.Copy(out, io.LimitReader(in, fi.Size())); err != nil {
 			_ = out.Close()
 			return err
 		}
@@ -151,7 +195,7 @@ func copyTree(ctx context.Context, root *os.Root, src, dst string, uid, gid int,
 		}
 		return out.Close()
 	}
-	_, _ = fmt.Fprintf(log, "  skipped %s (not a file, directory or link)\n", src)
+	_, _ = fmt.Fprintf(log, "  skipped %s (not a file, directory or link)\n", p)
 	return nil
 }
 
@@ -169,17 +213,30 @@ func (f *Files) transferChecks(req helperapi.FileTransferRequest, root *os.Root)
 	return nil
 }
 
-// makeRoom makes room at dst: it must not exist unless overwrite.
-func makeRoom(root *os.Root, dst string, overwrite bool) error {
+// makeRoom makes room at dst: it must not exist unless overwrite, and
+// then what is there is moved aside (not removed yet, so that a copy or
+// move that fails loses nothing). settle(true) removes it once the new
+// entry is at dst; settle(false) puts it back, dst being empty again.
+func makeRoom(root *os.Root, dst string, overwrite bool) (settle func(placed bool), err error) {
 	if _, err := root.Lstat(dst); errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return func(bool) {}, nil
 	} else if err != nil {
-		return err
+		return nil, err
 	}
 	if !overwrite {
-		return fileErr(helperapi.CodeFileExists, map[string]any{"path": dst})
+		return nil, fileErr(helperapi.CodeFileExists, map[string]any{"path": dst})
 	}
-	return root.RemoveAll(dst)
+	aside := join(parentOf(dst), randomName(".cairn-old-"))
+	if err := root.Rename(dst, aside); err != nil {
+		return nil, err
+	}
+	return func(placed bool) {
+		if placed {
+			_ = root.RemoveAll(aside)
+			return
+		}
+		_ = root.Rename(aside, dst)
+	}, nil
 }
 
 func (f *Files) copyOp(ctx context.Context, _ helperapi.Caller, req helperapi.FileTransferRequest, log io.Writer) (any, error) {
@@ -206,31 +263,54 @@ func (f *Files) copyOp(ctx context.Context, _ helperapi.Caller, req helperapi.Fi
 		case dst == p:
 			b.failed(p, fileErr(helperapi.CodeFileExists, map[string]any{"path": dst}))
 		default:
-			if err := makeRoom(root, dst, req.Overwrite); err != nil {
+			settle, err := makeRoom(root, dst, req.Overwrite)
+			if err != nil {
 				b.failed(p, err)
 				continue
 			}
 			if err := copyTree(ctx, root, p, dst, uid, gid, log); err != nil {
 				_ = root.RemoveAll(dst)
+				settle(false)
 				b.failed(p, err)
 				continue
 			}
+			settle(true)
 			b.done("copied %s to %s", p, dst)
 		}
 	}
 	return b.result()
 }
 
-// chownTree gives everything below p (links not followed) to uid:gid.
-func chownTree(ctx context.Context, root *os.Root, p string, uid, gid int) error {
-	return fs.WalkDir(root.FS(), rel(p), func(q string, _ fs.DirEntry, err error) error {
+// chownTree gives p and everything below it (links not followed, p
+// included) to uid:gid, one level at a time (see walkTree); files with
+// other names that belong to someone else are left alone.
+func chownTree(ctx context.Context, root *os.Root, p string, uid, gid int, log io.Writer) error {
+	owner := -1
+	return walkTree(ctx, root, p, func(e walkEntry) error {
+		if e.Rel == "" {
+			owner = uidOf(e.Info)
+		}
+		m := e.Info.Mode()
+		if m&fs.ModeSymlink != 0 {
+			// The link itself, by its one name: nothing to follow.
+			return e.Dir.Lchown(e.Name, uid, gid)
+		}
+		if !m.IsDir() && !m.IsRegular() {
+			return e.Dir.Lchown(e.Name, uid, gid)
+		}
+		f, fi, err := e.open()
+		if errors.Is(err, errSwapped) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
+		defer func() { _ = f.Close() }()
+		if e.Rel != "" && foreignLink(fi, owner) {
+			_, _ = fmt.Fprintf(log, "  skipped %s (a hard link to a file of another owner)\n", e.Path)
+			return nil
 		}
-		return root.Lchown(q, uid, gid)
+		return f.Chown(uid, gid)
 	})
 }
 
@@ -266,22 +346,29 @@ func (f *Files) moveOp(ctx context.Context, _ helperapi.Caller, req helperapi.Fi
 			b.failed(p, err)
 			continue
 		}
-		if err := makeRoom(root, dst, req.Overwrite); err != nil {
+		settle, err := makeRoom(root, dst, req.Overwrite)
+		if err != nil {
 			b.failed(p, err)
 			continue
 		}
+		placed := false
 		err = root.Rename(p, dst)
 		if errors.Is(err, syscall.EXDEV) {
 			// Another file system: copy, then remove.
 			if err = copyTree(ctx, root, p, dst, uid, gid, log); err == nil {
+				placed = true
 				err = root.RemoveAll(p)
 			} else {
 				_ = root.RemoveAll(dst)
 			}
-		} else if err == nil && (srcUID != uid || srcGID != gid) {
-			// Moved to another owner's directory: it becomes theirs.
-			err = chownTree(ctx, root, dst, uid, gid)
+		} else if err == nil {
+			placed = true
+			if srcUID != uid || srcGID != gid {
+				// Moved to another owner's directory: it becomes theirs.
+				err = chownTree(ctx, root, dst, uid, gid, log)
+			}
 		}
+		settle(placed)
 		if err != nil {
 			b.failed(p, notFound(err, p))
 			continue
@@ -292,6 +379,10 @@ func (f *Files) moveOp(ctx context.Context, _ helperapi.Caller, req helperapi.Fi
 }
 
 // Trash -------------------------------------------------------------------
+
+// trashMetaMax bounds a trash entry's description (a path and a few
+// fields).
+const trashMetaMax = 64 << 10
 
 type trashMeta struct {
 	Path      string `json:"path"`
@@ -342,7 +433,8 @@ func (f *Files) deleteOp(ctx context.Context, c helperapi.Caller, req helperapi.
 			b.failed(p, err)
 			continue
 		}
-		if err := root.Rename(p, box+"/"+path.Base(p)); err != nil {
+		inBox := box + "/" + path.Base(p)
+		if err := root.Rename(p, inBox); err != nil {
 			_ = root.Remove(box)
 			if errors.Is(err, syscall.EXDEV) {
 				err = fileErr(helperapi.CodeFileCrossDevice, map[string]any{"path": p})
@@ -352,6 +444,12 @@ func (f *Files) deleteOp(ctx context.Context, c helperapi.Caller, req helperapi.
 		}
 		meta, _ := json.Marshal(trashMeta{Path: p, Type: typeOf(fi.Mode()), Size: fi.Size(), DeletedAt: time.Now().Unix(), User: c.Username})
 		if err := root.WriteFile(box+".json", meta, 0o600); err != nil {
+			// Without its description the entry could never be listed,
+			// restored or purged: put it back.
+			_ = root.Remove(box + ".json")
+			if rerr := root.Rename(inBox, p); rerr == nil {
+				_ = root.Remove(box)
+			}
 			b.failed(p, err)
 			continue
 		}
@@ -379,7 +477,7 @@ func (f *Files) trashEntries(root *os.Root, trash string) ([]helperapi.TrashEntr
 		if !ok || len(id) != 16 {
 			continue
 		}
-		data, err := root.ReadFile(trash + "/" + n)
+		data, err := readRegular(root, trash+"/"+n, trashMetaMax)
 		var m trashMeta
 		if err != nil || json.Unmarshal(data, &m) != nil {
 			continue
@@ -409,32 +507,57 @@ func (f *Files) restoreOp(_ context.Context, _ helperapi.Caller, req helperapi.T
 	trash := trashOf(req.Root)
 	b := &batch{log: log}
 	for _, id := range req.IDs {
-		data, err := root.ReadFile(trash + "/" + id + ".json")
+		data, err := readRegular(root, trash+"/"+id+".json", trashMetaMax)
 		var m trashMeta
 		if err != nil || json.Unmarshal(data, &m) != nil || !helperapi.ValidFilePath(m.Path) || m.Path == "" {
 			b.failed(id, fileErr(helperapi.CodeFileNotFound, map[string]any{"id": id}))
 			continue
 		}
-		dir := parentOf(m.Path)
-		if dir != "" {
-			if err := root.MkdirAll(dir, defaultDirMod); err != nil {
-				b.failed(m.Path, err)
-				continue
-			}
+		if err := mkdirAdopted(root, parentOf(m.Path)); err != nil {
+			b.failed(m.Path, err)
+			continue
 		}
-		if err := makeRoom(root, m.Path, req.Overwrite); err != nil {
+		settle, err := makeRoom(root, m.Path, req.Overwrite)
+		if err != nil {
 			b.failed(m.Path, err)
 			continue
 		}
 		if err := root.Rename(trash+"/"+id+"/"+path.Base(m.Path), m.Path); err != nil {
+			settle(false)
 			b.failed(m.Path, notFound(err, m.Path))
 			continue
 		}
+		settle(true)
 		_ = root.Remove(trash + "/" + id)
 		_ = root.Remove(trash + "/" + id + ".json")
 		b.done("restored %s", m.Path)
 	}
 	return b.result()
+}
+
+// mkdirAdopted makes dir and its missing parents as file.mkdir would:
+// each new directory belongs to the owner of the one it is made in. A
+// link in the way is refused, never followed.
+func mkdirAdopted(root *os.Root, dir string) error {
+	if dir == "" {
+		return nil
+	}
+	if err := mkdirAdopted(root, parentOf(dir)); err != nil {
+		return err
+	}
+	fi, err := root.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if err := root.Mkdir(dir, defaultDirMod); err != nil {
+			return err
+		}
+		return adopt(root, dir)
+	case err != nil:
+		return notFound(err, dir)
+	case !fi.IsDir():
+		return fileErr(helperapi.CodeFileNotDir, map[string]any{"path": dir})
+	}
+	return nil
 }
 
 func (f *Files) purgeOp(ctx context.Context, _ helperapi.Caller, req helperapi.TrashPurgeRequest, log io.Writer) (any, error) {
@@ -461,50 +584,71 @@ func (f *Files) purgeOp(ctx context.Context, _ helperapi.Caller, req helperapi.T
 		if ctx.Err() != nil {
 			return b.res, ctx.Err()
 		}
+		_, derr := root.Lstat(trash + "/" + id)
+		_, merr := root.Lstat(trash + "/" + id + ".json")
+		if errors.Is(derr, fs.ErrNotExist) && errors.Is(merr, fs.ErrNotExist) {
+			b.failed(id, fileErr(helperapi.CodeFileNotFound, map[string]any{"id": id}))
+			continue
+		}
 		if err := root.RemoveAll(trash + "/" + id); err != nil {
 			b.failed(id, err)
 			continue
 		}
-		_ = root.Remove(trash + "/" + id + ".json")
+		if err := root.Remove(trash + "/" + id + ".json"); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			b.failed(id, err)
+			continue
+		}
 		b.done("purged %s", id)
 	}
-	return b.res, nil
+	return b.result()
 }
 
 // Permissions and owners ----------------------------------------------------
 
-// walkChange applies fn to p and, when recursive, to everything below it;
-// links are left alone.
-func walkChange(ctx context.Context, root *os.Root, p string, recursive bool, fn func(f *os.File, fi fs.FileInfo) error) error {
-	apply := func(q string) error {
-		file, fi, err := noFollow(root, q)
+// walkChange applies fn to p and, when recursive, to everything below it,
+// one level at a time (see walkTree): links are left alone (a link at p is
+// not walked either), a directory that changes meanwhile is not entered,
+// and files below p with other names that belong to someone else (hard
+// links planted in the tree) are skipped and logged.
+func walkChange(ctx context.Context, root *os.Root, p string, recursive bool, log io.Writer, fn func(f *os.File, fi fs.FileInfo) error) error {
+	owner := -1
+	apply := func(e walkEntry) error {
+		m := e.Info.Mode()
+		if m&fs.ModeSymlink != 0 || !m.IsDir() && !m.IsRegular() {
+			return nil
+		}
+		file, fi, err := e.open()
+		if errors.Is(err, errSwapped) {
+			return fs.SkipDir // whatever it is now is not walked
+		}
 		if err != nil {
-			if he, ok := helperapi.AsError(err); ok && he.Code == helperapi.CodeFileIsLink {
-				return nil
-			}
-			return err
+			return notFound(err, e.Path)
 		}
 		defer func() { _ = file.Close() }()
-		if !fi.IsDir() && !fi.Mode().IsRegular() {
+		if e.Rel == "" {
+			owner = uidOf(fi)
+		} else if foreignLink(fi, owner) {
+			_, _ = fmt.Fprintf(log, "  skipped %s (a hard link to a file of another owner)\n", e.Path)
 			return nil
 		}
 		return fn(file, fi)
 	}
 	if !recursive {
-		return apply(p)
-	}
-	return fs.WalkDir(root.FS(), rel(p), func(q string, d fs.DirEntry, err error) error {
+		dir, name, done, err := openParent(root, p)
 		if err != nil {
+			return notFound(err, p)
+		}
+		defer done()
+		info, err := dir.Lstat(name)
+		if err != nil {
+			return notFound(err, p)
+		}
+		if err := apply(walkEntry{Dir: dir, Name: name, Path: p, Info: info}); !errors.Is(err, fs.SkipDir) {
 			return err
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if d.Type()&fs.ModeSymlink != 0 {
-			return nil
-		}
-		return apply(q)
-	})
+		return nil
+	}
+	return walkTree(ctx, root, p, apply)
 }
 
 func (f *Files) chmodOp(ctx context.Context, _ helperapi.Caller, req helperapi.FileChmodRequest, log io.Writer) (any, error) {
@@ -523,7 +667,7 @@ func (f *Files) chmodOp(ctx context.Context, _ helperapi.Caller, req helperapi.F
 			b.failed(p, protectedErr(p))
 			continue
 		}
-		err := walkChange(ctx, root, p, req.Recursive, func(file *os.File, fi fs.FileInfo) error {
+		err := walkChange(ctx, root, p, req.Recursive, log, func(file *os.File, fi fs.FileInfo) error {
 			if fi.IsDir() {
 				return file.Chmod(goMode(dirMode & helperapi.DirModeMask))
 			}
@@ -565,7 +709,7 @@ func (f *Files) chownOp(ctx context.Context, _ helperapi.Caller, req helperapi.F
 			b.failed(p, protectedErr(p))
 			continue
 		}
-		err := walkChange(ctx, root, p, req.Recursive, func(file *os.File, _ fs.FileInfo) error {
+		err := walkChange(ctx, root, p, req.Recursive, log, func(file *os.File, _ fs.FileInfo) error {
 			return file.Chown(uid, gid)
 		})
 		if err != nil {

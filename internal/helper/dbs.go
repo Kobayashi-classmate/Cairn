@@ -34,6 +34,29 @@ import (
 // real client.
 var dbRun = func(ctx context.Context, c execx.Cmd) (execx.Result, error) { return execx.Run(ctx, c) }
 
+// dumpReader is the system account a PostgreSQL client runs as while it
+// reads a dump being restored on a system without systemd (containers);
+// with systemd it runs in a unit of its own with a user allocated for the
+// run (see pgRestore). A dump is untrusted input, and a client acts on
+// parts of it with its own rights (psql's \!, \o |command, \copy ... from
+// program, \o file): run as root, that would be root. The client logs in
+// over TCP with the database user's password, so it needs no account of
+// its own, and it reads the dump from standard input, opened by the
+// helper, so the account needs no access to the file either.
+const dumpReader = "nobody"
+
+// dumpReaderIdentity returns the identity of dumpReader.
+func dumpReaderIdentity() (*execx.RunAs, error) {
+	uid, gid, err := lookupUser(dumpReader)
+	if err != nil {
+		return nil, fmt.Errorf("the %s account: %w", dumpReader, err)
+	}
+	if uid <= 0 || gid <= 0 {
+		return nil, fmt.Errorf("the %s account is privileged (%d:%d)", dumpReader, uid, gid)
+	}
+	return &execx.RunAs{Uid: uint32(uid), Gid: uint32(gid)}, nil //nolint:gosec // G115: positive ids from the passwd database.
+}
+
 const (
 	dbTimeout     = 2 * time.Minute
 	dumpTimeout   = 6 * time.Hour
@@ -486,13 +509,15 @@ func (d *DBs) openDump(engine, name string) (io.ReadCloser, error) {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
+	// The directory belongs to the panel: never a link, a FIFO (opened
+	// without blocking) or a hard link to a file of someone else's.
 	p := path.Join(dbBackupsDir, engine, name)
-	fi, err := root.Lstat(p)
-	if err != nil || !fi.Mode().IsRegular() {
+	f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
 		return nil, dbErr(helperapi.CodeDBDumpNotFound, map[string]any{"file": name})
 	}
-	f, err := root.Open(p)
-	if err != nil {
+	if fi, err := f.Stat(); err != nil || !fi.Mode().IsRegular() || linkCount(fi) != 1 {
+		_ = f.Close()
 		return nil, dbErr(helperapi.CodeDBDumpNotFound, map[string]any{"file": name})
 	}
 	if !strings.HasSuffix(name, ".gz") {
@@ -504,6 +529,14 @@ func (d *DBs) openDump(engine, name string) (io.ReadCloser, error) {
 		return nil, dbErr(helperapi.CodeDBQuery, map[string]any{"detail": "not a gzip file"})
 	}
 	return &gzipFile{Reader: zr, f: f}, nil
+}
+
+// linkCount is a file's number of hard links (1 when unknown).
+func linkCount(fi fs.FileInfo) uint64 {
+	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
+		return uint64(st.Nlink) //nolint:unconvert // the field's type differs between architectures
+	}
+	return 1
 }
 
 type gzipFile struct {

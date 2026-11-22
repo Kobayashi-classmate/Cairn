@@ -16,6 +16,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -31,6 +32,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 )
 
@@ -58,6 +60,68 @@ type Module struct {
 	Log    *slog.Logger
 	// DataDir holds the local copies (backups/plans/<plan>/).
 	DataDir string
+	// Resolver looks up storage endpoints (nil: the system resolver).
+	Resolver netx.Resolver
+}
+
+// filesAdmin is the file manager's permission for every root but the
+// sites. A plan backing up such a root, or a restore into one, reads or
+// writes there as root (the system root is the whole disk), so it needs
+// that permission too, as in the file manager.
+const filesAdmin authz.Permission = "files.admin"
+
+// privileged reports whether a plan backs up a directory outside the sites
+// root.
+func privileged(spec helperapi.BackupPlan) bool {
+	for _, t := range spec.Targets {
+		if t.Kind == helperapi.BackupDirectory && t.Root != helperapi.RootSites {
+			return true
+		}
+	}
+	return false
+}
+
+// privilegedFile reports whether a backup file holds a directory outside
+// the sites root. It goes by the file's name (the target's key, see
+// helperapi.BackupTarget.Key), not by the plan as it is now: a plan can be
+// changed, and its older backups keep what they hold. Names that are not
+// a site, a database or a directory of the sites root count as privileged.
+func privilegedFile(name string) bool {
+	for _, prefix := range []string{"site-", "db-", "dir-sites-", "dir-sites_"} {
+		if strings.HasPrefix(name, prefix) {
+			return false
+		}
+	}
+	return true
+}
+
+// needFilesAdmin refuses callers without filesAdmin when cond holds.
+func needFilesAdmin(r *http.Request, cond bool) error {
+	if !cond {
+		return nil
+	}
+	if p, ok := api.PrincipalFrom(r.Context()); ok && p.Can(filesAdmin) {
+		return nil
+	}
+	return api.ErrForbidden
+}
+
+// codeEndpointNotAllowed refuses a storage endpoint on this host or at a
+// cloud metadata service; private networks (a MinIO on the LAN) are fine.
+const codeEndpointNotAllowed = "backup.endpoint_not_allowed"
+
+// checkEndpoint resolves a storage endpoint and refuses it when it is this
+// host (loopback) or link-local / a cloud metadata address: the helper
+// connects to it as root, with the bucket's credentials.
+func (m *Module) checkEndpoint(r *http.Request, s helperapi.S3Storage) error {
+	host, _, err := net.SplitHostPort(s.Endpoint)
+	if err != nil {
+		host = s.Endpoint
+	}
+	if ip, bad := netx.Check(r.Context(), m.Resolver, host, netx.LocalOrMetadata); bad {
+		return api.NewError(http.StatusBadRequest, codeEndpointNotAllowed, map[string]any{"endpoint": s.Endpoint, "address": ip.String()})
+	}
+	return nil
 }
 
 // ID implements module.Module.
@@ -93,14 +157,16 @@ func (m *Module) Routes(r *api.Router) {
 
 	r.Handle("GET /api/v1/backups/plans", m.plans, api.Require(Read), doc("Backup plans with their last run"), api.Returns(200, plansResponse{}))
 	r.Handle("POST /api/v1/backups/plans", m.createPlan, api.Require(Manage), api.Body(planRequest{}), doc("Create a backup plan"), api.Returns(201, planView{}))
-	r.Handle("PUT /api/v1/backups/plans/{id}", m.updatePlan, api.Require(Manage), api.Body(planRequest{}), doc("Change a backup plan"), api.Returns(200, planView{}))
+	r.Handle("PUT /api/v1/backups/plans/{id}", m.updatePlan, api.Require(Manage), api.StepUp(), api.Body(planRequest{}),
+		doc("Change a backup plan (where its backups go, what they hold)"), api.Returns(200, planView{}))
 	r.Handle("DELETE /api/v1/backups/plans/{id}", m.deletePlan, api.Require(Manage), api.StepUp(),
 		doc("Delete a plan no task runs; ?files=true deletes its backups too"), api.Returns(204, nil))
 	r.Handle("POST /api/v1/backups/plans/{id}/run", m.runPlan, api.Require(Manage), api.NoBody(), doc("Run a plan now (starts a job)"), job)
 	r.Handle("GET /api/v1/backups/plans/{id}/runs", m.runs, api.Require(Read), doc("A plan's runs, newest first"), api.Returns(200, helperapi.BackupRuns{}))
 	r.Handle("GET /api/v1/backups/plans/{id}/files", m.files, api.Require(Read), doc("A plan's backups, here and in the bucket"), api.Returns(200, helperapi.BackupList{}))
 	r.Handle("GET /api/v1/backups/plans/{id}/files/{name}", m.download, api.Require(Manage), api.StepUp(),
-		doc("Download a backup: the local copy, or a redirect to a short-lived link to the bucket's"), api.ReturnsFile(200, "application/octet-stream"))
+		doc("Download a backup: the local copy, or a redirect to a short-lived link to the bucket's; ?link=1 answers {url} with that address instead"),
+		api.ReturnsFile(200, "application/octet-stream"))
 	r.Handle("POST /api/v1/backups/plans/{id}/delete", m.deleteFiles, api.Require(Manage), api.StepUp(), api.Body(filesRequest{}),
 		doc("Delete backups, here and with remote=true in the bucket (starts a job)"), job)
 	r.Handle("POST /api/v1/backups/plans/{id}/restore", m.restore, api.Require(Manage), api.StepUp(), api.Body(restoreRequest{}),
@@ -296,6 +362,9 @@ func (m *Module) decodeStorage(r *http.Request) (string, helperapi.S3Storage, er
 	if err := s.Validate(); err != nil {
 		return "", s, badRequest(err)
 	}
+	if err := m.checkEndpoint(r, s); err != nil {
+		return "", s, err
+	}
 	return name, s, nil
 }
 
@@ -347,9 +416,6 @@ func (m *Module) updateStorage(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if err := m.saveStorage(r.Context(), id, name, s); err != nil {
-		return err
-	}
 	// The plans using it get the new settings.
 	rows, err := m.DB.QueryContext(r.Context(), `SELECT id FROM backup_plans WHERE storage_id = ?`, id)
 	if err != nil {
@@ -363,6 +429,20 @@ func (m *Module) updateStorage(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	_ = rows.Close()
+	// Moving the bucket of a plan that backs up beyond the sites sends those
+	// backups elsewhere: it takes the same permission as the plan.
+	for _, p := range plans {
+		row, err := m.planRow(r.Context(), p)
+		if err != nil {
+			return err
+		}
+		if err := needFilesAdmin(r, privileged(row.spec)); err != nil {
+			return err
+		}
+	}
+	if err := m.saveStorage(r.Context(), id, name, s); err != nil {
+		return err
+	}
 	for _, p := range plans {
 		if err := m.apply(r, p); err != nil {
 			return err
@@ -382,13 +462,21 @@ func (m *Module) deleteStorage(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	var n int
-	_ = m.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM backup_plans WHERE storage_id = ?`, id).Scan(&n)
-	if n > 0 {
-		return api.NewError(http.StatusConflict, codeStorageUsed, map[string]any{"plans": n})
-	}
-	if _, err := m.DB.ExecContext(r.Context(), `DELETE FROM backup_storages WHERE id = ?`, id); err != nil {
+	// The check and the delete are one statement, so a plan saved meanwhile
+	// cannot be left with no bucket (savePlan checks the other way round).
+	res, err := m.DB.ExecContext(r.Context(), `DELETE FROM backup_storages WHERE id = ?
+		AND NOT EXISTS (SELECT 1 FROM backup_plans WHERE storage_id = ?)`, id, id)
+	if err != nil {
 		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		var plans int
+		if err := m.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM backup_plans WHERE storage_id = ?`, id).Scan(&plans); err != nil {
+			return err
+		}
+		return api.NewError(http.StatusConflict, codeStorageUsed, map[string]any{"plans": plans})
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "backup.storage_delete", "ok", map[string]any{"id": id, "name": v.Name})
 	w.WriteHeader(http.StatusNoContent)
@@ -405,6 +493,11 @@ func (m *Module) testNew(w http.ResponseWriter, r *http.Request) error {
 	s := req.S3Storage
 	s.Endpoint, s.Prefix = strings.TrimSpace(s.Endpoint), strings.Trim(s.Prefix, "/")
 	if s.SecretKey == "" && req.ID != "" {
+		// The saved key goes to whatever endpoint the request names: as
+		// when saving that endpoint, a second verification is needed.
+		if p, ok := api.PrincipalFrom(r.Context()); !ok || p.ElevatedUntil <= time.Now().Unix() {
+			return api.ErrStepUpRequired
+		}
 		saved, err := m.storage(r.Context(), req.ID)
 		if err != nil {
 			return err
@@ -413,6 +506,9 @@ func (m *Module) testNew(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err := s.Validate(); err != nil {
 		return badRequest(err)
+	}
+	if err := m.checkEndpoint(r, s); err != nil {
+		return err
 	}
 	if err := m.call(r, helperapi.ActionBackupTest, helperapi.StorageTestRequest{Storage: s}, nil); err != nil {
 		return err
@@ -424,6 +520,10 @@ func (m *Module) testNew(w http.ResponseWriter, r *http.Request) error {
 func (m *Module) testStorage(w http.ResponseWriter, r *http.Request) error {
 	s, err := m.storage(r.Context(), r.PathValue("id"))
 	if err != nil {
+		return err
+	}
+	// Names can resolve elsewhere than when the bucket was saved.
+	if err := m.checkEndpoint(r, *s); err != nil {
 		return err
 	}
 	if err := m.call(r, helperapi.ActionBackupTest, helperapi.StorageTestRequest{Storage: *s}, nil); err != nil {
@@ -491,6 +591,9 @@ func (m *Module) decodePlan(r *http.Request, id string) (string, helperapi.Backu
 	if err := spec.Validate(); err != nil {
 		return "", spec, "", badRequest(err)
 	}
+	if err := needFilesAdmin(r, privileged(spec)); err != nil {
+		return "", spec, "", err
+	}
 	if req.StorageID != "" {
 		if _, _, err := m.storageRow(r.Context(), req.StorageID); err != nil {
 			return "", spec, "", api.NewError(http.StatusBadRequest, "backup.storage_not_found", map[string]any{"id": req.StorageID})
@@ -499,13 +602,24 @@ func (m *Module) decodePlan(r *http.Request, id string) (string, helperapi.Backu
 	return name, spec, req.StorageID, nil
 }
 
+// savePlan stores a plan, only while its bucket exists: checked in the
+// same statement, so a bucket deleted meanwhile cannot be left referenced.
 func (m *Module) savePlan(ctx context.Context, name string, spec helperapi.BackupPlan, storageID string) error {
 	data, _ := json.Marshal(spec)
 	now := time.Now().Unix()
-	_, err := m.DB.ExecContext(ctx, `INSERT INTO backup_plans (id, name, spec, storage_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+	res, err := m.DB.ExecContext(ctx, `INSERT INTO backup_plans (id, name, spec, storage_id, created_at, updated_at)
+		SELECT ?, ?, ?, ?, ?, ? WHERE ? = '' OR EXISTS (SELECT 1 FROM backup_storages WHERE id = ?)
 		ON CONFLICT (id) DO UPDATE SET name = excluded.name, spec = excluded.spec, storage_id = excluded.storage_id, updated_at = excluded.updated_at`,
-		spec.ID, name, string(data), storageID, now, now)
-	return err
+		spec.ID, name, string(data), storageID, now, now, storageID, storageID)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return api.NewError(http.StatusBadRequest, "backup.storage_not_found", map[string]any{"id": storageID})
+	}
+	return nil
 }
 
 func (m *Module) createPlan(w http.ResponseWriter, r *http.Request) error {
@@ -530,6 +644,12 @@ func (m *Module) updatePlan(w http.ResponseWriter, r *http.Request) error {
 	id := r.PathValue("id")
 	old, err := m.planRow(r.Context(), id)
 	if err != nil {
+		return err
+	}
+	// A plan that backs up beyond the sites stays the permission's, before
+	// and after the change: otherwise it could be redirected to another
+	// bucket, or emptied of what it backs up and its runs taken over.
+	if err := needFilesAdmin(r, privileged(old.spec)); err != nil {
 		return err
 	}
 	name, spec, storageID, err := m.decodePlan(r, id)
@@ -622,8 +742,23 @@ func (m *Module) deletePlan(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if tasks := m.tasksOf(r.Context(), id); len(tasks) > 0 {
-		return api.NewError(http.StatusConflict, codePlanUsed, map[string]any{"tasks": len(tasks)})
+	// A plan that backs up more than sites is an administrator's: deleting
+	// it (and maybe its backups of system directories) is theirs too.
+	if err := needFilesAdmin(r, privileged(p.spec)); err != nil {
+		return err
+	}
+	// The row goes first, in one statement with the check that no task
+	// runs the plan; a task saved meanwhile checks that its plan exists the
+	// same way (cron module), so one of the two fails.
+	res, err := m.DB.ExecContext(r.Context(), `DELETE FROM backup_plans WHERE id = ? AND NOT EXISTS (SELECT 1 FROM cron_tasks
+		WHERE json_extract(spec, '$.type') = 'backup' AND json_extract(spec, '$.plan') = ?)`, id, id)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return api.NewError(http.StatusConflict, codePlanUsed, map[string]any{"tasks": len(m.tasksOf(r.Context(), id))})
 	}
 	files := r.URL.Query().Get("files") == "true"
 	err = m.call(r, helperapi.ActionBackupPlanRemove, helperapi.PlanRemoveRequest{Plan: id, Files: files}, nil)
@@ -633,9 +768,12 @@ func (m *Module) deletePlan(w http.ResponseWriter, r *http.Request) error {
 		err = nil
 	}
 	if err != nil {
-		return err
-	}
-	if _, err := m.DB.ExecContext(r.Context(), `DELETE FROM backup_plans WHERE id = ?`, id); err != nil {
+		// The helper still has it: so does the panel again.
+		data, _ := json.Marshal(p.spec)
+		if _, dbErr := m.DB.ExecContext(context.WithoutCancel(r.Context()), `INSERT INTO backup_plans (id, name, spec, storage_id, notified_run, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, id, p.name, string(data), p.storageID, p.notified, p.created, p.updated); dbErr != nil {
+			m.Log.Error("putting back a backup plan failed", "plan", id, "err", dbErr)
+		}
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "backup.plan_delete", "ok", map[string]any{"plan": id, "name": p.name, "files": files})
@@ -710,8 +848,15 @@ func (m *Module) files(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusOK, resp)
 }
 
+// linkView is where a backup downloads from.
+type linkView struct {
+	URL string `json:"url"`
+}
+
 // download serves the local copy, which belongs to the panel, or sends the
-// browser to a short-lived link to the bucket's copy.
+// browser to a short-lived link to the bucket's copy. With ?link=1 it
+// answers with that address (JSON) instead, so a page can report errors
+// before the browser leaves it.
 func (m *Module) download(w http.ResponseWriter, r *http.Request) error {
 	id, name := r.PathValue("id"), r.PathValue("name")
 	p, err := m.planRow(r.Context(), id)
@@ -721,11 +866,21 @@ func (m *Module) download(w http.ResponseWriter, r *http.Request) error {
 	if !helperapi.ValidBackupName(name) {
 		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "name", "rule": "backup_name"})
 	}
+	// A backup of a directory beyond the sites is as sensitive as what it
+	// read.
+	if err := needFilesAdmin(r, privilegedFile(name)); err != nil {
+		return err
+	}
 	who := modutil.ActorOf(r)
+	link := r.URL.Query().Get("link") == "1"
 	if root, err := os.OpenRoot(m.DataDir); err == nil {
 		defer func() { _ = root.Close() }()
 		rel := path.Join("backups/plans", id, name)
 		if fi, err := root.Lstat(rel); err == nil && fi.Mode().IsRegular() {
+			if link {
+				// This address without the query; the download audits.
+				return api.WriteJSON(w, http.StatusOK, linkView{URL: r.URL.EscapedPath()})
+			}
 			f, err := root.Open(rel)
 			if err != nil {
 				return err
@@ -743,12 +898,15 @@ func (m *Module) download(w http.ResponseWriter, r *http.Request) error {
 	if p.storageID == "" {
 		return api.NewError(http.StatusNotFound, codeNotFound, map[string]any{"name": name})
 	}
-	var link helperapi.PresignResponse
-	if err := m.call(r, helperapi.ActionBackupPresign, helperapi.BackupFilesRequest{Plan: id, Names: []string{name}}, &link); err != nil {
+	var signed helperapi.PresignResponse
+	if err := m.call(r, helperapi.ActionBackupPresign, helperapi.BackupFilesRequest{Plan: id, Names: []string{name}}, &signed); err != nil {
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, who, "backup.download", "ok", map[string]any{"plan": id, "name": p.name, "file": name, "remote": true})
-	http.Redirect(w, r, link.URL, http.StatusFound)
+	if link {
+		return api.WriteJSON(w, http.StatusOK, linkView{URL: signed.URL})
+	}
+	http.Redirect(w, r, signed.URL, http.StatusFound)
 	return nil
 }
 
@@ -765,6 +923,13 @@ func (m *Module) deleteFiles(w http.ResponseWriter, r *http.Request) error {
 	q := helperapi.BackupFilesRequest{Plan: id, Names: req.Names, Remote: req.Remote}
 	if err := q.Validate(); err != nil {
 		return badRequest(err)
+	}
+	// Like downloading and restoring them: backups of a directory beyond
+	// the sites are for those who manage every file.
+	for _, name := range req.Names {
+		if err := needFilesAdmin(r, privilegedFile(name)); err != nil {
+			return err
+		}
 	}
 	job, err := m.start(r, "backup.delete", map[string]any{"plan": id, "name": p.name, "count": len(req.Names), "remote": req.Remote},
 		func(_ context.Context, j *jobs.Job) error { return j.RunOp(helperapi.ActionBackupDelete, q, nil) })
@@ -787,6 +952,12 @@ func (m *Module) restore(w http.ResponseWriter, r *http.Request) error {
 	q := helperapi.BackupRestoreRequest{Plan: id, Name: req.Name, Identity: strings.TrimSpace(req.Identity), Dest: req.Dest, Overwrite: req.Overwrite}
 	if err := q.Validate(); err != nil {
 		return badRequest(err)
+	}
+	_, _, isDatabase := helperapi.DatabaseOfBackup(req.Name)
+	// Restoring into a root but the sites writes there as root; restoring a
+	// backup of such a root puts its files where the caller can read them.
+	if err := needFilesAdmin(r, privilegedFile(req.Name) || !isDatabase && req.Dest.Root != helperapi.RootSites); err != nil {
+		return err
 	}
 	// The private key goes to the helper for this job only: it is in no
 	// parameter, log or audit entry.

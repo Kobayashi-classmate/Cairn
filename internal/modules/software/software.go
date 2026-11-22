@@ -33,6 +33,11 @@ import (
 const (
 	Read   authz.Permission = "software.read"
 	Manage authz.Permission = "software.manage"
+	// Config reads and writes the configuration files of installed lines
+	// (nginx, PHP, databases). Writing them is as good as root (nginx loads
+	// modules and writes logs wherever it is told), so it is for
+	// administrators only.
+	Config authz.Permission = "software.config"
 )
 
 // Module implements module.Module.
@@ -58,6 +63,7 @@ func (m *Module) Info() module.Info {
 		Permissions: []module.Permission{
 			{Name: Read, Roles: []authz.Role{authz.Operator, authz.Auditor}},
 			{Name: Manage, Roles: []authz.Role{authz.Operator}},
+			{Name: Config},
 		},
 		Nav: []module.NavItem{
 			{Key: "software", LabelKey: "common.nav.software", Icon: "apps", Route: "software", Permission: Read, Group: module.GroupApps, Order: 30},
@@ -366,7 +372,7 @@ func (m *Module) probe(w http.ResponseWriter, r *http.Request) error {
 	defer cancel()
 	resp := probeResponse{Policy: policy}
 	if err := m.Helper.Call(ctx, helperapi.ActionPkgProbe, callerOf(r), hreq, &resp.ProbeResult); err != nil {
-		return err
+		return helperError(err)
 	}
 	return api.WriteJSON(w, http.StatusOK, resp)
 }

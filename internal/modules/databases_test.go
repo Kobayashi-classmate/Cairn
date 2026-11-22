@@ -106,6 +106,38 @@ func TestDatabasesUsersAndPasswords(t *testing.T) {
 		t.Fatalf("update: %+v", u)
 	}
 	admin.expect(admin.do("PUT", "/api/v1/databases/mysql/users/shop", map[string]any{"hosts": []string{"example.com"}, "grants": []any{}}), 400, "validation.invalid")
+	// Without hosts and grants they stay: the helper is told to leave them,
+	// the record keeps them.
+	admin.runJob(admin.expect(admin.do("PUT", "/api/v1/databases/mysql/users/shop", map[string]any{"password": "An0ther-pass"}), 202, ""))
+	if u := sentAs[helperapi.DBUserRequest](t, e, helperapi.ActionDBUserSet); u.Password != "An0ther-pass" || u.Hosts != nil || u.Grants != nil {
+		t.Fatalf("password change: %+v", u)
+	}
+	var hosts string
+	_ = e.db.QueryRow(`SELECT hosts, grants FROM db_users WHERE engine = 'mysql' AND name = 'shop'`).Scan(&hosts, &grants)
+	if hosts != `["localhost","10.0.0.0/8"]` || grants != `[{"database":"shop","level":"all"}]` {
+		t.Fatalf("after a password change: %s %s", hosts, grants)
+	}
+	user.Password = "An0ther-pass"
+	// Hosts alone: the privileges the panel knows go along, so new host
+	// entries are not left without them.
+	admin.runJob(admin.expect(admin.do("PUT", "/api/v1/databases/mysql/users/shop", map[string]any{"hosts": []string{"localhost", "10.1.0.0/16"}}), 202, ""))
+	if u := sentAs[helperapi.DBUserRequest](t, e, helperapi.ActionDBUserSet); len(u.Grants) != 1 || u.Grants[0].Database != "shop" || u.Hosts[1] != "10.1.0.0/16" {
+		t.Fatalf("hosts change: %+v", u)
+	}
+	_ = e.db.QueryRow(`SELECT hosts, grants FROM db_users WHERE engine = 'mysql' AND name = 'shop'`).Scan(&hosts, &grants)
+	if hosts != `["localhost","10.1.0.0/16"]` || grants != `[{"database":"shop","level":"all"}]` {
+		t.Fatalf("after a hosts change: %s %s", hosts, grants)
+	}
+	// A user the panel did not create: a new password never revokes its
+	// privileges, and the panel still does not manage it.
+	admin.runJob(admin.expect(admin.do("PUT", "/api/v1/databases/mysql/users/old", map[string]any{"password": "S3t-by-panel"}), 202, ""))
+	if u := sentAs[helperapi.DBUserRequest](t, e, helperapi.ActionDBUserSet); u.Name != "old" || u.Password != "S3t-by-panel" || u.Hosts != nil || u.Grants != nil {
+		t.Fatalf("unmanaged password change: %+v", u)
+	}
+	_ = e.db.QueryRow(`SELECT count(*) FROM db_users WHERE engine = 'mysql' AND name = 'old'`).Scan(&n)
+	if n != 0 {
+		t.Fatal("an unmanaged user became managed")
+	}
 
 	// A read-only user cannot restore; the owner can, with its password.
 	admin.runJob(admin.expect(admin.do("POST", "/api/v1/databases/mysql/users", map[string]any{"name": "report",
@@ -190,6 +222,10 @@ func TestDatabaseDumpsAndRedis(t *testing.T) {
 	if res.StatusCode != 200 || string(body) != "CREATE TABLE t (id int);" || res.Header.Get("Content-Disposition") != `attachment; filename="shop_up.sql"` {
 		t.Fatalf("download: %d %q %v", res.StatusCode, body, res.Header)
 	}
+	if got := admin.expect(admin.do("GET", "/api/v1/databases/mysql/dumps/shop_up.sql?link=1", nil), 200, "").body["url"]; got != "/api/v1/databases/mysql/dumps/shop_up.sql" {
+		t.Fatalf("dump link %v", got)
+	}
+	admin.expect(admin.do("GET", "/api/v1/databases/mysql/dumps/gone.sql?link=1", nil), 404, helperapi.CodeDBDumpNotFound)
 	// A link in the dump directory is not followed out of it.
 	if err := os.Symlink("/etc/passwd", filepath.Join(e.dataDir, "backups/db/mysql/link.sql")); err != nil {
 		t.Fatal(err)
@@ -226,6 +262,12 @@ func TestDatabaseDumpsAndRedis(t *testing.T) {
 		t.Fatalf("scan %+v %v", s, keys.body)
 	}
 	admin.expect(admin.do("GET", "/api/v1/databases/redis/keys?db=99", nil), 400, "validation.invalid")
+	// Auditors see key names, never values.
+	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "aud", "password": pw, "role": "auditor"}), 201, "")
+	aud := e.client()
+	aud.expect(aud.login("aud", pw), 200, "")
+	aud.expect(aud.do("GET", "/api/v1/databases/redis/keys?db=2", nil), 200, "")
+	aud.expect(aud.do("GET", "/api/v1/databases/redis/value?db=2&key=user:1", nil), 403, "auth.forbidden")
 	e.helper.mu.Lock()
 	e.helper.errs = map[string]error{helperapi.ActionRedisGet: &helperapi.Error{Code: helperapi.CodeRedisNoKey}}
 	e.helper.mu.Unlock()

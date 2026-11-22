@@ -90,7 +90,16 @@ func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 	}
 	RegisterOp(r, o, helperapi.ActionPkgInstall, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.install})
 	RegisterOp(r, o, helperapi.ActionPkgInstallSet, OpSpec[helperapi.InstallSetRequest]{Locks: s.setLocks, Run: s.installSet})
-	RegisterOp(r, o, helperapi.ActionPkgRemove, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.remove})
+	// Removing nginx or a PHP line changes what sites run on: no site
+	// change may run meanwhile (and see a line that is going away).
+	removeLocks := func(req helperapi.SoftwareRequest) []string {
+		l := locks(req)
+		if req.Software == "nginx" || req.Software == "php" {
+			l = append(l, LockWeb)
+		}
+		return l
+	}
+	RegisterOp(r, o, helperapi.ActionPkgRemove, OpSpec[helperapi.SoftwareRequest]{Locks: removeLocks, Run: s.remove})
 	registerLineActions(r, o, s)
 }
 
@@ -453,6 +462,40 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 	}
 	if len(present) == 0 || !lineMatches(installed[o.Packages[0]], o.Line) {
 		return nil, pkgErr(helperapi.CodePkgNotInstalled, map[string]any{"software": req.Software, "line": req.Line})
+	}
+	if sw.ID == "php" {
+		states, err := siteStatesAt(s.Root)
+		if err != nil {
+			return nil, err
+		}
+		var sites []string
+		for code, st := range states {
+			if st.Spec.Type == helperapi.SitePHP && st.Spec.PHP == o.Line {
+				sites = append(sites, code)
+			}
+		}
+		if len(sites) > 0 {
+			slices.Sort(sites)
+			return nil, pkgErr(helperapi.CodePkgInUse, map[string]any{"software": sw.ID, "line": o.Line, "sites": strings.Join(sites, " ")})
+		}
+	}
+	// The package manager also removes what depends on the packages: only
+	// the line's own extensions may go with it.
+	if by := s.removalTakes(ctx, present); len(by) > 0 {
+		own := map[string]bool{}
+		for _, p := range extPackages(sw, o) {
+			own[p] = p != ""
+		}
+		var others []string
+		for _, p := range by {
+			// rpm names what needs them with version and architecture.
+			if !own[p] && (s.Manager == "apt" || !own[nevraName(p)]) {
+				others = append(others, p)
+			}
+		}
+		if len(others) > 0 {
+			return nil, pkgErr(helperapi.CodePkgRemoveTakes, map[string]any{"packages": strings.Join(present, ", "), "by": strings.Join(others, ", ")})
+		}
 	}
 	_, _ = fmt.Fprintf(log, "Removing %s %s; configuration and data are kept.\n", sw.Name, o.Line)
 	if s.Manager == "apt" {
@@ -855,22 +898,31 @@ func writeIfChanged(log io.Writer, path, content string) error {
 
 // writeFile writes a world-readable system file atomically.
 func writeFile(path string, data []byte) error {
+	return writeFileAs(path, data, 0o644) // apt and dnf read these as any user
+}
+
+// writeFileAs writes a file atomically with its final mode. The temporary
+// file gets that mode through its descriptor before any content is in it,
+// so a private file (a key) is never readable by others, not even between
+// the write and the rename.
+func writeFileAs(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // G301: system configuration directories.
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".cairn-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".cairn-*") // created 0600
 	if err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(tmp.Name()) }() // no-op after the rename
+	if err := tmp.Chmod(mode); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil { //nolint:gosec // G302: apt and dnf read these as any user.
 		return err
 	}
 	return os.Rename(tmp.Name(), path)

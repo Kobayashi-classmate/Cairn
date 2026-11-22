@@ -33,7 +33,9 @@ func (m *Module) redisRoutes(r *api.Router, doc func(string) api.RouteOption) {
 		doc("Show the Redis password, if the panel set it"), api.Returns(200, passwordView{}))
 	r.Handle("GET /api/v1/databases/redis/keys", m.redisScan, api.Require(Read),
 		doc("Keys matching ?pattern= in ?db=, from ?cursor= (at most ?count=)"), api.Returns(200, helperapi.RedisScanResponse{}))
-	r.Handle("GET /api/v1/databases/redis/value", m.redisGet, api.Require(Read),
+	// Values hold sessions and tokens: reading them is for those who may
+	// change them; listing key names is not.
+	r.Handle("GET /api/v1/databases/redis/value", m.redisGet, api.Require(Manage),
 		doc("A preview of ?key= in ?db="), api.Returns(200, helperapi.RedisValue{}))
 	r.Handle("POST /api/v1/databases/redis/delete", m.redisDelete, api.Require(Manage), api.StepUp(), api.Body(helperapi.RedisDeleteRequest{}),
 		doc("Delete keys"), api.Returns(200, helperapi.RedisDeleteResponse{}))

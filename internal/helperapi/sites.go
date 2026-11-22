@@ -42,6 +42,9 @@ const (
 	CodeSiteRewrite       = "site.rewrite_unknown"
 	CodeSiteCertMissing   = "site.cert_missing"  // the site's certificate is not stored
 	CodeSiteCertCoverage  = "site.cert_coverage" // the certificate does not cover a domain of the site
+	// CodeSiteUserConflict: a user of the site's names exists but does not
+	// belong to the site's group (made for something else).
+	CodeSiteUserConflict = "site.user_conflict"
 )
 
 // MaxSiteDomains caps the domains of one site.
@@ -54,7 +57,11 @@ var (
 	// Relative paths inside a site: plain names separated by slashes.
 	relPathPart = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 	indexName   = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
-	proxyPath   = regexp.MustCompile(`^/[A-Za-z0-9._~/%-]{0,255}$`)
+	proxyPath   = regexp.MustCompile(`^/[A-Za-z0-9._~/%+,=@!*()-]{0,255}$`)
+	// An upstream URL as nginx gets it: already escaped, with nothing
+	// nginx's configuration syntax gives a meaning to (spaces, quotes,
+	// braces, semicolons, backslashes, $ variables, ? and #).
+	proxyURLChars = regexp.MustCompile(`^[A-Za-z0-9._~/%:\[\]+,=@!*()-]+$`)
 )
 
 // ProxySpec is the upstream of a reverse proxy site.
@@ -91,6 +98,13 @@ type SiteSpec struct {
 	App *AppSpec `json:"app,omitempty"`
 	// TLS serves the site over HTTPS with a stored certificate.
 	TLS *SiteTLS `json:"tls,omitempty"`
+	// AllowSymlinks lets the site's links point at files of other owners
+	// (static and PHP sites). By default nginx serves a link only when the
+	// link and the file it points at have the same owner, so that one
+	// site's code cannot link another site's files into its web root; a
+	// project whose links cross owners (Laravel's public/storage made by
+	// root or pointing into directories the runner created) needs this.
+	AllowSymlinks bool `json:"allowSymlinks,omitempty"`
 	// Enabled false keeps the site configured but answers 503.
 	Enabled bool `json:"enabled"`
 }
@@ -204,10 +218,23 @@ func invalid(field, rule string) error {
 	return &Error{Code: "validation.invalid", Params: map[string]any{"field": field, "rule": rule}}
 }
 
-// ValidSiteCode reports whether s can name a site.
+// ValidSiteCode reports whether s can name a site (or a stream).
 func ValidSiteCode(s string) bool {
 	return siteCodePattern.MatchString(s) && !strings.Contains(s, "--")
 }
+
+// ValidNewSiteCode reports whether a new site may take code s. A site's
+// users are cw-<code> and cw-<code>-run, so a new code ending in -run is
+// refused: site "x-run" would get the user of site "x"'s runner. Sites
+// that already have such a code keep working (the helper refuses to take
+// over a user of another site's group anyway).
+func ValidNewSiteCode(s string) bool {
+	return ValidSiteCode(s) && !strings.HasSuffix(s, "-run")
+}
+
+// ErrNewSiteCode is the validation error of a new site's code ending in
+// -run.
+func ErrNewSiteCode() error { return invalid("code", "site_code_new") }
 
 // ValidHost reports whether s is a host name a site may serve: lower-case
 // ASCII (punycode for international names), optionally starting with "*."
@@ -253,6 +280,10 @@ func ValidRelPath(p string) bool {
 
 // ValidProxyURL reports whether u is an upstream a proxy site may use.
 func ValidProxyURL(u string) bool {
+	// The URL goes into nginx's configuration as it is written.
+	if !proxyURLChars.MatchString(u) {
+		return false
+	}
 	p, err := url.Parse(u)
 	if err != nil || (p.Scheme != "http" && p.Scheme != "https") || p.User != nil || p.RawQuery != "" || p.Fragment != "" || p.Opaque != "" {
 		return false
@@ -319,6 +350,9 @@ func (s SiteSpec) Validate() error {
 	}
 	if s.Type != SiteApp && s.App != nil {
 		return invalid("app", "unexpected")
+	}
+	if s.AllowSymlinks && s.Type != SiteStatic && s.Type != SitePHP {
+		return invalid("allowSymlinks", "file_sites")
 	}
 	switch s.Type {
 	case SiteApp:

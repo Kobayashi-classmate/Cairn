@@ -131,6 +131,12 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 	if spec.Port == st.PanelPort {
 		return nil, siteErr(helperapi.CodeStreamPortTaken, map[string]any{"port": spec.Port, "panel": true})
 	}
+	prev, hadPrev := streams[spec.Code]
+	if spec.Enabled {
+		if err := st.checkStreamPort(spec, prev, hadPrev); err != nil {
+			return nil, err
+		}
+	}
 	changes := []fileChange{{path: st.streamTopFile(), data: []byte(streamTop)}}
 	if spec.Enabled {
 		var b bytes.Buffer
@@ -156,6 +162,14 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 		return nil, err
 	}
 	if _, err := st.transact(ctx, log, changes, []configCheck{st.nginxCheck()}, []reloader{st.nginxReload()}); err != nil {
+		// The labels follow the configuration back.
+		var prevPorts []sePort
+		if hadPrev && prev.Enabled {
+			prevPorts = streamPorts(prev)
+		}
+		if serr := st.seSetPorts(ctx, io.Discard, "stream:"+spec.Code, prevPorts); serr != nil {
+			_, _ = fmt.Fprintf(log, "Warning: the SELinux port labels could not be put back: %v\n", serr)
+		}
 		return nil, err
 	}
 	data, _ := json.Marshal(spec)
@@ -168,6 +182,32 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 	}
 	st.streamFirewall(ctx, log, spec.Code, spec.Protocol, ports)
 	return spec, nil
+}
+
+// checkStreamPort refuses a port something else listens on: nginx would
+// fail to bind it on reload and keep its old configuration from then on
+// (sshd, a database, an app, nginx's own sites). The stream's own port
+// while it is applied is nginx's, and fine.
+func (st *Sites) checkStreamPort(spec, prev helperapi.StreamSpec, hadPrev bool) error {
+	udp := spec.Protocol == helperapi.StreamUDP
+	if !udp {
+		states, err := st.states()
+		if err != nil {
+			return err
+		}
+		for code, s := range states {
+			if s.Spec.App != nil && s.Spec.App.Port == spec.Port {
+				return siteErr(helperapi.CodeStreamPortTaken, map[string]any{"port": spec.Port, "site": code})
+			}
+		}
+	}
+	if hadPrev && prev.Enabled && prev.Port == spec.Port && prev.Protocol == spec.Protocol {
+		return nil
+	}
+	if procPorts(st.Root, udp)[spec.Port] {
+		return siteErr(helperapi.CodeStreamPortTaken, map[string]any{"port": spec.Port, "listening": true})
+	}
+	return nil
 }
 
 // streamFirewall opens (or with nil ports closes) a stream's port.

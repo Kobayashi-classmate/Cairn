@@ -133,7 +133,7 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	}
 	helper.RegisterSoftware(reg, ops, e.software)
 	helper.RegisterSites(reg, ops, e.sites)
-	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: e.sites, PanelUser: "cairn", Resolvers: cfg.ACME.Resolvers})
+	helper.RegisterCerts(reg, ops, &helper.Certs{Sites: e.sites, PanelUser: "cairn", DataDir: cfg.Paths.DataDir, Resolvers: cfg.ACME.Resolvers})
 	helper.RegisterDBs(reg, ops, e.dbs)
 	helper.RegisterFiles(reg, ops, e.files)
 	helper.RegisterBackups(reg, ops, e.backups)

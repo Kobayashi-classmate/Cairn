@@ -145,12 +145,18 @@ func run(cfgPath string, log *slog.Logger) error {
 	termMod := &terminal.Module{Helper: helper, DB: db, Log: log}
 	go termMod.Run(ctx)
 	cronMod := &cron.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
+	if err := cronMod.Recover(ctx); err != nil {
+		log.Warn("recovering interrupted task changes failed", "err", err)
+	}
 	go cronMod.Run(ctx)
 	backupsMod := &backups.Module{Jobs: jobManager, Helper: helper, DB: db, Box: box, Events: bus, Log: log, DataDir: cfg.Paths.DataDir}
 	go backupsMod.Run(ctx)
 	registry := module.NewRegistry(db)
 	sitesMod := &sitesmod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log, PanelPort: panelPort(cfg.Server.Listen),
 		Certs: certsMod, Backups: backupsMod, Modules: registry}
+	if err := sitesMod.Recover(ctx); err != nil {
+		log.Warn("recovering interrupted site changes failed", "err", err)
+	}
 	go sitesMod.Run(ctx)
 	firewallMod := &firewall.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
 	go firewallMod.Run(ctx)
@@ -175,7 +181,7 @@ func run(cfgPath string, log *slog.Logger) error {
 		sshMod,
 		&host.Module{Jobs: jobManager, Helper: helper, DB: db, Log: log},
 		&jobcenter.Module{Jobs: jobManager, DB: db, Log: log},
-		&users.Module{DB: db, Events: bus, Log: log},
+		&users.Module{DB: db, Events: bus, Log: log, Revokers: []users.Revoker{termMod}},
 		&auditlog.Module{DB: db},
 		&notifications.Module{DB: db, Store: notifyStore, Notifier: notifier, Log: log},
 		cloudMod,

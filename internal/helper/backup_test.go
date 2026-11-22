@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +20,7 @@ import (
 	"filippo.io/age"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // memStore is a bucket in memory.
@@ -265,5 +268,28 @@ func TestStorageEndpoints(t *testing.T) {
 		if err := s.Validate(); (err == nil) != ok {
 			t.Errorf("%s: %v", ep, err)
 		}
+	}
+}
+
+func TestStorageRefusesLocalAddresses(t *testing.T) {
+	// The endpoint's name may resolve to this host when the helper
+	// connects, whatever it did when the panel checked it.
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+	st, err := newMinioStore(helperapi.S3Storage{Endpoint: strings.TrimPrefix(srv.URL, "http://"), Insecure: true, PathStyle: true,
+		Bucket: "backups", AccessKey: "a", SecretKey: "b", Region: "us-east-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = st.stat(ctx, "x")
+	var denied *netx.DeniedError
+	if !errors.As(err, &denied) || hits != 0 {
+		t.Fatalf("loopback storage reached: %v (%d requests)", err, hits)
 	}
 }

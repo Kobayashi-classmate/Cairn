@@ -95,7 +95,7 @@ func CreateUser(ctx context.Context, q queryer, username, password, locale, role
 	if exists > 0 {
 		return nil, ErrUsernameTaken
 	}
-	hash, err := HashPassword(password)
+	hash, err := HashPassword(ctx, password)
 	if err != nil {
 		return nil, err
 	}
@@ -175,11 +175,23 @@ func SetDisabled(ctx context.Context, q queryer, userID int64, disabled bool) er
 	return nil
 }
 
-// DeleteUser removes an account; sessions, recovery codes and pending
-// challenges go with it (ON DELETE CASCADE).
+// DeleteUser removes an account; sessions, tokens, recovery codes and
+// pending challenges go with it (ON DELETE CASCADE). The file manager's
+// uploads and favourites have no foreign key, and SQLite gives the highest
+// free ID to the next account: they are deleted here, or that account
+// would inherit them. (The upload files left behind go with the file
+// manager's cleanup of uploads nothing refers to.)
 func DeleteUser(ctx context.Context, q queryer, userID int64) error {
-	_, err := q.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
-	return err
+	for _, stmt := range []string{
+		`DELETE FROM file_uploads WHERE user_id = ?`,
+		`DELETE FROM file_favorites WHERE user_id = ?`,
+		`DELETE FROM users WHERE id = ?`,
+	} {
+		if _, err := q.ExecContext(ctx, stmt, userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetLocale stores a user's preferred language ("" resets to the default).
@@ -204,7 +216,7 @@ func SetPassword(ctx context.Context, q queryer, userID int64, password string) 
 	if err := ValidatePassword(password); err != nil {
 		return err
 	}
-	hash, err := HashPassword(password)
+	hash, err := HashPassword(ctx, password)
 	if err != nil {
 		return err
 	}
@@ -218,7 +230,7 @@ func CheckPassword(ctx context.Context, q queryer, userID int64, password string
 	if err != nil {
 		return err
 	}
-	ok, err := VerifyPassword(password, u.passwordHash)
+	ok, err := VerifyPassword(ctx, password, u.passwordHash)
 	if err != nil {
 		return err
 	}
@@ -240,13 +252,15 @@ func TouchLogin(ctx context.Context, q queryer, userID int64) error {
 func Authenticate(ctx context.Context, q queryer, username, password string) (*User, error) {
 	u, err := UserByName(ctx, q, username)
 	if errors.Is(err, ErrNotFound) {
-		_, _ = VerifyPassword(password, dummyHash())
+		if _, err := VerifyPassword(ctx, password, dummyHash()); err != nil {
+			return nil, err // the request ended while waiting for a slot
+		}
 		return nil, ErrInvalidCredentials
 	}
 	if err != nil {
 		return nil, err
 	}
-	ok, err := VerifyPassword(password, u.passwordHash)
+	ok, err := VerifyPassword(ctx, password, u.passwordHash)
 	if err != nil {
 		return nil, err
 	}

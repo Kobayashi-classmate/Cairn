@@ -148,6 +148,17 @@ func TestCertsAndDNSAccounts(t *testing.T) {
 		t.Fatal("no expiring event")
 	}
 
+	// No second renewal while one is queued or running: each would place
+	// an ACME order.
+	if _, err := e.db.Exec(`INSERT INTO jobs (id, kind, params, permission, manage_permission, state, created_at)
+		VALUES ('cccccccccccccccccccccccc', 'cert.renew', ?, 'certs.read', 'certs.manage', 'running', 1)`, `{"cert":"`+certID+`"}`); err != nil {
+		t.Fatal(err)
+	}
+	admin.expect(admin.do("POST", "/api/v1/certs/"+certID+"/renew", nil), 409, "cert.busy")
+	if _, err := e.db.Exec(`UPDATE jobs SET state = 'interrupted' WHERE id = 'cccccccccccccccccccccccc'`); err != nil {
+		t.Fatal(err)
+	}
+
 	// Deleting needs step-up and goes through the helper.
 	e.helper.respond(helperapi.ActionCertRemove, helperapi.OpRef{ID: opID})
 	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpSucceeded}})

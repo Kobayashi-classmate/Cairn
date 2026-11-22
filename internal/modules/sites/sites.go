@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
@@ -59,6 +60,9 @@ type Module struct {
 	Modules module.Enabler
 
 	health healthState
+	// portMu holds from choosing or checking a port until it is stored, so
+	// two requests cannot both take a free port.
+	portMu sync.Mutex
 }
 
 // ID implements module.Module.
@@ -124,6 +128,9 @@ type siteRequest struct {
 	// TLS serves the site over HTTPS with a certificate (certs module); the
 	// helper checks that it covers every domain.
 	TLS *helperapi.SiteTLS `json:"tls,omitempty"`
+	// AllowSymlinks lets nginx follow the site's links to files of other
+	// owners (static and PHP sites; e.g. Laravel's public/storage).
+	AllowSymlinks bool `json:"allowSymlinks,omitempty"`
 }
 
 type siteView struct {
@@ -216,6 +223,28 @@ func (m *Module) load(ctx context.Context, code string) (row, error) {
 	return rw, err
 }
 
+// redact blanks what only managers may read: the values of an app's
+// environment (passwords, API keys); the names stay, so the page can show
+// that they are set.
+func redact(r *http.Request, views []siteView) {
+	if p, ok := api.PrincipalFrom(r.Context()); ok && p.Can(Manage) {
+		return
+	}
+	for i := range views {
+		v := &views[i]
+		if v.App == nil || len(v.App.Env) == 0 {
+			continue
+		}
+		// A copy: the spec's own slice is left alone.
+		app := *v.App
+		app.Env = make([]helperapi.EnvVar, 0, len(v.App.Env))
+		for _, e := range v.App.Env {
+			app.Env = append(app.Env, helperapi.EnvVar{Name: e.Name})
+		}
+		v.App = &app
+	}
+}
+
 func view(rw row, applied map[string]helperapi.SiteState, known bool) siteView {
 	v := siteView{SiteSpec: rw.spec, State: rw.state, ErrorCode: rw.errorCode, LastJob: rw.lastJob, CreatedAt: rw.createdAt, UpdatedAt: rw.updatedAt,
 		Dir: "/srv/www/" + rw.spec.Code, Owner: "cw-" + rw.spec.Code, Runner: "cw-" + rw.spec.Code + "-run"}
@@ -257,6 +286,7 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	resp.Backups = m.decorate(r, resp.Sites)
+	redact(r, resp.Sites)
 	return api.WriteJSON(w, http.StatusOK, resp)
 }
 
@@ -328,6 +358,7 @@ func (m *Module) get(w http.ResponseWriter, r *http.Request) error {
 	st, known := m.status(r.Context(), r)
 	v := []siteView{view(rw, st.Sites, known)}
 	m.decorate(r, v)
+	redact(r, v)
 	return api.WriteJSON(w, http.StatusOK, v[0])
 }
 
@@ -344,13 +375,19 @@ func deriveCode(domain string) string {
 	if len(c) > 20 {
 		c = strings.TrimRight(c[:20], "-")
 	}
-	return strings.TrimRight(c, "-")
+	c = strings.TrimRight(c, "-")
+	// A code may not end in "-run": cw-<code>-run is the runner of another
+	// site's code (site.run would otherwise become site-run).
+	if strings.HasSuffix(c, "-run") {
+		c = strings.TrimSuffix(c, "-run") + "-rn"
+	}
+	return c
 }
 
 // spec turns a request into a complete spec and checks it.
 func (m *Module) spec(req siteRequest, code string, enabled bool) (helperapi.SiteSpec, error) {
 	s := helperapi.SiteSpec{Code: code, Type: req.Type, Root: req.Root, Index: req.Index, Rewrite: req.Rewrite,
-		PHP: req.PHP, Writable: req.Writable, Proxy: req.Proxy, App: req.App, TLS: req.TLS, Enabled: enabled}
+		PHP: req.PHP, Writable: req.Writable, Proxy: req.Proxy, App: req.App, TLS: req.TLS, AllowSymlinks: req.AllowSymlinks, Enabled: enabled}
 	for _, d := range req.Domains {
 		s.Domains = append(s.Domains, strings.ToLower(strings.TrimSpace(d)))
 	}
@@ -414,6 +451,8 @@ func (m *Module) create(w http.ResponseWriter, r *http.Request) error {
 			code = strings.TrimRight(base[:min(len(base), 20-len(suffix))], "-") + suffix
 		}
 	}
+	m.portMu.Lock()
+	defer m.portMu.Unlock()
 	if err := m.assignPort(r.Context(), &req, code); err != nil {
 		return err
 	}
@@ -462,6 +501,8 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 	if (req.Code != "" && req.Code != rw.spec.Code) || req.Type != rw.spec.Type {
 		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "type", "rule": "immutable"})
 	}
+	m.portMu.Lock()
+	defer m.portMu.Unlock()
 	if req.App != nil && req.App.Port == 0 && rw.spec.App != nil {
 		req.App.Port = rw.spec.App.Port // keep the port it has
 	}
@@ -542,6 +583,7 @@ func (m *Module) applyJob(w http.ResponseWriter, r *http.Request, kind string, s
 		return err
 	})
 	if err != nil {
+		m.startFailed("sites", s.Code, err)
 		return err
 	}
 	_, _ = m.DB.ExecContext(r.Context(), `UPDATE sites SET last_job = ? WHERE code = ?`, job.ID, s.Code)
@@ -608,7 +650,42 @@ func (m *Module) log(w http.ResponseWriter, r *http.Request) error {
 	defer cancel()
 	var resp helperapi.SiteLogResponse
 	if err := m.Helper.Call(ctx, helperapi.ActionSiteLog, callerOf(r), req, &resp); err != nil {
-		return err
+		return helperError(err)
 	}
 	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+// Recover marks the sites and streams left applying by a job that no
+// longer runs (the panel stopped during it) as failed, like the job: no
+// job will ever finish them. cmd/cairn-web calls it at start, after
+// jobs.Manager.Init and before serving.
+func (m *Module) Recover(ctx context.Context) error {
+	for table, query := range map[string]string{
+		"sites": `UPDATE sites SET state = ?, error_code = ?, updated_at = ? WHERE state = ?
+			AND NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.id = sites.last_job AND jobs.state IN (?, ?))`,
+		"streams": `UPDATE streams SET state = ?, error_code = ?, updated_at = ? WHERE state = ?
+			AND NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.id = streams.last_job AND jobs.state IN (?, ?))`,
+	} {
+		res, err := m.DB.ExecContext(ctx, query, StateFailed, jobs.CodeInterrupted, time.Now().Unix(), StateApplying, jobs.Queued, jobs.Running)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n > 0 {
+			m.Log.Warn("changes interrupted by a restart marked failed", "table", table, "count", n)
+		}
+	}
+	return nil
+}
+
+// startFailed marks a site or stream whose job could not be started: it
+// was stored as applying, and no job will ever finish it.
+func (m *Module) startFailed(table, code string, err error) {
+	m.Log.Error("starting a job failed", "table", table, "code", code, "err", err)
+	query := `UPDATE sites SET state = ?, error_code = ?, updated_at = ? WHERE code = ?`
+	if table == "streams" {
+		query = `UPDATE streams SET state = ?, error_code = ?, updated_at = ? WHERE code = ?`
+	}
+	if _, dbErr := m.DB.Exec(query, StateFailed, api.ErrInternal.Code, time.Now().Unix(), code); dbErr != nil {
+		m.Log.Error("saving the failed state failed", "table", table, "code", code, "err", dbErr)
+	}
 }

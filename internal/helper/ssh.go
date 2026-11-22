@@ -373,7 +373,13 @@ func (s *SSH) apply(ctx context.Context, log io.Writer, st sshState, opened []in
 		// The SSH ports are protected rules: opening the new one before
 		// sshd listens on it, closing the old one after.
 		if err := s.Firewall.Refresh(ctx, log); err != nil {
+			// The backend may have stopped halfway (ufw deletes the old
+			// rule before it adds the new one): with the previous drop-in
+			// back, the firewall gets the previous SSH ports again.
 			put()
+			if rerr := s.Firewall.Refresh(ctx, io.Discard); rerr != nil {
+				_, _ = fmt.Fprintf(log, "Warning: the firewall could not be put back for the SSH ports: %v\n", rerr)
+			}
 			return err
 		}
 	}
@@ -567,7 +573,7 @@ func (s *SSH) settings(ctx context.Context, _ helperapi.Caller, q helperapi.SSHS
 		return nil, err
 	}
 	defer unlock()
-	if !q.PasswordAuthentication && !s.anyKey() {
+	if !q.PasswordAuthentication && !s.anyKey(q.PermitRootLogin != helperapi.RootLoginNo) {
 		return nil, sshErr(helperapi.CodeSSHNoKeys, nil)
 	}
 	st := s.load()
@@ -578,9 +584,38 @@ func (s *SSH) settings(ctx context.Context, _ helperapi.Caller, q helperapi.SSHS
 	return nil, s.save(st)
 }
 
-// anyKey reports whether some user who can log in has a key.
-func (s *SSH) anyKey() bool {
+// keepsAKey refuses to leave nobody a way in: with password logins off,
+// deleting a key must leave some user who can log in a key (kept are the
+// lines user's file keeps).
+func (s *SSH) keepsAKey(ctx context.Context, user string, kept []string) error {
+	if !s.installed() {
+		return nil
+	}
+	c, err := s.effective(ctx)
+	if err != nil || c.get("passwordauthentication") == "yes" {
+		return nil //nolint:nilerr // sshd's configuration unknown: the key goes as asked
+	}
+	rootOK := rootLogin(c.get("permitrootlogin")) != helperapi.RootLoginNo
+	if user != "root" || rootOK {
+		for _, line := range kept {
+			if _, ok := parseKeyLine(line); ok {
+				return nil
+			}
+		}
+	}
+	if s.anyKey(rootOK, user) {
+		return nil
+	}
+	return sshErr(helperapi.CodeSSHNoKeys, map[string]any{"user": user})
+}
+
+// anyKey reports whether some user who can log in has a key; root counts
+// only when it may still log in (rootLogin). Users in skip are not counted.
+func (s *SSH) anyKey(rootLogin bool, skip ...string) bool {
 	for _, u := range s.users() {
+		if u.Root && !rootLogin || slices.Contains(skip, u.Name) {
+			continue
+		}
 		if k, err := s.keys(u.Name); err == nil && len(k.Keys) > 0 {
 			return true
 		}
@@ -591,16 +626,25 @@ func (s *SSH) anyKey() bool {
 // Ports -------------------------------------------------------------------
 
 // listeningPorts reads the TCP ports in LISTEN state from /proc.
-func (s *SSH) listeningPorts() map[int]bool {
+func (s *SSH) listeningPorts() map[int]bool { return procPorts(s.Root, false) }
+
+// procPorts reads the local ports of the sockets in /proc/net under root
+// (prefix; "" for /): TCP ports in LISTEN state, or the ports UDP sockets
+// are bound to (in any state: a connected one holds its port too).
+func procPorts(root string, udp bool) map[int]bool {
+	files := []string{"/proc/net/tcp", "/proc/net/tcp6"}
+	if udp {
+		files = []string{"/proc/net/udp", "/proc/net/udp6"}
+	}
 	out := map[int]bool{}
-	for _, f := range []string{"/proc/net/tcp", "/proc/net/tcp6"} {
-		data, err := os.ReadFile(s.path(f))
+	for _, f := range files {
+		data, err := os.ReadFile(filepath.Join(root, f)) //nolint:gosec // G304: fixed /proc files.
 		if err != nil {
 			continue
 		}
 		for _, line := range strings.Split(string(data), "\n")[1:] {
 			fl := strings.Fields(line)
-			if len(fl) < 4 || fl[3] != "0A" {
+			if len(fl) < 4 || !udp && fl[3] != "0A" { // 0A: TCP_LISTEN
 				continue
 			}
 			if i := strings.LastIndex(fl[1], ":"); i >= 0 {
@@ -633,6 +677,10 @@ func (s *SSH) addPort(ctx context.Context, _ helperapi.Caller, q helperapi.SSHPo
 	}
 	if s.Firewall != nil && q.Port == s.Firewall.PanelPort || s.listeningPorts()[q.Port] {
 		return nil, sshErr(helperapi.CodeSSHPortInUse, map[string]any{"port": q.Port})
+	}
+	// A port forward takes the connections before sshd sees them.
+	if s.Firewall != nil && s.Firewall.forwardsTCP(q.Port) {
+		return nil, sshErr(helperapi.CodeSSHPortInUse, map[string]any{"port": q.Port, "forward": true})
 	}
 	next := st
 	next.Ports = slices.Sorted(slices.Values(append(slices.Clone(current), q.Port)))
@@ -745,12 +793,17 @@ func (s *SSH) readKeys(u passwdEntry) ([]byte, error) {
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	data, err := root.ReadFile(".ssh/authorized_keys")
+	// The user owns the file: a pipe or a huge sparse file there must not
+	// hang the helper (it reads under the SSH lock) or fill its memory.
+	data, err := readRegular(root, ".ssh/authorized_keys", maxAuthorizedKeys)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	return data, err
 }
+
+// maxAuthorizedKeys caps the authorized_keys the panel reads and writes.
+const maxAuthorizedKeys = 1 << 20
 
 func parseKeyLine(line string) (helperapi.SSHKey, bool) {
 	line = strings.TrimSpace(line)
@@ -796,23 +849,10 @@ func (s *SSH) writeKeys(u passwdEntry, data []byte) error {
 	if err := root.Lchown(".ssh", u.uid, u.gid); err != nil {
 		return err
 	}
-	tmp := ".ssh/.authorized_keys.cairn"
-	f, err := root.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Chown(u.uid, u.gid); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return root.Rename(tmp, ".ssh/authorized_keys")
+	// The user owns .ssh: a new file of a random name (O_EXCL never opens
+	// what is there, a link or a hard link the user made), owned and
+	// filled through its descriptor, then renamed into place.
+	return writeOwned(root, ".ssh/authorized_keys", data, 0o600, u.uid, u.gid)
 }
 
 func (s *SSH) rootKeysAllowed(user string) error {
@@ -829,6 +869,13 @@ func (s *SSH) addKey(_ context.Context, _ helperapi.Caller, q helperapi.SSHKeyAd
 	if err := s.rootKeysAllowed(q.User); err != nil {
 		return helperapi.SSHKey{}, err
 	}
+	// Read, change, write: one change at a time, and none while the
+	// settings check that a key is left.
+	unlock, err := s.lock()
+	if err != nil {
+		return helperapi.SSHKey{}, err
+	}
+	defer unlock()
 	u, err := s.account(q.User)
 	if err != nil {
 		return helperapi.SSHKey{}, err
@@ -866,13 +913,22 @@ func (s *SSH) addKey(_ context.Context, _ helperapi.Caller, q helperapi.SSHKeyAd
 			return r
 		}, key.Comment)
 	}
-	return key, s.writeKeys(u, append(data, []byte(line+"\n")...))
+	data = append(data, []byte(line+"\n")...)
+	if len(data) > maxAuthorizedKeys {
+		return key, sshErr(helperapi.CodeSSHKeyInvalid, map[string]any{"reason": "too_many"})
+	}
+	return key, s.writeKeys(u, data)
 }
 
-func (s *SSH) deleteKey(_ context.Context, _ helperapi.Caller, q helperapi.SSHKeyDeleteRequest) (helperapi.Empty, error) {
+func (s *SSH) deleteKey(ctx context.Context, _ helperapi.Caller, q helperapi.SSHKeyDeleteRequest) (helperapi.Empty, error) {
 	if err := s.rootKeysAllowed(q.User); err != nil {
 		return helperapi.Empty{}, err
 	}
+	unlock, err := s.lock()
+	if err != nil {
+		return helperapi.Empty{}, err
+	}
+	defer unlock()
 	u, err := s.account(q.User)
 	if err != nil {
 		return helperapi.Empty{}, err
@@ -892,6 +948,9 @@ func (s *SSH) deleteKey(_ context.Context, _ helperapi.Caller, q helperapi.SSHKe
 	}
 	if !found {
 		return helperapi.Empty{}, sshErr(helperapi.CodeSSHKeyInvalid, map[string]any{"reason": "not_found"})
+	}
+	if err := s.keepsAKey(ctx, q.User, kept); err != nil {
+		return helperapi.Empty{}, err
 	}
 	out := strings.Join(kept, "\n")
 	if out != "" {

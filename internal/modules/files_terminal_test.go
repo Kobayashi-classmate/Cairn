@@ -6,12 +6,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -139,6 +141,20 @@ func TestFilesModule(t *testing.T) {
 	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "remote file") }))
 	defer src.Close()
 	admin.expect(admin.do("POST", "/api/v1/files/fetch", map[string]any{"root": "sites", "dir": "shop/app", "url": "file:///etc/passwd"}), 400, "validation.invalid")
+	// The real client connects to public addresses only, also when a URL
+	// redirects: the test servers are on loopback.
+	redirect := httptest.NewServer(http.RedirectHandler(src.URL+"/dl/readme.txt", http.StatusFound))
+	defer redirect.Close()
+	for _, u := range []string{src.URL + "/dl/readme.txt", redirect.URL + "/x"} {
+		job := admin.expect(admin.do("POST", "/api/v1/files/fetch", map[string]any{"root": "sites", "dir": "shop/app", "url": u}), 202, "").obj("job")
+		final, _ := waitJob(t, admin, job["id"].(string))
+		errInfo, _ := final["error"].(map[string]any)
+		params, _ := errInfo["params"].(map[string]any)
+		if detail, _ := params["detail"].(string); final["state"] != "failed" || !strings.Contains(detail, "not allowed") {
+			t.Fatalf("fetch from loopback %v", final)
+		}
+	}
+	e.files.HTTP = src.Client()
 	admin.runJob(admin.expect(admin.do("POST", "/api/v1/files/fetch", map[string]any{"root": "sites", "dir": "shop/app", "url": src.URL + "/dl/readme.txt"}), 202, ""))
 	if q := sentAs[helperapi.FilePlaceRequest](t, e, helperapi.ActionFilePlace); q.Name != "readme.txt" || q.Upload == id {
 		t.Fatalf("fetch place %+v", q)
@@ -164,6 +180,58 @@ func TestFilesModule(t *testing.T) {
 	// Uploads are their owner's.
 	if status, _ := op.tus("HEAD", loc, nil, nil); status != 404 {
 		t.Fatalf("someone else's upload: %d", status)
+	}
+
+	// Only the sites root is open to operators: the backups root holds every
+	// dump and backup, the system root is the whole disk.
+	e.helper.respond(helperapi.ActionFileRoots, helperapi.FileRoots{Roots: []helperapi.FileRoot{
+		{ID: "sites", Path: "/srv/www", Available: true}, {ID: "backups", Path: "/var/lib/cairn/backups", Available: true}, {ID: "system", Path: "/", Available: true}}})
+	if roots := op.expect(op.do("GET", "/api/v1/files/roots", nil), 200, "").body["roots"].([]any); len(roots) != 1 {
+		t.Fatalf("operator's roots %v", roots)
+	}
+	if roots := admin.expect(admin.do("GET", "/api/v1/files/roots", nil), 200, "").body["roots"].([]any); len(roots) != 3 {
+		t.Fatalf("administrator's roots %v", roots)
+	}
+	e.helper.mu.Lock()
+	e.helper.errs = nil
+	e.helper.mu.Unlock()
+	for _, root := range []string{"backups", "system"} {
+		for _, path := range []string{"/api/v1/files/list?root=", "/api/v1/files/stat?path=x&root=", "/api/v1/files/content?path=x&root=",
+			"/api/v1/files/download?path=x&root=", "/api/v1/files/search?q=sql&root=", "/api/v1/files/trash?root="} {
+			op.expect(op.do("GET", path+root, nil), 403, "auth.forbidden")
+		}
+		for _, c := range []struct {
+			method, path string
+			body         map[string]any
+		}{
+			{"PUT", "/api/v1/files/content", map[string]any{"root": root, "path": "x", "content": "y"}},
+			{"POST", "/api/v1/files/mkdir", map[string]any{"root": root, "dir": "", "name": "x"}},
+			{"POST", "/api/v1/files/copy", map[string]any{"root": root, "paths": []string{"a"}, "dest": "b"}},
+			{"POST", "/api/v1/files/extract", map[string]any{"root": root, "path": "a.zip", "dest": "b"}},
+			{"POST", "/api/v1/files/trash/purge", map[string]any{"root": root, "olderThan": 1}},
+			{"POST", "/api/v1/files/fetch", map[string]any{"root": root, "dir": "", "url": "https://example.com/x"}},
+			{"POST", "/api/v1/files/favorites", map[string]any{"root": root, "path": ""}},
+		} {
+			op.expect(op.do(c.method, c.path, c.body), 403, "auth.forbidden")
+		}
+		if status, _ := op.tus("POST", "/api/v1/files/uploads", nil, map[string]string{"Upload-Length": "1",
+			"Upload-Metadata": "root " + b64(root) + ",dir " + b64("") + ",filename " + b64("x")}); status != 403 {
+			t.Fatalf("operator upload into %s: %d", root, status)
+		}
+	}
+	// Administrators download from there after a second verification only.
+	adm := e.client()
+	adm.expect(adm.login("admin", pw), 200, "")
+	adm.expect(adm.do("GET", "/api/v1/files/download?root=backups&path=db/shop.sql.zst", nil), 403, "auth.step_up_required")
+	adm.expect(adm.do("GET", "/api/v1/files/content?root=system&path=etc/shadow", nil), 403, "auth.step_up_required")
+	adm.expect(adm.do("GET", "/api/v1/files/search?root=system&q=secret&content=true", nil), 403, "auth.step_up_required")
+	adm.expect(adm.do("GET", "/api/v1/files/search?root=system&q=secret", nil), 200, "")
+	adm.expect(adm.do("GET", "/api/v1/files/list?root=backups", nil), 200, "")
+	adm.elevate("")
+	adm.expect(adm.do("GET", "/api/v1/files/content?root=system&path=etc/shadow", nil), 200, "")
+	adm.expect(adm.do("GET", "/api/v1/files/search?root=system&q=secret&content=true", nil), 200, "")
+	if res, _ := adm.raw("GET", "/api/v1/files/download?root=backups&path=db/shop.sql.zst", nil); res.StatusCode != 200 {
+		t.Fatalf("elevated download: %d", res.StatusCode)
 	}
 }
 
@@ -255,5 +323,138 @@ func TestTerminalModule(t *testing.T) {
 	_ = e.db.QueryRow(`SELECT count(*) FROM audit_log WHERE action = 'terminal.open'`).Scan(&n)
 	if n != 1 {
 		t.Fatalf("terminal audits: %d", n)
+	}
+
+	// Ordinary users can often sudo (the default user of cloud images):
+	// operators open terminals as site owners only.
+	e.helper.respond(helperapi.ActionTermUsers, helperapi.TermUsers{RootTerminal: true, Users: []helperapi.TermUser{
+		{Name: "cw-shop", Kind: "site", Home: "/srv/www/shop", Site: "shop"}, {Name: "debian", Kind: "user", Home: "/home/debian"},
+		{Name: "root", Kind: "root", Home: "/root"}}})
+	if users := op.expect(op.do("GET", "/api/v1/terminal/users", nil), 200, "").body["users"].([]any); len(users) != 1 {
+		t.Fatalf("operator users %v", users)
+	}
+	op.expect(op.do("POST", "/api/v1/terminal/sessions", map[string]any{"user": "debian", "cols": 80, "rows": 24}), 403, "auth.forbidden")
+	op.expect(op.do("POST", "/api/v1/terminal/sessions", map[string]any{"user": "nobody", "cols": 80, "rows": 24}), 403, "auth.forbidden")
+	opSess := op.expect(op.do("POST", "/api/v1/terminal/sessions", open), 201, "").body["id"].(string)
+	admin.expect(admin.do("POST", "/api/v1/terminal/sessions", map[string]any{"user": "debian", "cols": 80, "rows": 24}), 201, "")
+
+	// Changing an account ends its terminals: a shell is checked only when
+	// it is opened and attached.
+	accounts := admin.expect(admin.do("GET", "/api/v1/users", nil), 200, "").body["users"].([]any)
+	var opID float64
+	for _, u := range accounts {
+		if u.(map[string]any)["username"] == "oper" {
+			opID = u.(map[string]any)["id"].(float64)
+		}
+	}
+	admin.expect(admin.do("PATCH", fmt.Sprintf("/api/v1/users/%d", int64(opID)), map[string]any{"role": "auditor"}), 200, "")
+	admin.expect(admin.do("PATCH", fmt.Sprintf("/api/v1/users/%d", int64(opID)), map[string]any{"role": "operator"}), 200, "")
+	if l := op.expect(op.do("GET", "/api/v1/terminal/sessions", nil), 200, "").body["sessions"].([]any); len(l) != 0 {
+		t.Fatalf("sessions after a role change %v", l)
+	}
+	op.expect(op.do("DELETE", "/api/v1/terminal/sessions/"+opSess, nil), 404, "terminal.not_found")
+	// Deleting it too, and its file manager rows go with it (the next
+	// account may get the same ID).
+	op.elevate("")
+	op.expect(op.do("POST", "/api/v1/terminal/sessions", open), 201, "")
+	op.expect(op.do("POST", "/api/v1/files/favorites", map[string]any{"root": "sites", "path": "shop"}), 204, "")
+	admin.expect(admin.do("DELETE", fmt.Sprintf("/api/v1/users/%d", int64(opID)), nil), 204, "")
+	for _, table := range []string{"file_favorites", "file_uploads"} {
+		var left int
+		_ = e.db.QueryRow(`SELECT count(*) FROM `+table+` WHERE user_id = ?`, int64(opID)).Scan(&left)
+		if left != 0 {
+			t.Fatalf("%s rows survived the account: %d", table, left)
+		}
+	}
+	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "next", "password": pw, "role": "operator"}), 201, "")
+	next := e.client()
+	next.expect(next.login("next", pw), 200, "")
+	if l := next.expect(next.do("GET", "/api/v1/terminal/sessions", nil), 200, "").body["sessions"].([]any); len(l) != 0 {
+		t.Fatalf("a new account inherited terminals %v", l)
+	}
+}
+
+func TestFavoritesLimit(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	// Concurrent requests cannot pass the limit together.
+	var wg sync.WaitGroup
+	statuses := make([]int, 140)
+	for i := range statuses {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			statuses[i] = admin.do("POST", "/api/v1/files/favorites", map[string]any{"root": "sites", "path": fmt.Sprintf("d%d", i)}).status
+		}()
+	}
+	wg.Wait()
+	added := 0
+	for _, st := range statuses {
+		switch st {
+		case 204:
+			added++
+		case 409:
+		default:
+			t.Fatalf("status %d", st)
+		}
+	}
+	var n int
+	_ = e.db.QueryRow(`SELECT count(*) FROM file_favorites`).Scan(&n)
+	if added != 100 || n != 100 {
+		t.Fatalf("%d added, %d stored, want 100", added, n)
+	}
+	admin.expect(admin.do("POST", "/api/v1/files/favorites", map[string]any{"root": "sites", "path": "one-more"}), 409, "file.too_many_favorites")
+	// One already there is fine.
+	var existing string
+	_ = e.db.QueryRow(`SELECT path FROM file_favorites LIMIT 1`).Scan(&existing)
+	admin.expect(admin.do("POST", "/api/v1/files/favorites", map[string]any{"root": "sites", "path": existing}), 204, "")
+}
+
+// A terminal ends with the browser session that opened it: signed out,
+// revoked from another browser, or dropped by a password change (also by
+// the cairn command, which the sweep covers).
+func TestTerminalEndsWithItsSession(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	e.helper.respond(helperapi.ActionTermUsers, helperapi.TermUsers{Users: []helperapi.TermUser{{Name: "cw-shop", Kind: "site", Home: "/srv/www/shop", Site: "shop"}}})
+	e.helper.respond(helperapi.ActionTermOpen, helperapi.TermSession{PID: 42, User: "cw-shop", Shell: "/bin/bash", Home: "/srv/www/shop"})
+	var shells []*os.File
+	defer func() {
+		for _, f := range shells {
+			_ = f.Close()
+		}
+	}()
+	e.helper.giveFile(helperapi.ActionTermOpen, func() (*os.File, error) {
+		fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+		if err != nil {
+			return nil, err
+		}
+		_ = syscall.SetNonblock(fds[0], true)
+		shells = append(shells, os.NewFile(uintptr(fds[1]), "shell"))
+		return os.NewFile(uintptr(fds[0]), "master"), nil
+	})
+	open := func(c *client) string {
+		c.elevate("")
+		return c.expect(c.do("POST", "/api/v1/terminal/sessions", map[string]any{"user": "cw-shop", "cols": 80, "rows": 24}), 201, "").body["id"].(string)
+	}
+	laptop := e.client()
+	laptop.expect(laptop.login("admin", pw), 200, "")
+	id := open(laptop)
+	// Revoked from another browser: attaching to it finds it gone.
+	admin.expect(admin.do("DELETE", "/api/v1/me/sessions", nil), 200, "")
+	admin.expect(admin.do("GET", "/api/v1/terminal/sessions/"+id+"/ws", nil), 404, "terminal.not_found")
+	// The sweep ends the rest, also those nobody attaches to again.
+	laptop = e.client()
+	laptop.expect(laptop.login("admin", pw), 200, "")
+	open(laptop)
+	mine := open(admin)
+	if l := admin.expect(admin.do("GET", "/api/v1/terminal/sessions", nil), 200, "").body["sessions"].([]any); len(l) != 2 {
+		t.Fatalf("sessions %v", l)
+	}
+	admin.expect(admin.do("PUT", "/api/v1/me/password", map[string]any{"currentPassword": pw, "newPassword": pw}), 204, "")
+	e.terminal.Sweep(context.Background())
+	l := admin.expect(admin.do("GET", "/api/v1/terminal/sessions", nil), 200, "").body["sessions"].([]any)
+	if len(l) != 1 || l[0].(map[string]any)["id"] != mine {
+		t.Fatalf("after the password change %v", l)
 	}
 }

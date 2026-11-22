@@ -353,7 +353,9 @@ func (r BackupRestoreRequest) Validate() error {
 	if r.Identity != "" && !ageIdentity.MatchString(r.Identity) {
 		return invalid("identity", "age_identity")
 	}
-	if !strings.HasPrefix(r.Name, "db-") {
+	// Only a backup naming a database goes without a destination: the
+	// helper turns it into a dump and never extracts it as files.
+	if _, _, ok := DatabaseOfBackup(r.Name); !ok {
 		return r.Dest.Validate()
 	}
 	return nil

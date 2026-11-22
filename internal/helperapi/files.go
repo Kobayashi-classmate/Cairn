@@ -54,12 +54,15 @@ const (
 	CodeFileBadArchive      = "file.bad_archive"
 	CodeFileToolMissing     = "file.tool_missing"
 	CodeFileNoSpace         = "file.no_space"
-	CodeFileUserUnknown     = "file.user_unknown"
-	CodeFileIntoItself      = "file.into_itself" // a directory copied or moved into itself
-	CodeAccessLocked        = "access.locked"    // the server's configuration forbids it
-	CodeTermUserNotAllowed  = "term.user_not_allowed"
-	CodeTermRootDisabled    = "term.root_disabled"
-	CodeTermTooMany         = "term.too_many"
+	// CodeFileUnpackFailed: a 7z/RAR archive could not be prepared for
+	// unar (params: reason = systemd | account | scratch | copy).
+	CodeFileUnpackFailed   = "file.unpack_failed"
+	CodeFileUserUnknown    = "file.user_unknown"
+	CodeFileIntoItself     = "file.into_itself" // a directory copied or moved into itself
+	CodeAccessLocked       = "access.locked"    // the server's configuration forbids it
+	CodeTermUserNotAllowed = "term.user_not_allowed"
+	CodeTermRootDisabled   = "term.root_disabled"
+	CodeTermTooMany        = "term.too_many"
 )
 
 // File roots.

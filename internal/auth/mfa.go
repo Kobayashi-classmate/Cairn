@@ -230,22 +230,32 @@ func CreateMFAChallenge(ctx context.Context, q queryer, userID int64, remote str
 	return token, err
 }
 
-// MFAChallengeUser returns the user of a live challenge.
+// MFAChallengeUser returns the user of a live challenge with attempts
+// left, without spending one (ClaimMFAChallenge does).
 func MFAChallengeUser(ctx context.Context, q queryer, token string) (int64, error) {
-	var userID, expires int64
-	var attempts int
-	err := q.QueryRowContext(ctx, `SELECT user_id, expires_at, attempts FROM mfa_challenges WHERE token_hash = ?`, hashToken(token)).
-		Scan(&userID, &expires, &attempts)
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && (time.Now().Unix() > expires || attempts >= mfaMaxAttempts)) {
+	var userID int64
+	err := q.QueryRowContext(ctx, `SELECT user_id FROM mfa_challenges WHERE token_hash = ? AND expires_at >= ? AND attempts < ?`,
+		hashToken(token), time.Now().Unix(), mfaMaxAttempts).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return 0, ErrMFAChallengeExpired
 	}
 	return userID, err
 }
 
-// FailMFAChallenge counts a wrong code; the challenge dies after a few.
-func FailMFAChallenge(ctx context.Context, q queryer, token string) error {
-	_, err := q.ExecContext(ctx, `UPDATE mfa_challenges SET attempts = attempts + 1 WHERE token_hash = ?`, hashToken(token))
-	return err
+// ClaimMFAChallenge spends one attempt of a live challenge and returns its
+// user; the challenge dies after a few. The attempt is counted before the
+// code is checked, in one statement, so concurrent requests with the same
+// challenge cannot get more than its attempts; a success ends it
+// (EndMFAChallenge).
+func ClaimMFAChallenge(ctx context.Context, q queryer, token string) (int64, error) {
+	var userID int64
+	err := q.QueryRowContext(ctx, `UPDATE mfa_challenges SET attempts = attempts + 1
+		WHERE token_hash = ? AND expires_at >= ? AND attempts < ? RETURNING user_id`,
+		hashToken(token), time.Now().Unix(), mfaMaxAttempts).Scan(&userID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrMFAChallengeExpired
+	}
+	return userID, err
 }
 
 // EndMFAChallenge removes a challenge after success.

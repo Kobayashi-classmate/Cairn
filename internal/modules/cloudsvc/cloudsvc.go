@@ -423,11 +423,17 @@ func (m *Module) auditFinished(r *http.Request, job helperapi.UpdateJob) {
 	if job.State != "succeeded" && job.State != "failed" {
 		return
 	}
+	// Inserting the marker is the check: of concurrent requests, only the
+	// one that inserts it writes the entry.
 	key := "update.audited." + strconv.FormatInt(job.StartedAt, 10)
-	if m.kvGet(r.Context(), key) != "" {
+	res, err := m.DB.ExecContext(r.Context(), `INSERT INTO kv(key, value) VALUES(?, '1') ON CONFLICT(key) DO NOTHING`, key)
+	if err != nil {
+		m.Log.Warn("cloud: kv write", "key", key, "err", err)
 		return
 	}
-	m.kvSet(r.Context(), key, "1")
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return
+	}
 	who := modutil.Actor{Username: m.kvGet(r.Context(), "update.requested_by")}
 	result := "ok"
 	if job.State == "failed" {
@@ -510,14 +516,19 @@ func (m *Module) setCloud(w http.ResponseWriter, r *http.Request) error {
 	caller := helperapi.Caller{UserID: who.UserID, Username: who.Username, Remote: api.ClientIP(r), Source: "web"}
 	err := m.Helper.Call(r.Context(), helperapi.ActionSetCloud, caller,
 		helperapi.SetCloudRequest{Enabled: req.Enabled, BaseURL: req.BaseURL, Channel: req.Channel}, nil)
+	// The base URL decides whom the panel trusts for messages and updates:
+	// it is in the audit entry, also of a refused change.
+	params := map[string]any{"enabled": req.Enabled, "baseUrl": req.BaseURL, "channel": req.Channel}
 	if he, ok := helperapi.AsError(err); ok {
+		modutil.Audit(r, m.DB, m.Log, who, "settings.cloud", he.Code, params)
 		return api.NewError(http.StatusBadGateway, he.Code, he.Params)
 	}
 	if err != nil {
+		modutil.Audit(r, m.DB, m.Log, who, "settings.cloud", api.ErrInternal.Code, params)
 		return err
 	}
 	m.Settings.set(req.Enabled, req.BaseURL, req.Channel)
-	modutil.Audit(r, m.DB, m.Log, who, "settings.cloud", "ok", map[string]any{"enabled": req.Enabled, "channel": req.Channel})
+	modutil.Audit(r, m.DB, m.Log, who, "settings.cloud", "ok", params)
 	go m.Refresh(context.WithoutCancel(r.Context()))
 	w.WriteHeader(http.StatusNoContent)
 	return nil

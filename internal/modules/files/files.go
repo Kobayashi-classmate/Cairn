@@ -22,6 +22,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
+	"github.com/Kobayashi-classmate/Cairn/internal/locks"
 	"github.com/Kobayashi-classmate/Cairn/internal/module"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 )
@@ -30,9 +31,56 @@ import (
 const (
 	Read   authz.Permission = "files.read"
 	Manage authz.Permission = "files.manage"
-	// Admin turns full-disk access on and off (administrators only).
+	// Admin turns full-disk access on and off, and opens every root but
+	// the sites (administrators only).
 	Admin authz.Permission = "files.admin"
 )
+
+// checkRoot lets read and manage permissions reach the sites root only. The
+// backups root holds every database dump and backup archive (guarded by
+// their modules' permissions and a second verification there) and the
+// system root is the whole disk as root, so both need Admin as well. Any
+// other value is refused too: a request names its root, and only the sites
+// root is open to operators.
+func checkRoot(r *http.Request, root string) error {
+	if root == helperapi.RootSites {
+		return nil
+	}
+	if p, ok := api.PrincipalFrom(r.Context()); ok && p.Can(Admin) {
+		return nil
+	}
+	return api.ErrForbidden
+}
+
+// stepUpFor requires a recent second verification to take data out of a
+// root but the sites (reading a file's content, searching inside files,
+// downloading), as the dumps and backups need on their own pages. API
+// tokens cannot step up, so they read those roots' names only.
+func stepUpFor(r *http.Request, root string) error {
+	if root == helperapi.RootSites {
+		return nil
+	}
+	if p, ok := api.PrincipalFrom(r.Context()); !ok || p.ElevatedUntil <= time.Now().Unix() {
+		return api.ErrStepUpRequired
+	}
+	return nil
+}
+
+// jobPermissions are what seeing and canceling a job on root take: the
+// same as the root itself, so its paths show only to those who may open it.
+func jobPermissions(root string) (see, manage authz.Permission) {
+	if root == helperapi.RootSites {
+		return Read, Manage
+	}
+	return Admin, Admin
+}
+
+// rootOf is the root of a request, from the parameters it is shown and
+// audited with (every operation names one).
+func rootOf(params map[string]any) string {
+	root, _ := params["root"].(string)
+	return root
+}
 
 // Helper is what the module needs from the root helper: calls, and calls
 // that answer with an open file.
@@ -52,7 +100,8 @@ type Module struct {
 	// HTTP fetches files from URLs (nil: a default client).
 	HTTP *http.Client
 
-	uploads uploadLocks
+	// uploads serializes the requests on one upload.
+	uploads locks.Set
 }
 
 // ID implements module.Module.
@@ -173,9 +222,13 @@ func (m *Module) call(r *http.Request, action string, req, resp any) error {
 	return helperError(m.Helper.Call(ctx, action, callerOf(r), req, resp))
 }
 
+// refOf reads ?root=&path= and checks that the caller may use the root.
 func refOf(r *http.Request) (helperapi.FileRef, error) {
 	q := helperapi.FileRef{Root: r.URL.Query().Get("root"), Path: r.URL.Query().Get("path")}
-	return q, badRequest(q.Validate())
+	if err := q.Validate(); err != nil {
+		return q, badRequest(err)
+	}
+	return q, checkRoot(r, q.Root)
 }
 
 func (m *Module) roots(w http.ResponseWriter, r *http.Request) error {
@@ -186,9 +239,14 @@ func (m *Module) roots(w http.ResponseWriter, r *http.Request) error {
 	if err := m.call(r, helperapi.ActionFileArchiving, nil, &resp.Archivers); err != nil {
 		return err
 	}
-	if resp.Roots == nil {
-		resp.Roots = []helperapi.FileRoot{}
+	// Only the roots the caller may open are offered.
+	roots := []helperapi.FileRoot{}
+	for _, root := range resp.Roots {
+		if checkRoot(r, root.ID) == nil {
+			roots = append(roots, root)
+		}
 	}
+	resp.Roots = roots
 	return api.WriteJSON(w, http.StatusOK, resp)
 }
 
@@ -243,6 +301,9 @@ func (m *Module) content(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if err := stepUpFor(r, ref.Root); err != nil {
+		return err
+	}
 	var resp helperapi.FileContent
 	if err := m.call(r, helperapi.ActionFileRead, ref, &resp); err != nil {
 		return err
@@ -260,11 +321,15 @@ func audited[Req interface{ Validate() error }](m *Module, action, kind string, 
 		if err := req.Validate(); err != nil {
 			return badRequest(err)
 		}
+		p := params(req)
+		if err := checkRoot(r, rootOf(p)); err != nil {
+			return err
+		}
 		var resp helperapi.FileEntry
 		if err := m.call(r, action, req, &resp); err != nil {
 			return err
 		}
-		modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), kind, "ok", params(req))
+		modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), kind, "ok", p)
 		return api.WriteJSON(w, http.StatusOK, resp)
 	}
 }
@@ -277,6 +342,9 @@ func (m *Module) save(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err := req.Validate(); err != nil {
 		return badRequest(err)
+	}
+	if err := checkRoot(r, req.Root); err != nil {
+		return err
 	}
 	var resp helperapi.FileSaved
 	if err := m.call(r, helperapi.ActionFileWrite, req, &resp); err != nil {
@@ -319,6 +387,14 @@ func (m *Module) search(w http.ResponseWriter, r *http.Request) error {
 	if err := req.Validate(); err != nil {
 		return badRequest(err)
 	}
+	if err := checkRoot(r, req.Root); err != nil {
+		return err
+	}
+	if req.Content {
+		if err := stepUpFor(r, req.Root); err != nil {
+			return err
+		}
+	}
 	var resp helperapi.FileSearchResult
 	if err := m.call(r, helperapi.ActionFileSearch, req, &resp); err != nil {
 		return err
@@ -330,6 +406,9 @@ func (m *Module) trash(w http.ResponseWriter, r *http.Request) error {
 	req := helperapi.FileRootRef{Root: r.URL.Query().Get("root")}
 	if err := req.Validate(); err != nil {
 		return badRequest(err)
+	}
+	if err := checkRoot(r, req.Root); err != nil {
+		return err
 	}
 	var resp helperapi.TrashList
 	if err := m.call(r, helperapi.ActionTrashList, req, &resp); err != nil {
@@ -424,6 +503,9 @@ func (m *Module) op(kind, action string, decode func(*http.Request) (decoded, er
 		if err != nil {
 			return err
 		}
+		if err := checkRoot(r, rootOf(d.params)); err != nil {
+			return err
+		}
 		if p, ok := api.PrincipalFrom(r.Context()); d.stepUp && (!ok || p.ElevatedUntil <= time.Now().Unix()) {
 			return api.ErrStepUpRequired
 		}
@@ -437,8 +519,9 @@ func (m *Module) op(kind, action string, decode func(*http.Request) (decoded, er
 
 func (m *Module) startOp(r *http.Request, kind, action string, req any, params map[string]any) (jobs.Record, error) {
 	who := modutil.ActorOf(r)
+	see, manage := jobPermissions(rootOf(params))
 	job, err := m.Jobs.Start(r.Context(), jobs.Spec{
-		Kind: kind, Params: params, Permission: Read, ManagePermission: Manage,
+		Kind: kind, Params: params, Permission: see, ManagePermission: manage,
 		Actor: jobs.Actor{UserID: who.UserID, Username: who.Username, Source: who.Source, Remote: api.ClientIP(r)},
 	}, func(_ context.Context, j *jobs.Job) error {
 		var res helperapi.FileOpResult
@@ -473,7 +556,9 @@ func (m *Module) favorites(w http.ResponseWriter, r *http.Request) error {
 		if err := rows.Scan(&f.Root, &f.Path); err != nil {
 			return err
 		}
-		resp.Favorites = append(resp.Favorites, f)
+		if checkRoot(r, f.Root) == nil {
+			resp.Favorites = append(resp.Favorites, f)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
@@ -489,23 +574,42 @@ func (m *Module) addFavorite(w http.ResponseWriter, r *http.Request) error {
 	if err := req.Validate(); err != nil {
 		return badRequest(err)
 	}
-	var n int
-	_ = m.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM file_favorites WHERE user_id = ?`, modutil.ActorOf(r).UserID).Scan(&n)
-	if n >= 100 {
-		return api.NewError(http.StatusConflict, "file.too_many_favorites", map[string]any{"max": 100})
-	}
-	if _, err := m.DB.ExecContext(r.Context(), `INSERT OR IGNORE INTO file_favorites (user_id, root, path, created_at) VALUES (?, ?, ?, ?)`,
-		modutil.ActorOf(r).UserID, req.Root, req.Path, time.Now().Unix()); err != nil {
+	if err := checkRoot(r, req.Root); err != nil {
 		return err
+	}
+	// One statement counts and inserts, so concurrent requests cannot pass
+	// the limit together.
+	uid := modutil.ActorOf(r).UserID
+	res, err := m.DB.ExecContext(r.Context(), `INSERT OR IGNORE INTO file_favorites (user_id, root, path, created_at)
+		SELECT ?, ?, ?, ? WHERE (SELECT count(*) FROM file_favorites WHERE user_id = ?) < ?`,
+		uid, req.Root, req.Path, time.Now().Unix(), uid, maxFavorites)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		// Either it is a favourite already (fine) or the limit is reached.
+		var exists int
+		if err := m.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM file_favorites WHERE user_id = ? AND root = ? AND path = ?`,
+			uid, req.Root, req.Path).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return api.NewError(http.StatusConflict, "file.too_many_favorites", map[string]any{"max": maxFavorites})
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 
+const maxFavorites = 100
+
 func (m *Module) removeFavorite(w http.ResponseWriter, r *http.Request) error {
-	ref, err := refOf(r)
-	if err != nil {
-		return err
+	// Removing one's own favourite needs no access to its root.
+	ref := helperapi.FileRef{Root: r.URL.Query().Get("root"), Path: r.URL.Query().Get("path")}
+	if err := ref.Validate(); err != nil {
+		return badRequest(err)
 	}
 	if _, err := m.DB.ExecContext(r.Context(), `DELETE FROM file_favorites WHERE user_id = ? AND root = ? AND path = ?`,
 		modutil.ActorOf(r).UserID, ref.Root, ref.Path); err != nil {

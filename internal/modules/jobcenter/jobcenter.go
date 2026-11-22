@@ -60,21 +60,33 @@ func (m *Module) Routes(r *api.Router) {
 		api.NoBody(), api.Returns(202, jobResponse{}))
 }
 
+// jobView is a job as the caller sees it.
+type jobView struct {
+	jobs.Record
+	// CanCancel reports whether the caller holds the job's manage
+	// permission; Cancelable says whether the job can be canceled now.
+	CanCancel bool `json:"canCancel"`
+}
+
+func viewOf(p *api.Principal, j jobs.Record) jobView {
+	return jobView{Record: j, CanCancel: p.Can(j.ManagePermission)}
+}
+
 type listResponse struct {
-	Jobs []jobs.Record `json:"jobs"`
+	Jobs []jobView `json:"jobs"`
 	// NextBefore is an opaque cursor for the next page; null on the last.
 	NextBefore *int64 `json:"nextBefore"`
 }
 
 type jobResponse struct {
-	Job jobs.Record `json:"job"`
+	Job jobView `json:"job"`
 }
 
 type logResponse struct {
-	Job     jobs.Record `json:"job"`
-	Log     string      `json:"log"`
-	Offset  int64       `json:"offset"`  // where the next request continues
-	LogSize int64       `json:"logSize"` // current length of the log
+	Job     jobView `json:"job"`
+	Log     string  `json:"log"`
+	Offset  int64   `json:"offset"`  // where the next request continues
+	LogSize int64   `json:"logSize"` // current length of the log
 }
 
 func principal(r *http.Request) *api.Principal {
@@ -108,7 +120,10 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	resp := listResponse{Jobs: list}
+	resp := listResponse{Jobs: make([]jobView, 0, len(list))}
+	for _, j := range list {
+		resp.Jobs = append(resp.Jobs, viewOf(p, j))
+	}
 	if next > 0 {
 		resp.NextBefore = &next
 	}
@@ -149,7 +164,7 @@ func (m *Module) get(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return api.WriteJSON(w, http.StatusOK, jobResponse{Job: j})
+	return api.WriteJSON(w, http.StatusOK, jobResponse{Job: viewOf(principal(r), j)})
 }
 
 func (m *Module) log(w http.ResponseWriter, r *http.Request) error {
@@ -164,7 +179,7 @@ func (m *Module) log(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	return api.WriteJSON(w, http.StatusOK, logResponse{Job: j, Log: chunk.Log, Offset: chunk.Offset, LogSize: chunk.LogSize})
+	return api.WriteJSON(w, http.StatusOK, logResponse{Job: viewOf(principal(r), j), Log: chunk.Log, Offset: chunk.Offset, LogSize: chunk.LogSize})
 }
 
 func (m *Module) cancel(w http.ResponseWriter, r *http.Request) error {
@@ -184,5 +199,5 @@ func (m *Module) cancel(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "job.cancel", "ok", params)
-	return api.WriteJSON(w, http.StatusAccepted, jobResponse{Job: updated})
+	return api.WriteJSON(w, http.StatusAccepted, jobResponse{Job: viewOf(p, updated)})
 }

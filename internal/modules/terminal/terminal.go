@@ -26,6 +26,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
+	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
@@ -36,7 +37,9 @@ import (
 // Permissions of this module.
 const (
 	Use authz.Permission = "terminal.use"
-	// Admin opens root terminals and switches them on (administrators).
+	// Admin opens terminals as root and as users that are not site owners
+	// (on cloud images the default user can sudo without a password), and
+	// switches root terminals on (administrators).
 	Admin authz.Permission = "terminal.admin"
 )
 
@@ -62,6 +65,12 @@ type Module struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
+	// opening counts each account's sessions being opened, so the limit
+	// holds while the helper starts them.
+	opening map[int64]int
+	// revoked counts RevokeUser calls per account: a session whose opening
+	// saw an earlier count is not kept.
+	revoked map[int64]uint64
 }
 
 // ID implements module.Module.
@@ -129,18 +138,30 @@ func helperError(err error) error {
 	return err
 }
 
-func (m *Module) users(w http.ResponseWriter, r *http.Request) error {
+func (m *Module) termUsers(r *http.Request) (helperapi.TermUsers, error) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	var resp helperapi.TermUsers
 	if err := m.Helper.Call(ctx, helperapi.ActionTermUsers, callerOf(r), nil, &resp); err != nil {
-		return helperError(err)
+		return resp, helperError(err)
 	}
-	// Root terminals are for administrators.
+	return resp, nil
+}
+
+// privileged reports whether a terminal of this kind needs Admin: anything
+// but a site owner, which has no sudo. Unknown kinds count as privileged.
+func privileged(kind string) bool { return kind != helperapi.TermUserSite }
+
+func (m *Module) users(w http.ResponseWriter, r *http.Request) error {
+	resp, err := m.termUsers(r)
+	if err != nil {
+		return err
+	}
+	// Others than site owners are for administrators.
 	if p, ok := api.PrincipalFrom(r.Context()); !ok || !p.Can(Admin) {
 		users := resp.Users[:0]
 		for _, u := range resp.Users {
-			if u.Kind != helperapi.TermUserRoot {
+			if !privileged(u.Kind) {
 				users = append(users, u)
 			}
 		}
@@ -175,9 +196,15 @@ func (m *Module) settings(w http.ResponseWriter, r *http.Request) error {
 // session is an open terminal.
 type session struct {
 	id, user, shell, home string
-	owner                 int64
-	created               time.Time
-	master                *os.File
+	// kind is who the shell runs as (helperapi.TermUser*).
+	kind string
+	// authSession is the browser session that opened it; the terminal ends
+	// with it (signed out, revoked, expired, or dropped by a password
+	// change, also through the cairn command).
+	authSession string
+	owner       int64
+	created     time.Time
+	master      *os.File
 
 	mu       sync.Mutex
 	buf      []byte // the last output, replayed on attach
@@ -253,7 +280,52 @@ func (s *session) resize(cols, rows int) error {
 	return ierr
 }
 
-// Run closes sessions nobody attached to for a while.
+func (s *session) attached() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.clients) > 0
+}
+
+// drop ends a terminal and forgets it.
+func (m *Module) drop(s *session) {
+	s.end()
+	m.mu.Lock()
+	if m.sessions[s.id] == s {
+		delete(m.sessions, s.id)
+	}
+	m.mu.Unlock()
+}
+
+// Sweep ends the terminals whose browser session is gone; Run calls it
+// every reapInterval. A terminal in use counts as activity of its session,
+// so the session does not time out idle while someone types in it.
+func (m *Module) Sweep(ctx context.Context) {
+	m.mu.Lock()
+	list := make([]*session, 0, len(m.sessions))
+	for _, s := range m.sessions {
+		list = append(list, s)
+	}
+	m.mu.Unlock()
+	for _, s := range list {
+		alive, err := auth.SessionAlive(ctx, m.DB, s.authSession)
+		if err != nil {
+			m.Log.Warn("terminal: checking its session failed", "err", err)
+			continue
+		}
+		if !alive {
+			m.drop(s)
+			continue
+		}
+		if s.attached() {
+			if err := auth.TouchSession(ctx, m.DB, s.authSession); err != nil {
+				m.Log.Warn("terminal: touching its session failed", "err", err)
+			}
+		}
+	}
+}
+
+// Run closes sessions nobody attached to for a while, and those whose
+// browser session is gone.
 func (m *Module) Run(ctx context.Context) {
 	t := time.NewTicker(reapInterval)
 	defer t.Stop()
@@ -268,6 +340,7 @@ func (m *Module) Run(ctx context.Context) {
 			return
 		case <-t.C:
 			m.reap()
+			m.Sweep(ctx)
 		}
 	}
 }
@@ -302,6 +375,30 @@ func (m *Module) find(r *http.Request) (*session, error) {
 	return s, nil
 }
 
+// RevokeUser ends every terminal of an account. The users module calls it
+// when the account is disabled, deleted, changes role or gets a new
+// password: a shell is checked only when it is opened and attached, and an
+// attached one would otherwise outlive the account's access (and a deleted
+// account's ID can be given to the next one created).
+func (m *Module) RevokeUser(userID int64) {
+	m.mu.Lock()
+	if m.revoked == nil {
+		m.revoked = map[int64]uint64{}
+	}
+	m.revoked[userID]++
+	var ended []*session
+	for id, s := range m.sessions {
+		if s.owner == userID {
+			ended = append(ended, s)
+			delete(m.sessions, id)
+		}
+	}
+	m.mu.Unlock()
+	for _, s := range ended {
+		s.end()
+	}
+}
+
 func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	me := modutil.ActorOf(r).UserID
 	resp := sessionsResponse{Sessions: []sessionView{}}
@@ -333,36 +430,78 @@ func (m *Module) open(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
-	if p, ok := api.PrincipalFrom(r.Context()); req.User == "root" && (!ok || !p.Can(Admin)) {
+	p, ok := api.PrincipalFrom(r.Context())
+	if !ok {
 		return api.ErrForbidden
 	}
-	me := modutil.ActorOf(r).UserID
+	// Who the user is, as the helper lists it: only site owners are open to
+	// operators. The helper checks the name against the same list again.
+	kind := helperapi.TermUserRoot
+	if req.User != helperapi.TermUserRoot {
+		users, err := m.termUsers(r)
+		if err != nil {
+			return err
+		}
+		kind = ""
+		for _, u := range users.Users {
+			if u.Name == req.User {
+				kind = u.Kind
+			}
+		}
+	}
+	if privileged(kind) && !p.Can(Admin) {
+		return api.ErrForbidden
+	}
+	me := p.UserID
+	// The slot is taken before the helper is asked, so concurrent requests
+	// cannot pass the limit together.
 	m.mu.Lock()
 	if m.sessions == nil {
 		m.sessions = map[string]*session{}
 	}
-	mine := 0
+	if m.opening == nil {
+		m.opening = map[int64]int{}
+	}
+	mine := m.opening[me]
 	for _, s := range m.sessions {
 		if s.owner == me {
 			mine++
 		}
 	}
-	m.mu.Unlock()
 	if mine >= maxPerUser {
+		m.mu.Unlock()
 		return api.NewError(http.StatusConflict, helperapi.CodeTermTooMany, map[string]any{"max": maxPerUser})
+	}
+	m.opening[me]++
+	generation := m.revoked[me]
+	m.mu.Unlock()
+	release := func() {
+		if m.opening[me]--; m.opening[me] <= 0 {
+			delete(m.opening, me)
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	var info helperapi.TermSession
 	master, err := m.Helper.CallFD(ctx, helperapi.ActionTermOpen, callerOf(r), req, &info)
 	if err != nil {
+		m.mu.Lock()
+		release()
+		m.mu.Unlock()
 		return helperError(err)
 	}
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
-	s := &session{id: hex.EncodeToString(b), user: info.User, shell: info.Shell, home: info.Home, owner: me, created: time.Now(),
+	s := &session{id: hex.EncodeToString(b), user: info.User, kind: kind, authSession: p.SessionID, shell: info.Shell, home: info.Home, owner: me, created: time.Now(),
 		master: master, clients: map[chan []byte]struct{}{}, detached: time.Now(), done: make(chan struct{})}
 	m.mu.Lock()
+	release()
+	if m.revoked[me] != generation {
+		// The account changed while the helper opened it.
+		m.mu.Unlock()
+		s.end()
+		return api.ErrForbidden
+	}
 	m.sessions[s.id] = s
 	m.mu.Unlock()
 	go s.pump()
@@ -395,6 +534,20 @@ func (m *Module) attach(w http.ResponseWriter, r *http.Request) error {
 	s, err := m.find(r)
 	if err != nil {
 		return err
+	}
+	// The session was opened with a second verification; joining it again
+	// checks the caller still may run such a shell. An API token never
+	// reaches a root (or sudo-capable) shell, whatever its scopes.
+	if p, ok := api.PrincipalFrom(r.Context()); !ok || privileged(s.kind) && (!p.Can(Admin) || p.IsToken()) {
+		return api.ErrForbidden
+	}
+	// A terminal whose browser session is gone ends now, not at the next
+	// sweep.
+	if alive, err := auth.SessionAlive(r.Context(), m.DB, s.authSession); err != nil {
+		return err
+	} else if !alive {
+		m.drop(s)
+		return api.NewError(http.StatusNotFound, "terminal.not_found", nil)
 	}
 	c, err := websocket.Accept(w, r, nil)
 	if err != nil {

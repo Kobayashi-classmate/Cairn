@@ -7,15 +7,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
+	"github.com/Kobayashi-classmate/Cairn/internal/authz"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // Four-layer proxies (nginx stream): kept like sites, changed by jobs.
@@ -44,10 +48,13 @@ type streamsResponse struct {
 
 func (m *Module) streamRoutes(r *api.Router, doc func(string) api.RouteOption) {
 	r.Handle("GET /api/v1/streams", m.listStreams, api.Require(Read), doc("Four-layer (TCP/UDP) proxies"), api.Returns(200, streamsResponse{}))
-	r.Handle("POST /api/v1/streams", m.createStream, api.Require(Manage), api.Body(streamRequest{}),
-		doc("Create a four-layer proxy (starts a job)"), api.Returns(202, jobResponse{}))
-	r.Handle("PUT /api/v1/streams/{code}", m.updateStream, api.Require(Manage), api.Body(streamRequest{}),
-		doc("Change a four-layer proxy (starts a job)"), api.Returns(202, jobResponse{}))
+	// A stream listens on a public port (the firewall is opened for it) and
+	// forwards whatever arrives: creating and changing one needs a second
+	// verification, and a loopback upstream the firewall permission too.
+	r.Handle("POST /api/v1/streams", m.createStream, api.Require(Manage), api.StepUp(), api.Body(streamRequest{}),
+		doc("Create a four-layer proxy (starts a job); an upstream on this host needs firewall.manage"), api.Returns(202, jobResponse{}))
+	r.Handle("PUT /api/v1/streams/{code}", m.updateStream, api.Require(Manage), api.StepUp(), api.Body(streamRequest{}),
+		doc("Change a four-layer proxy (starts a job); an upstream on this host needs firewall.manage"), api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/streams/{code}/start", m.startStream, api.Require(Manage), api.NoBody(),
 		doc("Listen again (starts a job)"), api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/streams/{code}/stop", m.stopStream, api.Require(Manage), api.NoBody(),
@@ -110,8 +117,49 @@ func (m *Module) listStreams(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusOK, resp)
 }
 
+// firewallManage is the firewall module's permission. A stream to an
+// upstream on this host publishes a local service (a database listening
+// on 127.0.0.1, say) on a public port: that is the firewall's decision.
+const firewallManage authz.Permission = "firewall.manage"
+
+// checkUpstreams lets callers without the firewall permission name
+// upstreams by IP address only, written the canonical way, and none on
+// this host (loopback or unspecified). nginx resolves names itself, with
+// the system's resolver, when it loads the configuration: a name (or a
+// number such as 0x7f.1 that the system reads as 127.0.0.1) could reach
+// this host, or be pointed at it later, whatever the panel saw.
+func checkUpstreams(r *http.Request, upstreams []string) error {
+	if p, ok := api.PrincipalFrom(r.Context()); ok && p.Can(firewallManage) {
+		return nil
+	}
+	for _, u := range upstreams {
+		host, _, err := net.SplitHostPort(u)
+		if err != nil {
+			continue // Validate has refused it already
+		}
+		ip, err := netip.ParseAddr(host)
+		if err != nil || ip.String() != host {
+			return api.NewError(http.StatusForbidden, CodeStreamUpstreamName, map[string]any{"upstream": u})
+		}
+		if netx.IsLocal(ip) {
+			return api.NewError(http.StatusForbidden, CodeStreamLocalUpstream, map[string]any{"upstream": u})
+		}
+	}
+	return nil
+}
+
+// Upstreams that need the firewall permission.
+const (
+	// CodeStreamLocalUpstream: an address on this host.
+	CodeStreamLocalUpstream = "stream.local_upstream"
+	// CodeStreamUpstreamName: a name, or an address not written the
+	// canonical way.
+	CodeStreamUpstreamName = "stream.upstream_name"
+)
+
 // streamSpec checks a request and that its port is free.
-func (m *Module) streamSpec(ctx context.Context, req streamRequest, code string, enabled bool) (helperapi.StreamSpec, error) {
+func (m *Module) streamSpec(r *http.Request, req streamRequest, code string, enabled bool) (helperapi.StreamSpec, error) {
+	ctx := r.Context()
 	s := helperapi.StreamSpec{Code: code, Protocol: req.Protocol, Port: req.Port, Balance: req.Balance, Enabled: enabled}
 	for _, u := range req.Upstreams {
 		s.Upstreams = append(s.Upstreams, strings.ToLower(strings.TrimSpace(u)))
@@ -120,6 +168,9 @@ func (m *Module) streamSpec(ctx context.Context, req streamRequest, code string,
 		if he, ok := helperapi.AsError(err); ok {
 			return s, api.NewError(http.StatusBadRequest, he.Code, he.Params)
 		}
+		return s, err
+	}
+	if err := checkUpstreams(r, s.Upstreams); err != nil {
 		return s, err
 	}
 	if s.Port == m.PanelPort {
@@ -152,7 +203,11 @@ func (m *Module) createStream(w http.ResponseWriter, r *http.Request) error {
 	if code == "" {
 		code = req.Protocol + "-" + strconv.Itoa(req.Port)
 	}
-	s, err := m.streamSpec(r.Context(), req, code, true)
+	// Checking the ports and storing the stream happen together, so two
+	// requests cannot take the same port.
+	m.portMu.Lock()
+	defer m.portMu.Unlock()
+	s, err := m.streamSpec(r, req, code, true)
 	if err != nil {
 		return err
 	}
@@ -173,11 +228,13 @@ func (m *Module) updateStream(w http.ResponseWriter, r *http.Request) error {
 	if err := api.DecodeJSON(r, &req); err != nil {
 		return err
 	}
+	m.portMu.Lock()
+	defer m.portMu.Unlock()
 	rw, err := m.loadStream(r.Context(), r.PathValue("code"))
 	if err != nil {
 		return err
 	}
-	s, err := m.streamSpec(r.Context(), req, rw.spec.Code, rw.spec.Enabled)
+	s, err := m.streamSpec(r, req, rw.spec.Code, rw.spec.Enabled)
 	if err != nil {
 		return err
 	}
@@ -231,6 +288,7 @@ func (m *Module) streamJob(w http.ResponseWriter, r *http.Request, kind string, 
 		return err
 	})
 	if err != nil {
+		m.startFailed("streams", s.Code, err)
 		return err
 	}
 	modutil.Audit(r, m.DB, m.Log, who, kind, "ok", map[string]any{"stream": s.Code, "protocol": s.Protocol, "port": s.Port, "upstreams": s.Upstreams, "job": job.ID})

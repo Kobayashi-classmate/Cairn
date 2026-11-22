@@ -186,9 +186,12 @@ func (st *Sites) Status(_ context.Context) helperapi.SiteStatus {
 }
 
 // states loads what was applied for every site.
-func (st *Sites) states() (map[string]helperapi.SiteState, error) {
+func (st *Sites) states() (map[string]helperapi.SiteState, error) { return siteStatesAt(st.Root) }
+
+// siteStatesAt loads the applied sites of the system under root (prefix).
+func siteStatesAt(root string) (map[string]helperapi.SiteState, error) {
 	out := map[string]helperapi.SiteState{}
-	entries, err := os.ReadDir(st.path(siteStateDir))
+	entries, err := os.ReadDir(filepath.Join(root, siteStateDir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return out, nil
 	}
@@ -200,7 +203,7 @@ func (st *Sites) states() (map[string]helperapi.SiteState, error) {
 		if !ok || !helperapi.ValidSiteCode(code) {
 			continue
 		}
-		data, err := os.ReadFile(st.path(path.Join(siteStateDir, e.Name()))) //nolint:gosec // G304: inside the helper's state directory.
+		data, err := os.ReadFile(filepath.Join(root, siteStateDir, e.Name())) //nolint:gosec // G304: inside the helper's state directory.
 		var s helperapi.SiteState
 		if err == nil && json.Unmarshal(data, &s) == nil && s.Spec.Code == code {
 			out[code] = s
@@ -403,8 +406,18 @@ func (st *Sites) ensureUsers(ctx context.Context, log io.Writer, code string) er
 			return err
 		}
 	}
+	gid, err := lookupGroup(owner)
+	if err != nil {
+		return err
+	}
 	for _, u := range []string{owner, runner} {
-		if _, _, err := lookupUser(u); err == nil {
+		if _, ugid, err := lookupUser(u); err == nil {
+			// A user of this name made for something else (another site,
+			// or not by Cairn) is never taken over: the site's files would
+			// be its files.
+			if ugid != gid {
+				return siteErr(helperapi.CodeSiteUserConflict, map[string]any{"user": u, "group": owner})
+			}
 			continue
 		}
 		if err := runCommand(ctx, log, "useradd", "--system", "--gid", owner, "--home-dir", dir, "--no-create-home",
@@ -471,25 +484,33 @@ func (st *Sites) ensureDirs(log io.Writer, spec helperapi.SiteSpec) error {
 	if err := mk(filepath.Join(base, "tmp"), ruid, 0o770|os.ModeSetgid); err != nil {
 		return err
 	}
-	if errors.Is(appErr, fs.ErrNotExist) {
-		_, _ = fmt.Fprintf(log, "Created %s\n", base)
-		page := filepath.Join(app, "index.html")
-		html := fmt.Sprintf("<!doctype html>\n<meta charset=\"utf-8\">\n<title>%s</title>\n<p>%s is ready. Put the site's files in %s.</p>\n",
-			spec.Domains[0], spec.Domains[0], path.Join(siteDirOf(spec.Code), "app"))
-		if err := os.WriteFile(page, []byte(html), 0o640); err != nil { //nolint:gosec // G306: read by nginx through the site group.
-			return err
-		}
-		if err := os.Lchown(page, ouid, gid); err != nil {
-			return err
-		}
-	}
-	// Writable directories, opened inside app/ so that no symlink planted
+	// Everything in app/ is changed through it, so that no symlink planted
 	// by the owner can make root change anything outside it.
 	root, err := os.OpenRoot(app)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	if errors.Is(appErr, fs.ErrNotExist) {
+		_, _ = fmt.Fprintf(log, "Created %s\n", base)
+		html := fmt.Sprintf("<!doctype html>\n<meta charset=\"utf-8\">\n<title>%s</title>\n<p>%s is ready. Put the site's files in %s.</p>\n",
+			spec.Domains[0], spec.Domains[0], path.Join(siteDirOf(spec.Code), "app"))
+		// The owner has had app/ for a moment: a new file only, never
+		// one (or a link) put there meanwhile.
+		page, err := root.OpenFile("index.html", os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o640)
+		switch {
+		case errors.Is(err, fs.ErrExist):
+		case err != nil:
+			return err
+		default:
+			_, werr := page.Write([]byte(html))
+			cerr := page.Chown(ouid, gid)
+			if err := errors.Join(werr, cerr, page.Close()); err != nil {
+				return err
+			}
+		}
+	}
+	// Writable directories.
 	for _, w := range spec.Writable {
 		// Missing parents are created for the owner, the directory itself
 		// is the runner's.
@@ -574,6 +595,14 @@ var siteTemplate = template.Must(template.New("site").Funcs(template.FuncMap{"jo
 {{- else}}
     root {{.WebRoot}};
     index {{join .Index " "}};
+{{- if .AllowSymlinks}}
+    # The site's links may point at files of other owners (allowSymlinks).
+    disable_symlinks off;
+{{- else}}
+    # nginx is in every site's group: a link one site's code plants must
+    # not make it serve another site's files.
+    disable_symlinks if_not_owner from=$document_root;
+{{- end}}
 
     # Hidden files (.git, .env) are never served.
     location ~ /\.(?!well-known/) {
@@ -730,7 +759,7 @@ func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM) ([]byte, []by
 		"Managed": siteManaged, "Code": spec.Code, "Type": spec.Type, "Domains": spec.Domains, "LogDir": nginxLogDir,
 		"Enabled": spec.Enabled, "WebRoot": path.Join(dir, "app", spec.Root), "Index": index, "Rewrite": spec.Rewrite,
 		"RewriteBody": "", "Socket": "", "Proxy": nil, "TLS": spec.TLS, "HTTP2On": st.http2Directive(),
-		"CertDir": nginxCertDir, "ACMELocation": indent(acmeLocation),
+		"CertDir": nginxCertDir, "ACMELocation": indent(acmeLocation), "AllowSymlinks": spec.AllowSymlinks,
 	}
 	switch spec.Type {
 	case helperapi.SiteProxy:
@@ -777,6 +806,9 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 	if err != nil {
 		return nil, err
 	}
+	if _, exists := states[spec.Code]; !exists && !helperapi.ValidNewSiteCode(spec.Code) {
+		return nil, helperapi.ErrNewSiteCode()
+	}
 	for code, s := range states {
 		if code == spec.Code {
 			continue
@@ -811,6 +843,11 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		certFiles = []fileChange{
 			{path: path.Join(nginxCertDir, spec.TLS.Cert+".crt"), data: certPEM},
 			{path: path.Join(nginxCertDir, spec.TLS.Cert+".key"), data: keyPEM, mode: 0o600},
+		}
+	}
+	if len(certFiles) > 0 {
+		if err := privateDir(st.path(nginxCertDir)); err != nil {
+			return nil, err
 		}
 	}
 	if spec.Type == helperapi.SiteApp {
@@ -882,9 +919,12 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		}
 		changes = append(changes, files...)
 		checks = append(checks, appChecks...)
-	} else if hadPrev && prev.Spec.Type == helperapi.SiteApp {
+	}
+	stoppedApp := false
+	if spec.Type != helperapi.SiteApp && hadPrev && prev.Spec.Type == helperapi.SiteApp {
 		// No longer an app: its unit stops before its files go.
 		st.stopApp(ctx, log, spec.Code)
+		stoppedApp = true
 		files, _, _ := st.appChanges(prev.Spec, true)
 		changes = append(changes, files...)
 	}
@@ -892,18 +932,24 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 	reloads = append(reloads, st.nginxReload())
 	reloaded, err := st.transact(ctx, log, changes, checks, reloads)
 	if err != nil {
+		if stoppedApp {
+			// The previous files are back: so is the app.
+			st.restoreApp(ctx, log, prev.Spec)
+		}
+		return nil, err
+	}
+	// The files are in place: the state says so even if the unit does not
+	// start, so that the next change (or a removal) starts from them.
+	state, _ := json.Marshal(helperapi.SiteState{Spec: spec, AppliedAt: time.Now().Unix()})
+	if err := writePrivate(st.path(path.Join(siteStateDir, spec.Code+".json")), state); err != nil {
 		return nil, err
 	}
 	if spec.Type == helperapi.SiteApp {
 		if err := st.startApp(ctx, log, spec, appChanged); err != nil {
 			return nil, err
 		}
-	} else if hadPrev && prev.Spec.Type == helperapi.SiteApp {
+	} else if stoppedApp {
 		_ = runCommand(ctx, log, "systemctl", "daemon-reload")
-	}
-	state, _ := json.Marshal(helperapi.SiteState{Spec: spec, AppliedAt: time.Now().Unix()})
-	if err := writePrivate(st.path(path.Join(siteStateDir, spec.Code+".json")), state); err != nil {
-		return nil, err
 	}
 	_, _ = fmt.Fprintf(log, "Site %s is %s.\n", spec.Code, map[bool]string{true: "serving", false: "stopped (503)"}[spec.Enabled])
 	return helperapi.SiteResult{Code: spec.Code, Dir: siteDirOf(spec.Code), Owner: ownerOf(spec.Code), Runner: runnerOf(spec.Code), Reloaded: reloaded}, nil
@@ -940,6 +986,9 @@ func (st *Sites) remove(ctx context.Context, _ helperapi.Caller, req helperapi.S
 	}
 	reloaded, err := st.transact(ctx, log, changes, checks, reloads)
 	if err != nil {
+		if prev.Spec.Type == helperapi.SiteApp {
+			st.restoreApp(ctx, log, prev.Spec)
+		}
 		return nil, err
 	}
 	if prev.Spec.Type == helperapi.SiteApp && systemdRunning() {
@@ -1026,10 +1075,23 @@ func writePrivate(p string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	if err := writeFile(p, data); err != nil {
+	return writeFileAs(p, data, 0o600)
+}
+
+// privateDir makes a root-only directory (or takes an existing one back
+// to root-only): where nginx's keys live, which its master reads as root.
+func privateDir(p string) error {
+	if err := os.MkdirAll(p, 0o700); err != nil {
 		return err
 	}
-	return os.Chmod(p, 0o600)
+	info, err := os.Lstat(p)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is not a directory", p)
+	}
+	return os.Chmod(p, 0o700) //nolint:gosec // G302: a directory, root-only.
 }
 
 // SiteCodes returns the applied site codes, sorted (for tests and status).

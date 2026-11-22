@@ -11,7 +11,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -230,6 +233,14 @@ func TestSSHKeys(t *testing.T) {
 	p := filepath.Join(s.Root, "home/deploy/.ssh/authorized_keys")
 	data, _ := os.ReadFile(p)
 	_ = os.WriteFile(p, append([]byte("# my note\n"), data...), 0o600)
+	// With password logins off (cloud-init's file), the last key of the
+	// only user who has one stays: nobody could log in.
+	if _, err := s.deleteKey(ctx, helperapi.Caller{}, helperapi.SSHKeyDeleteRequest{User: "deploy", Fingerprint: k.Fingerprint}); !hasCode(err, helperapi.CodeSSHNoKeys) {
+		t.Fatalf("last key deleted with passwords off: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root, sshDropIn), []byte("PasswordAuthentication yes\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.deleteKey(ctx, helperapi.Caller{}, helperapi.SSHKeyDeleteRequest{User: "deploy", Fingerprint: k.Fingerprint}); err != nil {
 		t.Fatal(err)
 	}
@@ -246,6 +257,49 @@ func TestSSHKeys(t *testing.T) {
 	if _, err := s.addKey(ctx, helperapi.Caller{}, helperapi.SSHKeyAddRequest{User: "root", Key: key}); !hasCode(err, helperapi.CodeSSHRootDisabled) {
 		t.Fatalf("root: %v", err)
 	}
+	// A file the user links into .ssh is never written through: not under
+	// the name the helper once used for its temporary file, not as the
+	// keys file itself.
+	outside := filepath.Join(s.Root, "etc", "shadow")
+	if err := os.WriteFile(outside, []byte("root:secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".authorized_keys.cairn", "authorized_keys"} {
+		planted := filepath.Join(s.Root, "home/deploy/.ssh", name)
+		_ = os.Remove(planted)
+		if err := os.Link(outside, planted); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := newKey(t, "other@host")
+	if _, err := s.addKey(ctx, helperapi.Caller{}, helperapi.SSHKeyAddRequest{User: "deploy", Key: other}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(outside); string(data) != "root:secret\n" {
+		t.Fatalf("written through a hard link: %q", data)
+	}
+	if info, err := os.Lstat(p); err != nil || !info.Mode().IsRegular() || info.Sys().(*syscall.Stat_t).Nlink != 1 {
+		t.Fatalf("keys file: %v %v", info, err)
+	}
+	// Changes at the same time all land.
+	_ = os.Remove(p)
+	var wg sync.WaitGroup
+	for range 8 {
+		key := newKey(t, "k")
+		wg.Go(func() {
+			if _, err := s.addKey(ctx, helperapi.Caller{}, helperapi.SSHKeyAddRequest{User: "deploy", Key: key}); err != nil {
+				t.Error(err)
+			}
+		})
+	}
+	wg.Wait()
+	if got, _ := s.keys("deploy"); len(got.Keys) != 8 {
+		t.Fatalf("%d of 8 keys kept", len(got.Keys))
+	}
+	if entries, _ := os.ReadDir(filepath.Join(s.Root, "home/deploy/.ssh")); len(entries) != 2 { // the keys and the planted name
+		t.Fatalf("temporary files left: %v", entries)
+	}
+
 	// A symbolic link out of the home is refused.
 	_ = os.RemoveAll(filepath.Join(s.Root, "home/deploy/.ssh"))
 	if err := os.Symlink("/etc", filepath.Join(s.Root, "home/deploy/.ssh")); err != nil {
@@ -283,5 +337,93 @@ func TestSELinuxPortType(t *testing.T) {
 		if got := selinuxPortType(list, port); got != want {
 			t.Errorf("%d: %q", port, got)
 		}
+	}
+}
+
+func TestSSHNoLockout(t *testing.T) {
+	s, _ := newTestSSH(t)
+	ctx := context.Background()
+	// Only root has a key: switching passwords off is fine while root may
+	// still log in with it, not when root login goes off too.
+	if err := os.MkdirAll(filepath.Join(s.Root, "root/.ssh"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Root, "root/.ssh/authorized_keys"), []byte(newKey(t, "root@laptop")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.settings(ctx, helperapi.Caller{}, helperapi.SSHSettingsRequest{PermitRootLogin: helperapi.RootLoginNo}, io.Discard); !hasCode(err, helperapi.CodeSSHNoKeys) {
+		t.Fatalf("root login off with root's key only: %v", err)
+	}
+	if _, err := s.settings(ctx, helperapi.Caller{}, helperapi.SSHSettingsRequest{PermitRootLogin: helperapi.RootLoginKeysOnly}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSSHPortAndFirewall(t *testing.T) {
+	s, _ := newTestSSH(t)
+	ctx := context.Background()
+	ufw := &fakeBackend{on: true}
+	fw := &Firewall{StateDir: t.TempDir(), PanelPort: 28443, Default: helperapi.FirewallUFW,
+		backends: map[string]fwBackend{helperapi.FirewallUFW: ufw, helperapi.FirewallFirewalld: &fakeBackend{}, helperapi.FirewallNftables: &fakeBackend{}}}
+	s.Firewall = fw
+	// A port a forward listens on is taken: the forward would get the
+	// connections.
+	if err := fw.save(fwConfig{Enabled: true, Backend: helperapi.FirewallUFW,
+		Forwards: []helperapi.FirewallForward{{ID: "f0123456789abcde", Protocol: helperapi.ProtoTCP, Port: 2200, ToPort: 80}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.addPort(ctx, helperapi.Caller{}, helperapi.SSHPortRequest{Port: 2200, CloseAfterMinutes: 30}, io.Discard); !hasCode(err, helperapi.CodeSSHPortInUse) {
+		t.Fatalf("forwarded port: %v", err)
+	}
+	// The firewall fails halfway through opening the new port: it gets
+	// the old SSH port back, and the drop-in is as before.
+	ufw.failNext = 1
+	if _, err := s.addPort(ctx, helperapi.Caller{}, helperapi.SSHPortRequest{Port: 2222, CloseAfterMinutes: 30}, io.Discard); err == nil {
+		t.Fatal("port change despite a failed firewall")
+	}
+	if len(ufw.applied) == 0 {
+		t.Fatal("the firewall was not put back")
+	}
+	if r := ufw.last(); r.Rules[0].Owner != helperapi.OwnerSSH || strings.Join(r.Rules[0].Ports, ",") != "22" {
+		t.Fatalf("firewall after the failure: %+v", r.Rules)
+	}
+	if st := s.Status(ctx); len(st.Ports) != 1 || st.Ports[0] != 22 || st.Pending != nil {
+		t.Fatalf("ssh after the failure: %+v", st)
+	}
+}
+
+func TestSSHKeysFileIsReadSafely(t *testing.T) {
+	s, _ := newTestSSH(t)
+	dir := filepath.Join(s.Root, "home/deploy/.ssh")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, "authorized_keys")
+	// A pipe there does not hang the read.
+	if err := syscall.Mkfifo(p, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := s.keys("deploy"); done <- err }()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a pipe was read as keys")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("reading a pipe hangs")
+	}
+	// Nor is a huge file read whole.
+	_ = os.Remove(p)
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(64 << 20); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	if _, err := s.keys("deploy"); err == nil {
+		t.Fatal("a 64 MiB file was read")
 	}
 }

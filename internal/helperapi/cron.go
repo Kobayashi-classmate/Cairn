@@ -58,8 +58,9 @@ func ValidPlanID(s string) bool { return planID.MatchString(s) }
 // ValidSchedule reports whether s can be an OnCalendar expression; the
 // helper checks it with systemd-analyze as well.
 func ValidSchedule(s string) bool {
-	// % starts a specifier in unit files.
-	return s != "" && len(s) <= 200 && !strings.ContainsAny(s, "\x00\n\r\"'\\;$`%")
+	// % starts a specifier in unit files; no expression starts with "-",
+	// which would read as an option of systemd-analyze.
+	return s != "" && len(s) <= 200 && !strings.HasPrefix(s, "-") && !strings.ContainsAny(s, "\x00\n\r\"'\\;$`%")
 }
 
 // CronSpec is a task as the panel wants it.

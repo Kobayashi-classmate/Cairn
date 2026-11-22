@@ -4,10 +4,12 @@ package modules_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -40,6 +42,10 @@ func TestCronModule(t *testing.T) {
 	e := newEnv(t)
 	admin := e.setupAdmin("admin")
 	e.opsSucceed(helperapi.ActionCronApply, helperapi.ActionCronRun, helperapi.ActionCronRemove)
+	e.helper.respond(helperapi.ActionTermUsers, helperapi.TermUsers{RootTerminal: true, Users: []helperapi.TermUser{
+		{Name: "cw-shop", Kind: helperapi.TermUserSite, Home: "/srv/www/shop", Site: "shop"},
+		{Name: "debian", Kind: helperapi.TermUserUser, Home: "/home/debian"},
+		{Name: "root", Kind: helperapi.TermUserRoot, Home: "/root"}}})
 	task := map[string]any{"name": "Nightly cleanup", "type": "shell", "schedule": "daily", "user": "cw-shop", "script": "php artisan schedule:run", "enabled": true}
 	admin.expect(admin.do("POST", "/api/v1/cron", map[string]any{"name": "x", "type": "shell", "schedule": "daily; rm -rf /", "user": "cw-shop", "script": "x"}), 400, "validation.invalid")
 	admin.expect(admin.do("POST", "/api/v1/cron", map[string]any{"name": "x", "type": "backup", "schedule": "daily", "plan": "p0123456789abcde"}), 400, helperapi.CodeCronPlanNotFound)
@@ -62,6 +68,56 @@ func TestCronModule(t *testing.T) {
 	rootID := sentAs[helperapi.CronSpec](t, e, helperapi.ActionCronApply).ID
 	op.expect(op.do("PUT", "/api/v1/cron/"+rootID, task), 403, "auth.forbidden")
 	op.expect(op.do("DELETE", "/api/v1/cron/"+rootID, nil), 403, "auth.forbidden")
+	// Running one is running a root script.
+	op.expect(op.do("POST", "/api/v1/cron/"+rootID+"/run", nil), 403, "auth.forbidden")
+	// Ordinary users may sudo (the default user of cloud images): the same
+	// rules as root. Operators run tasks as site owners only.
+	sudoer := map[string]any{"name": "As debian", "type": "shell", "schedule": "hourly", "user": "debian", "script": "id", "enabled": true}
+	op.expect(op.do("POST", "/api/v1/cron", sudoer), 403, "auth.forbidden")
+	op.expect(op.do("POST", "/api/v1/cron", map[string]any{"name": "Nobody", "type": "shell", "schedule": "hourly", "user": "ghost", "script": "id", "enabled": true}), 403, "auth.forbidden")
+	if users := op.expect(op.do("GET", "/api/v1/cron/users", nil), 200, "").body["users"].([]any); len(users) != 1 || users[0].(map[string]any)["name"] != "cw-shop" {
+		t.Fatalf("operator's run-as users %v", users)
+	}
+	admin.runJob(admin.expect(admin.do("POST", "/api/v1/cron", sudoer), 202, ""))
+	sudoID := sentAs[helperapi.CronSpec](t, e, helperapi.ActionCronApply).ID
+	op.expect(op.do("POST", "/api/v1/cron/"+sudoID+"/run", nil), 403, "auth.forbidden")
+	op.expect(op.do("PUT", "/api/v1/cron/"+sudoID, task), 403, "auth.forbidden")
+	// Scripts and URLs (they may hold secrets) show only to those who may
+	// change the task: readers see neither, operators the scripts of site
+	// owners' tasks only.
+	admin.runJob(admin.expect(admin.do("POST", "/api/v1/cron", map[string]any{"name": "Ping", "type": "url", "schedule": "hourly",
+		"url": "https://example.com/cron?key=s3cret", "enabled": true}), 202, ""))
+	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "aud", "password": pw, "role": "auditor"}), 201, "")
+	aud := e.client()
+	aud.expect(aud.login("aud", pw), 200, "")
+	shown := func(c *client) map[string]string {
+		out := map[string]string{}
+		for _, x := range c.expect(c.do("GET", "/api/v1/cron", nil), 200, "").body["tasks"].([]any) {
+			v := x.(map[string]any)
+			script, _ := v["script"].(string)
+			url, _ := v["url"].(string)
+			out[v["name"].(string)] = script + url
+		}
+		return out
+	}
+	if got := shown(aud); got["Nightly cleanup"] != "" || got["Root job"] != "" || got["Ping"] != "" {
+		t.Fatalf("auditor sees %v", got)
+	}
+	if got := shown(op); got["Nightly cleanup"] == "" || got["Root job"] != "" || got["As debian"] != "" || got["Ping"] == "" {
+		t.Fatalf("operator sees %v", got)
+	}
+	if got := shown(admin); got["Root job"] == "" || got["As debian"] == "" {
+		t.Fatalf("administrator sees %v", got)
+	}
+	// A task of a user that is gone (a deleted site's owner) may be deleted,
+	// and only deleted, by operators.
+	orphan := map[string]any{"name": "Old site", "type": "shell", "schedule": "daily", "user": "cw-gone", "script": "true", "enabled": true}
+	admin.runJob(admin.expect(admin.do("POST", "/api/v1/cron", orphan), 202, ""))
+	orphanID := sentAs[helperapi.CronSpec](t, e, helperapi.ActionCronApply).ID
+	op.expect(op.do("POST", "/api/v1/cron/"+orphanID+"/run", nil), 403, "auth.forbidden")
+	op.expect(op.do("PUT", "/api/v1/cron/"+orphanID, orphan), 403, "auth.forbidden")
+	op.runJob(op.expect(op.do("DELETE", "/api/v1/cron/"+orphanID, nil), 202, ""))
+	op.expect(op.do("DELETE", "/api/v1/cron/"+rootID, nil), 403, "auth.forbidden")
 
 	// The list merges what systemd says.
 	e.helper.respond(helperapi.ActionCronStatus, helperapi.CronStatus{Systemd: true, Tasks: map[string]helperapi.CronState{
@@ -82,6 +138,14 @@ func TestCronModule(t *testing.T) {
 	e.helper.respond(helperapi.ActionCronLog, helperapi.CronLog{Lines: []string{"boom"}})
 	admin.expect(admin.do("GET", "/api/v1/cron/"+spec.ID+"/runs/"+strings.Repeat("ab", 16)+"/log", nil), 200, "")
 	admin.expect(admin.do("GET", "/api/v1/cron/"+spec.ID+"/runs/nope/log", nil), 400, "validation.invalid")
+	// The output of a privileged task is for those with cron.root; that of a
+	// site owner's for every reader.
+	aud.expect(aud.do("GET", "/api/v1/cron/"+spec.ID+"/runs/"+strings.Repeat("ab", 16)+"/log", nil), 200, "")
+	for _, id := range []string{rootID, sudoID} {
+		aud.expect(aud.do("GET", "/api/v1/cron/"+id+"/runs/"+strings.Repeat("ab", 16)+"/log", nil), 403, "auth.forbidden")
+		op.expect(op.do("GET", "/api/v1/cron/"+id+"/runs/"+strings.Repeat("ab", 16)+"/log", nil), 403, "auth.forbidden")
+		admin.expect(admin.do("GET", "/api/v1/cron/"+id+"/runs/"+strings.Repeat("ab", 16)+"/log", nil), 200, "")
+	}
 
 	// A failed run is reported once.
 	got := e.published(events.CronFailed)
@@ -104,7 +168,7 @@ func TestBackupsModule(t *testing.T) {
 	storage := map[string]any{"name": "R2", "endpoint": "acct.r2.cloudflarestorage.com", "bucket": "panel-backups", "accessKey": "AK", "secretKey": "S3CRET"}
 	admin.expect(admin.do("POST", "/api/v1/backups/storages", storage), 403, "auth.step_up_required")
 	admin.elevate("")
-	admin.expect(admin.do("POST", "/api/v1/backups/storages", map[string]any{"name": "x", "endpoint": "bad host!", "bucket": "b", "accessKey": "a", "secretKey": "s"}), 400, "validation.invalid")
+	admin.expect(admin.do("POST", "/api/v1/backups/storages", map[string]any{"name": "x", "endpoint": "bad host!", "bucket": "my-bucket", "accessKey": "a", "secretKey": "s"}), 400, "validation.invalid")
 	s := admin.expect(admin.do("POST", "/api/v1/backups/storages", storage), 201, "")
 	sid := s.body["id"].(string)
 	if strings.Contains(s.raw, "S3CRET") || s.body["secretSet"] != true {
@@ -175,6 +239,13 @@ func TestBackupsModule(t *testing.T) {
 	if rres.StatusCode != http.StatusFound || rres.Header.Get("Location") != "https://acct.r2.example/x?sig=1" {
 		t.Fatalf("remote download %d %v", rres.StatusCode, rres.Header)
 	}
+	// ?link=1 tells where to download from, as JSON (errors stay JSON too).
+	if got := admin.expect(admin.do("GET", "/api/v1/backups/plans/"+pid+"/files/"+local+"?link=1", nil), 200, "").body["url"]; got != "/api/v1/backups/plans/"+pid+"/files/"+local {
+		t.Fatalf("local link %v", got)
+	}
+	if got := admin.expect(admin.do("GET", "/api/v1/backups/plans/"+pid+"/files/db-mysql-shop_20261116-030000.sql.zst.age?link=1", nil), 200, "").body["url"]; got != "https://acct.r2.example/x?sig=1" {
+		t.Fatalf("remote link %v", got)
+	}
 
 	// Restores carry the private key to the helper and nowhere else.
 	// The key is generated per run so no private key lives in the repository.
@@ -204,6 +275,112 @@ func TestBackupsModule(t *testing.T) {
 	if evs := got(); len(evs) != 1 || evs[0].Params["code"] != helperapi.CodeBackupStorage {
 		t.Fatalf("events %+v", evs)
 	}
+
+	// Storage may be on the LAN (a MinIO), but not on this host or at a
+	// metadata service, also behind a name; when saving and when testing.
+	e.resolver.set("metadata.example", "100.100.100.200")
+	for _, ep := range []string{"127.0.0.1:9000", "localhost:9000", "[::1]:9000", "169.254.169.254", "metadata.example", "[fd00:ec2::254]:80", "0.0.0.0:9000"} {
+		body := map[string]any{"name": "x", "endpoint": ep, "bucket": "my-bucket", "accessKey": "a", "secretKey": "s"}
+		admin.expect(admin.do("POST", "/api/v1/backups/storages", body), 400, "backup.endpoint_not_allowed")
+		admin.expect(admin.do("POST", "/api/v1/backups/storages/test", body), 400, "backup.endpoint_not_allowed")
+		admin.expect(admin.do("PUT", "/api/v1/backups/storages/"+sid, body), 400, "backup.endpoint_not_allowed")
+	}
+	admin.expect(admin.do("POST", "/api/v1/backups/storages", map[string]any{"name": "MinIO", "endpoint": "10.0.0.5:9000", "bucket": "my-bucket",
+		"accessKey": "a", "secretKey": "s", "insecure": true, "pathStyle": true}), 201, "")
+	// Testing other settings with a saved bucket's key takes a second
+	// verification: the key would go to the endpoint the request names.
+	fresh := e.client()
+	fresh.expect(fresh.login("admin", pw), 200, "")
+	fresh.expect(fresh.do("POST", "/api/v1/backups/storages/test", map[string]any{"id": sid, "endpoint": "collector.example", "bucket": "my-bucket", "accessKey": "AK"}),
+		403, "auth.step_up_required")
+	fresh.expect(fresh.do("POST", "/api/v1/backups/storages/test", map[string]any{"endpoint": "collector.example", "bucket": "my-bucket", "accessKey": "a", "secretKey": "s"}), 204, "")
+
+	// Directories outside the sites root are the file manager's
+	// administrators' (files.admin): backing them up, restoring into them,
+	// and reaching the backups of such a plan.
+	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "oper", "password": pw, "role": "operator"}), 201, "")
+	op := e.client()
+	op.expect(op.login("oper", pw), 200, "")
+	op.elevate("")
+	system := map[string]any{"name": "System", "targets": []any{map[string]any{"kind": "directory", "root": "system", "path": "etc"}}, "storageId": sid}
+	op.expect(op.do("POST", "/api/v1/backups/plans", system), 403, "auth.forbidden")
+	op.expect(op.do("POST", "/api/v1/backups/plans", map[string]any{"name": "Dumps", "targets": []any{map[string]any{"kind": "directory", "root": "backups"}}}),
+		403, "auth.forbidden")
+	op.expect(op.do("POST", "/api/v1/backups/plans", map[string]any{"name": "Shop files", "targets": []any{map[string]any{"kind": "directory", "root": "sites", "path": "shop"}}}),
+		201, "")
+	sysID := admin.expect(admin.do("POST", "/api/v1/backups/plans", system), 201, "").body["id"].(string)
+	op.expect(op.do("PUT", "/api/v1/backups/plans/"+sysID, system), 403, "auth.forbidden")
+	// Nor deleted by them (with or without its backups).
+	op.expect(op.do("DELETE", "/api/v1/backups/plans/"+sysID+"?files=true", nil), 403, "auth.forbidden")
+	sysFile := "dir-system-etc_20261116-030000.tar.zst"
+	op.expect(op.do("GET", "/api/v1/backups/plans/"+sysID+"/files/"+sysFile, nil), 403, "auth.forbidden")
+	op.expect(op.do("GET", "/api/v1/backups/plans/"+sysID+"/files/"+sysFile+"?link=1", nil), 403, "auth.forbidden")
+	op.expect(op.do("POST", "/api/v1/backups/plans/"+sysID+"/delete", map[string]any{"names": []string{sysFile}}), 403, "auth.forbidden")
+	op.expect(op.do("POST", "/api/v1/backups/plans/"+sysID+"/restore", map[string]any{"name": sysFile, "dest": map[string]any{"root": "sites", "path": "x"}}),
+		403, "auth.forbidden")
+	op.expect(op.do("POST", "/api/v1/backups/plans/"+pid+"/restore", map[string]any{"name": local, "dest": map[string]any{"root": "system", "path": "etc"}}),
+		403, "auth.forbidden")
+	// The bucket of such a plan cannot be moved by them either.
+	op.expect(op.do("PUT", "/api/v1/backups/storages/"+sid, map[string]any{"name": "R2", "endpoint": "collector.example", "bucket": "panel-backups", "accessKey": "AK"}),
+		403, "auth.forbidden")
+	admin.runJob(admin.expect(admin.do("POST", "/api/v1/backups/plans/"+sysID+"/restore", map[string]any{"name": sysFile, "dest": map[string]any{"root": "system", "path": "restore"}}), 202, ""))
+
+	// Rewriting such a plan to the sites does not hand its earlier backups
+	// over: changing it takes the permission and a second verification,
+	// and a backup goes by what it holds (its name), not by the plan now.
+	shopOnly := map[string]any{"name": "System", "targets": []any{map[string]any{"kind": "site", "site": "shop"}}, "storageId": sid}
+	op.expect(op.do("PUT", "/api/v1/backups/plans/"+sysID, shopOnly), 403, "auth.forbidden")
+	fresh.expect(fresh.do("PUT", "/api/v1/backups/plans/"+sysID, shopOnly), 403, "auth.step_up_required")
+	admin.expect(admin.do("PUT", "/api/v1/backups/plans/"+sysID, shopOnly), 200, "")
+	for _, plan := range []string{sysID, pid} {
+		op.expect(op.do("GET", "/api/v1/backups/plans/"+plan+"/files/"+sysFile, nil), 403, "auth.forbidden")
+		op.expect(op.do("POST", "/api/v1/backups/plans/"+plan+"/restore", map[string]any{"name": sysFile, "dest": map[string]any{"root": "sites", "path": "x"}}),
+			403, "auth.forbidden")
+		op.expect(op.do("GET", "/api/v1/backups/plans/"+plan+"/files/dir-backups_20261116-030000.tar.zst", nil), 403, "auth.forbidden")
+	}
+	// Backups of sites stay the managers'.
+	siteFile := "dir-sites-shop_20261116-030000.tar.zst"
+	if err := os.MkdirAll(filepath.Join(e.dataDir, "backups/plans", sysID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.dataDir, "backups/plans", sysID, siteFile), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if res, _ := op.raw("GET", "/api/v1/backups/plans/"+sysID+"/files/"+siteFile, nil); res.StatusCode != 200 {
+		t.Fatalf("site backup download %d", res.StatusCode)
+	}
+
+	// Deleting a bucket while a plan is saved with it, or a plan while a
+	// task is saved for it: one of the two fails, nothing points nowhere.
+	site := []any{map[string]any{"kind": "site", "site": "shop"}}
+	for i := 0; i < 5; i++ {
+		st := admin.expect(admin.do("POST", "/api/v1/backups/storages", map[string]any{"name": fmt.Sprintf("tmp%d", i), "endpoint": "s3.example.com",
+			"bucket": "my-bucket", "accessKey": "a", "secretKey": "s"}), 201, "").body["id"].(string)
+		plan := admin.expect(admin.do("POST", "/api/v1/backups/plans", map[string]any{"name": fmt.Sprintf("q%d", i), "targets": site}), 201, "").body["id"].(string)
+		var wg sync.WaitGroup
+		wg.Add(4)
+		go func() { defer wg.Done(); admin.do("DELETE", "/api/v1/backups/storages/"+st, nil) }()
+		go func() {
+			defer wg.Done()
+			admin.do("POST", "/api/v1/backups/plans", map[string]any{"name": fmt.Sprintf("p%d", i), "targets": site, "storageId": st})
+		}()
+		go func() { defer wg.Done(); admin.do("DELETE", "/api/v1/backups/plans/"+plan, nil) }()
+		go func() {
+			defer wg.Done()
+			admin.do("POST", "/api/v1/cron", map[string]any{"name": fmt.Sprintf("t%d", i), "type": "backup", "schedule": "daily", "plan": plan, "enabled": true})
+		}()
+		wg.Wait()
+	}
+	var dangling int
+	_ = e.db.QueryRow(`SELECT count(*) FROM backup_plans WHERE storage_id != '' AND storage_id NOT IN (SELECT id FROM backup_storages)`).Scan(&dangling)
+	if dangling != 0 {
+		t.Fatalf("%d plans use a deleted bucket", dangling)
+	}
+	_ = e.db.QueryRow(`SELECT count(*) FROM cron_tasks WHERE json_extract(spec, '$.type') = 'backup'
+		AND json_extract(spec, '$.plan') NOT IN (SELECT id FROM backup_plans)`).Scan(&dangling)
+	if dangling != 0 {
+		t.Fatalf("%d tasks run a deleted plan", dangling)
+	}
 }
 
 func TestLogsModule(t *testing.T) {
@@ -223,4 +400,34 @@ func TestLogsModule(t *testing.T) {
 	e.helper.errs = map[string]error{helperapi.ActionLogJournal: &helperapi.Error{Code: helperapi.CodeLogNoJournal}}
 	e.helper.mu.Unlock()
 	admin.expect(admin.do("GET", "/api/v1/logs/journal", nil), 404, helperapi.CodeLogNoJournal)
+}
+
+func TestCronRecoverInterrupted(t *testing.T) {
+	e := newEnv(t)
+	for _, q := range []string{
+		`INSERT INTO jobs (id, kind, permission, manage_permission, state, created_at) VALUES
+			('aaaaaaaaaaaaaaaaaaaaaaaa', 'cron.update', 'cron.read', 'cron.manage', 'interrupted', 1),
+			('bbbbbbbbbbbbbbbbbbbbbbbb', 'cron.update', 'cron.read', 'cron.manage', 'running', 1)`,
+		`INSERT INTO cron_tasks (id, name, spec, state, last_job, created_at, updated_at) VALUES
+			('tgone', 'gone', '{}', 'applying', 'aaaaaaaaaaaaaaaaaaaaaaaa', 1, 1),
+			('tnever', 'never', '{}', 'applying', '', 1, 1),
+			('tbusy', 'busy', '{}', 'applying', 'bbbbbbbbbbbbbbbbbbbbbbbb', 1, 1),
+			('tfine', 'fine', '{}', 'active', 'aaaaaaaaaaaaaaaaaaaaaaaa', 1, 1)`,
+	} {
+		if _, err := e.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.cron.Recover(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{
+		"tgone": "failed job.interrupted", "tnever": "failed job.interrupted", "tbusy": "applying ", "tfine": "active ",
+	} {
+		var state, code string
+		_ = e.db.QueryRow(`SELECT state, error_code FROM cron_tasks WHERE id = ?`, id).Scan(&state, &code)
+		if got := state + " " + code; got != want {
+			t.Errorf("%s: %q, want %q", id, got, want)
+		}
+	}
 }

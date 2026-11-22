@@ -10,9 +10,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/execx"
@@ -25,6 +28,7 @@ type dbCall struct {
 	args  []string
 	stdin string
 	env   []string
+	runAs *execx.RunAs
 }
 
 func (c dbCall) line() string { return c.name + " " + strings.Join(c.args, " ") }
@@ -60,13 +64,16 @@ func newDBEnv(t *testing.T, installed map[string]string) *dbEnv {
 	oldRun, oldUser := dbRun, lookupUser
 	t.Cleanup(func() { dbRun, lookupUser = oldRun, oldUser })
 	lookupUser = func(name string) (int, int, error) {
-		if name == "cairn" {
+		switch name {
+		case "cairn":
 			return uid, gid, nil
+		case "nobody":
+			return 65534, 65534, nil
 		}
 		return 0, 0, os.ErrNotExist
 	}
 	dbRun = func(_ context.Context, c execx.Cmd) (execx.Result, error) {
-		call := dbCall{name: c.Name, args: c.Args, env: c.Env}
+		call := dbCall{name: c.Name, args: c.Args, env: c.Env, runAs: c.RunAs}
 		if c.Stdin != nil {
 			data, _ := io.ReadAll(c.Stdin)
 			call.stdin = string(data)
@@ -229,8 +236,31 @@ func TestMySQLCreateUserAndDrop(t *testing.T) {
 		t.Fatalf("the log must mask the password:\n%s", log)
 	}
 
-	// A new user needs a password.
+	// Nil hosts and grants (a user the panel did not create): the password
+	// changes on every host entry and nothing is revoked or dropped.
+	e.reset()
+	pwOnly := helperapi.DBUserRequest{Engine: "mysql", Name: "my_shop", Password: "N3w-secret"}
+	if op, log := e.run(helperapi.ActionDBUserSet, pwOnly); op.State != helperapi.OpSucceeded {
+		t.Fatalf("password only: %+v\n%s", op, log)
+	}
+	sql = e.script()
+	for _, want := range []string{"ALTER USER 'my_shop'@'localhost' IDENTIFIED BY 'N3w-secret';", "ALTER USER 'my_shop'@'10.0.0.0/255.0.0.0' IDENTIFIED BY 'N3w-secret';"} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("password script lacks %q:\n%s", want, sql)
+		}
+	}
+	for _, never := range []string{"REVOKE", "GRANT", "DROP USER", "CREATE USER"} {
+		if strings.Contains(sql, never) {
+			t.Errorf("password script has %s:\n%s", never, sql)
+		}
+	}
+	// Nil hosts need an existing user.
 	hosts = ""
+	if op, _ := e.run(helperapi.ActionDBUserSet, pwOnly); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBUserNotFound {
+		t.Fatalf("password only, missing user: %+v", op)
+	}
+
+	// A new user needs a password.
 	req.Password = ""
 	if op, _ := e.run(helperapi.ActionDBUserSet, req); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBPasswordNeed {
 		t.Fatalf("user without password: %+v", op)
@@ -343,6 +373,11 @@ func TestMySQLDumpAndRestore(t *testing.T) {
 	c := e.calls[0]
 	if c.stdin != dump || !strings.Contains(c.line(), "--database=shop") || strings.Contains(c.line(), "pass#word1") {
 		t.Fatalf("restore call %s with %q", c.line(), c.stdin)
+	}
+	// Client commands are off for piped input, and so is LOAD DATA LOCAL:
+	// the client runs as root and the dump is untrusted.
+	if !strings.Contains(c.line(), " --binary-mode ") || !strings.Contains(c.line(), " --local-infile=0 ") || !strings.HasPrefix(c.args[0], "--defaults-extra-file=") {
+		t.Fatalf("restore options %s", c.line())
 	}
 	// The credentials come from a quoted option file, removed afterwards.
 	if cnf != "[client]\nuser=\"shop\"\npassword=\"pass#word1\"\n" {
@@ -480,6 +515,38 @@ func TestPostgreSQLUsersAndHosts(t *testing.T) {
 		t.Fatalf("hosts read back %v", hosts)
 	}
 
+	// Nil hosts and grants (a user the panel did not create): only the
+	// password changes; no privilege and no pg_hba.conf entry is touched.
+	pwOnly := helperapi.DBUserRequest{Engine: "postgresql-17", Name: "report", Password: "N3w-secret"}
+	if op, _ := e.run(helperapi.ActionDBUserSet, pwOnly); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBUserNotFound {
+		t.Fatalf("password only, missing role: %+v", op)
+	}
+	e.reply = func(c dbCall) (string, error) {
+		switch {
+		case c.name == "/usr/bin/pg_lsclusters":
+			return pgClusters, nil
+		case strings.HasPrefix(c.stdin, "SELECT 'r' FROM pg_roles"):
+			return "r\n", nil
+		case strings.HasPrefix(c.stdin, "SELECT 'd', datname"):
+			return "d\tpostgres\tpostgres\nd\tstats\tpostgres\n", nil
+		case strings.Contains(c.stdin, "aclexplode"):
+			return "g\tstats\n", nil
+		}
+		return "", nil
+	}
+	e.reset()
+	if op, log := e.run(helperapi.ActionDBUserSet, pwOnly); op.State != helperapi.OpSucceeded {
+		t.Fatalf("password only: %+v\n%s", op, log)
+	}
+	sql := e.script()
+	if !strings.Contains(sql, `ALTER ROLE "report" WITH LOGIN PASSWORD 'N3w-secret';`) || strings.Contains(sql, "REVOKE") || strings.Contains(sql, "GRANT") ||
+		strings.Contains(sql, "pg_reload_conf") {
+		t.Fatalf("password only script:\n%s", sql)
+	}
+	if again, _ := os.ReadFile(filepath.Join(e.d.Root, "/etc/postgresql/17/main/pg_hba.conf")); string(again) != string(hba) {
+		t.Fatalf("pg_hba.conf changed:\n%s", again)
+	}
+
 	// Dropping: a role owning a database stays; otherwise its objects go
 	// to each database's owner first.
 	roleExists = true
@@ -578,6 +645,41 @@ func TestPostgreSQLCreateClusterRemoteAndDump(t *testing.T) {
 		!bytes.Contains([]byte(strings.Join(c.env, "\n")), []byte("PGPASSWORD=S3cret-pass")) {
 		t.Fatalf("restore call %s env %v stdin %q", c.line(), c.env, c.stdin)
 	}
+	// The client reading the dump is unprivileged: psql would run a
+	// script's meta-commands (\!, \copy ... from program) with its rights.
+	if c.runAs == nil || c.runAs.Uid != 65534 || c.runAs.Gid != 65534 || len(c.runAs.Groups) != 0 {
+		t.Fatalf("restore runs as %+v", c.runAs)
+	}
+
+	// A plain SQL dump goes through psql, unprivileged as well.
+	dir := filepath.Join(e.d.Root, "/var/lib/cairn/backups/db/postgresql-17")
+	writeSystemFile(t, dir, "/shop.sql", "\\! id\n")
+	e.reset()
+	if op, log := e.run(helperapi.ActionDBRestore, helperapi.DBRestoreRequest{Engine: "postgresql-17", Name: "shop", File: "shop.sql", User: "shop", Password: "S3cret-pass"}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("sql restore: %+v\n%s", op, log)
+	}
+	c = e.calls[len(e.calls)-1]
+	if c.name != "/usr/lib/postgresql/17/bin/psql" || !strings.Contains(c.line(), "-f - -h 127.0.0.1 -p 5432 -U shop -d shop") || c.stdin != "\\! id\n" ||
+		c.runAs == nil || c.runAs.Uid != 65534 {
+		t.Fatalf("sql restore call %s as %+v stdin %q", c.line(), c.runAs, c.stdin)
+	}
+	// Without the unprivileged account the dump is not read at all.
+	old := lookupUser
+	lookupUser = func(name string) (int, int, error) {
+		if name == "nobody" {
+			return 0, 0, os.ErrNotExist
+		}
+		return old(name)
+	}
+	e.reset()
+	if op, _ := e.run(helperapi.ActionDBRestore, helperapi.DBRestoreRequest{Engine: "postgresql-17", Name: "shop", File: "shop.sql", User: "shop", Password: "S3cret-pass"}); op.State != helperapi.OpFailed {
+		t.Fatalf("restore without the account: %+v", op)
+	}
+	for _, c := range e.calls {
+		if strings.Contains(c.name, "psql") || strings.Contains(c.name, "pg_restore") {
+			t.Fatalf("a client ran: %s", c.line())
+		}
+	}
 }
 
 func TestDBValidation(t *testing.T) {
@@ -597,6 +699,11 @@ func TestDBValidation(t *testing.T) {
 		{helperapi.DBUserRequest{Engine: "mysql", Name: "app", Password: "it's-a-pass", Hosts: []string{"localhost"}}, false},
 		{helperapi.DBUserRequest{Engine: "mysql", Name: "app", Password: "good-pass#1", Hosts: []string{"10.0.0.0/8", "%", "1.2.3.4"}}, true},
 		{helperapi.DBUserRequest{Engine: "mysql", Name: "app", Hosts: []string{"example.com"}}, false},
+		// Nil hosts keep an existing user's; a new user and an empty list
+		// need some.
+		{helperapi.DBUserRequest{Engine: "mysql", Name: "app", Password: "good-pass#1"}, true},
+		{helperapi.DBUserRequest{Engine: "mysql", Name: "app", Password: "good-pass#1", New: true}, false},
+		{helperapi.DBUserRequest{Engine: "mysql", Name: "app", Hosts: []string{}}, false},
 		{helperapi.DBUserRequest{Engine: "mysql", Name: "app", Hosts: []string{"localhost"}, Grants: []helperapi.DBGrant{{Database: "mysql", Level: "all"}}}, false},
 		{helperapi.DBRestoreRequest{Engine: "mysql", Name: "shop", File: "../x.sql", User: "shop", Password: "good-pass#1"}, false},
 		{helperapi.DBRestoreRequest{Engine: "mysql", Name: "shop", File: "shop.sql.gz", User: "shop", Password: "good-pass#1"}, true},
@@ -613,5 +720,133 @@ func decode(t *testing.T, raw []byte, v any) {
 	t.Helper()
 	if err := json.Unmarshal(raw, v); err != nil {
 		t.Fatalf("decode %s: %v", raw, err)
+	}
+}
+
+func TestPostgreSQLRestoreInUnit(t *testing.T) {
+	e := newPGEnv(t)
+	e.f.systemd = true
+	oldDir := unitCredDir
+	unitCredDir = t.TempDir()
+	t.Cleanup(func() { unitCredDir = oldDir })
+	version := "psql (PostgreSQL) 17.6 (Debian 17.6-0+deb13u1)\n"
+	var cred string
+	var credMode os.FileMode
+	e.reply = func(c dbCall) (string, error) {
+		switch {
+		case c.name == "/usr/bin/pg_lsclusters":
+			return pgClusters, nil
+		case len(c.args) == 1 && c.args[0] == "--version":
+			return version, nil
+		case c.name == "systemd-run":
+			for _, a := range c.args {
+				if p, ok := strings.CutPrefix(a, "--property=LoadCredential=pgpass:"); ok {
+					data, _ := os.ReadFile(p)
+					fi, _ := os.Stat(p)
+					cred, credMode = string(data), fi.Mode().Perm()
+				}
+			}
+		}
+		return "", nil
+	}
+	dir := "/var/lib/cairn/backups/db/postgresql-17"
+	writeSystemFile(t, e.d.Root, dir+"/shop.dump", "PGDMP-data")
+	// A plain dump of pg_dump 17.6 wraps itself in \restrict; a hostile
+	// one adds meta-commands.
+	writeSystemFile(t, e.d.Root, dir+"/shop.sql", "-- PostgreSQL dump\n\\restrict AbC123\nSET x = 1;\nCOPY public.t (a) FROM stdin;\n"+
+		"\\restrict kept\n\\.\n\\! id\n\\unrestrict AbC123\n")
+	req := helperapi.DBRestoreRequest{Engine: "postgresql-17", Name: "shop", File: "shop.dump", User: "shop", Password: "S3c:ret-pass"}
+
+	// pg_restore runs in a unit of its own, as a user of its own, with
+	// the password in a credential file.
+	if op, log := e.run(helperapi.ActionDBRestore, req); op.State != helperapi.OpSucceeded {
+		t.Fatalf("restore: %+v\n%s", op, log)
+	}
+	c := e.calls[len(e.calls)-1]
+	line := c.line()
+	for _, want := range []string{"systemd-run --quiet --wait --pipe --collect --unit=cairn-run-", "--property=DynamicUser=yes",
+		"--setenv=PGCONNECT_TIMEOUT=10", `-- /bin/sh -c export PGPASSFILE="$CREDENTIALS_DIRECTORY/pgpass"; exec "$@" sh /usr/lib/postgresql/17/bin/pg_restore`,
+		"-h 127.0.0.1 -p 5432 -U shop -d shop"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("restore call lacks %q:\n%s", want, line)
+		}
+	}
+	if strings.Contains(line, "S3c") || strings.Contains(line, "PGPASSWORD") || len(c.env) != 0 || c.runAs != nil || c.stdin != "PGDMP-data" {
+		t.Fatalf("restore call %s env %v as %+v stdin %q", line, c.env, c.runAs, c.stdin)
+	}
+	if cred != "127.0.0.1:5432:*:shop:S3c\\:ret-pass\n" || credMode != 0o600 {
+		t.Fatalf("credential %q %v", cred, credMode)
+	}
+	if left, _ := os.ReadDir(unitCredDir); len(left) != 0 {
+		t.Fatalf("credential files left: %v", left)
+	}
+
+	// A plain dump: psql refuses its meta-commands (\restrict), the dump's
+	// own \restrict lines go, COPY data stays as it is.
+	req.File = "shop.sql"
+	e.reset()
+	if op, log := e.run(helperapi.ActionDBRestore, req); op.State != helperapi.OpSucceeded {
+		t.Fatalf("sql restore: %+v\n%s", op, log)
+	}
+	c = e.calls[len(e.calls)-1]
+	key, rest, _ := strings.Cut(c.stdin, "\n")
+	if !regexp.MustCompile(`^\\restrict [A-Za-z0-9]{32}$`).MatchString(key) ||
+		rest != "-- PostgreSQL dump\nSET x = 1;\nCOPY public.t (a) FROM stdin;\n\\restrict kept\n\\.\n\\! id\n" {
+		t.Fatalf("psql input %q", c.stdin)
+	}
+	if !strings.Contains(c.line(), "/usr/lib/postgresql/17/bin/psql -X -q -v ON_ERROR_STOP=1 -f -") {
+		t.Fatalf("psql call %s", c.line())
+	}
+	// An older psql cannot restrict: the dump goes as it is, with a note.
+	version = "psql (PostgreSQL) 17.5 (Debian 17.5-1)\n"
+	e.reset()
+	op, log := e.run(helperapi.ActionDBRestore, req)
+	if c := e.calls[len(e.calls)-1]; op.State != helperapi.OpSucceeded || strings.HasPrefix(c.stdin, "\\restrict ") || !strings.Contains(log, "psql 17.5 cannot refuse") {
+		t.Fatalf("old psql: %+v %q\n%s", op.Error, c.stdin, log)
+	}
+	for v, want := range map[string]bool{"13.21": false, "13.22": true, "14.19": true, "15.13": false, "16.10": true, "18.0": true, "18beta1": true, "12.22": false} {
+		version = "psql (PostgreSQL) " + v + "\n"
+		if _, ok := e.d.pgRestrictable(t.Context(), dbEngine{line: "17"}); ok != want {
+			t.Errorf("psql %s: %v", v, ok)
+		}
+	}
+}
+
+func TestOpenDumpRefusesSpecialFiles(t *testing.T) {
+	e := newPGEnv(t)
+	dir := filepath.Join(e.d.Root, "/var/lib/cairn/backups/db/postgresql-17")
+	writeSystemFile(t, e.d.Root, "/var/lib/cairn/backups/db/postgresql-17/ok.sql", "SELECT 1;\n")
+	if err := syscall.Mkfifo(filepath.Join(dir, "fifo.sql"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeSystemFile(t, e.d.Root, "/etc/secret.sql", "secret")
+	if err := os.Link(filepath.Join(e.d.Root, "/etc/secret.sql"), filepath.Join(dir, "linked.sql")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(e.d.Root, "/etc/secret.sql"), filepath.Join(dir, "sym.sql")); err != nil {
+		t.Fatal(err)
+	}
+	f, err := e.d.openDump("postgresql-17", "ok.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	for _, name := range []string{"fifo.sql", "linked.sql", "sym.sql", "missing.sql"} {
+		done := make(chan error, 1)
+		go func() {
+			f, err := e.d.openDump("postgresql-17", name)
+			if err == nil {
+				_ = f.Close()
+			}
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			if code(err) != helperapi.CodeDBDumpNotFound {
+				t.Errorf("%s: %v", name, err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: opening blocks", name)
+		}
 	}
 }

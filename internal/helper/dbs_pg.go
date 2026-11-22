@@ -3,12 +3,16 @@
 package helper
 
 import (
+	"bufio"
 	"context"
+	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -398,6 +402,10 @@ func (d *DBs) pgUserSet(ctx context.Context, log io.Writer, e dbEngine, req help
 	if req.New && exists {
 		return dbErr(helperapi.CodeDBUserExists, map[string]any{"name": req.Name})
 	}
+	// Nil hosts keep the user's pg_hba.conf entries (an existing user only).
+	if req.Hosts == nil && !exists {
+		return dbErr(helperapi.CodeDBUserNotFound, map[string]any{"name": req.Name})
+	}
 	dbs, err := d.pgDatabases(ctx, e, c)
 	if err != nil {
 		return err
@@ -419,11 +427,29 @@ func (d *DBs) pgUserSet(ctx context.Context, log io.Writer, e dbEngine, req help
 	case req.Password != "":
 		s.add("ALTER ROLE %s WITH LOGIN PASSWORD %s;", pgID(req.Name), secret(pgStr(req.Password)))
 	}
-	s.add("SELECT 'g', d.datname FROM pg_database d WHERE NOT d.datistemplate AND EXISTS (SELECT 1 FROM aclexplode(d.datacl) a WHERE a.grantee = %s::regrole);", pgStr(req.Name))
+	// Nil grants leave the privileges as they are: a password or host
+	// change never revokes anything.
+	if req.Grants != nil {
+		s.add("SELECT 'g', d.datname FROM pg_database d WHERE NOT d.datistemplate AND EXISTS (SELECT 1 FROM aclexplode(d.datacl) a WHERE a.grantee = %s::regrole);", pgStr(req.Name))
+	}
 	rows, err := d.psql(ctx, log, e, c, "postgres", &s)
 	if err != nil {
 		return err
 	}
+	if req.Grants != nil {
+		if err := d.pgSetGrants(ctx, log, e, c, req.Name, dbs, wanted, rows); err != nil {
+			return err
+		}
+	}
+	if req.Hosts == nil {
+		return nil
+	}
+	return d.pgSetHosts(ctx, log, e, c, req.Name, req.Hosts)
+}
+
+// pgSetGrants gives user exactly the wanted access (by database), revoking
+// it from the databases where it has some (rows of 'g' and a name).
+func (d *DBs) pgSetGrants(ctx context.Context, log io.Writer, e dbEngine, c pgClusterInfo, user string, dbs, wanted map[string]string, rows [][]string) error {
 	touch := map[string]bool{}
 	for db := range wanted {
 		touch[db] = true
@@ -436,19 +462,19 @@ func (d *DBs) pgUserSet(ctx context.Context, log io.Writer, e dbEngine, req help
 	names := make([]string, 0, len(touch))
 	for db := range touch {
 		// An owner has every privilege anyway.
-		if owner, ok := dbs[db]; ok && owner != req.Name {
+		if owner, ok := dbs[db]; ok && owner != user {
 			names = append(names, db)
 		}
 	}
 	sort.Strings(names)
 	for _, db := range names {
 		var g sqlScript
-		pgGrantScript(&g, req.Name, db, dbs[db], wanted[db])
+		pgGrantScript(&g, user, db, dbs[db], wanted[db])
 		if _, err := d.psql(ctx, log, e, c, db, &g); err != nil {
 			return err
 		}
 	}
-	return d.pgSetHosts(ctx, log, e, c, req.Name, req.Hosts)
+	return nil
 }
 
 func (d *DBs) pgUserDrop(ctx context.Context, log io.Writer, e dbEngine, name string) error {
@@ -575,11 +601,24 @@ func (d *DBs) pgDumpTo(ctx context.Context, log io.Writer, e dbEngine, c pgClust
 }
 
 // pgRestore loads a dump as the given user over TCP with its password, so
-// the dump has that user's rights only.
+// the dump has that user's rights only. The client itself is unprivileged:
+// psql runs a script's meta-commands (\!, \o |command, \copy ... from
+// program) with its own rights. With systemd it runs in a unit of its own,
+// as a user allocated for this run (nothing it starts outlives the unit,
+// and no other run shares its user), with the password in a credential
+// file only it can read; a psql that knows \restrict also refuses every
+// meta-command of the dump.
 func (d *DBs) pgRestore(ctx context.Context, log io.Writer, e dbEngine, req helperapi.DBRestoreRequest) error {
 	c, err := d.pgOnline(ctx, e)
 	if err != nil {
 		return err
+	}
+	unit := systemdRunning()
+	var runAs *execx.RunAs
+	if !unit {
+		if runAs, err = dumpReaderIdentity(); err != nil {
+			return err
+		}
 	}
 	in, err := d.openDump(e.id, req.File)
 	if err != nil {
@@ -588,16 +627,147 @@ func (d *DBs) pgRestore(ctx context.Context, log io.Writer, e dbEngine, req help
 	defer func() { _ = in.Close() }()
 	conn := []string{"-h", "127.0.0.1", "-p", strconv.Itoa(c.port), "-U", req.User, "-d", req.Name}
 	var cmd execx.Cmd
+	var input io.Reader = in
 	if strings.HasSuffix(req.File, ".dump") {
 		cmd = execx.Cmd{Name: pgBin(e, "pg_restore"), Args: append([]string{"--no-owner", "--no-privileges", "--clean", "--if-exists", "--exit-on-error"}, conn...)}
 	} else {
 		cmd = execx.Cmd{Name: pgBin(e, "psql"), Args: append([]string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "-"}, conn...)}
+		if v, ok := d.pgRestrictable(ctx, e); ok {
+			key, err := randomAlnum(32)
+			if err != nil {
+				return err
+			}
+			script := pgUnrestricted(in)
+			defer func() { _ = script.Close() }()
+			input = io.MultiReader(strings.NewReader(`\restrict `+key+"\n"), script)
+		} else {
+			_, _ = fmt.Fprintf(log, "Note: psql %s cannot refuse the dump's meta-commands (\\restrict needs 13.22, 14.19, 15.14, 16.10, 17.6 or later).\n", v)
+		}
 	}
-	cmd.Stdin, cmd.Output, cmd.Timeout, cmd.MaxOutput = in, log, dumpTimeout, 64<<10
-	cmd.Env = []string{"PGPASSWORD=" + req.Password, "PGCONNECT_TIMEOUT=10"}
+	cmd.Stdin, cmd.Output, cmd.Timeout, cmd.MaxOutput = input, log, dumpTimeout, 64<<10
+	cmd.Env = []string{"PGCONNECT_TIMEOUT=10"}
 	_, _ = fmt.Fprintf(log, "$ %s -U %s -d %s < %s\n", path.Base(cmd.Name), req.User, req.Name, req.File)
-	if _, err := dbRun(ctx, cmd); err != nil {
+	if unit {
+		_, err = runInUnit(ctx, unitRun{Cmd: cmd, DynamicUser: true,
+			Credentials:   map[string][]byte{"pgpass": []byte(pgpassLine(c.port, req.User, req.Password))},
+			CredentialEnv: map[string]string{"PGPASSFILE": "pgpass"}})
+	} else {
+		cmd.RunAs = runAs
+		cmd.Env = append(cmd.Env, "PGPASSWORD="+req.Password)
+		_, err = dbRun(ctx, cmd)
+	}
+	if err != nil {
 		return pgError(err, e)
 	}
 	return nil
+}
+
+// pgpassLine is a password file's line for the restore's connection; ':'
+// and '\' are escaped as libpq reads them.
+func pgpassLine(port int, user, password string) string {
+	esc := strings.NewReplacer(`\`, `\\`, ":", `\:`).Replace
+	return "127.0.0.1:" + strconv.Itoa(port) + ":*:" + esc(user) + ":" + esc(password) + "\n"
+}
+
+var psqlVersion = regexp.MustCompile(`\(PostgreSQL\) ([0-9]+)(?:\.([0-9]+))?`)
+
+// pgRestrictable reports whether the line's psql knows \restrict (the
+// releases of August 2025: 17.6, 16.10, 15.14, 14.19, 13.22, and 18), and
+// its version for the log.
+func (d *DBs) pgRestrictable(ctx context.Context, e dbEngine) (string, bool) {
+	res, err := dbRun(ctx, execx.Cmd{Name: pgBin(e, "psql"), Args: []string{"--version"}, Timeout: 30 * time.Second, MaxOutput: 4096})
+	if err != nil {
+		return "?", false
+	}
+	m := psqlVersion.FindStringSubmatch(string(res.Stdout))
+	if m == nil {
+		return "?", false
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	v := m[1]
+	if m[2] != "" {
+		v += "." + m[2]
+	}
+	first := map[int]int{13: 22, 14: 19, 15: 14, 16: 10, 17: 6}
+	if major >= 18 {
+		return v, true
+	}
+	need, known := first[major]
+	return v, known && minor >= need
+}
+
+// randomAlnum returns n random letters and digits.
+func randomAlnum(n int) (string, error) {
+	const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	for i := range b {
+		b[i] = chars[int(b[i])%len(chars)]
+	}
+	return string(b), nil
+}
+
+var (
+	// The lines pg_dump (17.6 and later) wraps a plain dump in. Under the
+	// helper's own \restrict they would stop the restore: they go.
+	pgRestrictLine = regexp.MustCompile(`^\\(?:un)?restrict [A-Za-z0-9]+\r?\n?$`)
+	pgCopyStart    = regexp.MustCompile(`^COPY .* FROM stdin;\r?\n$`)
+)
+
+// pipeCopy is the reading end of a copy running in a goroutine; Close
+// stops the copy and waits for it, so that its source can be closed.
+type pipeCopy struct {
+	*io.PipeReader
+	done chan struct{}
+}
+
+func (p pipeCopy) Close() error {
+	err := p.PipeReader.Close()
+	<-p.done
+	return err
+}
+
+// pgUnrestricted passes a plain dump on without its own \restrict and
+// \unrestrict lines (outside COPY data, which is passed as it is).
+// Closing it stops the copy.
+func pgUnrestricted(in io.Reader) io.ReadCloser {
+	pr, pw := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		br := bufio.NewReaderSize(in, 64<<10)
+		start, inCopy := true, false
+		for {
+			chunk, err := br.ReadSlice('\n')
+			whole := !errors.Is(err, bufio.ErrBufferFull)
+			drop := false
+			if start && len(chunk) > 0 {
+				switch {
+				case inCopy:
+					inCopy = strings.TrimRight(string(chunk), "\r\n") != `\.`
+				case whole && pgCopyStart.Match(chunk):
+					inCopy = true
+				case whole && pgRestrictLine.Match(chunk):
+					drop = true
+				}
+			}
+			if !drop && len(chunk) > 0 {
+				if _, werr := pw.Write(chunk); werr != nil {
+					return
+				}
+			}
+			start = whole
+			if err != nil && whole {
+				if errors.Is(err, io.EOF) {
+					err = nil
+				}
+				_ = pw.CloseWithError(err)
+				return
+			}
+		}
+	}()
+	return pipeCopy{PipeReader: pr, done: done}
 }

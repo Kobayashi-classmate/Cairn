@@ -33,7 +33,9 @@ import (
 const (
 	Read   authz.Permission = "cron.read"
 	Manage authz.Permission = "cron.manage"
-	// Root creates and changes tasks that run as root (administrators).
+	// Root creates, changes, runs and deletes shell tasks that run as root
+	// or as a user that is not a site owner (on cloud images the default
+	// user can sudo without a password) (administrators).
 	Root authz.Permission = "cron.root"
 )
 
@@ -87,7 +89,8 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("DELETE /api/v1/cron/{id}", m.remove, api.Require(Manage), doc("Delete a task (starts a job)"), job)
 	r.Handle("POST /api/v1/cron/{id}/run", m.run, api.Require(Manage), api.NoBody(), doc("Run a task now (starts a job)"), job)
 	r.Handle("GET /api/v1/cron/{id}/runs", m.runs, api.Require(Read), doc("A task's runs, newest first"), api.Returns(200, helperapi.CronRuns{}))
-	r.Handle("GET /api/v1/cron/{id}/runs/{invocation}/log", m.runLog, api.Require(Read), doc("A run's output"), api.Returns(200, helperapi.CronLog{}))
+	r.Handle("GET /api/v1/cron/{id}/runs/{invocation}/log", m.runLog, api.Require(Read),
+		doc("A run's output; that of a task running as root or a user other than a site owner needs cron.root"), api.Returns(200, helperapi.CronLog{}))
 }
 
 type taskRequest struct {
@@ -208,8 +211,23 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	resp := listResponse{Systemd: st.Systemd || !known, StatusAvailable: known, Tasks: []taskView{}}
+	// Scripts and URLs can hold passwords and keys: they show only to those
+	// who may change the task.
+	p, ok := api.PrincipalFrom(r.Context())
+	manage, root := ok && p.Can(Manage), ok && p.Can(Root)
+	var users *helperapi.TermUsers
+	if manage && !root {
+		if list, err := m.termUsers(r); err == nil {
+			users = &list
+		} // without the list every shell task counts as privileged
+	}
 	for _, rw := range rows {
 		v := taskView{CronSpec: rw.spec, Name: rw.name, State: rw.state, ErrorCode: rw.code, LastJob: rw.lastJob, CreatedAt: rw.created, UpdatedAt: rw.updated}
+		if !manage {
+			v.Script, v.URL = "", ""
+		} else if !root && v.Type == helperapi.CronShell && (users == nil || runAs(*users, rw.spec) != helperapi.TermUserSite) {
+			v.Script = ""
+		}
 		if s, ok := st.Tasks[rw.spec.ID]; ok {
 			v.NextRun, v.LastRun, v.Running, v.Result = s.NextRun, s.LastRun, s.Running, s.Result
 		}
@@ -218,17 +236,26 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusOK, resp)
 }
 
-func (m *Module) users(w http.ResponseWriter, r *http.Request) error {
+func (m *Module) termUsers(r *http.Request) (helperapi.TermUsers, error) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	var resp helperapi.TermUsers
 	if err := m.Helper.Call(ctx, helperapi.ActionTermUsers, callerOf(r), nil, &resp); err != nil {
-		return helperError(err)
+		return resp, helperError(err)
 	}
+	return resp, nil
+}
+
+func (m *Module) users(w http.ResponseWriter, r *http.Request) error {
+	resp, err := m.termUsers(r)
+	if err != nil {
+		return err
+	}
+	// Others than site owners are for those with the Root permission.
 	if p, ok := api.PrincipalFrom(r.Context()); !ok || !p.Can(Root) {
 		users := resp.Users[:0]
 		for _, u := range resp.Users {
-			if u.Kind != helperapi.TermUserRoot {
+			if u.Kind == helperapi.TermUserSite {
 				users = append(users, u)
 			}
 		}
@@ -261,8 +288,59 @@ func (m *Module) schedule(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusOK, info)
 }
 
-// spec checks a request; root tasks need the Root permission and a
-// second verification.
+// runAs is the kind (helperapi.TermUser*) of who a task runs as, as the
+// helper lists them ("" for a user it does not list, such as the owner of
+// a deleted site); tasks that run no shell count as a site owner's.
+func runAs(users helperapi.TermUsers, s helperapi.CronSpec) string {
+	if s.Type != helperapi.CronShell {
+		return helperapi.TermUserSite
+	}
+	if s.User == helperapi.TermUserRoot {
+		return helperapi.TermUserRoot
+	}
+	for _, u := range users.Users {
+		if u.Name == s.User {
+			return u.Kind
+		}
+	}
+	return ""
+}
+
+// kindOf is runAs with the helper's current list.
+func (m *Module) kindOf(r *http.Request, s helperapi.CronSpec) (string, error) {
+	if s.Type != helperapi.CronShell || s.User == helperapi.TermUserRoot {
+		return runAs(helperapi.TermUsers{}, s), nil
+	}
+	users, err := m.termUsers(r)
+	if err != nil {
+		return "", err
+	}
+	return runAs(users, s), nil
+}
+
+// checkPrivileged refuses a privileged task (one that runs as root or as
+// a user that is not a site owner; the helper checks the name against the
+// same list again when it applies the task) to callers without Root; with
+// stepUp, it also needs a second verification. Unknown users count as
+// privileged, unless unknownOK (deleting a task of a deleted site's owner
+// stops something, it starts nothing).
+func (m *Module) checkPrivileged(r *http.Request, s helperapi.CronSpec, stepUp, unknownOK bool) error {
+	kind, err := m.kindOf(r, s)
+	if err != nil || kind == helperapi.TermUserSite || kind == "" && unknownOK {
+		return err
+	}
+	p, ok := api.PrincipalFrom(r.Context())
+	if !ok || !p.Can(Root) {
+		return api.ErrForbidden
+	}
+	if stepUp && p.ElevatedUntil <= time.Now().Unix() {
+		return api.ErrStepUpRequired
+	}
+	return nil
+}
+
+// spec checks a request; privileged tasks (see privileged), before and
+// after the change, need the Root permission and a second verification.
 func (m *Module) spec(r *http.Request, req taskRequest, id string, was *helperapi.CronSpec) (helperapi.CronSpec, string, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" || utf8.RuneCountInString(name) > 64 || strings.ContainsAny(name, "\x00\r\n") {
@@ -281,20 +359,40 @@ func (m *Module) spec(r *http.Request, req taskRequest, id string, was *helperap
 		var n int
 		_ = m.DB.QueryRowContext(r.Context(), `SELECT count(*) FROM backup_plans WHERE id = ?`, s.Plan).Scan(&n)
 		if n == 0 {
-			return s, "", api.NewError(http.StatusBadRequest, helperapi.CodeCronPlanNotFound, map[string]any{"plan": s.Plan})
+			return s, "", planNotFound(s.Plan)
 		}
 	}
-	root := s.Type == helperapi.CronShell && s.User == "root" || was != nil && was.Type == helperapi.CronShell && was.User == "root"
-	if root {
-		p, ok := api.PrincipalFrom(r.Context())
-		if !ok || !p.Can(Root) {
-			return s, "", api.ErrForbidden
+	if was != nil {
+		if err := m.checkPrivileged(r, *was, true, false); err != nil {
+			return s, "", err
 		}
-		if p.ElevatedUntil <= time.Now().Unix() {
-			return s, "", api.ErrStepUpRequired
-		}
+	}
+	if err := m.checkPrivileged(r, s, true, false); err != nil {
+		return s, "", err
 	}
 	return s, name, nil
+}
+
+func planNotFound(plan string) error {
+	return api.NewError(http.StatusBadRequest, helperapi.CodeCronPlanNotFound, map[string]any{"plan": plan})
+}
+
+// planGuard ends the statements that store a task: a backup task is stored
+// only while its plan exists, in the same statement, so a plan deleted
+// meanwhile (backups module, which checks the other way round) is never
+// left with a task. Its arguments are the task's type and plan.
+const planGuard = `(? != 'backup' OR EXISTS (SELECT 1 FROM backup_plans WHERE id = ?))`
+
+// stored reports a statement guarded by planGuard that changed nothing.
+func stored(res sql.Result, s helperapi.CronSpec) error {
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return planNotFound(s.Plan)
+	}
+	return nil
 }
 
 func newID() string {
@@ -314,8 +412,12 @@ func (m *Module) create(w http.ResponseWriter, r *http.Request) error {
 	}
 	data, _ := json.Marshal(s)
 	now := time.Now().Unix()
-	if _, err := m.DB.ExecContext(r.Context(), `INSERT INTO cron_tasks (id, name, spec, state, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		s.ID, name, string(data), StateApplying, now, now); err != nil {
+	res, err := m.DB.ExecContext(r.Context(), `INSERT INTO cron_tasks (id, name, spec, state, created_at, updated_at)
+		SELECT ?, ?, ?, ?, ?, ? WHERE `+planGuard, s.ID, name, string(data), StateApplying, now, now, s.Type, s.Plan)
+	if err != nil {
+		return err
+	}
+	if err := stored(res, s); err != nil {
 		return err
 	}
 	return m.applyJob(w, r, "cron.create", s, name)
@@ -335,8 +437,12 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	data, _ := json.Marshal(s)
-	if _, err := m.DB.ExecContext(r.Context(), `UPDATE cron_tasks SET name = ?, spec = ?, state = ?, error_code = '', updated_at = ? WHERE id = ?`,
-		name, string(data), StateApplying, time.Now().Unix(), s.ID); err != nil {
+	res, err := m.DB.ExecContext(r.Context(), `UPDATE cron_tasks SET name = ?, spec = ?, state = ?, error_code = '', updated_at = ?
+		WHERE id = ? AND `+planGuard, name, string(data), StateApplying, time.Now().Unix(), s.ID, s.Type, s.Plan)
+	if err != nil {
+		return err
+	}
+	if err := stored(res, s); err != nil {
 		return err
 	}
 	return m.applyJob(w, r, "cron.update", s, name)
@@ -382,6 +488,11 @@ func (m *Module) applyJob(w http.ResponseWriter, r *http.Request, kind string, s
 		return err
 	})
 	if err != nil {
+		// No job will finish it: it does not stay applying.
+		if _, dbErr := m.DB.ExecContext(context.WithoutCancel(r.Context()), `UPDATE cron_tasks SET state = ?, error_code = ?, updated_at = ? WHERE id = ?`,
+			StateFailed, api.ErrInternal.Code, time.Now().Unix(), s.ID); dbErr != nil {
+			m.Log.Error("saving task state failed", "task", s.ID, "err", dbErr)
+		}
 		return err
 	}
 	_, _ = m.DB.ExecContext(r.Context(), `UPDATE cron_tasks SET last_job = ? WHERE id = ?`, job.ID, s.ID)
@@ -393,10 +504,8 @@ func (m *Module) remove(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	if rw.spec.Type == helperapi.CronShell && rw.spec.User == "root" {
-		if p, ok := api.PrincipalFrom(r.Context()); !ok || !p.Can(Root) {
-			return api.ErrForbidden
-		}
+	if err := m.checkPrivileged(r, rw.spec, false, true); err != nil {
+		return err
 	}
 	id := rw.spec.ID
 	job, err := m.start(r, "cron.delete", map[string]any{"task": id, "name": rw.name}, func(ctx context.Context, j *jobs.Job) error {
@@ -419,6 +528,10 @@ func (m *Module) remove(w http.ResponseWriter, r *http.Request) error {
 func (m *Module) run(w http.ResponseWriter, r *http.Request) error {
 	rw, err := m.load(r.Context(), r.PathValue("id"))
 	if err != nil {
+		return err
+	}
+	// Running a root task is running a root script now.
+	if err := m.checkPrivileged(r, rw.spec, false, false); err != nil {
 		return err
 	}
 	id := rw.spec.ID
@@ -461,6 +574,11 @@ func (m *Module) runLog(w http.ResponseWriter, r *http.Request) error {
 	if err := req.Validate(); err != nil {
 		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "invocation", "rule": "invocation_id"})
 	}
+	// What a privileged task prints (as root or another user than a site
+	// owner) is for those who may change it.
+	if err := m.checkPrivileged(r, rw.spec, false, false); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	var resp helperapi.CronLog
@@ -468,6 +586,22 @@ func (m *Module) runLog(w http.ResponseWriter, r *http.Request) error {
 		return helperError(err)
 	}
 	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+// Recover marks the tasks left applying by a job that no longer runs (the
+// web process stopped while applying them) as failed, so they can be saved
+// again. Call it after the job manager marked such jobs interrupted.
+func (m *Module) Recover(ctx context.Context) error {
+	res, err := m.DB.ExecContext(ctx, `UPDATE cron_tasks SET state = ?, error_code = ?, updated_at = ? WHERE state = ?
+		AND NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.id = cron_tasks.last_job AND jobs.state IN (?, ?))`,
+		StateFailed, jobs.CodeInterrupted, time.Now().Unix(), StateApplying, jobs.Queued, jobs.Running)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		m.Log.Warn("task changes interrupted by a restart marked failed", "count", n)
+	}
+	return nil
 }
 
 // Run reports failed runs as they appear.

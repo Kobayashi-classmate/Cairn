@@ -80,6 +80,9 @@ func (m *Module) Info() module.Info {
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
 	self := api.Require(authz.Self)
+	// The account's own security (password, sessions, tokens, two-step
+	// sign-in) is never reachable with an API token.
+	account := api.SessionOnly()
 	authDoc := func(s string) api.RouteOption { return api.Doc("auth", s) }
 	accountDoc := func(s string) api.RouteOption { return api.Doc("account", s) }
 	settingsDoc := func(s string) api.RouteOption { return api.Doc("settings", s) }
@@ -94,27 +97,27 @@ func (m *Module) Routes(r *api.Router) {
 		api.Body(loginMFARequest{}), api.Returns(200, userResponse{}))
 	r.Handle("POST /api/v1/auth/logout", m.logout, self, authDoc("Sign out this session"), api.NoBody(), noContent)
 	r.Handle("GET /api/v1/auth/me", m.me, self, authDoc("Current user, permissions and step-up state"), api.Returns(200, meResponse{}))
-	r.Handle("POST /api/v1/auth/elevate", m.elevate, self, authDoc("Re-authenticate for sensitive actions (step-up)"),
+	r.Handle("POST /api/v1/auth/elevate", m.elevate, self, account, authDoc("Re-authenticate for sensitive actions (step-up)"),
 		api.Body(elevateRequest{}), api.Returns(200, elevateResponse{}))
 
 	r.Handle("PUT /api/v1/me/locale", m.setMyLocale, self, accountDoc("Set my language"), api.Body(localeRequest{}), noContent)
 	r.Handle("PUT /api/v1/me/theme", m.setMyTheme, self, accountDoc("Set my colour scheme: light, dark or system"), api.Body(themeRequest{}), noContent)
-	r.Handle("PUT /api/v1/me/password", m.changePassword, self, accountDoc("Change my password; signs out other sessions"),
+	r.Handle("PUT /api/v1/me/password", m.changePassword, self, account, accountDoc("Change my password; signs out other sessions"),
 		api.Body(changePasswordRequest{}), noContent)
-	r.Handle("GET /api/v1/me/sessions", m.listSessions, self, accountDoc("List my sessions"), api.Returns(200, sessionsResponse{}))
-	r.Handle("DELETE /api/v1/me/sessions/{id}", m.revokeSession, self, accountDoc("Revoke one of my sessions"), noContent)
-	r.Handle("DELETE /api/v1/me/sessions", m.revokeOtherSessions, self, accountDoc("Revoke all my other sessions"), api.Returns(200, revokedResponse{}))
-	r.Handle("POST /api/v1/me/totp/begin", m.beginTOTP, self, api.StepUp(), accountDoc("Start two-step sign-in enrollment"), api.NoBody(),
+	r.Handle("GET /api/v1/me/sessions", m.listSessions, self, account, accountDoc("List my sessions"), api.Returns(200, sessionsResponse{}))
+	r.Handle("DELETE /api/v1/me/sessions/{id}", m.revokeSession, self, account, accountDoc("Revoke one of my sessions"), noContent)
+	r.Handle("DELETE /api/v1/me/sessions", m.revokeOtherSessions, self, account, accountDoc("Revoke all my other sessions"), api.Returns(200, revokedResponse{}))
+	r.Handle("POST /api/v1/me/totp/begin", m.beginTOTP, self, account, api.StepUp(), accountDoc("Start two-step sign-in enrollment"), api.NoBody(),
 		api.Returns(200, totpBeginResponse{}))
-	r.Handle("POST /api/v1/me/totp/confirm", m.confirmTOTP, self, accountDoc("Confirm enrollment and get recovery codes"),
+	r.Handle("POST /api/v1/me/totp/confirm", m.confirmTOTP, self, account, accountDoc("Confirm enrollment and get recovery codes"),
 		api.Body(codeRequest{}), api.Returns(200, recoveryCodesResponse{}))
-	r.Handle("DELETE /api/v1/me/totp", m.disableTOTP, self, api.StepUp(), accountDoc("Turn off two-step sign-in"), noContent)
-	r.Handle("POST /api/v1/me/recovery-codes", m.regenerateRecoveryCodes, self, api.StepUp(), accountDoc("Replace my recovery codes"), api.NoBody(),
+	r.Handle("DELETE /api/v1/me/totp", m.disableTOTP, self, account, api.StepUp(), accountDoc("Turn off two-step sign-in"), noContent)
+	r.Handle("POST /api/v1/me/recovery-codes", m.regenerateRecoveryCodes, self, account, api.StepUp(), accountDoc("Replace my recovery codes"), api.NoBody(),
 		api.Returns(200, recoveryCodesResponse{}))
-	r.Handle("GET /api/v1/me/tokens", m.listTokens, self, accountDoc("List my API tokens"), api.Returns(200, tokensResponse{}))
-	r.Handle("POST /api/v1/me/tokens", m.createToken, self, api.StepUp(), accountDoc("Create an API token (shown once)"),
+	r.Handle("GET /api/v1/me/tokens", m.listTokens, self, account, accountDoc("List my API tokens"), api.Returns(200, tokensResponse{}))
+	r.Handle("POST /api/v1/me/tokens", m.createToken, self, account, api.StepUp(), accountDoc("Create an API token (shown once)"),
 		api.Body(createTokenRequest{}), api.Returns(201, createTokenResponse{}))
-	r.Handle("DELETE /api/v1/me/tokens/{id}", m.deleteToken, self, accountDoc("Revoke one of my API tokens"), noContent)
+	r.Handle("DELETE /api/v1/me/tokens/{id}", m.deleteToken, self, account, accountDoc("Revoke one of my API tokens"), noContent)
 
 	r.Handle("GET /api/v1/settings", m.getSettings, api.Require(authz.SettingsRead), settingsDoc("Panel settings"),
 		api.Returns(200, settingsResponse{}))
@@ -195,14 +198,24 @@ func tokenPrincipal(r *http.Request, db *sql.DB) (*api.Principal, error) {
 	}, nil
 }
 
-// recordFailure counts a failed credential check and announces a lockout
-// when this failure triggered one.
-func (m *Module) recordFailure(r *http.Request, username string, keys ...string) error {
-	ctx := r.Context()
-	if err := auth.RecordFailure(ctx, m.DB, keys...); err != nil {
+// attempt takes an attempt slot on the throttle keys before credentials
+// are checked (see auth.Attempt): the attempt already counts as a failure,
+// so a failed check needs nothing more than failed.
+func (m *Module) attempt(r *http.Request, keys ...string) error {
+	wait, err := auth.Attempt(r.Context(), m.DB, keys...)
+	if err != nil {
 		return err
 	}
-	wait, err := auth.LockedFor(ctx, m.DB, keys...)
+	if wait > 0 {
+		return modutil.RateLimited(wait)
+	}
+	return nil
+}
+
+// failed announces a lockout when the failed check (counted by attempt)
+// locked one of the keys.
+func (m *Module) failed(r *http.Request, username string, keys ...string) {
+	wait, err := auth.LockedFor(r.Context(), m.DB, keys...)
 	if err == nil && wait > 0 {
 		ip := api.ClientIP(r)
 		m.Events.Publish(events.Event{
@@ -210,7 +223,24 @@ func (m *Module) recordFailure(r *http.Request, username string, keys ...string)
 			Params: map[string]any{"username": username, "ip": ip, "minutes": int(wait.Round(time.Minute) / time.Minute)},
 		})
 	}
-	return nil
+}
+
+// signInKeys are the throttle keys of a sign-in as username: the address,
+// and the username unless this browser signed in as it before (a known
+// device), whose owner others must not be able to lock out.
+func (m *Module) signInKeys(r *http.Request, username string) ([]string, error) {
+	keys := []string{auth.IPKey(api.ClientIP(r))}
+	known := false
+	if c, err := r.Cookie(auth.DeviceCookieName); err == nil {
+		var kerr error
+		if known, kerr = auth.KnownDevice(r.Context(), m.DB, c.Value, username); kerr != nil {
+			return nil, kerr
+		}
+	}
+	if !known {
+		keys = append(keys, auth.UserKey(username))
+	}
+	return keys, nil
 }
 
 func (m *Module) announceLogin(r *http.Request, u *auth.User) {
@@ -309,25 +339,25 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 		return required("password")
 	}
 	ctx := r.Context()
-	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(req.Username)}
-	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
+	keys, err := m.signInKeys(r, req.Username)
+	if err != nil {
 		return err
-	} else if wait > 0 {
-		return modutil.RateLimited(wait)
+	}
+	if err := m.attempt(r, keys...); err != nil {
+		return err
 	}
 	u, err := auth.Authenticate(ctx, m.DB, req.Username, req.Password)
 	if errors.Is(err, auth.ErrInvalidCredentials) {
-		if err := m.recordFailure(r, req.Username, keys...); err != nil {
-			return err
-		}
+		m.failed(r, req.Username, keys...)
 		m.audit(r, modutil.Actor{Username: req.Username}, "auth.login", "auth.invalid_credentials", nil)
 		return api.NewError(http.StatusUnauthorized, "auth.invalid_credentials", nil)
 	}
 	if err != nil {
-		return err
+		return modutil.MapError(err, nil)
 	}
 	if u.TOTPEnabled {
-		// Password accepted; failures are reset only after the second step.
+		// Password accepted; the attempt stays counted until the second
+		// step succeeds.
 		token, err := auth.CreateMFAChallenge(ctx, m.DB, u.ID, api.ClientIP(r))
 		if err != nil {
 			return err
@@ -365,11 +395,18 @@ func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
 	if err != nil || u.Disabled {
 		return modutil.MapError(auth.ErrMFAChallengeExpired, nil)
 	}
-	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(u.Username)}
-	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
+	// The throttle first: a refused attempt does not use up the challenge.
+	keys, err := m.signInKeys(r, u.Username)
+	if err != nil {
 		return err
-	} else if wait > 0 {
-		return modutil.RateLimited(wait)
+	}
+	if err := m.attempt(r, keys...); err != nil {
+		return err
+	}
+	// Claiming spends one of the challenge's attempts before the code is
+	// checked, atomically.
+	if _, err := auth.ClaimMFAChallenge(ctx, m.DB, req.MFAToken); err != nil {
+		return modutil.MapError(err, nil)
 	}
 	method := "totp"
 	if req.Code == "" {
@@ -377,10 +414,7 @@ func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
 	}
 	err = auth.VerifySecondFactor(ctx, m.DB, m.Box, u.ID, req.Code, req.RecoveryCode)
 	if errors.Is(err, auth.ErrMFAInvalidCode) || errors.Is(err, auth.ErrMFARequired) {
-		_ = auth.FailMFAChallenge(ctx, m.DB, req.MFAToken)
-		if err := m.recordFailure(r, u.Username, keys...); err != nil {
-			return err
-		}
+		m.failed(r, u.Username, keys...)
 		m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login_mfa", modutil.ErrorCode(err), map[string]any{"method": method})
 		return modutil.MapError(err, nil)
 	}
@@ -448,27 +482,25 @@ func (m *Module) elevate(w http.ResponseWriter, r *http.Request) error {
 	}
 	ctx := r.Context()
 	p, _ := api.PrincipalFrom(ctx)
-	if p.Source == "api" {
+	if p.IsToken() || p.SessionID == "" {
 		// Step-up belongs to interactive sessions; tokens cannot elevate.
 		return api.ErrForbidden
 	}
-	keys := []string{auth.IPKey(api.ClientIP(r)), auth.UserKey(p.Username)}
-	if wait, err := auth.LockedFor(ctx, m.DB, keys...); err != nil {
+	// Failures count for this session only: whoever knows the username
+	// must not be able to lock its owner out of step-up.
+	keys := []string{auth.SessionKey(p.SessionID)}
+	if err := m.attempt(r, keys...); err != nil {
 		return err
-	} else if wait > 0 {
-		return modutil.RateLimited(wait)
 	}
 	fail := func(err error) error {
-		if err := m.recordFailure(r, p.Username, keys...); err != nil {
-			return err
-		}
+		m.failed(r, p.Username, keys...)
 		m.audit(r, modutil.ActorOf(r), "auth.elevate", modutil.ErrorCode(err), nil)
 		return modutil.MapError(err, nil)
 	}
 	if err := auth.CheckPassword(ctx, m.DB, p.UserID, req.Password); errors.Is(err, auth.ErrWrongPassword) {
 		return fail(err)
 	} else if err != nil {
-		return err
+		return modutil.MapError(err, nil)
 	}
 	if p.TOTPEnabled {
 		if req.Code == "" {
@@ -502,6 +534,20 @@ func (m *Module) signIn(w http.ResponseWriter, r *http.Request, u *auth.User) er
 	http.SetCookie(w, &http.Cookie{
 		Name: auth.CookieName, Value: token, Path: "/",
 		MaxAge: int(auth.AbsoluteTimeout / time.Second), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
+	})
+	// This browser is now a known device of the account (see signInKeys).
+	if c, err := r.Cookie(auth.DeviceCookieName); err == nil {
+		if known, err := auth.KnownDevice(r.Context(), m.DB, c.Value, u.Username); err != nil || known {
+			return err
+		}
+	}
+	device, err := auth.RememberDevice(r.Context(), m.DB, u.ID)
+	if err != nil {
+		return err
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: auth.DeviceCookieName, Value: device, Path: "/",
+		MaxAge: int(auth.DeviceLifetime / time.Second), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
 	return nil
 }

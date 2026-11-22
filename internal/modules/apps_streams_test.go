@@ -16,6 +16,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/events"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
+	sitesmod "github.com/Kobayashi-classmate/Cairn/internal/modules/sites"
 )
 
 func TestAppSitesAndStreams(t *testing.T) {
@@ -123,7 +124,10 @@ func TestAppSitesAndStreams(t *testing.T) {
 	}
 
 	// Streams: the code comes from protocol and port; ports are unique per
-	// protocol and stay off the app range and the panel's port.
+	// protocol and stay off the app range and the panel's port. Creating and
+	// changing them takes a second verification.
+	admin.expect(admin.do("POST", "/api/v1/streams", map[string]any{"protocol": "tcp", "port": 3307, "upstreams": []string{"10.0.0.5:3306"}}), 403, "auth.step_up_required")
+	admin.elevate("")
 	r := admin.expect(admin.do("POST", "/api/v1/streams", map[string]any{"protocol": "tcp", "port": 3307, "upstreams": []string{"10.0.0.5:3306"}}), 202, "")
 	if final, _ := waitJob(t, admin, r.obj("job")["id"].(string)); final["state"] != jobs.Succeeded {
 		t.Fatalf("stream: %v", final)
@@ -146,8 +150,30 @@ func TestAppSitesAndStreams(t *testing.T) {
 		t.Fatalf("streams: %v", list)
 	}
 	e.helper.respond(helperapi.ActionStreamRemove, helperapi.OpRef{ID: opID})
-	admin.expect(admin.do("DELETE", "/api/v1/streams/dns", nil), 403, "auth.step_up_required")
-	admin.elevate("")
+	// An upstream on this host publishes a local service: that needs the
+	// firewall permission (administrators). So does every name and every
+	// address not written the canonical way: nginx resolves them itself,
+	// and they can reach this host (0x7f.1 is 127.0.0.1 to the system).
+	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "oper", "password": pw, "role": "operator"}), 201, "")
+	op := e.client()
+	op.expect(op.login("oper", pw), 200, "")
+	op.elevate("")
+	for up, code := range map[string]string{
+		"127.0.0.1:3306": sitesmod.CodeStreamLocalUpstream, "[::1]:5432": sitesmod.CodeStreamLocalUpstream,
+		"0.0.0.0:3306": sitesmod.CodeStreamLocalUpstream, "[::ffff:127.0.0.1]:3306": sitesmod.CodeStreamLocalUpstream,
+		"localhost:6379": sitesmod.CodeStreamUpstreamName, "db.internal.example:3306": sitesmod.CodeStreamUpstreamName,
+		"0x7f.0x1:6379": sitesmod.CodeStreamUpstreamName, "[2001:db8:0::1]:6379": sitesmod.CodeStreamUpstreamName,
+	} {
+		r := op.expect(op.do("POST", "/api/v1/streams", map[string]any{"code": "local", "protocol": "tcp", "port": 4406, "upstreams": []string{up}}), 403, code)
+		if r.params()["upstream"] != strings.ToLower(up) {
+			t.Fatalf("refused upstream %v", r.params())
+		}
+	}
+	op.expect(op.do("PUT", "/api/v1/streams/tcp-3307", map[string]any{"protocol": "tcp", "port": 3307, "upstreams": []string{"127.0.0.1:3306"}}), 403, sitesmod.CodeStreamLocalUpstream)
+	waitJob(t, op, op.expect(op.do("PUT", "/api/v1/streams/tcp-3307", map[string]any{"protocol": "tcp", "port": 3307, "upstreams": []string{"10.0.0.8:3306"}}), 202, "").obj("job")["id"].(string))
+	waitJob(t, admin, admin.expect(admin.do("POST", "/api/v1/streams", map[string]any{"code": "local", "protocol": "tcp", "port": 4406, "upstreams": []string{"127.0.0.1:3306"}}), 202, "").obj("job")["id"].(string))
+	waitJob(t, admin, admin.expect(admin.do("DELETE", "/api/v1/streams/local", nil), 202, "").obj("job")["id"].(string))
+
 	waitJob(t, admin, admin.expect(admin.do("DELETE", "/api/v1/streams/dns", nil), 202, "").obj("job")["id"].(string))
 	if n := len(admin.expect(admin.do("GET", "/api/v1/streams", nil), 200, "").body["streams"].([]any)); n != 1 {
 		t.Fatalf("after delete: %d", n)

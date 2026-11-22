@@ -32,6 +32,10 @@ type Caller struct {
 	Username string `json:"user,omitempty"`
 	Remote   string `json:"remote,omitempty"`
 	Source   string `json:"src"` // web | cli
+	// PeerRoot is set by the helper from the peer's credentials, never
+	// from the request: the action comes from a root process (the command
+	// line, the install), not from the web process.
+	PeerRoot bool `json:"-"`
 }
 
 // Encode serializes the caller for CallerHeader.

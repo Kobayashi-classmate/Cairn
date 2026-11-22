@@ -141,6 +141,9 @@ func (p *Principal) Can(perm authz.Permission) bool {
 	return false
 }
 
+// IsToken reports whether p authenticated with an API token.
+func (p *Principal) IsToken() bool { return p.Scopes != nil }
+
 // PrincipalFrom returns the request's principal, if authenticated.
 func PrincipalFrom(ctx context.Context) (*Principal, bool) {
 	p, ok := ctx.Value(principalKey).(*Principal)
@@ -192,13 +195,15 @@ type Route struct {
 	Public     bool
 	Permission authz.Permission
 	StepUp     bool
-	Tag        string
-	Summary    string
-	Module     string               // registering module, if any
-	Request    reflect.Type         // nil: no JSON body
-	NoBody     bool                 // explicitly documented as taking no body
-	RawBody    string               // content type of a non-JSON body (uploads)
-	Responses  map[int]reflect.Type // nil type: no body
+	// SessionOnly routes refuse API tokens.
+	SessionOnly bool
+	Tag         string
+	Summary     string
+	Module      string               // registering module, if any
+	Request     reflect.Type         // nil: no JSON body
+	NoBody      bool                 // explicitly documented as taking no body
+	RawBody     string               // content type of a non-JSON body (uploads)
+	Responses   map[int]reflect.Type // nil type: no body
 	// Files are responses that are not JSON (downloads), by content type.
 	Files map[int]string
 }
@@ -213,6 +218,7 @@ type routeConfig struct {
 	public    bool
 	perm      authz.Permission
 	stepUp    bool
+	session   bool
 	tag       string
 	summary   string
 	request   reflect.Type
@@ -272,6 +278,12 @@ func Require(p authz.Permission) RouteOption { return func(c *routeConfig) { c.p
 // StepUp additionally requires a recent re-authentication of the session.
 func StepUp() RouteOption { return func(c *routeConfig) { c.stepUp = true } }
 
+// SessionOnly refuses API tokens, whatever their scopes: for the routes
+// that guard the account itself (password, sessions, tokens, two-step
+// sign-in). Every role has authz.Self, so a token of any scope would
+// otherwise pass, and a leaked read-only token could take the account.
+func SessionOnly() RouteOption { return func(c *routeConfig) { c.session = true } }
+
 // Authorization errors.
 var (
 	ErrForbidden      = NewError(http.StatusForbidden, "auth.forbidden", nil)
@@ -294,7 +306,7 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 	}
 	method, path, _ := strings.Cut(pattern, " ")
 	rt.routes = append(rt.routes, Route{
-		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp,
+		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp, SessionOnly: cfg.session,
 		Tag: cfg.tag, Summary: cfg.summary, Module: rt.module, Request: cfg.request, NoBody: cfg.noBody, RawBody: cfg.rawBody, Responses: cfg.responses, Files: cfg.files,
 	})
 	gate := rt.gate
@@ -312,7 +324,7 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 				writeError(w, r, rt.log, err)
 				return
 			}
-			if !p.Can(cfg.perm) {
+			if !p.Can(cfg.perm) || cfg.session && p.IsToken() {
 				writeError(w, r, rt.log, ErrForbidden)
 				return
 			}

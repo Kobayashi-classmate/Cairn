@@ -53,6 +53,8 @@ func MapError(err error, rename map[string]string) error {
 		return api.NewError(http.StatusConflict, "users.username_taken", nil)
 	case errors.Is(err, auth.ErrTokenInvalid):
 		return api.NewError(http.StatusUnauthorized, "auth.token_invalid", nil)
+	case errors.Is(err, auth.ErrBusy):
+		return api.NewError(http.StatusServiceUnavailable, "auth.busy", nil)
 	}
 	return err
 }

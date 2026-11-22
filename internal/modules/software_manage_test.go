@@ -123,6 +123,24 @@ func TestSoftwareLineManagement(t *testing.T) {
 			t.Errorf("audit %s missing: %v", k, kinds)
 		}
 	}
+
+	// Writing nginx or PHP configuration is as good as root: operators,
+	// who manage software otherwise, neither read nor write the files.
+	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "oper", "password": pw, "role": "operator"}), 201, "")
+	op := e.client()
+	op.expect(op.login("oper", pw), 200, "")
+	op.elevate("")
+	if perms := fmt.Sprint(op.expect(op.do("GET", "/api/v1/auth/me", nil), 200, "").body["permissions"]); !strings.Contains(perms, "software.manage") ||
+		strings.Contains(perms, "software.config") {
+		t.Fatalf("operator permissions %s", perms)
+	}
+	op.expect(op.do("GET", cfg, nil), 403, "auth.forbidden")
+	op.expect(op.do("GET", cfg+"/versions/123", nil), 403, "auth.forbidden")
+	op.expect(op.do("PUT", cfg, map[string]any{"content": "load_module /tmp/x.so;\n", "base": strings.Repeat("a", 64)}), 403, "auth.forbidden")
+
+	// Probe refusals keep their codes instead of becoming internal errors.
+	e.helper.fail(helperapi.ActionPkgProbe, &helperapi.Error{Code: helperapi.CodePkgBusy})
+	admin.expect(admin.do("POST", "/api/v1/software/probe", map[string]any{"items": []any{map[string]any{"software": "nodejs", "line": "24"}}}), 409, helperapi.CodePkgBusy)
 }
 
 func TestDatabaseBackupColumns(t *testing.T) {

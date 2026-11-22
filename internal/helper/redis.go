@@ -382,12 +382,18 @@ func (d *DBs) redisConfig(ctx context.Context, _ helperapi.Caller, req helperapi
 	}
 	if req.Password != nil && *req.Password == "" {
 		// Without a password the instance must not be reachable remotely.
-		if bind, err := rc.do("CONFIG", "GET", "bind"); err == nil {
-			for _, a := range strings.Fields(configValue(bind)) {
-				if !isLoopback(a) {
-					return nil, dbErr(helperapi.CodeRedisNeedsPass, nil)
-				}
+		// As in the status, no bind address (every interface) counts as
+		// remote, and so does a bind the server does not tell.
+		bind, err := rc.do("CONFIG", "GET", "bind")
+		addrs := strings.Fields(configValue(bind))
+		remote := err != nil || len(addrs) == 0
+		for _, a := range addrs {
+			if !isLoopback(a) {
+				remote = true
 			}
+		}
+		if remote {
+			return nil, dbErr(helperapi.CodeRedisNeedsPass, nil)
 		}
 	}
 	if req.MaxMemoryMB != nil {

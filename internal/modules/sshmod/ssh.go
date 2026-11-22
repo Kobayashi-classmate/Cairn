@@ -228,7 +228,7 @@ func (m *Module) logins(w http.ResponseWriter, r *http.Request) error {
 	if s := r.URL.Query().Get("limit"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil {
-			return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "limit", "rule": "int"})
+			return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "limit", "rule": "integer"})
 		}
 		q.Limit = n
 	}

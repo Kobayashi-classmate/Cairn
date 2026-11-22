@@ -113,7 +113,32 @@ func readJournal(ctx context.Context, root string, req helperapi.JournalRequest)
 	if out.Cursor == "" {
 		out.Cursor = req.After
 	}
+	if out.Cursor == "" {
+		// Nothing matched yet: continue from the journal's current end, so
+		// following picks up only entries written from now on.
+		out.Cursor = journalEndCursor(ctx)
+	}
 	return out, nil
+}
+
+// journalEndCursor is the cursor of the newest entry in the whole journal
+// (no filters), or "" when it cannot be read. --after-cursor accepts it
+// whatever filters the next request has.
+func journalEndCursor(ctx context.Context) string {
+	text, err := queryCommand(ctx, "journalctl", "--no-pager", "--output=json", "--lines=1")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(text, "\n") {
+		var fields map[string]json.RawMessage
+		if line == "" || json.Unmarshal([]byte(line), &fields) != nil {
+			continue
+		}
+		if c := journalField(fields["__CURSOR"]); c != "" && helperapi.ValidCursor(c) {
+			return c
+		}
+	}
+	return ""
 }
 
 // listUnits lists the service units systemd knows.

@@ -377,36 +377,29 @@ func (b *Backups) produce(ctx context.Context, root *os.Root, p helperapi.Backup
 }
 
 // tarTree writes what is below start (links as links, not followed) as
-// a tar stream, names relative to start; skip leaves directories out.
+// a tar stream, names relative to start; skip leaves directories out. The
+// tree is walked one level at a time (see walkTree): a start that is a
+// link is not walked, and neither is a directory swapped for one.
 func tarTree(ctx context.Context, root *os.Root, start string, tw *tar.Writer, skip func(rel string) bool, log io.Writer) error {
-	return fs.WalkDir(root.FS(), rel(start), func(q string, d fs.DirEntry, err error) error {
-		if err != nil {
-			_, _ = fmt.Fprintf(log, "  skipped %s: %v\n", q, err)
-			return nil
-		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		name := strings.TrimPrefix(strings.TrimPrefix(q, rel(start)), "/")
+	return walkTree(ctx, root, start, func(e walkEntry) error {
+		name := e.Rel
 		if name == "" {
 			return nil
 		}
+		info := e.Info
 		if skip != nil && skip(name) {
-			if d.IsDir() {
+			if info.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		info, err := d.Info()
-		if err != nil {
-			return nil //nolint:nilerr // gone meanwhile
-		}
 		var target string
-		if d.Type()&fs.ModeSymlink != 0 {
-			if target, err = root.Readlink(q); err != nil {
+		if info.Mode()&fs.ModeSymlink != 0 {
+			var err error
+			if target, err = e.Dir.Readlink(e.Name); err != nil {
 				return nil //nolint:nilerr // gone meanwhile
 			}
-		} else if !d.IsDir() && !d.Type().IsRegular() {
+		} else if !info.IsDir() && !info.Mode().IsRegular() {
 			return nil
 		}
 		h, err := tar.FileInfoHeader(info, target)
@@ -414,24 +407,25 @@ func tarTree(ctx context.Context, root *os.Root, start string, tw *tar.Writer, s
 			return err
 		}
 		h.Name, h.Format = name, tar.FormatPAX
-		if d.IsDir() {
+		if info.IsDir() {
 			h.Name += "/"
 		}
-		if !d.Type().IsRegular() {
+		if !info.Mode().IsRegular() {
 			return tw.WriteHeader(h)
 		}
-		in, fi, err := noFollow(root, q)
+		in, fi, err := e.open()
 		if err != nil {
-			return nil //nolint:nilerr // gone or swapped meanwhile
+			_, _ = fmt.Fprintf(log, "  skipped %s: %v\n", e.Path, err)
+			return nil // gone or swapped meanwhile
 		}
 		defer func() { _ = in.Close() }()
 		h.Size = fi.Size()
 		if err := tw.WriteHeader(h); err != nil {
 			return err
 		}
-		// A file growing meanwhile is cut at the size in the header.
-		_, err = io.Copy(tw, io.LimitReader(in, h.Size))
-		return err
+		// A file growing or shrinking meanwhile still fills its entry
+		// exactly.
+		return copyN(tw, in, h.Size)
 	})
 }
 
@@ -469,20 +463,48 @@ func (b *Backups) tarDirectory(ctx context.Context, t helperapi.BackupTarget, w 
 	if fi, err := root.Stat(rel(t.Path)); err != nil || !fi.IsDir() {
 		return backupErr(helperapi.CodeFileNotFound, map[string]any{"path": t.Path})
 	}
+	// The directory (a link to one inside the root, too) is walked through
+	// a root of its own: what is swapped above it meanwhile changes
+	// nothing.
+	dir, err := root.OpenRoot(rel(t.Path))
+	if err != nil {
+		return backupErr(helperapi.CodeFileNotFound, map[string]any{"path": t.Path})
+	}
+	defer func() { _ = dir.Close() }()
 	tw := tar.NewWriter(w)
 	// The plans' own backups are not backed up again.
 	skip := func(name string) bool {
 		full := join(t.Path, name)
 		return full == trashOf(t.Root) || t.Root == helperapi.RootBackups && full == "plans"
 	}
-	if err := tarTree(ctx, root, t.Path, tw, skip, log); err != nil {
+	if err := tarTree(ctx, dir, "", tw, skip, log); err != nil {
 		return err
 	}
 	return tw.Close()
 }
 
+// openBackup opens a backup file of the panel's directory for reading. The
+// directory is the panel's: only a regular file with no other name is
+// read (not a pipe, which would hang, nor a hard link to a file the
+// panel could not read itself).
+func openBackup(root *os.Root, p string) (*os.File, error) {
+	f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	fi, err := f.Stat()
+	if err == nil && (!fi.Mode().IsRegular() || linked(fi)) {
+		err = fmt.Errorf("%s is not a plain file", p)
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
 func upload(ctx context.Context, root *os.Root, st objectStore, plan, name string, size int64) error {
-	f, err := root.Open(localDir(plan) + "/" + name)
+	f, err := openBackup(root, localDir(plan)+"/"+name)
 	if err != nil {
 		return err
 	}
@@ -764,8 +786,13 @@ func (b *Backups) fetchLocal(ctx context.Context, p helperapi.BackupPlan, root *
 	if err := ownedDirs(root, localDir(p.ID), uid, gid); err != nil {
 		return err
 	}
+	// The directory is the panel's: whatever it put at the temporary name
+	// (a hard link to another file, say) is removed, never written into.
 	tmp := localDir(p.ID) + "/.partial-" + name
-	out, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err := root.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	out, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
 	}
@@ -820,6 +847,11 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 	if !ok {
 		return nil, backupErr(helperapi.CodeBackupNotFound, map[string]any{"name": req.Name})
 	}
+	// A database backup that names no database is not unpacked as files
+	// instead (its destination was never validated).
+	if _, _, isDB := dbOfBackup(key); strings.HasPrefix(key, "db-") && !isDB {
+		return nil, backupErr(helperapi.CodeBackupNotFound, map[string]any{"name": req.Name})
+	}
 	root, uid, gid, err := b.panelRoot()
 	if err != nil {
 		return nil, err
@@ -833,7 +865,7 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 		}
 		defer func() { _ = root.Remove(local) }()
 	}
-	f, err := root.Open(local)
+	f, err := openBackup(root, local)
 	if err != nil {
 		return nil, backupErr(helperapi.CodeBackupNotFound, map[string]any{"name": req.Name})
 	}
@@ -866,8 +898,14 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 		if strings.HasSuffix(name, ".dump") {
 			ext = ".dump"
 		}
+		// The same budget as other extractions: a compressed bomb must not
+		// fill the panel's file system.
+		budget := spaceAt(root, "")
 		info, err := b.DBs.writeDump(engine, database, ext, false, func(w io.Writer) error {
-			_, err := io.Copy(w, r)
+			n, err := io.Copy(w, io.LimitReader(r, budget+1))
+			if err == nil && n > budget {
+				err = errNoSpace
+			}
 			return err
 		})
 		if err != nil {
@@ -884,12 +922,13 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 	if protected(req.Dest.Root, req.Dest.Path) && req.Dest.Path != "" {
 		return nil, protectedErr(req.Dest.Path)
 	}
-	duid, dgid, err := ownerOfDir(dest, req.Dest.Path)
+	droot, dfd, duid, dgid, err := openDest(dest, req.Dest.Path)
 	if err != nil {
 		return nil, err
 	}
-	x := &extractor{ctx: ctx, rootID: req.Dest.Root, root: dest, dest: req.Dest.Path, uid: duid, gid: dgid, overwrite: req.Overwrite,
-		b: &batch{log: log}, budget: space(dest, req.Dest.Path), dirs: map[string]bool{}}
+	defer func() { _ = droot.Close(); _ = dfd.Close() }()
+	x := &extractor{ctx: ctx, rootID: req.Dest.Root, src: dest, root: droot, dest: req.Dest.Path, uid: duid, gid: dgid, overwrite: req.Overwrite,
+		b: &batch{log: log}, budget: spaceOf(dfd), files: map[string]bool{}}
 	if err := x.tarFrom(r); err != nil {
 		var he *helperapi.Error
 		if !errors.As(err, &he) {

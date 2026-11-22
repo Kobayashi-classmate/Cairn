@@ -643,6 +643,11 @@ func (f *Firewall) rollback(ctx context.Context, tx string, requested bool) erro
 // Enable switches the firewall on (installing the backend when needed)
 // with Cairn's rules; confirm asks for the rollback window.
 func (f *Firewall) Enable(ctx context.Context, c helperapi.Caller, confirm bool, log io.Writer) (*helperapi.FirewallPending, error) {
+	// Only a root caller (the install-time setup) goes without the
+	// rollback window; the web process always gets it, whatever it asks.
+	if !c.PeerRoot {
+		confirm = true
+	}
 	unlock, err := f.lock()
 	if err != nil {
 		return nil, err
@@ -972,8 +977,19 @@ func (f *Firewall) Setup(ctx context.Context, log io.Writer) error {
 			return err
 		}
 	}
-	_, err = f.Enable(ctx, helperapi.Caller{Source: "cli"}, false, log)
+	_, err = f.Enable(ctx, helperapi.Caller{Source: "cli", PeerRoot: true}, false, log)
 	return err
+}
+
+// forwardsTCP reports whether a port forward takes TCP connections on
+// port (while the firewall is on; one configured now would be on later).
+func (f *Firewall) forwardsTCP(port int) bool {
+	f.mu.Lock()
+	cfg, _ := f.load()
+	f.mu.Unlock()
+	return slices.ContainsFunc(cfg.Forwards, func(fw helperapi.FirewallForward) bool {
+		return fw.Port == port && fw.Protocol != helperapi.ProtoUDP
+	})
 }
 
 // ActiveBackend names the backend enforcing rules now ("" when off).

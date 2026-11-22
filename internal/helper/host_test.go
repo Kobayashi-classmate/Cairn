@@ -4,10 +4,13 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -229,5 +232,74 @@ func TestSwitchMirrorFileSource(t *testing.T) {
 	data, _ := os.ReadFile(filepath.Join(root, "etc/apt/sources.list.d/debian.sources"))
 	if !strings.Contains(string(data), "URIs: "+p.URL+"/alias/debian\n") {
 		t.Fatalf("not switched:\n%s", data)
+	}
+}
+
+func TestSetSwapKeepsSwapOnFailure(t *testing.T) {
+	root := t.TempDir()
+	h := &Host{Root: root}
+	var cmds []string
+	mkswapFails := 0
+	oldRun, oldQuery, oldSystemd := runCommand, queryCommand, systemdRunning
+	t.Cleanup(func() { runCommand, queryCommand, systemdRunning = oldRun, oldQuery, oldSystemd })
+	systemdRunning = func() bool { return true }
+	queryCommand = func(_ context.Context, name string, _ ...string) (string, error) {
+		if name == "systemd-detect-virt" {
+			return "none\n", nil
+		}
+		return "", nil
+	}
+	runCommand = func(_ context.Context, _ io.Writer, name string, args ...string) error {
+		cmd := name + " " + strings.Join(args, " ")
+		cmds = append(cmds, cmd)
+		switch name {
+		case "fallocate":
+			mb, _ := strconv.Atoi(strings.TrimSuffix(args[1], "M"))
+			return os.WriteFile(filepath.Join(root, swapFile), make([]byte, mb<<20), 0o600)
+		case "mkswap":
+			if mkswapFails > 0 {
+				mkswapFails--
+				return errors.New("mkswap failed")
+			}
+		}
+		return nil
+	}
+	ran := func(cmd string) bool { return slices.Contains(cmds, cmd) }
+	writeSystemFile(t, root, swapFile, strings.Repeat("x", 2<<20))
+	writeSystemFile(t, root, "/proc/swaps", "Filename Type Size Used Priority\n/swapfile file 2048 0 -2\n")
+	writeSystemFile(t, root, "/etc/fstab", "UUID=1 / ext4 defaults 0 1\n/swapfile none swap sw 0 0\n")
+	ctx := context.Background()
+
+	// No room: refused before the old swap is touched.
+	if _, err := h.setSwap(ctx, helperapi.Caller{}, helperapi.SwapRequest{SizeMB: 1 << 40}, io.Discard); code(err) != helperapi.CodeHostSwapNoSpace {
+		t.Fatalf("no space: %v", err)
+	}
+	if ran("swapoff /swapfile") || !fileExists(filepath.Join(root, swapFile)) {
+		t.Fatalf("touched the old swap: %v", cmds)
+	}
+	// The new file fails: the previous one comes back, fstab keeps it.
+	mkswapFails = 1
+	if _, err := h.setSwap(ctx, helperapi.Caller{}, helperapi.SwapRequest{SizeMB: 1}, io.Discard); err == nil {
+		t.Fatal("mkswap failure not reported")
+	}
+	if !ran("fallocate -l 2M /swapfile") || !ran("swapon /swapfile") {
+		t.Fatalf("previous swap not restored: %v", cmds)
+	}
+	if info, err := os.Stat(filepath.Join(root, swapFile)); err != nil || info.Size() != 2<<20 {
+		t.Fatalf("swap file: %v %v", info, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "etc/fstab")); !strings.Contains(string(data), "/swapfile") {
+		t.Fatalf("fstab lost the swap line:\n%s", data)
+	}
+	// Nothing works: no file, and no line left for it.
+	mkswapFails = 2
+	if _, err := h.setSwap(ctx, helperapi.Caller{}, helperapi.SwapRequest{SizeMB: 1}, io.Discard); err == nil {
+		t.Fatal("failure not reported")
+	}
+	if fileExists(filepath.Join(root, swapFile)) {
+		t.Fatal("broken swap file left")
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "etc/fstab")); strings.Contains(string(data), "/swapfile") {
+		t.Fatalf("stale fstab line:\n%s", data)
 	}
 }

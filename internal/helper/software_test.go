@@ -221,6 +221,27 @@ func TestInstallSystemLineAndStatus(t *testing.T) {
 		t.Fatalf("services: %+v %v", st.Services, f.cmds)
 	}
 
+	// A line sites use stays.
+	site, _ := json.Marshal(helperapi.SiteState{Spec: helperapi.SiteSpec{Code: "blog", Type: helperapi.SitePHP, PHP: "8.4", Domains: []string{"blog.example.com"}}})
+	writeSystemFile(t, s.Root, siteStateDir+"/blog.json", string(site))
+	op, _ = runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "php", Line: "8.4"})
+	if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodePkgInUse || op.Error.Params["sites"] != "blog" {
+		t.Fatalf("in use: %+v", op.Error)
+	}
+	if err := os.Remove(filepath.Join(s.Root, siteStateDir, "blog.json")); err != nil {
+		t.Fatal(err)
+	}
+	// Nothing else goes with it; the line's own extensions may.
+	f.removeSim = "Remv php8.4-fpm [8.4.27-1~deb13u1]\nRemv php8.4-mysql [8.4.27-1~deb13u1]\nRemv roundcube [1.6]\n"
+	op, _ = runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "php", Line: "8.4"})
+	if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodePkgRemoveTakes || op.Error.Params["by"] != "roundcube" {
+		t.Fatalf("takes others: %+v", op.Error)
+	}
+	if _, ok := f.installed["php8.4-fpm"]; !ok {
+		t.Fatal("removed despite the guard")
+	}
+	f.removeSim = "Remv php8.4-fpm [8.4.27-1~deb13u1]\nRemv php8.4-mysql [8.4.27-1~deb13u1]\n"
+
 	// Removing keeps configuration and data (remove, not purge).
 	op, _ = runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "php", Line: "8.4"})
 	if op.State != helperapi.OpSucceeded || !f.ran("apt-get remove -y php8.4-fpm php8.4-cli") {

@@ -207,7 +207,7 @@ func TestFirewallForwardsAndIPForwarding(t *testing.T) {
 	ctx := context.Background()
 	proc := ipForwardRoot(t, f, "0")
 	conf := filepath.Join(f.Root, ipForwardConf)
-	if _, err := f.Enable(ctx, fwAdmin, false, io.Discard); err != nil {
+	if _, err := f.Enable(ctx, fwSetup, false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -302,7 +302,7 @@ func TestIPForwardKeepsOthersOn(t *testing.T) {
 func TestFirewallRollbackNow(t *testing.T) {
 	f, b := newTestFirewall(t)
 	ctx := context.Background()
-	if _, err := f.Enable(ctx, fwAdmin, false, io.Discard); err != nil {
+	if _, err := f.Enable(ctx, fwSetup, false, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	ch, err := f.setForward(ctx, fwAdmin, helperapi.FirewallForward{Protocol: "tcp", Port: 8090, ToPort: 80})

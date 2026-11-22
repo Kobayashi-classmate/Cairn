@@ -21,6 +21,8 @@ type fakeBackend struct {
 	on      bool
 	applied []fwRender
 	fail    bool
+	// failNext fails that many applies, then works again.
+	failNext int
 }
 
 func (b *fakeBackend) installed() bool                          { return true }
@@ -30,7 +32,8 @@ func (b *fakeBackend) loaded(context.Context) bool              { return b.on }
 func (b *fakeBackend) external(context.Context) []string        { return nil }
 func (b *fakeBackend) disable(context.Context, io.Writer) error { b.on = false; return nil }
 func (b *fakeBackend) apply(_ context.Context, _ io.Writer, r fwRender) error {
-	if b.fail {
+	if b.fail || b.failNext > 0 {
+		b.failNext--
 		return &helperapi.Error{Code: helperapi.CodeFirewallApplyFailed}
 	}
 	b.on = true
@@ -54,6 +57,28 @@ func newTestFirewall(t *testing.T) (*Firewall, *fakeBackend) {
 }
 
 var fwAdmin = helperapi.Caller{Source: "web", Remote: "203.0.113.5"}
+
+// fwSetup is the install-time setup: a root peer.
+var fwSetup = helperapi.Caller{Source: "cli", PeerRoot: true}
+
+func TestFirewallEnableFromWebAlwaysWaits(t *testing.T) {
+	f, _ := newTestFirewall(t)
+	ctx := context.Background()
+	// The web process cannot skip the rollback window, whatever it asks
+	// (and whatever source it claims).
+	for _, c := range []helperapi.Caller{fwAdmin, {Source: "cli"}} {
+		p, err := f.Enable(ctx, c, false, io.Discard)
+		if err != nil || p == nil {
+			t.Fatalf("%+v: %+v %v", c, p, err)
+		}
+		if err := f.RollbackNow(ctx, p.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if p, err := f.Enable(ctx, fwSetup, false, io.Discard); err != nil || p != nil {
+		t.Fatalf("root: %+v %v", p, err)
+	}
+}
 
 func TestFirewallConfirmAndRollback(t *testing.T) {
 	f, b := newTestFirewall(t)

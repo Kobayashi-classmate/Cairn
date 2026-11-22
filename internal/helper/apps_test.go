@@ -3,6 +3,9 @@
 package helper
 
 import (
+	"context"
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,5 +198,133 @@ func TestStreamApplyAndRemove(t *testing.T) {
 		if err := s.Validate(); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+}
+
+func TestAppSiteFailedChanges(t *testing.T) {
+	e := newSiteEnv(t)
+	e.f.systemd = true
+	e.st.Software.Runtimes = &Runtimes{Dir: filepath.Join(e.st.Root, "opt/cairn/runtimes")}
+	installRuntime(t, e.st.Software.Runtimes, "nodejs", "22", "22.21.1")
+	spec := appSpec("api", 20001)
+	if op, log := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpSucceeded {
+		t.Fatalf("apply: %+v\n%s", op.Error, log)
+	}
+	ran := func() int {
+		e.f.mu.Lock()
+		defer e.f.mu.Unlock()
+		return len(e.f.cmds)
+	}
+	since := func(n int, cmd string) bool {
+		e.f.mu.Lock()
+		defer e.f.mu.Unlock()
+		for _, c := range e.f.cmds[n:] {
+			if strings.HasPrefix(c, cmd) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Turning it into a static site fails the check: the app's files are
+	// back, and so is the app.
+	e.f.failPrefix = "/usr/sbin/nginx -t"
+	static := spec
+	static.Type, static.App, static.Writable = helperapi.SiteStatic, nil, nil
+	n := ran()
+	if op, _ := e.run(helperapi.ActionSiteApply, static); op.State != helperapi.OpFailed {
+		t.Fatalf("failing check: %+v", op.Error)
+	}
+	if !e.exists("/etc/systemd/system/cairn-app-api.service") || !since(n, "systemctl disable --now cairn-app-api.service") ||
+		!since(n, "systemctl enable cairn-app-api.service") || !since(n, "systemctl restart cairn-app-api.service") {
+		t.Fatalf("the app was not started again: %v", e.f.cmds[n:])
+	}
+	// The same for a removal.
+	n = ran()
+	if op, _ := e.run(helperapi.ActionSiteRemove, helperapi.SiteRemoveRequest{Code: "api"}); op.State != helperapi.OpFailed {
+		t.Fatalf("failing remove: %+v", op.Error)
+	}
+	if !e.exists("/etc/systemd/system/cairn-app-api.service") || !since(n, "systemctl restart cairn-app-api.service") {
+		t.Fatalf("the app was not started again after a failed removal: %v", e.f.cmds[n:])
+	}
+
+	// The files went in but the unit could not be enabled: the state says
+	// what the files are.
+	e.f.failPrefix = "systemctl enable"
+	spec.App.Port = 20002
+	if op, _ := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpFailed {
+		t.Fatalf("failing enable: %+v", op.Error)
+	}
+	var state helperapi.SiteState
+	if err := json.Unmarshal([]byte(e.read("/var/lib/cairn-helper/sites/api.json")), &state); err != nil || state.Spec.App.Port != 20002 {
+		t.Fatalf("state after a failed start: %+v %v", state.Spec.App, err)
+	}
+}
+
+func TestStreamPortChecks(t *testing.T) {
+	e := newSiteEnv(t)
+	writeSystemFile(t, e.st.Root, "/etc/nginx/modules-enabled/50-mod-stream.conf", "load_module modules/ngx_stream_module.so;\n")
+	// sshd on 2222 (0x08AE) over TCP; something on UDP 5353 (0x14E9).
+	writeSystemFile(t, e.st.Root, "/proc/net/tcp", "  sl  local_address rem_address   st\n   0: 00000000:08AE 00000000:0000 0A\n")
+	writeSystemFile(t, e.st.Root, "/proc/net/udp6", "  sl  local_address rem_address   st\n   0: 00000000000000000000000000000000:14E9 00000000000000000000000000000000:0000 07\n")
+	// An app site on 3000.
+	app, _ := json.Marshal(helperapi.SiteState{Spec: helperapi.SiteSpec{Code: "api", Type: helperapi.SiteApp, Domains: []string{"api.example.com"},
+		App: &helperapi.AppSpec{Port: 3000, Command: "node a.js"}, Enabled: true}})
+	writeSystemFile(t, e.st.Root, siteStateDir+"/api.json", string(app))
+
+	for name, tc := range map[string]struct {
+		spec  helperapi.StreamSpec
+		param string
+	}{
+		"sshd's port":   {helperapi.StreamSpec{Code: "s1", Protocol: helperapi.StreamTCP, Port: 2222, Upstreams: []string{"10.0.0.5:22"}, Enabled: true}, "listening"},
+		"a udp socket":  {helperapi.StreamSpec{Code: "s2", Protocol: helperapi.StreamUDP, Port: 5353, Upstreams: []string{"10.0.0.5:53"}, Enabled: true}, "listening"},
+		"an app's port": {helperapi.StreamSpec{Code: "s3", Protocol: helperapi.StreamTCP, Port: 3000, Upstreams: []string{"10.0.0.5:80"}, Enabled: true}, "site"},
+	} {
+		op, _ := e.run(helperapi.ActionStreamApply, tc.spec)
+		if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeStreamPortTaken || op.Error.Params[tc.param] == nil {
+			t.Errorf("%s: %+v", name, op.Error)
+		}
+	}
+	// Over the other protocol, or stopped, the port is free.
+	for _, s := range []helperapi.StreamSpec{
+		{Code: "s4", Protocol: helperapi.StreamUDP, Port: 2222, Upstreams: []string{"10.0.0.5:22"}, Enabled: true},
+		{Code: "s5", Protocol: helperapi.StreamTCP, Port: 2222, Upstreams: []string{"10.0.0.5:22"}},
+	} {
+		if op, log := e.run(helperapi.ActionStreamApply, s); op.State != helperapi.OpSucceeded {
+			t.Fatalf("%s: %+v\n%s", s.Code, op.Error, log)
+		}
+	}
+	// A stream applied on a port: nginx listens there, and the stream
+	// can be applied again.
+	own := helperapi.StreamSpec{Code: "s6", Protocol: helperapi.StreamTCP, Port: 9100, Upstreams: []string{"10.0.0.5:80"}, Enabled: true}
+	if op, log := e.run(helperapi.ActionStreamApply, own); op.State != helperapi.OpSucceeded {
+		t.Fatalf("own: %+v\n%s", op.Error, log)
+	}
+	writeSystemFile(t, e.st.Root, "/proc/net/tcp", "  sl  local_address rem_address   st\n   0: 00000000:238C 00000000:0000 0A\n")
+	own.Upstreams = []string{"10.0.0.6:80"}
+	if op, log := e.run(helperapi.ActionStreamApply, own); op.State != helperapi.OpSucceeded {
+		t.Fatalf("own again: %+v\n%s", op.Error, log)
+	}
+}
+
+func TestStreamFailureRemovesSELinuxLabel(t *testing.T) {
+	e := newSiteEnv(t)
+	writeSystemFile(t, e.st.Root, "/etc/nginx/modules-enabled/50-mod-stream.conf", "load_module modules/ngx_stream_module.so;\n")
+	writeSystemFile(t, e.st.Root, seSemanage, "")
+	se := &fakeSemanage{ports: map[string]bool{}, fc: map[string]string{}, policy: "unreserved_port_t tcp 1024-32767\n"}
+	se.use(t)
+	inner := runCommand
+	runCommand = func(ctx context.Context, log io.Writer, name string, args ...string) error {
+		if strings.HasSuffix(name, "nginx") && len(args) == 1 && args[0] == "-t" {
+			return &helperapi.Error{Code: "exec.failed"}
+		}
+		return inner(ctx, log, name, args...)
+	}
+	s := helperapi.StreamSpec{Code: "s1", Protocol: helperapi.StreamTCP, Port: 9100, Upstreams: []string{"10.0.0.5:80"}, Enabled: true}
+	if op, _ := e.run(helperapi.ActionStreamApply, s); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeSiteConfigInvalid {
+		t.Fatalf("failing check: %+v", op.Error)
+	}
+	if len(se.imports) == 0 || len(se.ports) != 0 {
+		t.Fatalf("labels after a failed apply: %v (imports %v)", se.ports, se.imports)
 	}
 }

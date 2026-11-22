@@ -7,6 +7,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -137,17 +138,106 @@ func TestMFAChallengeLimits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if id, err := MFAChallengeUser(ctx, db, token); err != nil || id != u.ID {
-		t.Fatalf("lookup: %d %v", id, err)
+	// Concurrent claims get exactly the challenge's attempts.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	granted := 0
+	for i := 0; i < 3*mfaMaxAttempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id, err := ClaimMFAChallenge(ctx, db, token)
+			if err == nil && id == u.ID {
+				mu.Lock()
+				granted++
+				mu.Unlock()
+			} else if !errors.Is(err, ErrMFAChallengeExpired) {
+				t.Errorf("claim: %v", err)
+			}
+		}()
 	}
-	for i := 0; i < mfaMaxAttempts; i++ {
-		_ = FailMFAChallenge(ctx, db, token)
+	wg.Wait()
+	if granted != mfaMaxAttempts {
+		t.Fatalf("%d attempts granted, want %d", granted, mfaMaxAttempts)
 	}
-	if _, err := MFAChallengeUser(ctx, db, token); !errors.Is(err, ErrMFAChallengeExpired) {
+	if _, err := ClaimMFAChallenge(ctx, db, token); !errors.Is(err, ErrMFAChallengeExpired) {
 		t.Fatalf("challenge survived too many attempts: %v", err)
 	}
-	if _, err := MFAChallengeUser(ctx, db, "unknown"); !errors.Is(err, ErrMFAChallengeExpired) {
+	if _, err := ClaimMFAChallenge(ctx, db, "unknown"); !errors.Is(err, ErrMFAChallengeExpired) {
 		t.Fatalf("unknown challenge: %v", err)
+	}
+}
+
+func TestAttemptCountsBeforeChecking(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	key := IPKey("198.51.100.8")
+	// Many attempts at once: only the free ones get through; the last of
+	// them locks the key at once.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	passed := 0
+	for i := 0; i < 4*freeFailures; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wait, err := Attempt(ctx, db, key)
+			if err != nil {
+				t.Errorf("attempt: %v", err)
+				return
+			}
+			if wait == 0 {
+				mu.Lock()
+				passed++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if passed != freeFailures {
+		t.Fatalf("%d concurrent attempts passed, want %d", passed, freeFailures)
+	}
+	// A success clears the key.
+	if err := ResetFailures(ctx, db, key); err != nil {
+		t.Fatal(err)
+	}
+	if wait, err := Attempt(ctx, db, key); err != nil || wait != 0 {
+		t.Fatalf("after reset: %v %v", wait, err)
+	}
+	// A username only backs off for seconds, however many failures.
+	user := UserKey("admin")
+	for i := 0; i < 40; i++ {
+		_ = RecordFailure(ctx, db, user)
+	}
+	if d, _ := LockedFor(ctx, db, user); d <= 0 || d > maxBackoff {
+		t.Fatalf("username back-off %v, want at most %v", d, maxBackoff)
+	}
+}
+
+func TestHashingIsBounded(t *testing.T) {
+	h, err := HashPassword(context.Background(), goodPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// With every slot taken, hashing waits and gives up with the context.
+	for i := 0; i < cap(hashSlots); i++ {
+		hashSlots <- struct{}{}
+	}
+	defer func() {
+		for i := 0; i < cap(hashSlots); i++ {
+			<-hashSlots
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := HashPassword(ctx, goodPassword); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("hashing without a slot: %v", err)
+	}
+	// Nor does it wait longer than hashWait.
+	defer func(d time.Duration) { hashWait = d }(hashWait)
+	hashWait = 20 * time.Millisecond
+	if _, err := VerifyPassword(context.Background(), goodPassword, h); !errors.Is(err, ErrBusy) {
+		t.Fatalf("verifying without a slot: %v", err)
 	}
 }
 

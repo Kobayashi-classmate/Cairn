@@ -43,6 +43,10 @@ func (rt *Router) OpenAPI(title, version string) map[string]any {
 		} else {
 			op["x-cairn-permission"] = string(r.Permission)
 			op["security"] = []any{map[string]any{"session": []any{}}, map[string]any{"bearer": []any{}}}
+			if r.SessionOnly {
+				// API tokens are refused here.
+				op["security"] = []any{map[string]any{"session": []any{}}}
+			}
 		}
 		if r.Module != "" {
 			op["x-cairn-module"] = r.Module

@@ -31,6 +31,10 @@ var (
 // ValidUnitName reports whether s is a systemd unit name.
 func ValidUnitName(s string) bool { return unitName.MatchString(s) }
 
+// ValidCursor reports whether s is a journal cursor a request may pass as
+// After.
+func ValidCursor(s string) bool { return cursor.MatchString(s) }
+
 // JournalRequest selects journal entries: the last Limit ones matching,
 // or with After the ones following that cursor.
 type JournalRequest struct {
@@ -60,7 +64,7 @@ func (r JournalRequest) Validate() error {
 	if len(r.Grep) > 200 || strings.ContainsAny(r.Grep, "\x00\n") {
 		return invalid("grep", "max")
 	}
-	if r.After != "" && !cursor.MatchString(r.After) {
+	if r.After != "" && !ValidCursor(r.After) {
 		return invalid("after", "cursor")
 	}
 	if r.Limit < 0 || r.Limit > JournalMax {

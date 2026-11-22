@@ -120,6 +120,43 @@ func (req *channelRequest) apply(c *notify.Channel) {
 	}
 }
 
+// keepsSecretAt refuses a change that sends the channel elsewhere (another
+// mail host or port, another webhook URL), or mail without encryption,
+// while keeping its stored password or signing secret: the secret was
+// given for the old destination, and the new one would receive it (or
+// anyone on the way, in the clear). Such a change must give the secret
+// again (or clear it).
+func (req *channelRequest) keepsSecretAt(c *notify.Channel) error {
+	cfg := req.Config
+	if cfg == nil {
+		return nil
+	}
+	required := func(field string) error {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": field, "rule": "required"})
+	}
+	switch c.Type {
+	case notify.TypeEmail:
+		e := c.Config.Email
+		if e == nil || e.Password == "" || cfg.Password != nil {
+			return nil
+		}
+		// Turning encryption off would send it in the clear: the same.
+		if cfg.Host != nil && *cfg.Host != e.Host || cfg.Port != nil && *cfg.Port != e.Port ||
+			cfg.Security != nil && *cfg.Security == "none" && e.Security != "none" {
+			return required("password")
+		}
+	case notify.TypeWebhook:
+		h := c.Config.Webhook
+		if h == nil || h.Secret == "" || cfg.Secret != nil {
+			return nil
+		}
+		if cfg.URL != nil && *cfg.URL != h.URL {
+			return required("secret")
+		}
+	}
+	return nil
+}
+
 func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	channels, err := m.Store.List(r.Context())
 	if err != nil {
@@ -172,6 +209,9 @@ func (m *Module) update(w http.ResponseWriter, r *http.Request) error {
 	}
 	if req.Type != nil && *req.Type != c.Type {
 		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "type", "rule": "immutable"})
+	}
+	if err := req.keepsSecretAt(c); err != nil {
+		return err
 	}
 	req.apply(c)
 	if err := m.Store.Update(r.Context(), c); err != nil {

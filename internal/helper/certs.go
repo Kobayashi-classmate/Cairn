@@ -38,6 +38,7 @@ import (
 	"github.com/go-acme/lego/v4/registration"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // LockACME serializes ACME issuance (one order at a time; lego's logger is
@@ -52,7 +53,9 @@ const (
 	panelCertState = "/var/lib/cairn-helper/panel-cert"
 	nginxCertDir   = "/etc/nginx/cairn/certs"
 	acmeWebroot    = "/var/lib/cairn-acme"
-	panelTLSDir    = "/var/lib/cairn/tls"
+	panelDataDir   = "/var/lib/cairn"
+	panelTLSName   = "tls" // in the panel's data directory
+	panelTLSDir    = panelDataDir + "/" + panelTLSName
 )
 
 // Certs issues, imports and deploys certificates: through ACME (lego, with
@@ -63,6 +66,9 @@ type Certs struct {
 	Root  string
 	// PanelUser owns the panel's copy of its certificate (cairn).
 	PanelUser string
+	// DataDir is the panel's data directory, whose tls/ holds that copy
+	// (empty: /var/lib/cairn).
+	DataDir string
 	// Resolvers are the DNS servers DNS-01 checks propagation with
 	// ("host:port"; configuration, tests). Empty uses the system's.
 	Resolvers []string
@@ -90,7 +96,41 @@ func RegisterCerts(r *Registry, o *Ops, c *Certs) {
 
 func (c *Certs) path(p string) string { return filepath.Join(c.Root, p) }
 
+func (c *Certs) dataDir() string {
+	if c.DataDir != "" {
+		return c.DataDir
+	}
+	return panelDataDir
+}
+
 // stored certificates ------------------------------------------------------
+
+// pemOnly re-encodes the PEM blocks of data that keep accepts (at most max
+// of them, 0 for all) and drops everything else: text before, between and
+// after the blocks, and the blocks' headers. Only PEM is ever stored or
+// deployed, whatever else an upload carried along (pem.Decode skips it).
+func pemOnly(data []byte, keep func(typ string) bool, max int) []byte {
+	var out []byte
+	for n := 0; max == 0 || n < max; {
+		b, rest := pem.Decode(data)
+		if b == nil {
+			break
+		}
+		data = rest
+		if keep(b.Type) {
+			out = append(out, pem.EncodeToMemory(&pem.Block{Type: b.Type, Bytes: b.Bytes})...)
+			n++
+		}
+	}
+	return out
+}
+
+// cleanCertPEM keeps the certificates of a chain and the first block of a
+// key: what parseCert reads of them.
+func cleanCertPEM(certPEM, keyPEM []byte) ([]byte, []byte) {
+	return pemOnly(certPEM, func(t string) bool { return t == "CERTIFICATE" }, 0),
+		pemOnly(keyPEM, func(string) bool { return true }, 1)
+}
 
 // parseCert checks a PEM chain (leaf first) and key: they parse, the key
 // belongs to the leaf, and it returns what the panel shows about them.
@@ -199,14 +239,19 @@ func readCertInfo(root, id string) (helperapi.CertInfo, bool) {
 	return info, true
 }
 
-// readCertFiles returns a stored certificate's PEM chain and key.
+// readCertFiles returns a stored certificate's PEM chain and key, as PEM
+// only (certificates stored before uploads were cleaned may carry text).
 func readCertFiles(root, id string) ([]byte, []byte, error) {
 	cert, err := os.ReadFile(filepath.Join(root, certDir(id), "cert.pem")) //nolint:gosec // G304: as above.
 	if err != nil {
 		return nil, nil, err
 	}
 	key, err := os.ReadFile(filepath.Join(root, certDir(id), "key.pem")) //nolint:gosec // G304: as above.
-	return cert, key, err
+	if err != nil {
+		return nil, nil, err
+	}
+	cert, key = cleanCertPEM(cert, key)
+	return cert, key, nil
 }
 
 // covers reports the names of domains a certificate's names do not cover
@@ -231,8 +276,9 @@ func uncovered(domains, names []string) []string {
 	return out
 }
 
-// store keeps a certificate in the helper's state.
+// store keeps a certificate in the helper's state, as PEM only.
 func (c *Certs) store(id, source string, certPEM, keyPEM []byte) (helperapi.CertInfo, error) {
+	certPEM, keyPEM = cleanCertPEM(certPEM, keyPEM)
 	info, err := parseCert(certPEM, keyPEM)
 	if err != nil {
 		return info, err
@@ -300,6 +346,9 @@ func (c *Certs) deploy(ctx context.Context, log io.Writer, id string) error {
 	}
 	sites, panel := c.usedBy(id)
 	if len(sites) > 0 && c.Sites != nil {
+		if err := privateDir(c.path(nginxCertDir)); err != nil {
+			return err
+		}
 		changes := []fileChange{
 			{path: path.Join(nginxCertDir, id+".crt"), data: certPEM},
 			{path: path.Join(nginxCertDir, id+".key"), data: keyPEM, mode: 0o600},
@@ -314,6 +363,72 @@ func (c *Certs) deploy(ctx context.Context, log io.Writer, id string) error {
 	return nil
 }
 
+// panelTLS opens the panel's TLS directory (tls/ in its data directory).
+// The data directory and everything in it belong to the web process, so
+// every path is resolved inside it: a link planted there (tls itself, or a
+// file in it) cannot send the helper's writes anywhere else. With create,
+// a missing tls/ is made for the panel's user.
+func (c *Certs) panelTLS(create bool, uid, gid int) (*os.Root, error) {
+	data, err := os.OpenRoot(c.path(c.dataDir()))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = data.Close() }()
+	if create {
+		if err := data.Mkdir(panelTLSName, 0o700); err == nil {
+			if err := data.Lchown(panelTLSName, uid, gid); err != nil {
+				return nil, err
+			}
+		} else if !errors.Is(err, fs.ErrExist) {
+			return nil, err
+		}
+	}
+	info, err := data.Lstat(panelTLSName)
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s is not a directory", path.Join(c.dataDir(), panelTLSName))
+	}
+	return data.OpenRoot(panelTLSName)
+}
+
+// writeOwned replaces name inside root with data: a new file of a random
+// name (O_EXCL: never an existing file or link), given its mode and owner
+// through its descriptor before the content, then renamed over name.
+func writeOwned(root *os.Root, name string, data []byte, mode os.FileMode, uid, gid int) error {
+	tmp := path.Join(path.Dir(name), "."+path.Base(name)+"."+newHexID(""))
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+	if err != nil {
+		return err
+	}
+	done := false
+	defer func() {
+		if !done {
+			_ = f.Close()
+			_ = root.Remove(tmp)
+		}
+	}()
+	if err := f.Chmod(mode); err != nil { // the umask may have taken bits
+		return err
+	}
+	if err := f.Chown(uid, gid); err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	done = true
+	if err := root.Rename(tmp, name); err != nil {
+		_ = root.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
 // deployPanel writes the panel's copy, readable by the web process only;
 // the web process picks it up without a restart.
 func (c *Certs) deployPanel(log io.Writer, certPEM, keyPEM []byte) error {
@@ -321,13 +436,16 @@ func (c *Certs) deployPanel(log io.Writer, certPEM, keyPEM []byte) error {
 	if err != nil {
 		return err
 	}
-	dir := c.path(panelTLSDir)
-	for name, data := range map[string][]byte{"panel.key": keyPEM, "panel.crt": certPEM} {
-		p := filepath.Join(dir, name)
-		if err := writeFileMode(p, data, 0o600); err != nil {
-			return err
-		}
-		if err := os.Lchown(p, uid, gid); err != nil {
+	root, err := c.panelTLS(true, uid, gid)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	for _, f := range []struct {
+		name string
+		data []byte
+	}{{"panel.key", keyPEM}, {"panel.crt", certPEM}} {
+		if err := writeOwned(root, f.name, f.data, 0o600, uid, gid); err != nil {
 			return err
 		}
 	}
@@ -357,10 +475,17 @@ func accountDir(ca helperapi.ACMECA) string {
 }
 
 func (c *Certs) httpClient(ca helperapi.ACMECA) (*http.Client, error) {
-	tr := &http.Transport{Proxy: http.ProxyFromEnvironment, TLSHandshakeTimeout: 30 * time.Second, ResponseHeaderTimeout: 2 * time.Minute}
+	tr := &http.Transport{TLSHandshakeTimeout: 30 * time.Second, ResponseHeaderTimeout: 2 * time.Minute}
 	if c.HTTPTransport != nil {
 		tr = c.HTTPTransport.Clone()
 	}
+	// A custom directory is any URL the panel's user typed: it (and every
+	// URL the CA's answers lead to) may reach this host and the LAN (a
+	// private CA), never a cloud metadata service. Checked on each
+	// connection, after name resolution, so no proxy in between.
+	tr.Proxy = nil
+	tr.DialContext = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second,
+		Control: netx.DialControl(netx.IsMetadata)}).DialContext
 	if ca.RootPEM != "" {
 		pool, err := x509.SystemCertPool()
 		if err != nil || pool == nil {
@@ -513,6 +638,11 @@ func (c *Certs) http01(ctx context.Context, log io.Writer, id string, domains []
 // and deployed to its users (renewal is the same request again).
 func (c *Certs) issue(ctx context.Context, _ helperapi.Caller, req helperapi.CertIssueRequest, log io.Writer) (any, error) {
 	logf := func(format string, a ...any) { _, _ = fmt.Fprintf(log, format, a...) }
+	// Checked before the CA is asked: a certificate it issues counts
+	// against its rate limits even when it is not used.
+	if err := c.coverage(req.ID, req.Domains); err != nil {
+		return nil, err
+	}
 	logf("Requesting a certificate for %s from %s (%s).\n", strings.Join(req.Domains, " "), req.CA.DirectoryURL(), req.Challenge)
 	// lego logs through a global logger; issuance holds the acme lock.
 	legolog.Logger = stdlog.New(log, "", 0)
@@ -571,6 +701,23 @@ func (c *Certs) issue(ctx context.Context, _ helperapi.Caller, req helperapi.Cer
 	return info, nil
 }
 
+// coverage refuses names that would no longer cover the domains of the
+// sites using certificate id: a replacement or a re-issue must still
+// serve every one of them.
+func (c *Certs) coverage(id string, names []string) error {
+	if _, ok := readCertInfo(c.Root, id); !ok || c.Sites == nil {
+		return nil
+	}
+	sites, _ := c.usedBy(id)
+	states, _ := c.Sites.states()
+	for _, code := range sites {
+		if miss := uncovered(states[code].Spec.Domains, names); len(miss) > 0 {
+			return pkgErr(helperapi.CodeCertCoverage, map[string]any{"site": code, "domains": strings.Join(miss, " ")})
+		}
+	}
+	return nil
+}
+
 // importCert implements cert.import.
 func (c *Certs) importCert(ctx context.Context, _ helperapi.Caller, req helperapi.CertImportRequest, log io.Writer) (any, error) {
 	info, err := parseCert([]byte(req.CertPEM), []byte(req.KeyPEM))
@@ -580,15 +727,8 @@ func (c *Certs) importCert(ctx context.Context, _ helperapi.Caller, req helperap
 	if time.Unix(info.NotAfter, 0).Before(time.Now()) {
 		return nil, pkgErr(helperapi.CodeCertExpired, map[string]any{"notAfter": info.NotAfter})
 	}
-	// A replacement must still cover the domains of the sites using it.
-	if _, ok := readCertInfo(c.Root, req.ID); ok && c.Sites != nil {
-		sites, _ := c.usedBy(req.ID)
-		states, _ := c.Sites.states()
-		for _, code := range sites {
-			if miss := uncovered(states[code].Spec.Domains, info.Domains); len(miss) > 0 {
-				return nil, pkgErr(helperapi.CodeCertCoverage, map[string]any{"site": code, "domains": strings.Join(miss, " ")})
-			}
-		}
+	if err := c.coverage(req.ID, info.Domains); err != nil {
+		return nil, err
 	}
 	info, err = c.store(req.ID, "upload", []byte(req.CertPEM), []byte(req.KeyPEM))
 	if err != nil {
@@ -626,10 +766,23 @@ func (c *Certs) remove(_ context.Context, _ helperapi.Caller, req helperapi.Cert
 // setPanel implements panel.cert.
 func (c *Certs) setPanel(_ context.Context, _ helperapi.Caller, req helperapi.PanelCertRequest, log io.Writer) (any, error) {
 	if req.ID == "" {
-		for _, p := range []string{path.Join(panelTLSDir, "panel.crt"), path.Join(panelTLSDir, "panel.key"), panelCertState} {
-			if err := os.Remove(c.path(p)); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				return nil, err
+		// Removed inside the data directory too: no link there may point
+		// the removal elsewhere.
+		root, err := c.panelTLS(false, 0, 0)
+		switch {
+		case err == nil:
+			for _, name := range []string{"panel.crt", "panel.key"} {
+				if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+					_ = root.Close()
+					return nil, err
+				}
 			}
+			_ = root.Close()
+		case !errors.Is(err, fs.ErrNotExist):
+			return nil, err
+		}
+		if err := os.Remove(c.path(panelCertState)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
 		}
 		_, _ = fmt.Fprintf(log, "The panel serves its self-signed certificate again.\n")
 		return helperapi.PanelCertRequest{}, nil
@@ -649,8 +802,5 @@ func (c *Certs) setPanel(_ context.Context, _ helperapi.Caller, req helperapi.Pa
 
 // writeFileMode writes a file atomically with a mode.
 func writeFileMode(p string, data []byte, mode os.FileMode) error {
-	if err := writeFile(p, data); err != nil {
-		return err
-	}
-	return os.Chmod(p, mode)
+	return writeFileAs(p, data, mode)
 }

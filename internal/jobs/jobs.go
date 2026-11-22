@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/audit"
@@ -346,6 +347,21 @@ func (m *Manager) notify(id string) {
 	}
 }
 
+// unwatch drops the watch entry of a job that is not running (finished,
+// or no job at all): nothing would ever close and remove it. Waiters on
+// the same entry are woken, and find the job done.
+func (m *Manager) unwatch(id string, ch <-chan struct{}) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, live := m.live[id]; live {
+		return
+	}
+	if cur, ok := m.watch[id]; ok && cur == ch {
+		close(cur)
+		delete(m.watch, id)
+	}
+}
+
 func (m *Manager) changed(id string) <-chan struct{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -503,13 +519,34 @@ func (m *Manager) ReadLog(id string, offset int64) (LogChunk, error) {
 	if err != nil && !errors.Is(err, io.EOF) {
 		return LogChunk{}, err
 	}
+	if offset+int64(n) < size {
+		// A chunk ending inside a UTF-8 sequence would garble that
+		// character in both chunks once each is sent as a JSON string:
+		// the next chunk starts with it instead.
+		n = completeRunes(buf[:n])
+	}
 	return LogChunk{Log: string(buf[:n]), Offset: offset + int64(n), LogSize: size}, nil
+}
+
+// completeRunes is the length of b without a UTF-8 sequence cut off at its
+// end; never 0, so reading always moves on.
+func completeRunes(b []byte) int {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(b[i]) {
+			if i > 0 && !utf8.FullRune(b[i:]) {
+				return i
+			}
+			break
+		}
+	}
+	return len(b)
 }
 
 // Follow waits up to wait for new log data or a state change after offset,
 // then returns the job and the next log chunk.
 func (m *Manager) Follow(ctx context.Context, id string, offset int64, wait time.Duration) (Record, LogChunk, error) {
 	changed := m.changed(id)
+	defer m.unwatch(id, changed)
 	rec, err := m.Get(ctx, id)
 	if err != nil {
 		return rec, LogChunk{}, err
@@ -603,6 +640,28 @@ func (j *Job) setState(state string) {
 	if _, err := j.m.DB.ExecContext(context.Background(), `UPDATE jobs SET state = ?, started_at = ? WHERE id = ?`,
 		state, j.rec.StartedAt, j.rec.ID); err != nil {
 		j.m.Log.Error("saving job failed", "id", j.rec.ID, "err", err)
+	}
+	j.m.notify(j.rec.ID)
+}
+
+// SetParam adds a parameter while the job runs, such as the identifier of
+// what it made, for the UI to read from the job (never a secret: params
+// are shown and audited).
+func (j *Job) SetParam(key string, value any) {
+	j.mu.Lock()
+	params := make(map[string]any, len(j.rec.Params)+1)
+	for k, v := range j.rec.Params {
+		params[k] = v
+	}
+	params[key] = value
+	j.rec.Params = params
+	j.mu.Unlock()
+	data, err := json.Marshal(params)
+	if err == nil {
+		_, err = j.m.DB.ExecContext(context.Background(), `UPDATE jobs SET params = ? WHERE id = ?`, string(data), j.rec.ID)
+	}
+	if err != nil {
+		j.m.Log.Error("saving job params failed", "id", j.rec.ID, "err", err)
 	}
 	j.m.notify(j.rec.ID)
 }

@@ -341,6 +341,16 @@ func TestSiteSpecValidation(t *testing.T) {
 		"proxy with userinfo": func(s *helperapi.SiteSpec) {
 			s.Type, s.Root, s.Proxy = helperapi.SiteProxy, "", &helperapi.ProxySpec{URL: "http://u:p@a.com"}
 		},
+		"symlinks on a proxy": func(s *helperapi.SiteSpec) {
+			s.Type, s.Root, s.Proxy, s.AllowSymlinks = helperapi.SiteProxy, "", &helperapi.ProxySpec{URL: "http://127.0.0.1"}, true
+		},
+	}
+	// The path is checked escaped, but nginx gets the URL as written.
+	for _, u := range []string{"http://a.com/a b", "http://a.com/x{", "http://a.com/x}", `http://a.com/a"b`, `http://a.com/a\b`,
+		"http://a.com/$host", "http://a.com/a'b", "http://a.com/?"} {
+		bad["proxy "+u] = func(s *helperapi.SiteSpec) {
+			s.Type, s.Root, s.Proxy = helperapi.SiteProxy, "", &helperapi.ProxySpec{URL: u}
+		}
 	}
 	for name, mutate := range bad {
 		s := good
@@ -350,9 +360,97 @@ func TestSiteSpecValidation(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	for _, u := range []string{"http://127.0.0.1:3000", "https://api.example.com/v1/", "http://localhost:8080", "http://[::1]:9000"} {
+	for _, u := range []string{"http://127.0.0.1:3000", "https://api.example.com/v1/", "http://localhost:8080", "http://[::1]:9000",
+		"http://a.com/a%20b/~x_y.z-1", "http://a.com/a+b,c=d@e!f*(g)"} {
 		if !helperapi.ValidProxyURL(u) {
 			t.Errorf("proxy URL %s refused", u)
 		}
+	}
+}
+
+func TestSiteSymlinksAndForeignUsers(t *testing.T) {
+	e := newSiteEnv(t)
+	// Sites serving files refuse links to files of another owner; a proxy
+	// serves none.
+	for _, spec := range []helperapi.SiteSpec{
+		{Code: "files", Type: helperapi.SiteStatic, Domains: []string{"files.example.com"}, Enabled: true},
+		{Code: "blog", Type: helperapi.SitePHP, Domains: []string{"blog.example.com"}, PHP: "8.4", Enabled: true},
+		{Code: "api", Type: helperapi.SiteProxy, Domains: []string{"api.example.com"}, Proxy: &helperapi.ProxySpec{URL: "http://127.0.0.1:3000"}, Enabled: true},
+	} {
+		if op, log := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpSucceeded {
+			t.Fatalf("%s: %+v\n%s", spec.Code, op.Error, log)
+		}
+		conf := e.read(siteConfPath(spec.Code))
+		if has := strings.Contains(conf, "disable_symlinks if_not_owner from=$document_root;"); has != (spec.Type != helperapi.SiteProxy) {
+			t.Errorf("%s: disable_symlinks %v:\n%s", spec.Code, has, conf)
+		}
+	}
+
+	// A user of the site's names that is not in the site's group (made for
+	// something else) is never taken over.
+	e.f.mu.Lock()
+	e.f.cmds = append(e.f.cmds, "useradd --system cw-shop-run")
+	e.f.mu.Unlock()
+	inner := lookupUser
+	lookupUser = func(name string) (int, int, error) {
+		uid, gid, err := inner(name)
+		if name == "cw-shop-run" {
+			gid++
+		}
+		return uid, gid, err
+	}
+	spec := helperapi.SiteSpec{Code: "shop", Type: helperapi.SiteStatic, Domains: []string{"shop.example.com"}, Enabled: true}
+	op, _ := e.run(helperapi.ActionSiteApply, spec)
+	if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeSiteUserConflict || op.Error.Params["user"] != "cw-shop-run" {
+		t.Fatalf("foreign user: %+v", op.Error)
+	}
+	if e.exists("/srv/www/shop") || e.exists(siteConfPath("shop")) {
+		t.Fatal("the site was set up with a foreign user")
+	}
+
+	// The site may let its links cross owners.
+	files := helperapi.SiteSpec{Code: "files", Type: helperapi.SiteStatic, Domains: []string{"files.example.com"}, AllowSymlinks: true, Enabled: true}
+	if op, log := e.run(helperapi.ActionSiteApply, files); op.State != helperapi.OpSucceeded {
+		t.Fatalf("allow symlinks: %+v\n%s", op.Error, log)
+	}
+	if conf := e.read(siteConfPath("files")); !strings.Contains(conf, "disable_symlinks off;") || strings.Contains(conf, "if_not_owner") {
+		t.Fatalf("allow symlinks:\n%s", conf)
+	}
+}
+
+func TestSiteCodesEndingInRun(t *testing.T) {
+	e := newSiteEnv(t)
+	// The runner of site "x" is cw-x-run: a new site "x-run" would get it.
+	spec := helperapi.SiteSpec{Code: "x-run", Type: helperapi.SiteStatic, Domains: []string{"x.example.com"}, Enabled: true}
+	if err := spec.Validate(); err != nil {
+		t.Fatalf("an existing code must still validate: %v", err)
+	}
+	op, _ := e.run(helperapi.ActionSiteApply, spec)
+	if op.State != helperapi.OpFailed || op.Error.Code != "validation.invalid" || op.Error.Params["rule"] != "site_code_new" {
+		t.Fatalf("new -run site: %+v", op.Error)
+	}
+	if helperapi.ValidNewSiteCode("x-run") || !helperapi.ValidNewSiteCode("x-runner") {
+		t.Fatal("new site code rule")
+	}
+	// A site that already has such a code is still loaded and changed.
+	state, _ := json.Marshal(helperapi.SiteState{Spec: spec})
+	writeSystemFile(t, e.st.Root, siteStateDir+"/x-run.json", string(state))
+	if codes := e.st.SiteCodes(); len(codes) != 1 || codes[0] != "x-run" {
+		t.Fatalf("existing -run site not loaded: %v", codes)
+	}
+	if op, log := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpSucceeded {
+		t.Fatalf("existing -run site: %+v\n%s", op.Error, log)
+	}
+}
+
+func TestSitePlaceholderIsNewFile(t *testing.T) {
+	e := newSiteEnv(t)
+	spec := helperapi.SiteSpec{Code: "shop", Type: helperapi.SiteStatic, Domains: []string{"shop.example.com"}, Enabled: true}
+	if op, log := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpSucceeded {
+		t.Fatalf("apply: %+v\n%s", op.Error, log)
+	}
+	info, err := os.Lstat(filepath.Join(e.st.Root, "srv/www/shop/app/index.html"))
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o640 {
+		t.Fatalf("placeholder: %v %v", info, err)
 	}
 }

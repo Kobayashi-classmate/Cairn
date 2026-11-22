@@ -53,7 +53,7 @@ func (m *Module) dumpRoutes(r *api.Router, doc func(string) api.RouteOption) {
 	r.Handle("POST /api/v1/databases/{engine}/dumps", m.createDump, api.Require(Manage), api.Body(dumpRequest{}),
 		doc("Dump a database, or take a Redis snapshot (starts a job)"), job)
 	r.Handle("GET /api/v1/databases/{engine}/dumps/{file}", m.downloadDump, api.Require(Manage), api.StepUp(),
-		doc("Download a dump"), api.ReturnsFile(200, "application/octet-stream"))
+		doc("Download a dump; ?link=1 answers {url} with the address to download from instead"), api.ReturnsFile(200, "application/octet-stream"))
 	r.Handle("PUT /api/v1/databases/{engine}/dumps/{file}", m.uploadDump, api.Require(Manage), api.StepUp(),
 		api.RawBody("application/octet-stream"), doc("Upload a dump (.sql, .sql.gz or, for PostgreSQL, .dump)"), api.Returns(201, helperapi.DumpInfo{}))
 	r.Handle("DELETE /api/v1/databases/{engine}/dumps/{file}", m.deleteDump, api.Require(Manage), api.StepUp(),
@@ -161,6 +161,11 @@ func withEngine(p map[string]any, engine string) map[string]any {
 	return p
 }
 
+// dumpLink is where a dump downloads from.
+type dumpLink struct {
+	URL string `json:"url"`
+}
+
 func (m *Module) downloadDump(w http.ResponseWriter, r *http.Request) error {
 	engine, err := engineOf(r)
 	if err != nil {
@@ -179,6 +184,11 @@ func (m *Module) downloadDump(w http.ResponseWriter, r *http.Request) error {
 	fi, err := root.Lstat(p)
 	if err != nil || !fi.Mode().IsRegular() {
 		return api.NewError(http.StatusNotFound, helperapi.CodeDBDumpNotFound, map[string]any{"file": file})
+	}
+	// ?link=1: the address to download from (this one), as JSON, so a page
+	// can report errors before the browser leaves it.
+	if r.URL.Query().Get("link") == "1" {
+		return api.WriteJSON(w, http.StatusOK, dumpLink{URL: r.URL.EscapedPath()})
 	}
 	f, err := root.Open(p)
 	if err != nil {

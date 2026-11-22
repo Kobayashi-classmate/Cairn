@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"mime"
@@ -21,7 +20,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -31,6 +29,7 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // Uploads follow tus 1.0 (core and creation): POST creates an upload,
@@ -73,6 +72,9 @@ func (m *Module) download(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	if err := stepUpFor(r, ref.Root); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Minute)
 	var entry helperapi.FileEntry
 	file, err := m.Helper.CallFD(ctx, helperapi.ActionFileOpen, callerOf(r), ref, &entry)
@@ -100,15 +102,6 @@ func (m *Module) download(w http.ResponseWriter, r *http.Request) error {
 }
 
 // Uploads -----------------------------------------------------------------
-
-type uploadLocks struct{ m sync.Map }
-
-func (u *uploadLocks) lock(id string) func() {
-	v, _ := u.m.LoadOrStore(id, &sync.Mutex{})
-	mu := v.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
-}
 
 type upload struct {
 	id, root, dir, name string
@@ -187,6 +180,9 @@ func (m *Module) createUpload(w http.ResponseWriter, r *http.Request) error {
 	if err := target.Validate(); err != nil {
 		return badRequest(err)
 	}
+	if err := checkRoot(r, target.Root); err != nil {
+		return err
+	}
 	root, err := m.dataRoot()
 	if err != nil {
 		return err
@@ -259,10 +255,17 @@ func (m *Module) patchUpload(w http.ResponseWriter, r *http.Request) error {
 	if ct := r.Header.Get("Content-Type"); ct != "application/offset+octet-stream" {
 		return api.NewError(http.StatusUnsupportedMediaType, "validation.invalid", map[string]any{"field": "Content-Type", "rule": "tus"})
 	}
-	unlock := m.uploads.lock(r.PathValue("id"))
+	unlock, err := m.uploads.Acquire(r.Context(), []string{r.PathValue("id")}, nil)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	u, err := m.loadUpload(r)
 	if err != nil {
+		return err
+	}
+	// Checked again: the caller may have lost access since the upload began.
+	if err := checkRoot(r, u.root); err != nil {
 		return err
 	}
 	offset, err := strconv.ParseInt(r.Header.Get("Upload-Offset"), 10, 64)
@@ -313,8 +316,9 @@ func (m *Module) place(r *http.Request, u upload) (jobs.Record, error) {
 	req := helperapi.FilePlaceRequest{Upload: u.id, Root: u.root, Dir: u.dir, Name: u.name, Overwrite: u.overwrite}
 	who := modutil.ActorOf(r)
 	params := map[string]any{"root": u.root, "path": join(u.dir, u.name), "size": u.size}
+	see, manage := jobPermissions(u.root)
 	job, err := m.Jobs.Start(r.Context(), jobs.Spec{
-		Kind: "file.upload", Params: params, Permission: Read, ManagePermission: Manage,
+		Kind: "file.upload", Params: params, Permission: see, ManagePermission: manage,
 		Actor: jobs.Actor{UserID: who.UserID, Username: who.Username, Source: who.Source, Remote: api.ClientIP(r)},
 	}, func(ctx context.Context, j *jobs.Job) error {
 		err := j.RunOp(helperapi.ActionFilePlace, req, nil)
@@ -344,7 +348,10 @@ func (m *Module) dropUpload(ctx context.Context, id string) {
 
 func (m *Module) deleteUpload(w http.ResponseWriter, r *http.Request) error {
 	tusHeaders(w)
-	unlock := m.uploads.lock(r.PathValue("id"))
+	unlock, err := m.uploads.Acquire(r.Context(), []string{r.PathValue("id")}, nil)
+	if err != nil {
+		return err
+	}
 	defer unlock()
 	u, err := m.loadUpload(r)
 	if err != nil {
@@ -416,19 +423,12 @@ type fetchRequest struct {
 	Overwrite bool   `json:"overwrite,omitempty"`
 }
 
-// fetchClient refuses link-local addresses, where cloud metadata services
-// answer.
+// fetchClient connects to public addresses only: a URL (or a redirect, or
+// a name resolving there) must not reach this host's own services, the
+// internal network or a cloud metadata service on the user's behalf. The
+// check runs on every connection, after name resolution.
 func fetchClient() *http.Client {
-	dialer := &net.Dialer{Timeout: 30 * time.Second, Control: func(_, address string, _ syscall.RawConn) error {
-		host, _, err := net.SplitHostPort(address)
-		if err != nil {
-			return err
-		}
-		if ip := net.ParseIP(host); ip != nil && (ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
-			return fmt.Errorf("files: %s is link-local", host)
-		}
-		return nil
-	}}
+	dialer := &net.Dialer{Timeout: 30 * time.Second, Control: netx.DialControl(netx.Internal)}
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.DialContext = dialer.DialContext
 	tr.Proxy = nil
@@ -451,6 +451,9 @@ func (m *Module) fetch(w http.ResponseWriter, r *http.Request) error {
 	if err := target.Validate(); err != nil {
 		return badRequest(err)
 	}
+	if err := checkRoot(r, req.Root); err != nil {
+		return err
+	}
 	who := modutil.ActorOf(r)
 	id := newID()
 	params := map[string]any{"root": req.Root, "path": join(req.Dir, req.Name), "url": u.Redacted()}
@@ -458,8 +461,9 @@ func (m *Module) fetch(w http.ResponseWriter, r *http.Request) error {
 	if client == nil {
 		client = fetchClient()
 	}
+	see, manage := jobPermissions(req.Root)
 	job, err := m.Jobs.Start(r.Context(), jobs.Spec{
-		Kind: "file.fetch", Params: params, Permission: Read, ManagePermission: Manage,
+		Kind: "file.fetch", Params: params, Permission: see, ManagePermission: manage,
 		Actor: jobs.Actor{UserID: who.UserID, Username: who.Username, Source: who.Source, Remote: api.ClientIP(r)},
 	}, func(ctx context.Context, j *jobs.Job) error {
 		defer m.dropUpload(context.WithoutCancel(ctx), id)

@@ -301,10 +301,17 @@ func (d *DBs) mysqlUserSet(ctx context.Context, log io.Writer, _ dbEngine, req h
 	if req.New && len(existing) > 0 {
 		return dbErr(helperapi.CodeDBUserExists, map[string]any{"name": req.Name})
 	}
-	var wanted []string
-	for _, h := range req.Hosts {
-		if h = myHost(h); !slices.Contains(wanted, h) {
-			wanted = append(wanted, h)
+	// Nil hosts keep the user's host entries (an existing user only).
+	if req.Hosts == nil && len(existing) == 0 {
+		return dbErr(helperapi.CodeDBUserNotFound, map[string]any{"name": req.Name})
+	}
+	wanted := slices.Clone(existing)
+	if req.Hosts != nil {
+		wanted = nil
+		for _, h := range req.Hosts {
+			if h = myHost(h); !slices.Contains(wanted, h) {
+				wanted = append(wanted, h)
+			}
 		}
 	}
 	var s sqlScript
@@ -323,7 +330,12 @@ func (d *DBs) mysqlUserSet(ctx context.Context, log io.Writer, _ dbEngine, req h
 			s.add("DROP USER %s;", myAccount(req.Name, h))
 		}
 	}
+	// Nil grants leave the privileges as they are: a password or host
+	// change never revokes anything (new host entries start without any).
 	for _, h := range wanted {
+		if req.Grants == nil {
+			break
+		}
 		s.add("REVOKE ALL PRIVILEGES, GRANT OPTION FROM %s;", myAccount(req.Name, h))
 		for _, g := range req.Grants {
 			privs := "ALL PRIVILEGES"
@@ -444,8 +456,12 @@ func (d *DBs) mysqlRestore(ctx context.Context, log io.Writer, e dbEngine, req h
 		return err
 	}
 	defer cleanup()
+	// The client runs as root (it reads the root-only option file), and the
+	// dump is untrusted: --binary-mode turns off every client command but
+	// charset and delimiter in piped input (no system, tee or source), and
+	// --local-infile=0 keeps LOAD DATA LOCAL from reading files as root.
 	args := []string{"--defaults-extra-file=" + cnf, "--protocol=socket", "--default-character-set=utf8mb4", "--binary-mode",
-		"--max-allowed-packet=1073741824", "--database=" + req.Name}
+		"--local-infile=0", "--max-allowed-packet=1073741824", "--database=" + req.Name}
 	_, _ = fmt.Fprintf(log, "$ mysql --user=%s --database=%s < %s\n", req.User, req.Name, req.File)
 	_, err = dbRun(ctx, execx.Cmd{Name: d.tool("mariadb", "mysql"), Args: args, Stdin: in, Output: log, Timeout: dumpTimeout, MaxOutput: 64 << 10})
 	if err != nil {

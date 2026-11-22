@@ -208,6 +208,18 @@ func (st *Sites) stopApp(ctx context.Context, log io.Writer, code string) {
 	_ = runCommand(ctx, log, "systemctl", "disable", "--now", appUnit(code))
 }
 
+// restoreApp starts an app stopped for a change that then failed: its
+// files were put back, and it runs as before.
+func (st *Sites) restoreApp(ctx context.Context, log io.Writer, prev helperapi.SiteSpec) {
+	if !prev.Enabled {
+		return
+	}
+	_, _ = fmt.Fprintf(log, "Starting the app again with its previous configuration.\n")
+	if err := st.startApp(ctx, log, prev, true); err != nil {
+		_, _ = fmt.Fprintf(log, "Warning: the app could not be started again: %v\n", err)
+	}
+}
+
 // AppStatus reads an app unit's state from systemd.
 func (st *Sites) AppStatus(ctx context.Context, code string) (helperapi.AppStatus, error) {
 	s := helperapi.AppStatus{Code: code}

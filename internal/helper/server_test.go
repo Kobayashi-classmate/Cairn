@@ -4,6 +4,7 @@ package helper
 
 import (
 	"context"
+	"encoding/base64"
 	"io"
 	"log/slog"
 	"os"
@@ -91,5 +92,38 @@ func TestDisallowedPeerIsDropped(t *testing.T) {
 	err := c.Call(callCtx(t), helperapi.ActionPing, helperapi.Caller{Source: "test"}, nil, nil)
 	if he, ok := helperapi.AsError(err); !ok || he.Code != helperapi.CodeUnavailable {
 		t.Fatalf("disallowed peer should not get an answer, got %v", err)
+	}
+}
+
+func TestPeerRootComesFromCredentials(t *testing.T) {
+	// A caller header cannot claim it.
+	forged := base64.RawURLEncoding.EncodeToString([]byte(`{"src":"cli","PeerRoot":true,"peerRoot":true}`))
+	if c, err := helperapi.DecodeCaller(forged); err != nil || c.PeerRoot {
+		t.Fatalf("forged: %+v %v", c, err)
+	}
+	if c, _ := helperapi.DecodeCaller(helperapi.Caller{PeerRoot: true}.Encode()); c.PeerRoot {
+		t.Fatal("PeerRoot travels in the header")
+	}
+	// The server sets it from the peer's uid.
+	sock := filepath.Join(t.TempDir(), "helper.sock")
+	l, err := Listen(sock, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := NewRegistry()
+	Register(reg, "test.peer", func(_ context.Context, c helperapi.Caller, _ helperapi.Empty) (map[string]bool, error) {
+		return map[string]bool{"root": c.PeerRoot}, nil
+	})
+	srv := &Server{Registry: reg, Allowed: func(uint32) bool { return true }, Log: slog.New(slog.DiscardHandler)}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { _ = srv.Serve(ctx, l); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	var got map[string]bool
+	if err := helperapi.NewClient(sock).Call(callCtx(t), "test.peer", helperapi.Caller{Source: "web"}, nil, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["root"] != (os.Getuid() == 0) {
+		t.Fatalf("peer root %v for uid %d", got["root"], os.Getuid())
 	}
 }
