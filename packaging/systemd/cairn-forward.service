@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Loads the NAT table of Cairn's port forwards (inet cairn_forward) at boot,
+# on systems where ufw is the firewall: ufw's own files cannot hold NAT rules
+# that survive a reload. Enabled by the panel while port forwards exist.
+# Restarting or reloading nftables.service flushes every table, so this unit
+# follows it.
+[Unit]
+Description=Cairn port forwards (nftables)
+Documentation=https://github.com/Kobayashi-classmate/Cairn
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target shutdown.target
+After=nftables.service
+PartOf=nftables.service
+ReloadPropagatedFrom=nftables.service
+Conflicts=shutdown.target
+ConditionPathExists=/etc/cairn-firewall/forward.nft
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/cairn-firewall/forward.nft
+ExecReload=/usr/sbin/nft -f /etc/cairn-firewall/forward.nft
+ExecStop=-/usr/sbin/nft delete table inet cairn_forward
+ProtectHome=yes
+
+[Install]
+WantedBy=sysinit.target

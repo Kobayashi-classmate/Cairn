@@ -84,6 +84,72 @@ func TestFirewallChangeAndConfirm(t *testing.T) {
 	}
 }
 
+func TestFirewallForwards(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	pending := helperapi.FirewallPending{ID: "x0123456789abcde", Expires: time.Now().Unix() + helperapi.FirewallConfirmSeconds, Kind: "forward.add"}
+	saved := helperapi.FirewallForward{ID: "f0123456789abcde", Protocol: "tcp", Port: 8090, ToAddress: "10.0.0.5", ToPort: 80}
+	e.helper.respond(helperapi.ActionFirewallForwardSet, helperapi.FirewallChange{Pending: &pending, Forward: &saved})
+	e.helper.respond(helperapi.ActionFirewallForwardDelete, helperapi.FirewallChange{Pending: &pending})
+
+	fw := map[string]any{"protocol": "tcp", "port": 8090, "toAddress": " 10.0.0.5 ", "toPort": 80, "note": "app"}
+	admin.expect(admin.do("POST", "/api/v1/firewall/forwards", fw), 403, "auth.step_up_required")
+	admin.elevate("")
+	for _, c := range []struct {
+		body        map[string]any
+		field, rule string
+	}{
+		{map[string]any{"protocol": "tcp", "port": 8090, "toPort": 8090}, "toPort", "same_port"},
+		{map[string]any{"protocol": "tcp", "port": 8090, "toAddress": "::1", "toPort": 80}, "toAddress", "forward_target"},
+		{map[string]any{"protocol": "sctp", "port": 8090, "toPort": 80}, "protocol", "oneof"},
+	} {
+		r := admin.expect(admin.do("POST", "/api/v1/firewall/forwards", c.body), 400, "validation.invalid")
+		if r.params()["field"] != c.field || r.params()["rule"] != c.rule {
+			t.Fatalf("%v: %v", c.body, r.params())
+		}
+	}
+	res := admin.expect(admin.do("POST", "/api/v1/firewall/forwards", fw), 200, "")
+	if res.obj("forward")["id"] != saved.ID || res.obj("pending")["id"] != pending.ID {
+		t.Fatalf("add %v", res.body)
+	}
+	if q := sentAs[helperapi.FirewallForward](t, e, helperapi.ActionFirewallForwardSet); q.ID != "" || q.ToAddress != "10.0.0.5" || q.Port != 8090 {
+		t.Fatalf("sent %+v", q)
+	}
+	admin.expect(admin.do("PUT", "/api/v1/firewall/forwards/"+saved.ID, map[string]any{"protocol": "udp", "port": 8090, "toPort": 81}), 200, "")
+	if q := sentAs[helperapi.FirewallForward](t, e, helperapi.ActionFirewallForwardSet); q.ID != saved.ID || q.Protocol != "udp" {
+		t.Fatalf("sent %+v", q)
+	}
+	admin.expect(admin.do("PUT", "/api/v1/firewall/forwards/r0123456789abcde", map[string]any{"protocol": "udp", "port": 8090, "toPort": 81}),
+		404, helperapi.CodeFirewallNotFound)
+	admin.expect(admin.do("DELETE", "/api/v1/firewall/forwards/"+saved.ID, nil), 200, "")
+	if q := sentAs[helperapi.FirewallRef](t, e, helperapi.ActionFirewallForwardDelete); q.ID != saved.ID {
+		t.Fatalf("sent %+v", q)
+	}
+	// The helper's refusals keep their codes.
+	e.helper.fail(helperapi.ActionFirewallForwardSet, &helperapi.Error{Code: helperapi.CodeFirewallForwardTaken, Params: map[string]any{"port": 8090}})
+	admin.expect(admin.do("POST", "/api/v1/firewall/forwards", fw), 409, helperapi.CodeFirewallForwardTaken)
+	var n int
+	_ = e.db.QueryRow(`SELECT count(*) FROM audit_log WHERE action LIKE 'firewall.forward_%'`).Scan(&n)
+	if n != 4 {
+		t.Fatalf("forward audits: %d", n)
+	}
+
+	// Rolling back at once needs no new connection.
+	e.helper.respond(helperapi.ActionFirewallRollback, helperapi.Empty{})
+	admin.expect(admin.do("POST", "/api/v1/firewall/rollback", map[string]any{"id": pending.ID}), 200, "")
+	if q := sentAs[helperapi.FirewallRef](t, e, helperapi.ActionFirewallRollback); q.ID != pending.ID {
+		t.Fatalf("sent %+v", q)
+	}
+	admin.expect(admin.do("POST", "/api/v1/firewall/rollback", map[string]any{"id": "bad"}), 409, helperapi.CodeFirewallNoPending)
+	// A rollback the user asked for is not announced.
+	got := e.published(events.FirewallRolledBack)
+	e.helper.respond(helperapi.ActionFirewallStatus, helperapi.FirewallStatus{LastRollback: &helperapi.FirewallRollback{ID: "x2", At: time.Now().Unix(), Kind: "forward.add", Requested: true}})
+	e.firewall.Check(context.Background())
+	if n := len(got()); n != 0 {
+		t.Fatalf("rollback events %d", n)
+	}
+}
+
 func TestSSHModule(t *testing.T) {
 	e := newEnv(t)
 	admin := e.setupAdmin("admin")

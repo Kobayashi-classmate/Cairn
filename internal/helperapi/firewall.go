@@ -11,9 +11,9 @@ import (
 )
 
 // The firewall: Cairn keeps its own rules (port rules, trusted and blocked
-// addresses, ping) and renders them into the backend the system uses:
-// firewalld (a policy of its own), ufw (rules tagged with a comment) or
-// nftables (a table of its own). The SSH ports and the panel port are
+// addresses, ping, port forwards) and renders them into the backend the
+// system uses: firewalld (policies of its own), ufw (rules tagged with a
+// comment) or nftables (a table of its own). The SSH ports and the panel port are
 // always allowed. A change from the panel is rolled back after 60 seconds
 // unless it is confirmed over a new connection.
 const (
@@ -23,7 +23,10 @@ const (
 	ActionFirewallAddressSet    = "firewall.address.set"    // synchronous: add an address
 	ActionFirewallAddressDelete = "firewall.address.delete" // synchronous
 	ActionFirewallPing          = "firewall.ping"           // synchronous
+	ActionFirewallForwardSet    = "firewall.forward.set"    // synchronous: add (no id) or change a port forward
+	ActionFirewallForwardDelete = "firewall.forward.delete" // synchronous
 	ActionFirewallConfirm       = "firewall.confirm"        // synchronous: keep a pending change
+	ActionFirewallRollback      = "firewall.rollback"       // synchronous: undo a pending change now
 	ActionFirewallEnable        = "firewall.enable"         // operation: may install the backend
 	ActionFirewallDisable       = "firewall.disable"        // operation
 )
@@ -61,6 +64,8 @@ const (
 	CodeFirewallNotFound       = "firewall.not_found"
 	CodeFirewallUnsupported    = "firewall.unsupported"
 	CodeFirewallDenyNeedsSrc   = "firewall.deny_needs_source"
+	// CodeFirewallForwardTaken: another forward already listens on the port.
+	CodeFirewallForwardTaken = "firewall.forward_taken"
 )
 
 // Limits.
@@ -68,6 +73,8 @@ const (
 	FirewallMaxPorts   = 15
 	FirewallMaxSources = 20
 	FirewallMaxRules   = 500
+	// FirewallMaxForwards is how many port forwards Cairn keeps.
+	FirewallMaxForwards = 100
 	// FirewallConfirmSeconds is how long a change waits for confirmation.
 	FirewallConfirmSeconds = 60
 )
@@ -85,6 +92,7 @@ var (
 	firewallRuleID    = regexp.MustCompile(`^r[0-9a-f]{15}$`)
 	firewallAddressID = regexp.MustCompile(`^a[0-9a-f]{15}$`)
 	firewallTxID      = regexp.MustCompile(`^x[0-9a-f]{15}$`)
+	firewallForwardID = regexp.MustCompile(`^f[0-9a-f]{15}$`)
 	portRange         = regexp.MustCompile(`^([0-9]{1,5})(?:-([0-9]{1,5}))?$`)
 )
 
@@ -110,6 +118,25 @@ type FirewallAddress struct {
 	Note    string `json:"note,omitempty"`
 }
 
+// FirewallForward sends connections arriving on a port to another port of
+// this host (no ToAddress) or to a port of another IPv4 host. Forwarding to
+// another host needs IP forwarding, which Cairn switches on while such a
+// forward exists, and is masqueraded so that replies come back through this
+// host. Forwarding to IPv6 hosts is not offered: switching on IPv6
+// forwarding stops a host from configuring its own addresses from router
+// advertisements.
+type FirewallForward struct {
+	ID        string `json:"id"`
+	Protocol  string `json:"protocol"`
+	Port      int    `json:"port"`
+	ToAddress string `json:"toAddress,omitempty"`
+	ToPort    int    `json:"toPort"`
+	Note      string `json:"note,omitempty"`
+}
+
+// Remote reports whether the forward goes to another host.
+func (f FirewallForward) Remote() bool { return f.ToAddress != "" }
+
 // FirewallPending is a change waiting for confirmation.
 type FirewallPending struct {
 	ID      string `json:"id"`
@@ -117,26 +144,32 @@ type FirewallPending struct {
 	Kind    string `json:"kind"`
 }
 
-// FirewallRollback records the last change that was rolled back.
+// FirewallRollback records the last change that was rolled back: not
+// confirmed in time, or undone on request.
 type FirewallRollback struct {
-	ID   string `json:"id"`
-	At   int64  `json:"at"`
-	Kind string `json:"kind"`
+	ID        string `json:"id"`
+	At        int64  `json:"at"`
+	Kind      string `json:"kind"`
+	Requested bool   `json:"requested,omitempty"`
 }
 
 // FirewallStatus describes the firewall.
 type FirewallStatus struct {
-	Backend      string            `json:"backend"`
-	Installed    bool              `json:"installed"`
-	Enabled      bool              `json:"enabled"`
-	Loaded       bool              `json:"loaded"`
-	Conflict     string            `json:"conflict"`
-	Systemd      bool              `json:"systemd"`
-	BlockPing    bool              `json:"blockPing"`
-	SSHPorts     []int             `json:"sshPorts"`
-	PanelPort    int               `json:"panelPort"`
-	Rules        []FirewallRule    `json:"rules"`
-	Addresses    []FirewallAddress `json:"addresses"`
+	Backend   string            `json:"backend"`
+	Installed bool              `json:"installed"`
+	Enabled   bool              `json:"enabled"`
+	Loaded    bool              `json:"loaded"`
+	Conflict  string            `json:"conflict"`
+	Systemd   bool              `json:"systemd"`
+	BlockPing bool              `json:"blockPing"`
+	SSHPorts  []int             `json:"sshPorts"`
+	PanelPort int               `json:"panelPort"`
+	Rules     []FirewallRule    `json:"rules"`
+	Addresses []FirewallAddress `json:"addresses"`
+	Forwards  []FirewallForward `json:"forwards"`
+	// IPForward reports whether the kernel forwards IPv4 packets, which
+	// forwards to other hosts need.
+	IPForward    bool              `json:"ipForward"`
 	External     []string          `json:"external"`
 	Pending      *FirewallPending  `json:"pending"`
 	LastRollback *FirewallRollback `json:"lastRollback"`
@@ -149,6 +182,7 @@ type FirewallChange struct {
 	Pending *FirewallPending `json:"pending"`
 	Rule    *FirewallRule    `json:"rule,omitempty"`
 	Address *FirewallAddress `json:"address,omitempty"`
+	Forward *FirewallForward `json:"forward,omitempty"`
 }
 
 // FirewallRef names a rule, an address or a pending change.
@@ -158,7 +192,8 @@ type FirewallRef struct {
 
 // Validate implements the helper's request validation hook.
 func (r FirewallRef) Validate() error {
-	if !firewallRuleID.MatchString(r.ID) && !firewallAddressID.MatchString(r.ID) && !firewallTxID.MatchString(r.ID) {
+	if !firewallRuleID.MatchString(r.ID) && !firewallAddressID.MatchString(r.ID) && !firewallTxID.MatchString(r.ID) &&
+		!firewallForwardID.MatchString(r.ID) {
 		return invalid("id", "firewall_id")
 	}
 	return nil
@@ -180,6 +215,9 @@ func ValidFirewallRuleID(s string) bool { return firewallRuleID.MatchString(s) }
 
 // ValidFirewallAddressID reports whether s names an address entry.
 func ValidFirewallAddressID(s string) bool { return firewallAddressID.MatchString(s) }
+
+// ValidFirewallForwardID reports whether s names a port forward.
+func ValidFirewallForwardID(s string) bool { return firewallForwardID.MatchString(s) }
 
 // ValidFirewallTxID reports whether s names a pending change.
 func ValidFirewallTxID(s string) bool { return firewallTxID.MatchString(s) }
@@ -288,6 +326,47 @@ func (a FirewallAddress) Validate() error {
 		return invalid("address", "cidr")
 	}
 	if !validNote(a.Note) {
+		return invalid("note", "max")
+	}
+	return nil
+}
+
+// ForwardTarget reads a forward's target: an IPv4 address of another host
+// (not loopback, unspecified, multicast or the broadcast address).
+func ForwardTarget(s string) (netip.Addr, bool) {
+	a, err := netip.ParseAddr(s)
+	if err != nil || !a.Is4() {
+		return netip.Addr{}, false
+	}
+	if a.IsLoopback() || a.IsUnspecified() || a.IsMulticast() || a == netip.AddrFrom4([4]byte{255, 255, 255, 255}) {
+		return netip.Addr{}, false
+	}
+	return a, true
+}
+
+// Validate checks a port forward. Whether its port is free is checked by
+// the helper.
+func (f FirewallForward) Validate() error {
+	if f.ID != "" && !firewallForwardID.MatchString(f.ID) {
+		return invalid("id", "firewall_id")
+	}
+	if f.Protocol != ProtoTCP && f.Protocol != ProtoUDP && f.Protocol != ProtoBoth {
+		return invalid("protocol", "oneof")
+	}
+	if f.Port < 1 || f.Port > 65535 {
+		return invalid("port", "port")
+	}
+	if f.ToPort < 1 || f.ToPort > 65535 {
+		return invalid("toPort", "port")
+	}
+	if f.ToAddress != "" {
+		if _, ok := ForwardTarget(f.ToAddress); !ok {
+			return invalid("toAddress", "forward_target")
+		}
+	} else if f.ToPort == f.Port {
+		return invalid("toPort", "same_port")
+	}
+	if !validNote(f.Note) {
 		return invalid("note", "max")
 	}
 	return nil

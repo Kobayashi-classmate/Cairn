@@ -5,7 +5,8 @@
 # CAP_NET_ADMIN in their own network namespace only): nftables on Debian,
 # ufw on Ubuntu, and firewalld's policy file checked offline on Rocky
 # (firewalld itself needs a VM). Between the phases a second container
-# checks which ports are reachable.
+# checks which ports are reachable; a third is the other host that a port
+# forward sends connections to.
 #
 #   bash test/firewall/run.sh
 #   FIREWALL_TARGETS="nftables" bash test/firewall/run.sh
@@ -17,9 +18,10 @@ sh scripts/go.sh sh -c "CGO_ENABLED=0 go test -c -tags fwsystem -o $bin ./intern
 net=cairn-fw-$$
 server=cairn-fw-server-$$
 peer=cairn-fw-client-$$
+target=cairn-fw-target-$$
 log=$(mktemp)
 cleanup() {
-	docker rm -f "$server" "$peer" >/dev/null 2>&1 || true
+	docker rm -f "$server" "$peer" "$target" >/dev/null 2>&1 || true
 	rm -f "$log"
 	docker network rm "$net" >/dev/null 2>&1 || true
 	rm -f "$bin"
@@ -28,6 +30,9 @@ trap cleanup EXIT
 docker network create "$net" >/dev/null
 docker run -d --name "$peer" --network "$net" debian:trixie sleep 1800 >/dev/null
 client=$(docker exec "$peer" hostname -I | awk '{print $1}')
+docker run -d --name "$target" --network "$net" -v "$PWD/test/firewall:/t:ro" -e CAIRN_FW_LISTEN=80 debian:trixie \
+	/t/fwtest -test.run '^TestFirewallListen$' >/dev/null
+target_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$target")
 
 # reach PORT -> 0 when the server accepts a connection from the client.
 reach() {
@@ -47,7 +52,7 @@ expect() { # open|closed PORT...
 }
 phase() { # backend phase
 	echo "== $1: $2"
-	docker exec -e CAIRN_FW_BACKEND="$1" -e CAIRN_FW_PHASE="$2" -e CAIRN_FW_CLIENT="$client" "$server" \
+	docker exec -e CAIRN_FW_BACKEND="$1" -e CAIRN_FW_PHASE="$2" -e CAIRN_FW_CLIENT="$client" -e CAIRN_FW_TARGET="$target_ip" "$server" \
 		/t/fwtest -test.run '^TestFirewallSystem$' -test.count=1 >"$log" 2>&1 ||
 		{ cat "$log"; return 1; }
 }
@@ -56,11 +61,13 @@ run_backend() {
 	local backend=$1 image packages
 	case $backend in
 		nftables) image=debian:trixie packages=nftables ;;
-		ufw) image=ubuntu:24.04 packages=ufw ;;
+		ufw) image=ubuntu:24.04 packages="ufw nftables" ;;
 		firewalld) image=rockylinux:9 packages=firewalld ;;
 	esac
 	docker rm -f "$server" >/dev/null 2>&1 || true
-	docker run -d --name "$server" --network "$net" --cap-add NET_ADMIN -v "$PWD/test/firewall:/t:ro" "$image" sleep 900 >/dev/null
+	# IP forwarding is set when the container starts: its /proc/sys is read-only.
+	docker run -d --name "$server" --network "$net" --cap-add NET_ADMIN --sysctl net.ipv4.ip_forward=1 \
+		-v "$PWD/test/firewall:/t:ro" "$image" sleep 900 >/dev/null
 	if [ "$backend" = firewalld ]; then
 		docker exec "$server" dnf install -y -q "$packages" >/dev/null 2>&1 || return 1
 		phase firewalld firewalld-offline || return 1
@@ -82,6 +89,11 @@ run_backend() {
 	phase "$backend" managed || return 1
 	phase "$backend" ping || return 1
 	expect open 80 || return 1
+	phase "$backend" forward || return 1
+	expect open 8090 8091 || return 1
+	expect closed 8092 || return 1
+	phase "$backend" forward-off || return 1
+	expect closed 8090 8091 || return 1
 	phase "$backend" disable || return 1
 	expect open 3306 || return 1
 }

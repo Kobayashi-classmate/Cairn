@@ -63,6 +63,7 @@ type fwConfig struct {
 	BlockPing    bool                        `json:"blockPing"`
 	Rules        []helperapi.FirewallRule    `json:"rules"`
 	Addresses    []helperapi.FirewallAddress `json:"addresses"`
+	Forwards     []helperapi.FirewallForward `json:"forwards,omitempty"`
 	Pending      *fwPending                  `json:"pending,omitempty"`
 	LastRollback *helperapi.FirewallRollback `json:"lastRollback,omitempty"`
 }
@@ -75,11 +76,12 @@ type fwPending struct {
 }
 
 // fwRender is what a backend puts in place: every rule (the protected ones
-// first), the addresses and ping.
+// first), the addresses, ping and the port forwards.
 type fwRender struct {
 	Rules     []helperapi.FirewallRule
 	Addresses []helperapi.FirewallAddress
 	BlockPing bool
+	Forwards  []helperapi.FirewallForward
 }
 
 // fwBackend is one way of enforcing the configuration.
@@ -112,6 +114,8 @@ func RegisterFirewall(r *Registry, o *Ops, f *Firewall) {
 	Register(r, helperapi.ActionFirewallRuleDelete, f.deleteRule)
 	Register(r, helperapi.ActionFirewallAddressSet, f.setAddress)
 	Register(r, helperapi.ActionFirewallAddressDelete, f.deleteAddress)
+	Register(r, helperapi.ActionFirewallForwardSet, f.setForward)
+	Register(r, helperapi.ActionFirewallForwardDelete, f.deleteForward)
 	Register(r, helperapi.ActionFirewallPing, func(ctx context.Context, c helperapi.Caller, q helperapi.FirewallPingRequest) (helperapi.FirewallChange, error) {
 		return f.change(ctx, c, "ping", func(cfg *fwConfig) error {
 			cfg.BlockPing = q.Block
@@ -120,6 +124,9 @@ func RegisterFirewall(r *Registry, o *Ops, f *Firewall) {
 	})
 	Register(r, helperapi.ActionFirewallConfirm, func(ctx context.Context, _ helperapi.Caller, q helperapi.FirewallRef) (helperapi.Empty, error) {
 		return helperapi.Empty{}, f.Confirm(ctx, q.ID)
+	})
+	Register(r, helperapi.ActionFirewallRollback, func(ctx context.Context, _ helperapi.Caller, q helperapi.FirewallRef) (helperapi.Empty, error) {
+		return helperapi.Empty{}, f.RollbackNow(ctx, q.ID)
 	})
 	locks := func(helperapi.FirewallEnableRequest) []string { return []string{"firewall", LockPkg} }
 	RegisterOp(r, o, helperapi.ActionFirewallEnable, OpSpec[helperapi.FirewallEnableRequest]{Locks: locks,
@@ -209,24 +216,29 @@ func (cfg fwConfig) clone() fwConfig {
 		out.Rules[i].Sources = slices.Clone(out.Rules[i].Sources)
 	}
 	out.Addresses = slices.Clone(cfg.Addresses)
+	out.Forwards = slices.Clone(cfg.Forwards)
 	return out
 }
 
 // Backends ----------------------------------------------------------------
 
 func (f *Firewall) backend(name string) fwBackend {
-	if b, ok := f.backends[name]; ok {
-		return b
-	}
+	var b fwBackend
 	switch name {
 	case helperapi.FirewallUFW:
-		return &ufwBackend{root: f.Root}
+		b = &ufwBackend{root: f.Root}
 	case helperapi.FirewallFirewalld:
-		return &firewalldBackend{root: f.Root}
+		b = &firewalldBackend{root: f.Root}
 	case helperapi.FirewallNftables:
-		return &nftBackend{root: f.Root}
+		b = &nftBackend{root: f.Root}
 	}
-	return nil
+	if fake, ok := f.backends[name]; ok {
+		b = fake
+	}
+	if b == nil {
+		return nil
+	}
+	return fwForwarding{fwBackend: b, f: f}
 }
 
 // fwSystem is what runs on the system.
@@ -320,7 +332,7 @@ func (f *Firewall) protected(ctx context.Context) []helperapi.FirewallRule {
 }
 
 func (f *Firewall) render(ctx context.Context, cfg fwConfig) fwRender {
-	return fwRender{Rules: append(f.protected(ctx), cfg.Rules...), Addresses: cfg.Addresses, BlockPing: cfg.BlockPing}
+	return fwRender{Rules: append(f.protected(ctx), cfg.Rules...), Addresses: cfg.Addresses, BlockPing: cfg.BlockPing, Forwards: cfg.Forwards}
 }
 
 // Checks ------------------------------------------------------------------
@@ -384,6 +396,9 @@ func (f *Firewall) check(ctx context.Context, cfg fwConfig, remote string) error
 	}
 	if len(cfg.Rules) > helperapi.FirewallMaxRules || len(cfg.Addresses) > helperapi.FirewallMaxRules {
 		return fwErr("validation.invalid", map[string]any{"field": "rules", "rule": "count"})
+	}
+	if err := checkForwards(cfg.Forwards, append(sshPorts(ctx), f.PanelPort)); err != nil {
+		return err
 	}
 	ip, err := netip.ParseAddr(remote)
 	if err != nil {
@@ -569,6 +584,16 @@ func (f *Firewall) Confirm(ctx context.Context, tx string) error {
 
 // Rollback undoes a pending change that was not confirmed in time.
 func (f *Firewall) Rollback(ctx context.Context, tx string) error {
+	return f.rollback(ctx, tx, false)
+}
+
+// RollbackNow undoes a pending change at once, on request: the user saw
+// that it does not work and does not want to wait for the timer.
+func (f *Firewall) RollbackNow(ctx context.Context, tx string) error {
+	return f.rollback(ctx, tx, true)
+}
+
+func (f *Firewall) rollback(ctx context.Context, tx string, requested bool) error {
 	unlock, err := f.lock()
 	if err != nil {
 		return err
@@ -579,9 +604,16 @@ func (f *Firewall) Rollback(ctx context.Context, tx string) error {
 		return err
 	}
 	if cfg.Pending == nil || cfg.Pending.ID != tx {
+		if requested {
+			return fwErr(helperapi.CodeFirewallNoPending, map[string]any{"id": tx})
+		}
 		return nil // confirmed meanwhile
 	}
-	delete(f.timers, tx)
+	if requested {
+		f.unschedule(ctx, tx)
+	} else {
+		delete(f.timers, tx)
+	}
 	prev := cfg.Pending.Previous
 	backend := cfg.Backend
 	if prev.Backend != "" {
@@ -594,12 +626,16 @@ func (f *Firewall) Rollback(ctx context.Context, tx string) error {
 		err = b.disable(ctx, io.Discard)
 	}
 	prev.Pending = nil
-	prev.LastRollback = &helperapi.FirewallRollback{ID: tx, At: f.clock().Unix(), Kind: cfg.Pending.Kind}
+	prev.LastRollback = &helperapi.FirewallRollback{ID: tx, At: f.clock().Unix(), Kind: cfg.Pending.Kind, Requested: requested}
 	if serr := f.save(prev); serr != nil {
 		return errors.Join(err, serr)
 	}
 	if f.Log != nil {
-		f.Log.Warn("firewall change rolled back: it was not confirmed in time", "tx", tx, "kind", prev.LastRollback.Kind)
+		if requested {
+			f.Log.Info("firewall change rolled back on request", "tx", tx, "kind", prev.LastRollback.Kind)
+		} else {
+			f.Log.Warn("firewall change rolled back: it was not confirmed in time", "tx", tx, "kind", prev.LastRollback.Kind)
+		}
 	}
 	return err
 }
@@ -858,6 +894,8 @@ func (f *Firewall) Status(ctx context.Context) helperapi.FirewallStatus {
 	st.Conflict = sys.conflict
 	st.Rules = append(append(st.Rules, f.protected(ctx)...), cfg.Rules...)
 	st.Addresses = append(st.Addresses, cfg.Addresses...)
+	st.Forwards = append([]helperapi.FirewallForward{}, cfg.Forwards...)
+	st.IPForward = f.ipForwardOn()
 	if cfg.Pending != nil {
 		p := cfg.Pending.FirewallPending
 		st.Pending = &p

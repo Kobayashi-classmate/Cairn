@@ -100,10 +100,18 @@ func (m *Module) Routes(r *api.Router) {
 		doc("Trust or block an address (confirm within 60 s)"), change)
 	r.Handle("DELETE /api/v1/firewall/addresses/{id}", m.deleteAddress, api.Require(Manage), api.StepUp(),
 		doc("Remove an address entry (confirm within 60 s)"), change)
+	r.Handle("POST /api/v1/firewall/forwards", m.addForward, api.Require(Manage), api.StepUp(), api.Body(helperapi.FirewallForward{}),
+		doc("Forward a port to another port of this host or of another IPv4 host (confirm within 60 s)"), change)
+	r.Handle("PUT /api/v1/firewall/forwards/{id}", m.updateForward, api.Require(Manage), api.StepUp(), api.Body(helperapi.FirewallForward{}),
+		doc("Change a port forward (confirm within 60 s)"), change)
+	r.Handle("DELETE /api/v1/firewall/forwards/{id}", m.deleteForward, api.Require(Manage), api.StepUp(),
+		doc("Delete a port forward (confirm within 60 s)"), change)
 	r.Handle("PUT /api/v1/firewall/ping", m.ping, api.Require(Manage), api.StepUp(), api.Body(pingRequest{}),
 		doc("Block or allow ping (confirm within 60 s)"), change)
 	r.Handle("POST /api/v1/firewall/confirm", m.confirm, api.Require(Manage), api.Body(confirmRequest{}),
 		doc("Keep a pending change; must arrive over a connection opened after the change"), api.Returns(200, struct{}{}))
+	r.Handle("POST /api/v1/firewall/rollback", m.rollback, api.Require(Manage), api.Body(confirmRequest{}),
+		doc("Undo a pending change now instead of waiting for its rollback"), api.Returns(200, struct{}{}))
 	r.Handle("POST /api/v1/firewall/enable", m.enable, api.Require(Manage), api.StepUp(), api.NoBody(),
 		doc("Switch the firewall on, installing it when needed (starts a job; confirm within 60 s)"), job)
 	r.Handle("POST /api/v1/firewall/disable", m.disable, api.Require(Manage), api.StepUp(), api.NoBody(),
@@ -164,6 +172,9 @@ func (m *Module) apply(w http.ResponseWriter, r *http.Request, action, auditActi
 	}
 	if ch.Address != nil {
 		params["address"] = ch.Address.ID
+	}
+	if ch.Forward != nil {
+		params["forward"] = ch.Forward.ID
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), auditAction, "ok", params)
 	return api.WriteJSON(w, http.StatusOK, ch)
@@ -242,6 +253,61 @@ func (m *Module) deleteAddress(w http.ResponseWriter, r *http.Request) error {
 	return m.apply(w, r, helperapi.ActionFirewallAddressDelete, "firewall.address_delete", helperapi.FirewallRef{ID: id}, map[string]any{"address": id})
 }
 
+func forwardParams(q helperapi.FirewallForward) map[string]any {
+	p := map[string]any{"protocol": q.Protocol, "port": q.Port, "toPort": q.ToPort}
+	if q.ToAddress != "" {
+		p["toAddress"] = q.ToAddress
+	}
+	return p
+}
+
+func decodeForward(r *http.Request) (helperapi.FirewallForward, error) {
+	var q helperapi.FirewallForward
+	if err := api.DecodeJSON(r, &q); err != nil {
+		return q, err
+	}
+	q.ToAddress = strings.TrimSpace(q.ToAddress)
+	q.Note = strings.TrimSpace(q.Note)
+	return q, nil
+}
+
+func (m *Module) addForward(w http.ResponseWriter, r *http.Request) error {
+	q, err := decodeForward(r)
+	if err != nil {
+		return err
+	}
+	q.ID = ""
+	if err := q.Validate(); err != nil {
+		return validation(err)
+	}
+	return m.apply(w, r, helperapi.ActionFirewallForwardSet, "firewall.forward_add", q, forwardParams(q))
+}
+
+func (m *Module) updateForward(w http.ResponseWriter, r *http.Request) error {
+	q, err := decodeForward(r)
+	if err != nil {
+		return err
+	}
+	q.ID = r.PathValue("id")
+	if !helperapi.ValidFirewallForwardID(q.ID) {
+		return api.NewError(http.StatusNotFound, helperapi.CodeFirewallNotFound, map[string]any{"id": q.ID})
+	}
+	if err := q.Validate(); err != nil {
+		return validation(err)
+	}
+	params := forwardParams(q)
+	params["forward"] = q.ID
+	return m.apply(w, r, helperapi.ActionFirewallForwardSet, "firewall.forward_update", q, params)
+}
+
+func (m *Module) deleteForward(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	if !helperapi.ValidFirewallForwardID(id) {
+		return api.NewError(http.StatusNotFound, helperapi.CodeFirewallNotFound, map[string]any{"id": id})
+	}
+	return m.apply(w, r, helperapi.ActionFirewallForwardDelete, "firewall.forward_delete", helperapi.FirewallRef{ID: id}, map[string]any{"forward": id})
+}
+
 func (m *Module) ping(w http.ResponseWriter, r *http.Request) error {
 	var q pingRequest
 	if err := api.DecodeJSON(r, &q); err != nil {
@@ -279,6 +345,26 @@ func (m *Module) confirm(w http.ResponseWriter, r *http.Request) error {
 		return helperError(err)
 	}
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "firewall.confirm", "ok", map[string]any{"pending": q.ID, "kind": st.Pending.Kind})
+	return api.WriteJSON(w, http.StatusOK, struct{}{})
+}
+
+// rollback undoes a pending change at once. It needs no new connection:
+// it brings back rules under which the caller could already connect.
+func (m *Module) rollback(w http.ResponseWriter, r *http.Request) error {
+	var q confirmRequest
+	if err := api.DecodeJSON(r, &q); err != nil {
+		return err
+	}
+	if !helperapi.ValidFirewallTxID(q.ID) {
+		return api.NewError(http.StatusConflict, helperapi.CodeFirewallNoPending, map[string]any{"id": q.ID})
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	defer cancel()
+	if err := m.Helper.Call(ctx, helperapi.ActionFirewallRollback, callerOf(r), helperapi.FirewallRef{ID: q.ID}, nil); err != nil {
+		modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "firewall.rollback", modutil.ErrorCode(helperError(err)), map[string]any{"pending": q.ID})
+		return helperError(err)
+	}
+	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "firewall.rollback", "ok", map[string]any{"pending": q.ID})
 	return api.WriteJSON(w, http.StatusOK, struct{}{})
 }
 
@@ -337,6 +423,9 @@ func (m *Module) Check(ctx context.Context) {
 		return
 	}
 	m.lastRollback = at
+	if st.LastRollback.Requested {
+		return // the user asked for it: nothing to tell
+	}
 	m.Events.Publish(events.Event{Type: events.FirewallRolledBack, Level: events.Warning,
 		Params: map[string]any{"kind": st.LastRollback.Kind}, DedupeKey: "firewall.rollback:" + st.LastRollback.ID})
 }

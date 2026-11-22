@@ -131,8 +131,9 @@ func nftRuleLines(r helperapi.FirewallRule) []string {
 
 // renderNft writes the table. Order: loopback and established traffic,
 // blocked addresses, trusted addresses, deny rules, ICMP (needed for IPv6
-// neighbor discovery and path MTU), DHCPv6 replies, allow rules; anything
-// else is dropped.
+// neighbor discovery and path MTU), DHCPv6 replies, allow rules, what port
+// forwards redirected here; anything else is dropped. The port forwards'
+// NAT chains follow the input chain.
 func renderNft(r fwRender) string {
 	var allow4, allow6, deny4, deny6 []string
 	for _, a := range r.Addresses {
@@ -175,10 +176,13 @@ func renderNft(r fwRender) string {
 			lines = append(lines, nftRuleLines(rule)...)
 		}
 	}
+	lines = append(lines, nftForwardInput(r.Forwards)...)
 	for _, l := range lines {
 		b.WriteString("\t\t" + l + "\n")
 	}
-	b.WriteString("\t}\n}\n")
+	b.WriteString("\t}\n")
+	b.WriteString(nftForwardNAT(r.Forwards))
+	b.WriteString("}\n")
 	return b.String()
 }
 
@@ -478,6 +482,13 @@ func (u *ufwBackend) apply(ctx context.Context, log io.Writer, r fwRender) error
 	if err != nil {
 		return err
 	}
+	if err := u.setForwardNAT(ctx, log, r.Forwards); err != nil {
+		return err
+	}
+	forwardsChanged, err := u.setForwardRules(r.Forwards)
+	if err != nil {
+		return err
+	}
 	if !u.active(ctx) {
 		if err := ufwRun(ctx, log, "default", "deny", "incoming"); err != nil {
 			return err
@@ -487,17 +498,24 @@ func (u *ufwBackend) apply(ctx context.Context, log io.Writer, r fwRender) error
 		}
 		return ufwRun(ctx, log, "--force", "enable")
 	}
-	if pingChanged {
+	if pingChanged || forwardsChanged {
 		return ufwRun(ctx, log, "reload")
 	}
 	return nil
 }
 
+// disable switches ufw off; the port forwards stop with it.
 func (u *ufwBackend) disable(ctx context.Context, log io.Writer) error {
 	if !u.installed() {
 		return nil
 	}
-	return ufwRun(ctx, log, "disable")
+	if err := ufwRun(ctx, log, "disable"); err != nil {
+		return err
+	}
+	if _, err := u.setForwardRules(nil); err != nil {
+		return err
+	}
+	return u.setForwardNAT(ctx, log, nil)
 }
 
 func (u *ufwBackend) external(context.Context) []string {
@@ -545,16 +563,17 @@ func (d *firewalldBackend) loaded(ctx context.Context) bool {
 }
 
 type fwdXML struct {
-	XMLName     xml.Name     `xml:"policy"`
-	Priority    int          `xml:"priority,attr"`
-	Target      string       `xml:"target,attr"`
-	Short       string       `xml:"short"`
-	Description string       `xml:"description"`
-	Ingress     fwdZone      `xml:"ingress-zone"`
-	Egress      fwdZone      `xml:"egress-zone"`
-	ICMPBlocks  []fwdName    `xml:"icmp-block"`
-	Ports       []fwdPort    `xml:"port"`
-	Rules       []fwdRichXML `xml:"rule"`
+	XMLName      xml.Name         `xml:"policy"`
+	Priority     int              `xml:"priority,attr"`
+	Target       string           `xml:"target,attr"`
+	Short        string           `xml:"short"`
+	Description  string           `xml:"description"`
+	Ingress      fwdZone          `xml:"ingress-zone"`
+	Egress       fwdZone          `xml:"egress-zone"`
+	ICMPBlocks   []fwdName        `xml:"icmp-block"`
+	Ports        []fwdPort        `xml:"port"`
+	ForwardPorts []fwdForwardPort `xml:"forward-port"`
+	Rules        []fwdRichXML     `xml:"rule"`
 }
 
 type fwdZone struct {
@@ -642,6 +661,7 @@ func renderFirewalld(r fwRender) ([]byte, error) {
 			}
 		}
 	}
+	pol.ForwardPorts = fwdLocalForwards(r.Forwards)
 	// firewalld refuses duplicate entries (the panel port may also be in a
 	// user rule).
 	seenPort := map[fwdPort]bool{}
@@ -683,31 +703,74 @@ func (d *firewalldBackend) supported(ctx context.Context) error {
 	return nil
 }
 
+// fwdFile is one of Cairn's policy files: what it should hold (nil: no
+// file) and what it held before.
+type fwdFile struct {
+	path    string
+	data    []byte
+	old     []byte
+	existed bool
+}
+
+// write puts the wanted content in place; it reports whether it changed.
+func (f *fwdFile) write() (bool, error) {
+	old, err := os.ReadFile(f.path) //nolint:gosec // G304: fixed paths.
+	f.old, f.existed = old, err == nil
+	switch {
+	case f.data == nil && !f.existed:
+		return false, nil
+	case f.data == nil:
+		return true, os.Remove(f.path)
+	case f.existed && bytes.Equal(old, f.data):
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(f.path), 0o750); err != nil {
+		return false, err
+	}
+	return true, writeFileMode(f.path, f.data, 0o640)
+}
+
+// put restores what the file held before.
+func (f *fwdFile) put() {
+	if f.existed {
+		_ = writeFileMode(f.path, f.old, 0o640)
+	} else {
+		_ = os.Remove(f.path)
+	}
+}
+
 func (d *firewalldBackend) apply(ctx context.Context, log io.Writer, r fwRender) error {
 	if err := d.supported(ctx); err != nil {
 		return err
 	}
-	data, err := renderFirewalld(r)
+	main, err := renderFirewalld(r)
 	if err != nil {
 		return err
 	}
-	p := filepath.Join(d.root, firewalldPolicyFile)
-	old, oldErr := os.ReadFile(p) //nolint:gosec // G304: a fixed path.
-	changed := oldErr != nil || !bytes.Equal(old, data)
-	if changed {
-		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-			return err
-		}
-		if err := writeFileMode(p, data, 0o640); err != nil {
-			return err
+	forward, err := renderFirewalldForward(r.Forwards)
+	if err != nil {
+		return err
+	}
+	files := []*fwdFile{
+		{path: filepath.Join(d.root, firewalldPolicyFile), data: main},
+		{path: filepath.Join(d.root, firewalldForwardPolicyFile), data: forward},
+	}
+	changed := false
+	// Only files already (or partly) written are put back.
+	var done []*fwdFile
+	put := func() {
+		for _, f := range done {
+			f.put()
 		}
 	}
-	put := func() {
-		if oldErr == nil {
-			_ = writeFileMode(p, old, 0o640)
-		} else {
-			_ = os.Remove(p)
+	for _, f := range files {
+		c, err := f.write()
+		done = append(done, f)
+		if err != nil {
+			put()
+			return err
 		}
+		changed = changed || c
 	}
 	running := d.active(ctx)
 	check := []string{firewallOfflineCmd, "--check-config"}

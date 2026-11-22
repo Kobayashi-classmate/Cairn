@@ -177,6 +177,52 @@ func TestFirewallSystem(t *testing.T) {
 		} else {
 			want(t, true, "icmp type echo-request drop")
 		}
+	case "forward":
+		// 8090 to this host's port 80, 8091 to port 80 of another host.
+		target := os.Getenv("CAIRN_FW_TARGET")
+		for _, fw := range []helperapi.FirewallForward{
+			{Protocol: "tcp", Port: 8090, ToPort: 80, Note: "test"},
+			{Protocol: "tcp", Port: 8091, ToAddress: target, ToPort: 80, Note: "test"},
+		} {
+			ch, err := f.setForward(ctx, admin, fw)
+			if err != nil || ch.Pending == nil {
+				t.Fatalf("%+v %v", ch, err)
+			}
+			if err := f.Confirm(ctx, ch.Pending.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if st := f.Status(ctx); len(st.Forwards) != 2 || !st.IPForward {
+			t.Fatalf("status %+v", st)
+		}
+		if ufw {
+			out := sh(t, nftBinary, "list", "table", "inet", ufwForwardTable)
+			if !strings.Contains(out, "redirect to :80") || !strings.Contains(out, "dnat ip to "+target+":80") || !strings.Contains(out, "masquerade") {
+				t.Fatalf("NAT table:\n%s", out)
+			}
+			want(t, true, "-A ufw-before-input -p tcp --dport 80 -m conntrack --ctstate DNAT -j ACCEPT",
+				"-A ufw-before-forward -p tcp -d "+target+" --dport 80 -m conntrack --ctstate DNAT -j ACCEPT")
+		} else {
+			want(t, true, "redirect to :80", "dnat ip to "+target+":80", "ct status dnat masquerade", "ct status dnat tcp dport 80 accept")
+		}
+	case "forward-off":
+		for _, fw := range f.Status(ctx).Forwards {
+			ch, err := f.deleteForward(ctx, admin, helperapi.FirewallRef{ID: fw.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := f.Confirm(ctx, ch.Pending.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if ufw {
+			if out, err := exec.Command(nftBinary, "list", "table", "inet", ufwForwardTable).CombinedOutput(); err == nil {
+				t.Fatalf("NAT table still there:\n%s", out)
+			}
+			want(t, false, ufwForwardBegin)
+		} else {
+			want(t, false, "redirect", "dnat")
+		}
 	case "disable":
 		if err := f.Disable(ctx, os.Stdout); err != nil {
 			t.Fatal(err)
@@ -191,7 +237,13 @@ func TestFirewallSystem(t *testing.T) {
 		}
 	case "firewalld-offline":
 		// firewalld does not run in a container: check the policy file.
-		data, err := renderFirewalld(sampleRender())
+		r := sampleRender()
+		r.Forwards = sampleForwards
+		data, err := renderFirewalld(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forward, err := renderFirewalldForward(r.Forwards)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -201,9 +253,20 @@ func TestFirewallSystem(t *testing.T) {
 		if err := os.WriteFile(firewalldPolicyFile, data, 0o640); err != nil {
 			t.Fatal(err)
 		}
+		if err := os.WriteFile(firewalldForwardPolicyFile, forward, 0o640); err != nil {
+			t.Fatal(err)
+		}
 		sh(t, firewallOfflineCmd, "--check-config")
+		fwd := sh(t, firewallOfflineCmd, "--info-policy=cairn-forward")
+		for _, w := range []string{"ingress-zones: ANY", "egress-zones: ANY", "port=5353:proto=udp:toport=53:toaddr=10.0.0.5",
+			`rule family="ipv4" destination address="10.0.0.5" masquerade`} {
+			if !strings.Contains(fwd, w) {
+				t.Fatalf("missing %q:\n%s", w, fwd)
+			}
+		}
 		info := sh(t, firewallOfflineCmd, "--info-policy=cairn")
 		for _, w := range []string{"priority: -100", "ingress-zones: ANY", "egress-zones: HOST", "ports: 22/tcp 28443/tcp 80/tcp 443/tcp",
+			"port=8090:proto=tcp:toport=80:toaddr=",
 			"icmp-blocks: echo-request", `rule priority="-300" family="ipv4" source address="198.51.100.0/24" drop`,
 			`rule family="ipv6" source address="2001:db8::/32" port port="8000-8100" protocol="udp" accept`} {
 			if !strings.Contains(info, w) {

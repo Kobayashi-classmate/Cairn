@@ -65,3 +65,8 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   for the selected entries, and an editor that asks before unsaved changes
   are lost. The file editor and the terminal follow the light or dark
   scheme.
+- Port forwards in the firewall: connections to a port of the server go
+  on to another of its ports or to a port of another IPv4 host, on
+  nftables, ufw and firewalld, with the same 60-second rollback as the
+  other firewall changes. Forwarding to another host switches IPv4
+  forwarding on while it is needed.
