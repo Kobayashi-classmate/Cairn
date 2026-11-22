@@ -36,7 +36,6 @@
     "edit": "Edit",
     "delete": "Delete",
     "refresh": "Refresh",
-    "create": "Create",
     "close": "Close",
     "dismiss": "Dismiss",
     "showPassword": "Show password",
@@ -190,7 +189,8 @@
     "value": "Value",
     "fingerprint": "Fingerprint",
     "closeAfterMinutes": "Close the old port after",
-    "candidate": "Source"
+    "candidate": "Source",
+    "command": "Command"
   },
   "boot": {
     "failed": "Cannot load the panel",
@@ -351,5 +351,11 @@
   },
   "dirBrowser": {
     "path": "Folder path"
+  },
+  "log": {
+    "wrap": "Wrap long lines",
+    "copy": "Copy log",
+    "latest": "Jump to latest",
+    "empty": "No log entries."
   }
 }

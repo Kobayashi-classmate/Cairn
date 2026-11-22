@@ -2,6 +2,7 @@
 import { createRouter, createWebHistory, type Router, type RouteRecordRaw } from 'vue-router'
 import { setUnauthorizedHandler } from '@/api/client'
 import type { Permission } from '@/auth/permissions'
+import { legacyFilesQuery } from '@/files/route'
 import { homeLocation } from '@/layouts/navigation'
 import { useSessionStore } from '@/stores/session'
 
@@ -99,13 +100,18 @@ const routes: RouteRecordRaw[] = [
         path: 'files',
         name: 'files',
         component: () => import('@/views/FilesView.vue'),
-        meta: { titleKey: 'files.title', navKey: 'files', permission: 'files.read' },
+        meta: { titleKey: 'files.title', navKey: 'files', permission: 'files.read', newUi: true },
+        // Old addresses (?root=&path=, ?trash=1) open the same place.
+        beforeEnter: (to) => {
+          const query = legacyFilesQuery(to.query)
+          return query ? { name: 'files', query, hash: to.hash } : true
+        },
       },
       {
         path: 'terminal',
         name: 'terminal',
         component: () => import('@/views/TerminalView.vue'),
-        meta: { titleKey: 'terminal.title', navKey: 'terminal', permission: 'terminal.use' },
+        meta: { titleKey: 'terminal.title', navKey: 'terminal', permission: 'terminal.use', newUi: true },
       },
       {
         path: 'cron',
@@ -123,7 +129,7 @@ const routes: RouteRecordRaw[] = [
         path: 'logs',
         name: 'logs',
         component: () => import('@/views/LogsView.vue'),
-        meta: { titleKey: 'logs.title', navKey: 'logs', permission: 'logs.read' },
+        meta: { titleKey: 'logs.title', navKey: 'logs', permission: 'logs.read', newUi: true },
       },
       {
         path: 'firewall',

@@ -55,6 +55,12 @@ const props = withDefaults(
     skeletonRows?: number
     /** Leave out the card's border and background (inside another card). */
     flat?: boolean
+    /**
+     * Clicking a row (outside its buttons, links and checkbox) emits
+     * `row-click`. A mouse shortcut only: the row must still offer a button
+     * that does the same for keyboard users.
+     */
+    rowClickable?: boolean
     class?: HTMLAttributes['class']
   }>(),
   {
@@ -72,7 +78,7 @@ const props = withDefaults(
   },
 )
 
-const emit = defineEmits<{ retry: [] }>()
+const emit = defineEmits<{ retry: []; 'row-click': [row: T] }>()
 
 const search = defineModel<string>('search', { default: '' })
 /** Keys of the selected rows. */
@@ -184,6 +190,18 @@ function ariaSort(column: Column<T, unknown>): 'ascending' | 'descending' | 'non
 function headerText(column: Column<T, unknown>): string {
   const header = column.columnDef.header
   return typeof header === 'string' ? header : ''
+}
+
+/** Controls inside a row keep their own clicks. */
+const INTERACTIVE = 'button, a, input, select, textarea, label, [role="checkbox"], [role="menuitem"], [contenteditable="true"], [data-select-cell]'
+
+function onRowClick(event: MouseEvent, row: T) {
+  if (!props.rowClickable) return
+  const target = event.target instanceof Element ? event.target : null
+  if (target?.closest(INTERACTIVE)) return
+  // Selecting text in a row is not a click on it.
+  if (window.getSelection()?.toString()) return
+  emit('row-click', row)
 }
 
 function rowLabel(row: T): string {
@@ -322,9 +340,15 @@ function rowLabel(row: T): string {
               v-for="row in table.getRowModel().rows"
               :key="row.id"
               :data-state="selectedSet.has(row.id) ? 'selected' : undefined"
-              class="border-t transition-colors hover:bg-accent/50 data-[state=selected]:bg-primary-soft/60"
+              :class="
+                cn(
+                  'border-t transition-colors hover:bg-accent/50 data-[state=selected]:bg-primary-soft/60',
+                  rowClickable && 'cursor-pointer',
+                )
+              "
+              @click="onRowClick($event, row.original)"
             >
-              <td v-if="selectable" class="w-10 px-4 py-[11px] align-middle">
+              <td v-if="selectable" class="w-10 px-4 py-[11px] align-middle" data-select-cell>
                 <Checkbox
                   :model-value="selectedSet.has(row.id)"
                   :disabled="canSelect ? !canSelect(row.original) : false"

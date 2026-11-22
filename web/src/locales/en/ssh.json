@@ -59,7 +59,10 @@
     "time": "Time",
     "ip": "From",
     "method": "Method",
-    "result": "Result"
+    "result": "Result",
+    "search": "Search sign-ins",
+    "empty": "No sign-ins recorded",
+    "older": "Load older"
   },
   "method": {
     "publickey": "Key",

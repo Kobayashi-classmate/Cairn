@@ -159,7 +159,8 @@
       "bytes": "大小",
       "duration": "耗时"
     },
-    "kind": "日志"
+    "kind": "日志",
+    "dropped": "页面上只保留最新的日志行。"
   },
   "rewrite": {
     "spa": "单页应用",

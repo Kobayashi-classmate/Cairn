@@ -3,26 +3,39 @@
   "root": {
     "sites": "Websites",
     "backups": "Backups",
-    "system": "Whole system"
+    "system": "Whole disk"
   },
-  "side": {
-    "label": "File locations",
-    "places": "Places",
-    "favorites": "Favorites",
-    "noFavorites": "Star a folder to keep it here.",
-    "removeFavorite": "Remove from favorites",
-    "unavailable": "Not available"
+  "tabs": {
+    "sites": "Site directories",
+    "backups": "Backup directory",
+    "system": "Whole disk",
+    "trash": "Trash"
   },
+  "status": {
+    "entries": "{count} entry | {count} entries"
+  },
+  "breadcrumb": "Folder path",
+  "folderLabel": "Contents of {path}",
+  "tableLabel": "Files and folders",
+  "filter": "Filter this folder",
+  "hidden": "Show hidden files",
+  "empty": "This folder is empty",
+  "dropHint": "Drop files here to upload them.",
+  "dropHere": "Drop to upload into {dir}",
+  "truncated": "This folder has more than {max} entries; only the first {max} are listed. Use Search to find the others.",
+  "showing": "Showing {shown} of {total}",
+  "showMore": "Show more",
   "action": {
     "up": "Up one level",
-    "refresh": "Refresh",
+    "upload": "Upload",
+    "new": "New",
     "newFolder": "New folder",
     "newFile": "New file",
-    "upload": "Upload",
     "fetch": "Download from URL",
     "search": "Search",
     "open": "Open",
     "edit": "Edit",
+    "view": "View",
     "preview": "Preview",
     "download": "Download",
     "extract": "Extract",
@@ -32,6 +45,7 @@
     "compress": "Compress",
     "chmod": "Permissions",
     "chown": "Owner",
+    "delete": "Move to trash",
     "more": "More actions for {name}"
   },
   "column": {
@@ -40,30 +54,29 @@
     "owner": "Owner",
     "modified": "Modified"
   },
-  "hidden": "Hidden files",
-  "empty": "This folder is empty.",
-  "dropHint": "Drop files here to upload them.",
-  "dropHere": "Drop to upload into {dir}",
-  "truncated": "This folder has more than {max} entries; only the first {max} are listed. Use search to find the others.",
   "favorite": {
     "add": "Add to favorites",
-    "remove": "Remove from favorites"
+    "remove": "Remove from favorites",
+    "removeNamed": "Remove {path} from favorites",
+    "list": "Favorite folders",
+    "none": "Star a folder to keep it here."
   },
   "selection": {
     "count": "{count} entry | {count} entries",
-    "selected": "{count} selected",
-    "clear": "Clear selection",
     "tooMany": "Select at most {max} entries at a time."
   },
   "newFolder": {
-    "title": "New folder"
+    "title": "New folder",
+    "submit": "Create folder"
   },
   "newFile": {
-    "title": "New file"
+    "title": "New file",
+    "submit": "Create file"
   },
   "rename": {
     "title": "Rename {name}",
-    "submit": "Rename"
+    "submit": "Rename",
+    "done": "Renamed to {name}."
   },
   "picker": {
     "empty": "No folders here."
@@ -71,17 +84,25 @@
   "transfer": {
     "copyTitle": "Copy {name}",
     "moveTitle": "Move {name}",
-    "pick": "Choose the destination folder:",
+    "pick": "Browse to the folder the entries go into.",
+    "dest": "Destination folder",
     "overwrite": "Replace entries that already exist",
-    "copyHere": "Copy to {dir}",
-    "moveHere": "Move to {dir}"
+    "copySubmit": "Copy here",
+    "moveSubmit": "Move here",
+    "sameDir": "The entries are already in this folder.",
+    "stepCopy": "Copy {count} entry into {to} | Copy {count} entries into {to}",
+    "stepMove": "Move {count} entry from {from} to {to} | Move {count} entries from {from} to {to}",
+    "stepOverwrite": "Replace entries of the same name there"
   },
   "chmod": {
-    "titleOne": "Permissions of {name}",
+    "title": "Permissions of {name}",
     "titleMany": "Permissions of {count} entry | Permissions of {count} entries",
+    "hint": "The panel never sets setuid, nor setgid on files.",
     "octal": "Mode in octal",
+    "octalInvalid": "Enter three or four octal digits, such as 644 or 2775.",
     "files": "Files",
     "dirs": "Folders",
+    "who": "Who",
     "owner": "Owner",
     "group": "Group",
     "others": "Others",
@@ -91,43 +112,55 @@
     "setgid": "Set group ID (new entries inherit the group)",
     "sticky": "Sticky (only owners may delete their entries)",
     "recursive": "Also apply to everything inside the folders",
-    "hint": "The panel never sets setuid, nor setgid on files."
+    "recursiveHint": "Folders inside get the folder permissions, files inside the file permissions.",
+    "submit": "Apply permissions",
+    "stepDirs": "Set folders to {mode} in {count} entry and everything inside it | Set folders to {mode} in {count} entries and everything inside them",
+    "stepFiles": "Set files inside to {mode}"
   },
   "chown": {
-    "titleOne": "Owner of {name}",
+    "title": "Owner of {name}",
     "titleMany": "Owner of {count} entry | Owner of {count} entries",
-    "recursive": "Also apply to everything inside the folders"
+    "intro": "Leave a field empty to keep the current owner or group.",
+    "recursive": "Also apply to everything inside the folders",
+    "submit": "Change owner",
+    "step": "Give {count} entry and everything inside it to {owner} | Give {count} entries and everything inside them to {owner}"
   },
   "compress": {
     "title": "Compress {count} entry | Compress {count} entries",
-    "submit": "Compress"
+    "submit": "Compress",
+    "step": "Pack {count} entry into {path} | Pack {count} entries into {path}"
   },
   "extract": {
     "title": "Extract {name}",
-    "pick": "Extract into this folder:",
+    "pick": "Browse to the folder the archive is extracted into.",
+    "dest": "Destination folder",
     "overwrite": "Replace files that already exist",
-    "hint": "Entries that cannot be extracted safely are skipped and listed in the task log.",
-    "submit": "Extract to {dir}",
+    "submit": "Extract",
     "toolMissing": "Extracting 7z and rar archives needs the unar tool, which is not installed.",
-    "installTool": "Install it on the Software page"
+    "installTool": "Install it on the Software page",
+    "stepInto": "Extract {name} into {dir}",
+    "stepOverwrite": "Replace files that already exist there",
+    "stepKeep": "Leave files that already exist there as they are",
+    "stepSkip": "Skip entries that cannot be extracted safely; the task log lists them"
   },
   "fetch": {
     "title": "Download from URL",
     "intro": "The server downloads the file into {dir}.",
+    "nameHint": "Leave empty to use the last part of the URL.",
     "namePlaceholder": "Taken from the URL",
-    "submit": "Download"
+    "submit": "Download",
+    "step": "Save the download as {path}",
+    "stepOverwrite": "Replace a file of the same name there"
   },
   "delete": {
-    "titleOne": "Delete {name}?",
-    "titleMany": "Delete {count} entry? | Delete {count} entries?",
+    "title": "Delete {name}?",
     "trashText": "The entries go to the trash of this location, where you can restore them.",
-    "permanentText": "The entries are deleted for good.",
+    "permanentText": "The entries are deleted for good. This cannot be undone; you will be asked for your password.",
     "permanent": "Delete permanently (skip the trash)",
-    "permanentWarning": "This cannot be undone. You will be asked for your password.",
     "submit": "Move to trash",
     "submitPermanent": "Delete permanently",
     "crossDeviceTitle": "{count} entry could not go to the trash | {count} entries could not go to the trash",
-    "crossDeviceText": "The trash is on another file system than these entries. Delete them permanently instead?"
+    "crossDeviceText": "The trash is on another file system than these entries. Delete them permanently instead? This cannot be undone."
   },
   "editor": {
     "modified": "Modified",
@@ -135,48 +168,61 @@
     "saved": "{name} saved.",
     "tooLarge": "The editor saves files of up to {size}.",
     "reload": "Reload",
-    "reloadTitle": "Reload the file?",
     "overwrite": "Overwrite their changes",
     "discard": "Discard changes",
     "discardTitle": "Discard your changes to {name}?",
-    "discardText": "Your unsaved changes will be lost."
+    "discardText": "Your unsaved changes will be lost.",
+    "saveHint": "Save (Ctrl+S)",
+    "saveHintMac": "Save (⌘S)",
+    "saveKey": "Ctrl S",
+    "saveKeyMac": "⌘ S"
   },
   "preview": {
-    "failed": "The image could not be shown."
+    "failed": "The image could not be shown.",
+    "size": "{width} × {height} px"
   },
   "search": {
     "title": "Search",
+    "where": "In {dir} and below",
+    "intro": "Find files and folders below this folder by name, or by the text inside them.",
     "placeholder": "Name or text to find",
     "submit": "Search",
     "content": "Search inside files",
     "case": "Match case",
     "contentHint": "Only text files of up to 1 MiB are searched.",
-    "none": "Nothing found.",
+    "none": "Nothing found",
+    "count": "{count} match | {count} matches",
     "truncated": "There are more matches than shown; narrow the search."
   },
   "trash": {
     "title": "Trash of {root}",
-    "back": "Back to {root}",
-    "intro": "Entries deleted from this location. Restoring puts them back where they were.",
+    "which": "Trash of",
+    "intro": "Entries deleted here wait in the trash until you restore or delete them.",
+    "search": "Search the trash",
     "from": "Original location",
     "by": "Deleted by",
     "deletedAt": "Deleted",
     "restore": "Restore",
-    "overwrite": "Replace entries now at the original location",
+    "replace": "Restore and replace",
+    "existsTitle": "{count} entry is in the way | {count} entries are in the way",
+    "existsText": "Something else now exists at {path}. Replace it with the entry from the trash? | Other entries now exist where these were, such as {path}. Replace them with the entries from the trash?",
     "purge": "Delete permanently",
-    "purgeTitle": "Permanently delete {count} entry? | Permanently delete {count} entries?",
+    "purgeTitle": "Permanently delete {name}?",
     "purgeText": "This cannot be undone. You will be asked for your password.",
     "empty": "Empty trash",
     "emptyTitle": "Empty the trash?",
-    "emptyList": "The trash is empty.",
+    "emptyText": "{count} entry is deleted for good. This cannot be undone; you will be asked for your password. | {count} entries are deleted for good. This cannot be undone; you will be asked for your password.",
+    "emptyList": "The trash is empty",
     "total": "{count} entry, {size} | {count} entries, {size}"
   },
   "upload": {
     "title": "Uploads",
+    "running": "{count} running",
     "clear": "Clear finished",
     "replace": "Replace",
     "retry": "Retry",
     "existsTitle": "{count} file already exists here. Replace it? | {count} files already exist here. Replace them?",
+    "existsText": "Uploading replaces {names}. | Uploading replaces {count} files, including {names}.",
     "tooLarge": "Too large to upload (at most {size}): {name}",
     "noFolders": "Folders cannot be uploaded; upload their files or a compressed archive instead.",
     "state": {
@@ -193,6 +239,8 @@
     "enableTitle": "Turn on full-disk access?",
     "enableText": "The file manager will reach the whole system as root: everyone allowed to manage files can then read and change any file, including system configuration and other users' data. Turn it on only while you need it.",
     "enable": "Turn on",
+    "enabled": "Full-disk access is on.",
+    "disabled": "Full-disk access is off.",
     "locked": "The server's configuration does not allow root access, so full-disk access stays off.",
     "active": "Full-disk access is on: changes here affect the whole system."
   }

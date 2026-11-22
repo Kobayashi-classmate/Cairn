@@ -32,12 +32,15 @@ export function useDrawerRoute(kind: string) {
     return id.value !== null && typeof value === 'string' ? value : ''
   })
 
-  /** Opens the drawer of an object, on a sub-item or the first one. */
-  function open(target: string, sub?: string) {
+  /**
+   * Opens the drawer of an object, on a sub-item or the first one. `extra`
+   * adds parameters that belong to the drawer (see withoutDrawer).
+   */
+  function open(target: string, sub?: string, extra: Record<string, string> = {}) {
     const base = withoutDrawer(route.query)
     if (id.value === null) openedFrom = { path: route.path, query: base }
     // The page's own tab (?tab=) stays as it is under the drawer.
-    const query: LocationQuery = { ...base, [OPEN_QUERY]: `${prefix}${target}` }
+    const query: LocationQuery = { ...base, ...extra, [OPEN_QUERY]: `${prefix}${target}` }
     if (sub) query[SECTION_QUERY] = sub
     void (id.value === null ? router.push({ query }) : router.replace({ query }))
   }

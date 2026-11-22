@@ -8,12 +8,15 @@ export const TAB_QUERY = 'tab'
 export const OPEN_QUERY = 'open'
 /** Query parameter of the open drawer's sub-item. */
 export const SECTION_QUERY = 'section'
+/** Query parameter of the line an open editor shows (files opened from a search). */
+export const LINE_QUERY = 'line'
 
 /** The query without the parameters of a settings drawer. */
 export function withoutDrawer(query: LocationQuery): LocationQuery {
   const rest = { ...query }
   delete rest[OPEN_QUERY]
   delete rest[SECTION_QUERY]
+  delete rest[LINE_QUERY]
   return rest
 }
 

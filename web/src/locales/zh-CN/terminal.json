@@ -1,12 +1,19 @@
 {
   "title": "终端",
+  "tabs": "已打开的终端",
+  "status": {
+    "count": "已打开 {count} / {max} 个终端",
+    "none": "没有打开的终端"
+  },
   "new": {
     "button": "新建终端",
-    "title": "打开终端",
-    "user": "运行身份",
-    "home": "主目录：{home}",
+    "title": "新建终端",
+    "intro": "选择 Shell 的运行身份。打开终端需要再次输入密码。",
+    "filter": "查找用户",
+    "nobody": "没有可以用来运行终端的用户。",
+    "step": "以 {user} 的身份在 {home} 打开登录 Shell",
     "rootWarning": "root 终端可以修改服务器上的任何内容：每条命令都以最高权限运行。",
-    "submit": "打开"
+    "submit": "打开终端"
   },
   "user": {
     "site": "{user}（{site}）",
@@ -15,31 +22,69 @@
       "user": "用户",
       "root": "管理员"
     },
-    "dangerous": "完全控制",
-    "rootOff": "已关闭"
+    "rootOff": "已关闭：请先允许 root 终端"
   },
   "root": {
-    "label": "允许 root 终端",
+    "label": "root 终端",
     "enableTitle": "允许 root 终端？",
     "enableText": "管理员将能以 root 身份打开终端，完全控制服务器。请只在需要时开启。",
     "enable": "允许",
-    "active": "已允许 root 终端。",
+    "enabled": "已允许 root 终端。",
+    "disabled": "已关闭 root 终端。",
     "locked": "服务器配置不允许 root 终端，因此它保持关闭。"
   },
   "close": {
     "title": "关闭 {name}？",
     "text": "Shell 会结束，它运行的程序也会一并结束。",
-    "submit": "关闭终端"
+    "submit": "关闭终端",
+    "named": "关闭 {name}"
   },
+  "closeTab": "关闭标签",
   "empty": {
     "title": "没有打开的终端",
     "text": "打开终端后，可以以网站所有者或其他用户的身份在服务器上运行命令。"
   },
   "state": {
+    "connecting": "连接中",
+    "open": "已连接",
     "reconnecting": "重新连接中",
     "ended": "已结束"
   },
   "ended": "Shell 已结束。",
-  "info": "{user} · {shell} · {home} · 打开于 {created}",
-  "hint": "离开此页面后终端会继续运行 5 分钟；在此期间回来即可继续使用。"
+  "endedNotice": "此终端已结束。",
+  "reopen": "以 {user} 新建一个",
+  "opened": "{time}打开",
+  "hint": "离开此页面后终端会继续运行 5 分钟。",
+  "snippets": {
+    "title": "常用命令",
+    "sheetIntro": "常用命令保存在你的账号里，可以粘贴到当前终端中。",
+    "add": "添加命令",
+    "addTitle": "添加命令",
+    "editTitle": "修改 {name}",
+    "editNamed": "修改 {name}",
+    "filter": "筛选常用命令",
+    "hide": "隐藏常用命令",
+    "empty": "还没有常用命令",
+    "emptyText": "把经常运行的命令保存下来，之后可以在任意终端中粘贴或运行。",
+    "lines": "{count} 行",
+    "paste": "粘贴",
+    "pasteHint": "粘贴到终端，不运行",
+    "run": "运行",
+    "runHint": "粘贴到终端并按回车",
+    "noTerminal": "请先打开一个终端",
+    "nameHint": "{count} / {max} 个字符",
+    "commandHint": "{size} / {max}。多行命令会依次运行；可以使用 Tab，不能包含其他控制字符。",
+    "commandTooLong": "命令最多 {size}。",
+    "commandControl": "命令中除了 Tab 和换行，不能包含其他控制字符。",
+    "pasteNote": "“粘贴”会把命令放到提示符后，供你检查；“运行”还会按下回车。",
+    "saved": "已保存 {name}。",
+    "delete": "删除命令",
+    "deleteNamed": "删除 {name}",
+    "deleteTitle": "删除 {name}？",
+    "deleteText": "这条常用命令会从你的账号中删除，不影响已打开的终端。",
+    "deleted": "已删除 {name}。",
+    "unbracketedTitle": "粘贴多行命令？",
+    "unbracketedText": "这个 Shell 会在粘贴后立即逐行运行，不会等待回车。",
+    "pasteAnyway": "仍然粘贴"
+  }
 }

@@ -67,3 +67,42 @@ export function termSocketUrl(id: string): string {
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
   return `${scheme}://${window.location.host}${API_BASE}/terminal/sessions/${encodeURIComponent(id)}/ws`
 }
+
+/** A saved command of the signed-in account. */
+export interface TermSnippet {
+  id: number
+  name: string
+  /** Lines separated by "\n". */
+  command: string
+  /** Unix seconds. */
+  updatedAt: number
+}
+
+export interface TermSnippetRequest {
+  name: string
+  command: string
+}
+
+/** Most saved commands one account keeps. */
+export const SNIPPETS_MAX = 100
+/** Longest name (characters, after trimming). */
+export const SNIPPET_NAME_MAX = 64
+/** Longest command (bytes of UTF-8). */
+export const SNIPPET_COMMAND_MAX = 8192
+
+/** The account's saved commands, sorted by name. */
+export async function fetchSnippets(signal?: AbortSignal): Promise<TermSnippet[]> {
+  return (await api.get<{ snippets: TermSnippet[] }>('/terminal/snippets', { signal })).snippets
+}
+
+export function createSnippet(body: TermSnippetRequest): Promise<TermSnippet> {
+  return api.post<TermSnippet>('/terminal/snippets', body)
+}
+
+export function updateSnippet(id: number, body: TermSnippetRequest): Promise<TermSnippet> {
+  return api.put<TermSnippet>(`/terminal/snippets/${id}`, body)
+}
+
+export function deleteSnippet(id: number): Promise<void> {
+  return api.delete<void>(`/terminal/snippets/${id}`)
+}

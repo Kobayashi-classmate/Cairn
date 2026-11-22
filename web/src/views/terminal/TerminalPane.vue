@@ -3,7 +3,8 @@
 // One terminal session in xterm.js, joined over a WebSocket: binary
 // messages carry input and output, text messages control ({"type":"resize"}
 // from here, {"type":"exit"} from the server). On every (re)connection the
-// server first replays recent output, so the screen is cleared first.
+// server first replays recent output, so the screen is cleared first. The
+// colours follow the panel's light and dark mode as it changes.
 // Loaded on demand, so xterm.js stays out of the main bundle.
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -11,16 +12,21 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { fetchTermSessions, termSocketUrl, type TermConnection } from '@/api/terminal'
+import { useThemeStore } from '@/stores/theme'
+import { TERMINAL_FONT, terminalTheme } from '@/terminal/theme'
 
 const props = defineProps<{ sessionId: string; active: boolean }>()
 const emit = defineEmits<{ status: [status: TermConnection] }>()
 
 const { t } = useI18n()
+const theme = useThemeStore()
 const host = ref<HTMLElement | null>(null)
 const status = ref<TermConnection>('connecting')
 
 /** Longest pause between reconnection attempts. */
 const MAX_DELAY_MS = 15000
+/** Longest wait for the bundled font before the terminal measures its cells. */
+const FONT_WAIT_MS = 1500
 const encoder = new TextEncoder()
 
 let term: Terminal | null = null
@@ -125,22 +131,28 @@ function ended() {
   term?.write(`\r\n\x1b[2m${t('terminal.ended')}\x1b[0m\r\n`)
 }
 
-/** Connects again right away (after the session ended nothing happens). */
-function reconnectNow() {
-  if (status.value === 'ended' || socket) return
-  attempts = 0
-  clearTimeout(retryTimer)
-  connect()
+/** Waits (briefly) for the bundled font, so the cells are measured with it. */
+async function fontReady(): Promise<void> {
+  try {
+    await Promise.race([
+      document.fonts.load("14px 'JetBrains Mono Variable'"),
+      new Promise((resolve) => setTimeout(resolve, FONT_WAIT_MS)),
+    ])
+  } catch {
+    // The fallback fonts work too.
+  }
 }
 
-onMounted(() => {
-  if (!host.value) return
+onMounted(async () => {
+  await fontReady()
+  if (disposed || !host.value) return
   term = new Terminal({
     cursorBlink: true,
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
+    fontFamily: TERMINAL_FONT,
     fontSize: 14,
+    lineHeight: 1.15,
     scrollback: 5000,
-    theme: { background: '#1e1e1e', foreground: '#d4d4d4', cursor: '#d4d4d4', selectionBackground: '#264f78' },
+    theme: terminalTheme(theme.isDark),
   })
   fit = new FitAddon()
   term.loadAddon(fit)
@@ -154,6 +166,14 @@ onMounted(() => {
   connect()
   if (props.active) term.focus()
 })
+
+// The colour scheme changed: the tokens are already switched when this runs.
+watch(
+  () => theme.isDark,
+  (dark) => {
+    if (term) term.options.theme = terminalTheme(dark)
+  },
+)
 
 watch(
   () => props.active,
@@ -174,24 +194,35 @@ onBeforeUnmount(() => {
   term = null
 })
 
-defineExpose({ reconnectNow, focus: () => term?.focus() })
+/**
+ * Pastes text as if from the clipboard: line ends become Enter, and a shell
+ * that asked for bracketed paste receives it as one block it does not run
+ * by itself.
+ */
+function paste(text: string) {
+  if (!term || status.value !== 'open') return
+  term.paste(text)
+  term.focus()
+}
+
+/** Pastes text and presses Enter. */
+function run(text: string) {
+  if (!term || status.value !== 'open') return
+  term.paste(text)
+  send(encoder.encode('\r'))
+  term.focus()
+}
+
+/** The shell asked for bracketed paste (multi-line text then waits for Enter). */
+function bracketedPaste(): boolean {
+  return term?.modes.bracketedPasteMode ?? false
+}
+
+defineExpose({ paste, run, bracketedPaste, focus: () => term?.focus() })
 </script>
 
 <template>
-  <div class="pane">
-    <div ref="host" class="pane__terminal" dir="ltr" />
+  <div class="h-full min-h-0 bg-card px-2 pt-2 pb-1">
+    <div ref="host" class="h-full min-h-0" dir="ltr" />
   </div>
 </template>
-
-<style scoped>
-.pane {
-  block-size: 100%;
-  padding: 6px;
-  background: #1e1e1e;
-  border-radius: 3px;
-}
-
-.pane__terminal {
-  block-size: 100%;
-}
-</style>

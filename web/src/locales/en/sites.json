@@ -159,7 +159,8 @@
       "bytes": "Size",
       "duration": "Duration"
     },
-    "kind": "Log"
+    "kind": "Log",
+    "dropped": "Only the newest lines are kept on the page."
   },
   "rewrite": {
     "spa": "Single-page application",

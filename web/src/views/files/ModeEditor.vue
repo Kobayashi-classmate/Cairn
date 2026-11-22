@@ -1,18 +1,23 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-// Edits a permission mode both as octal text and as checkboxes.
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NCheckbox, NInput } from 'naive-ui'
-import { SETGID, STICKY, octal, parseOctal } from '@/files/modes'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Input } from '@/components/ui/input'
+import { SETGID, STICKY, modeString, octal, parseOctal } from '@/files/modes'
 
+// Edits a permission mode both as octal text and as a grid of checkboxes;
+// both stay in step. Folders may also get setgid and sticky.
 const mode = defineModel<number>('mode', { required: true })
 const props = defineProps<{
-  /** Directories may also get setgid and sticky. */
+  /** Folders: setgid and sticky are offered. */
   dir: boolean
+  /** Names the editor ("Folders", "Files"). */
+  label: string
 }>()
 
 const { t } = useI18n()
+const id = `mode-${useId()}`
 const text = ref(octal(mode.value))
 const mask = computed(() => (props.dir ? 0o3777 : 0o777))
 const invalid = ref(false)
@@ -21,9 +26,9 @@ watch(mode, (value) => {
   if (parseOctal(text.value, mask.value) !== value) text.value = octal(value)
 })
 
-function onText(value: string) {
-  text.value = value
-  const parsed = parseOctal(value, mask.value)
+function onText(value: string | number) {
+  text.value = String(value)
+  const parsed = parseOctal(text.value, mask.value)
   invalid.value = parsed === null
   if (parsed !== null) mode.value = parsed
 }
@@ -35,89 +40,71 @@ function bit(who: number, what: number): number {
   return 1 << (8 - who * 3 - what)
 }
 
-function toggle(flag: number, on: boolean) {
-  mode.value = on ? mode.value | flag : mode.value & ~flag
+function toggle(flag: number, on: boolean | 'indeterminate') {
+  mode.value = on === true ? mode.value | flag : mode.value & ~flag
   invalid.value = false
 }
 </script>
 
 <template>
-  <div class="mode-editor">
-    <div class="mode-editor__octal">
-      <NInput
-        :value="text"
-        :status="invalid ? 'error' : undefined"
-        class="mono"
-        :input-props="{ inputmode: 'numeric', autocomplete: 'off', 'aria-label': t('files.chmod.octal') }"
-        @update:value="onText"
+  <fieldset class="m-0 flex min-w-0 flex-col gap-3 rounded-md border p-3">
+    <legend class="px-1 text-detail font-medium">{{ label }}</legend>
+    <div class="flex flex-wrap items-center gap-3">
+      <label :for="`${id}-octal`" class="sr-only">{{ t('files.chmod.octal') }}</label>
+      <Input
+        :id="`${id}-octal`"
+        :model-value="text"
+        inputmode="numeric"
+        autocomplete="off"
+        maxlength="4"
+        class="w-20 font-mono"
+        :aria-invalid="invalid || undefined"
+        :aria-describedby="invalid ? `${id}-error` : undefined"
+        dir="ltr"
+        @update:model-value="onText"
       />
+      <span class="font-mono text-detail text-muted-foreground" dir="ltr">{{ modeString(dir ? 'dir' : 'file', mode) }}</span>
     </div>
-    <table class="mode-editor__grid">
+    <p v-if="invalid" :id="`${id}-error`" class="m-0 text-xs font-medium text-destructive">{{ t('files.chmod.octalInvalid') }}</p>
+    <table class="w-full max-w-[340px] border-collapse text-detail">
       <thead>
-        <tr>
-          <th />
-          <th v-for="what in WHAT" :key="what" scope="col">{{ t(`files.chmod.${what}`) }}</th>
+        <tr class="text-caption text-muted-foreground">
+          <th scope="col" class="py-1 text-start font-medium"><span class="sr-only">{{ t('files.chmod.who') }}</span></th>
+          <th v-for="what in WHAT" :key="what" scope="col" class="px-2 py-1 text-center font-medium">{{ t(`files.chmod.${what}`) }}</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="(who, w) in WHO" :key="who">
-          <th scope="row">{{ t(`files.chmod.${who}`) }}</th>
-          <td v-for="(what, i) in WHAT" :key="what">
-            <NCheckbox
-              :checked="(mode & bit(w, i)) !== 0"
-              :aria-label="`${t(`files.chmod.${who}`)} ${t(`files.chmod.${what}`)}`"
-              @update:checked="(on: boolean) => toggle(bit(w, i), on)"
-            />
+        <tr v-for="(who, w) in WHO" :key="who" class="border-t">
+          <th scope="row" class="py-1.5 text-start font-normal">{{ t(`files.chmod.${who}`) }}</th>
+          <td v-for="(what, i) in WHAT" :key="what" class="px-2 py-1.5 text-center">
+            <span class="inline-flex max-md:size-11 max-md:items-center max-md:justify-center">
+              <Checkbox
+                :model-value="(mode & bit(w, i)) !== 0"
+                :aria-label="`${t(`files.chmod.${who}`)}: ${t(`files.chmod.${what}`)}`"
+                @update:model-value="(on: boolean | 'indeterminate') => toggle(bit(w, i), on)"
+              />
+            </span>
           </td>
         </tr>
       </tbody>
     </table>
-    <div v-if="dir" class="mode-editor__special">
-      <NCheckbox :checked="(mode & SETGID) !== 0" @update:checked="(on: boolean) => toggle(SETGID, on)">
-        {{ t('files.chmod.setgid') }}
-      </NCheckbox>
-      <NCheckbox :checked="(mode & STICKY) !== 0" @update:checked="(on: boolean) => toggle(STICKY, on)">
-        {{ t('files.chmod.sticky') }}
-      </NCheckbox>
+    <div v-if="dir" class="flex flex-col gap-2">
+      <label class="flex cursor-pointer items-start gap-2.5 text-detail">
+        <Checkbox
+          :model-value="(mode & SETGID) !== 0"
+          class="mt-0.5"
+          @update:model-value="(on: boolean | 'indeterminate') => toggle(SETGID, on)"
+        />
+        <span>{{ t('files.chmod.setgid') }}</span>
+      </label>
+      <label class="flex cursor-pointer items-start gap-2.5 text-detail">
+        <Checkbox
+          :model-value="(mode & STICKY) !== 0"
+          class="mt-0.5"
+          @update:model-value="(on: boolean | 'indeterminate') => toggle(STICKY, on)"
+        />
+        <span>{{ t('files.chmod.sticky') }}</span>
+      </label>
     </div>
-  </div>
+  </fieldset>
 </template>
-
-<style scoped>
-.mode-editor {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mode-editor__octal {
-  inline-size: 120px;
-}
-
-.mode-editor__grid {
-  border-collapse: collapse;
-}
-
-.mode-editor__grid th,
-.mode-editor__grid td {
-  padding: 2px 10px;
-  text-align: center;
-  font-weight: normal;
-  font-size: 13px;
-}
-
-.mode-editor__grid th[scope='row'] {
-  text-align: start;
-  padding-inline-start: 0;
-}
-
-.mode-editor__special {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-}
-
-.mono :deep(input) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-</style>

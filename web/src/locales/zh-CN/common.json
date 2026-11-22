@@ -36,7 +36,6 @@
     "edit": "编辑",
     "delete": "删除",
     "refresh": "刷新",
-    "create": "创建",
     "close": "关闭",
     "dismiss": "关闭提示",
     "showPassword": "显示密码",
@@ -190,7 +189,8 @@
     "value": "值",
     "fingerprint": "指纹",
     "closeAfterMinutes": "旧端口关闭时间",
-    "candidate": "软件源"
+    "candidate": "软件源",
+    "command": "命令"
   },
   "boot": {
     "failed": "无法加载面板",
@@ -351,5 +351,11 @@
   },
   "dirBrowser": {
     "path": "文件夹路径"
+  },
+  "log": {
+    "wrap": "自动换行",
+    "copy": "复制日志",
+    "latest": "跳到最新",
+    "empty": "没有日志。"
   }
 }

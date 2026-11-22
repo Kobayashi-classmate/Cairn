@@ -47,6 +47,11 @@ const description = computed(() => {
   return typeof text === 'function' ? text(checked.value) : (text ?? '')
 })
 
+const confirmLabel = computed(() => {
+  const label = options.value?.confirmLabel
+  return typeof label === 'function' ? label(checked.value) : (label ?? '')
+})
+
 const typedOk = computed(() => !options.value?.typeToConfirm || typed.value.trim() === options.value.typeToConfirm)
 
 function finish(confirmed: boolean) {
@@ -143,7 +148,7 @@ async function confirm() {
             :disabled="!typedOk || running"
           >
             <LoaderCircle v-if="running" class="animate-spin" aria-hidden="true" />
-            {{ options.confirmLabel }}
+            {{ confirmLabel }}
           </Button>
         </div>
       </form>

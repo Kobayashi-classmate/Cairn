@@ -2,7 +2,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RefreshCw } from '@lucide/vue'
+import { RouterLink } from 'vue-router'
+import { ExternalLink, RefreshCw } from '@lucide/vue'
 import { isAbortError } from '@/api/client'
 import { fetchJournal, type JournalEntry } from '@/api/logs'
 import type { Offer } from '@/api/software'
@@ -14,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatLogTime } from '@/i18n/format'
 import { cn } from '@/lib/utils'
+import { useSessionStore } from '@/stores/session'
 
 // The system journal of the line's services: the newest 200 entries of one
 // service, newest at the bottom.
@@ -22,6 +24,7 @@ const LIMIT = 200
 const props = defineProps<{ offer: Offer }>()
 
 const { t } = useI18n()
+const session = useSessionStore()
 
 const units = computed(() => (props.offer.units ?? []).map((unit) => unit.name))
 const unit = ref(units.value[0] ?? '')
@@ -103,6 +106,14 @@ function priorityClass(priority: number): string {
         <RefreshCw :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
         {{ t('common.action.refresh') }}
       </Button>
+      <RouterLink
+        v-if="unit && session.can('logs.read')"
+        :to="{ name: 'logs', query: { unit: unitName(unit) } }"
+        class="inline-flex items-center gap-1.5 text-detail font-medium text-link underline-offset-4 hover:underline max-md:min-h-11"
+      >
+        <ExternalLink class="size-3.5" aria-hidden="true" />
+        {{ t('logs.openInLogs') }}
+      </RouterLink>
     </template>
 
     <ErrorState v-if="error && !entries" :error="error" compact @retry="load" />

@@ -1,12 +1,19 @@
 {
   "title": "Terminal",
+  "tabs": "Open terminals",
+  "status": {
+    "count": "{count} of {max} terminal open | {count} of {max} terminals open",
+    "none": "No terminal open"
+  },
   "new": {
     "button": "New terminal",
-    "title": "Open a terminal",
-    "user": "Run as",
-    "home": "Home folder: {home}",
+    "title": "New terminal",
+    "intro": "Choose whom the shell runs as. Opening a terminal asks for your password again.",
+    "filter": "Find a user",
+    "nobody": "There is nobody a terminal can run as.",
+    "step": "Open a login shell as {user} in {home}",
     "rootWarning": "A root terminal can change anything on the server: every command runs with full privileges.",
-    "submit": "Open"
+    "submit": "Open terminal"
   },
   "user": {
     "site": "{user} ({site})",
@@ -15,31 +22,69 @@
       "user": "Users",
       "root": "Administrator"
     },
-    "dangerous": "Full control",
-    "rootOff": "Turned off"
+    "rootOff": "Turned off: allow root terminals first"
   },
   "root": {
-    "label": "Allow root terminals",
+    "label": "Root terminals",
     "enableTitle": "Allow root terminals?",
     "enableText": "Administrators will be able to open terminals as root, with full control of the server. Turn this on only while you need it.",
     "enable": "Allow",
-    "active": "Root terminals are allowed.",
+    "enabled": "Root terminals are allowed.",
+    "disabled": "Root terminals are turned off.",
     "locked": "The server's configuration does not allow root terminals, so they stay off."
   },
   "close": {
     "title": "Close {name}?",
     "text": "The shell ends, together with the programs it runs.",
-    "submit": "Close terminal"
+    "submit": "Close terminal",
+    "named": "Close {name}"
   },
+  "closeTab": "Close tab",
   "empty": {
     "title": "No terminal is open",
     "text": "Open a terminal to run commands on the server as a site owner or another user."
   },
   "state": {
+    "connecting": "Connecting",
+    "open": "Connected",
     "reconnecting": "Reconnecting",
     "ended": "Ended"
   },
   "ended": "The shell has ended.",
-  "info": "{user} · {shell} · {home} · opened {created}",
-  "hint": "Terminals keep running for 5 minutes after you leave this page; come back in time to pick them up again."
+  "endedNotice": "This terminal has ended.",
+  "reopen": "Open a new one as {user}",
+  "opened": "opened {time}",
+  "hint": "Terminals keep running for 5 minutes after you leave this page.",
+  "snippets": {
+    "title": "Saved commands",
+    "sheetIntro": "Saved commands are kept for your account and pasted into the terminal in front.",
+    "add": "Save a command",
+    "addTitle": "Save a command",
+    "editTitle": "Change {name}",
+    "editNamed": "Change {name}",
+    "filter": "Filter saved commands",
+    "hide": "Hide saved commands",
+    "empty": "No saved commands yet",
+    "emptyText": "Save commands you run often, then paste or run them in any terminal.",
+    "lines": "{count} line | {count} lines",
+    "paste": "Paste",
+    "pasteHint": "Paste into the terminal without running",
+    "run": "Run",
+    "runHint": "Paste into the terminal and press Enter",
+    "noTerminal": "Open a terminal first",
+    "nameHint": "{count} of {max} characters",
+    "commandHint": "{size} of {max}. Lines run one after the other; tabs are allowed, other control characters are not.",
+    "commandTooLong": "The command must be at most {size}.",
+    "commandControl": "The command may not contain control characters other than tabs and line breaks.",
+    "pasteNote": "Paste puts the command at the prompt for you to check; Run also presses Enter.",
+    "saved": "{name} saved.",
+    "delete": "Delete command",
+    "deleteNamed": "Delete {name}",
+    "deleteTitle": "Delete {name}?",
+    "deleteText": "The saved command is removed from your account. Terminals are not affected.",
+    "deleted": "{name} deleted.",
+    "unbracketedTitle": "Paste several lines?",
+    "unbracketedText": "This shell runs each line as soon as it is pasted, without waiting for Enter.",
+    "pasteAnyway": "Paste anyway"
+  }
 }

@@ -1,7 +1,23 @@
 {
   "title": "日志",
-  "intro": "系统日志：各个服务和系统本身的消息。",
+  "tabs": {
+    "system": "系统日志",
+    "sites": "网站日志",
+    "ssh": "SSH 登录"
+  },
+  "intro": {
+    "system": "各个服务和系统本身的消息。",
+    "sites": "每个网站的访问日志和错误日志。",
+    "ssh": "谁通过 SSH 登录过，以及谁尝试过。"
+  },
+  "status": {
+    "entries": "{count} 条",
+    "following": "实时跟踪中"
+  },
   "allUnits": "所有单元",
+  "clearUnit": "显示所有单元",
+  "filterUnit": "只看 {unit}",
+  "minimumLevel": "最低级别",
   "allPriorities": "所有级别",
   "priorityAtLeast": "{level}及更严重",
   "priority": {
@@ -24,8 +40,8 @@
     "6": "INFO",
     "7": "DEBUG"
   },
-  "since": "开始时间",
-  "until": "结束时间",
+  "sincePlaceholder": "-1h",
+  "untilPlaceholder": "now",
   "grep": "要查找的文字",
   "boot": "仅本次启动",
   "limitOption": "最近 {count} 条",
@@ -34,8 +50,9 @@
   "timeHint": "时间格式与 journalctl 相同：“today”“yesterday”“-1h”“-30min”“2026-11-16 10:00”。",
   "empty": "没有匹配的日志。",
   "dropped": "页面上只保留最新的 {count} 条日志。",
+  "openInLogs": "在日志中打开",
   "sites": {
-    "title": "网站日志",
-    "intro": "每个网站的访问日志和错误日志在它自己的页面上："
+    "none": "还没有网站",
+    "noneText": "建好网站后，它的访问日志和错误日志会显示在这里。"
   }
 }

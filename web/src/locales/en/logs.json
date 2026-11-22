@@ -1,7 +1,23 @@
 {
   "title": "Logs",
-  "intro": "The system journal: messages of services and the system itself.",
+  "tabs": {
+    "system": "System journal",
+    "sites": "Site logs",
+    "ssh": "SSH sign-ins"
+  },
+  "intro": {
+    "system": "Messages of services and the system itself.",
+    "sites": "Each site's access and error logs.",
+    "ssh": "Who signed in over SSH, and who tried."
+  },
+  "status": {
+    "entries": "{count} entry | {count} entries",
+    "following": "Following"
+  },
   "allUnits": "All units",
+  "clearUnit": "Show all units",
+  "filterUnit": "Show only {unit}",
+  "minimumLevel": "Minimum level",
   "allPriorities": "All levels",
   "priorityAtLeast": "{level} and more severe",
   "priority": {
@@ -24,8 +40,8 @@
     "6": "INFO",
     "7": "DEBUG"
   },
-  "since": "Since",
-  "until": "Until",
+  "sincePlaceholder": "-1h",
+  "untilPlaceholder": "now",
   "grep": "Text to find",
   "boot": "This boot only",
   "limitOption": "Last {count}",
@@ -34,8 +50,9 @@
   "timeHint": "Times as journalctl reads them: \"today\", \"yesterday\", \"-1h\", \"-30min\", \"2026-11-16 10:00\".",
   "empty": "No entries match.",
   "dropped": "Only the newest {count} entries are kept on the page.",
+  "openInLogs": "Open in Logs",
   "sites": {
-    "title": "Site logs",
-    "intro": "Each site's access and error logs are on its own page:"
+    "none": "No sites yet",
+    "noneText": "Sites' access and error logs appear here once a site exists."
   }
 }

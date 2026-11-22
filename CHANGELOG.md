@@ -57,3 +57,11 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   last backup.
 - Saved commands on the Terminal page, kept with each account, to paste
   into the open terminal or run in it.
+- The Logs page shows the system journal, the logs of each site and SSH
+  sign-ins in tabs. Journal filters stay in the address, and the software
+  and site panels link to them.
+- Files, the terminal and logs in the new layout: files in a table with
+  tabs for site directories, the backup directory and the trash, actions
+  for the selected entries, and an editor that asks before unsaved changes
+  are lost. The file editor and the terminal follow the light or dark
+  scheme.

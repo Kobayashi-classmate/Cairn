@@ -312,6 +312,9 @@
       "mixed": "{file} mixes several sources; edit it by hand.",
       "update_failed": "The package index could not be updated from the new source: {detail}. The old files were put back.",
       "unsupported": "Switching the system's sources is not possible here: {reasonText}."
+    },
+    "terminal": {
+      "too_many_snippets": "You can save at most {max} commands."
     }
   },
   "software": {
@@ -426,7 +429,10 @@
     "too_many": "You already have the most terminals allowed open."
   },
   "terminal": {
-    "not_found": "This terminal has ended."
+    "not_found": "This terminal has ended.",
+    "snippet_exists": "A saved command with this name already exists.",
+    "too_many_snippets": "You have saved the most commands allowed.",
+    "snippet_not_found": "This saved command no longer exists."
   },
   "sameCause": "{count} more entry failed for the same reason. | {count} more entries failed for the same reason.",
   "cron": {

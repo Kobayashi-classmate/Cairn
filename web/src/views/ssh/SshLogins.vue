@@ -1,32 +1,64 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-// Recent SSH logins, accepted and failed, newest first.
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NAlert, NButton, NDataTable, NTag, type DataTableColumns } from 'naive-ui'
-import { fetchSshLogins, type SshLogin } from '@/api/ssh'
-import { errorMessage } from '@/i18n/errors'
-import { formatDateTime } from '@/i18n/format'
+import { History, RefreshCw } from '@lucide/vue'
+import { fetchSshLogins, type LoginResult, type SshLogin } from '@/api/ssh'
+import DataTable from '@/components/common/DataTable.vue'
+import RelativeTime from '@/components/common/RelativeTime.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import { Button } from '@/components/ui/button'
+import { notifyError } from '@/lib/notify'
+import type { Tone } from '@/lib/tone'
 
+// SSH sign-ins, accepted and refused, newest first; older ones page in with
+// "Load older". Shared by the SSH page and the Logs page.
 const PAGE = 100
 
+/** A sign-in with a key of its own (the same user can fail twice in one second). */
+type Row = SshLogin & { key: string }
+
 const { t, te } = useI18n()
-const entries = ref<SshLogin[]>([])
+const entries = ref<Row[]>([])
+let nextKey = 0
+
+function keyed(list: SshLogin[]): Row[] {
+  return list.map((entry) => ({ ...entry, key: String(nextKey++) }))
+}
 const next = ref('')
 const loading = ref(false)
+const loadingMore = ref(false)
+const loaded = ref(false)
 const loadError = ref<unknown>(null)
+const search = ref('')
 
-async function load(more = false) {
+async function load() {
   loading.value = true
   try {
-    const page = await fetchSshLogins(PAGE, more ? next.value : undefined)
-    entries.value = more ? entries.value.concat(page.entries) : page.entries
+    const page = await fetchSshLogins(PAGE)
+    entries.value = keyed(page.entries)
     next.value = page.next
     loadError.value = null
+    loaded.value = true
   } catch (err) {
     loadError.value = err
   } finally {
     loading.value = false
+  }
+}
+
+async function loadOlder() {
+  if (!next.value) return
+  loadingMore.value = true
+  try {
+    const page = await fetchSshLogins(PAGE, next.value)
+    entries.value = entries.value.concat(keyed(page.entries))
+    next.value = page.next
+  } catch (err) {
+    notifyError(err)
+  } finally {
+    loadingMore.value = false
   }
 }
 
@@ -37,53 +69,65 @@ function label(prefix: string, value: string): string {
   return value && te(key) ? t(key) : value
 }
 
-const columns = computed<DataTableColumns<SshLogin>>(() => [
-  { key: 'time', title: t('ssh.logins.time'), width: 170, render: (entry) => formatDateTime(entry.time) },
-  { key: 'user', title: t('common.field.user'), width: 140, render: (entry) => h('span', { class: 'mono' }, entry.user) },
-  { key: 'ip', title: t('ssh.logins.ip'), minWidth: 160, render: (entry) => h('span', { class: 'mono' }, entry.ip) },
-  { key: 'method', title: t('ssh.logins.method'), width: 160, render: (entry) => label('ssh.method', entry.method) || '-' },
-  {
-    key: 'result',
-    title: t('ssh.logins.result'),
-    width: 130,
-    render: (entry) =>
-      h(NTag, { size: 'small', type: entry.result === 'accepted' ? 'success' : 'error', bordered: false }, () => label('ssh.result', entry.result)),
-  },
+const RESULT_TONES: Record<LoginResult, Tone> = { accepted: 'success', failed: 'destructive', invalid_user: 'warning' }
+
+const columns = computed<ColumnDef<Row>[]>(() => [
+  { id: 'time', header: t('ssh.logins.time'), accessorFn: (entry) => entry.time, meta: { class: 'w-[150px]' } },
+  { id: 'user', header: t('common.field.user'), accessorFn: (entry) => entry.user, meta: { class: 'w-[160px]' } },
+  { id: 'ip', header: t('ssh.logins.ip'), accessorFn: (entry) => entry.ip, meta: { class: 'min-w-[160px]' } },
+  { id: 'method', header: t('ssh.logins.method'), accessorFn: (entry) => entry.method, meta: { class: 'w-[170px]' } },
+  { id: 'result', header: t('ssh.logins.result'), accessorFn: (entry) => entry.result, meta: { class: 'w-[140px]' } },
 ])
+
+function searchText(entry: SshLogin): string {
+  return [entry.user, entry.ip, label('ssh.method', entry.method), label('ssh.result', entry.result)].join(' ')
+}
 </script>
 
 <template>
-  <div>
-    <div class="toolbar">
-      <NButton size="small" :loading="loading" @click="load()">{{ t('common.action.refresh') }}</NButton>
-    </div>
-    <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-    <NDataTable :columns="columns" :data="entries" :loading="loading" :scroll-x="720" size="small" />
-    <div v-if="next" class="more">
-      <NButton size="small" :loading="loading" @click="load(true)">{{ t('common.action.loadMore') }}</NButton>
+  <div class="flex min-w-0 flex-col gap-3">
+    <DataTable
+      v-model:search="search"
+      :data="entries"
+      :columns="columns"
+      :row-key="(entry) => entry.key"
+      :label="t('ssh.tabs.logins')"
+      :loading="loading && !loaded"
+      :error="loadError"
+      :search-placeholder="t('ssh.logins.search')"
+      :search-text="searchText"
+      :empty-title="t('ssh.logins.empty')"
+      :min-width="720"
+      :initial-sort="[{ id: 'time', desc: true }]"
+      @retry="load"
+    >
+      <template #toolbar>
+        <Button variant="ghost" size="sm" class="max-md:h-11" :disabled="loading" @click="load">
+          <RefreshCw :class="loading ? 'animate-spin' : ''" aria-hidden="true" />
+          {{ t('common.action.refresh') }}
+        </Button>
+      </template>
+      <template #cell-time="{ row }">
+        <RelativeTime :value="row.time" class="text-muted-foreground" />
+      </template>
+      <template #cell-user="{ row }">
+        <span class="font-mono text-[12.5px]" dir="ltr">{{ row.user || '—' }}</span>
+      </template>
+      <template #cell-ip="{ row }">
+        <span class="font-mono text-[12.5px]" dir="ltr">{{ row.ip }}</span>
+      </template>
+      <template #cell-method="{ row }">
+        <span :class="row.method ? '' : 'text-muted-foreground'">{{ label('ssh.method', row.method) || '—' }}</span>
+      </template>
+      <template #cell-result="{ row }">
+        <StatusPill :tone="RESULT_TONES[row.result] ?? 'neutral'">{{ label('ssh.result', row.result) }}</StatusPill>
+      </template>
+    </DataTable>
+    <div v-if="next && loaded" class="flex justify-center">
+      <Button variant="outline" class="max-md:h-11" :disabled="loadingMore" @click="loadOlder">
+        <History aria-hidden="true" />
+        {{ t('ssh.logins.older') }}
+      </Button>
     </div>
   </div>
 </template>
-
-<style scoped>
-.toolbar {
-  display: flex;
-  justify-content: flex-end;
-  margin-block-end: 8px;
-}
-
-.block {
-  margin-block-end: 8px;
-}
-
-.more {
-  display: flex;
-  justify-content: center;
-  margin-block-start: 8px;
-}
-
-:deep(.mono) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-}
-</style>

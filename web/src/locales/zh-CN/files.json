@@ -3,26 +3,39 @@
   "root": {
     "sites": "网站",
     "backups": "备份",
-    "system": "整个系统"
+    "system": "整个磁盘"
   },
-  "side": {
-    "label": "文件位置",
-    "places": "位置",
-    "favorites": "收藏",
-    "noFavorites": "给文件夹加星标后会显示在这里。",
-    "removeFavorite": "取消收藏",
-    "unavailable": "不可用"
+  "tabs": {
+    "sites": "网站目录",
+    "backups": "备份目录",
+    "system": "整个磁盘",
+    "trash": "回收站"
   },
+  "status": {
+    "entries": "{count} 个条目"
+  },
+  "breadcrumb": "文件夹路径",
+  "folderLabel": "{path} 的内容",
+  "tableLabel": "文件和文件夹",
+  "filter": "在当前目录中筛选",
+  "hidden": "显示隐藏文件",
+  "empty": "此文件夹为空",
+  "dropHint": "把文件拖到这里即可上传。",
+  "dropHere": "松开即可上传到 {dir}",
+  "truncated": "此文件夹的条目超过 {max} 个，只列出了前 {max} 个。请用搜索查找其余条目。",
+  "showing": "显示 {shown} / {total} 项",
+  "showMore": "显示更多",
   "action": {
     "up": "上一级",
-    "refresh": "刷新",
+    "upload": "上传",
+    "new": "新建",
     "newFolder": "新建文件夹",
     "newFile": "新建文件",
-    "upload": "上传",
     "fetch": "从网址下载",
     "search": "搜索",
     "open": "打开",
     "edit": "编辑",
+    "view": "查看",
     "preview": "预览",
     "download": "下载",
     "extract": "解压",
@@ -32,6 +45,7 @@
     "compress": "压缩",
     "chmod": "权限",
     "chown": "所有者",
+    "delete": "移到回收站",
     "more": "{name} 的更多操作"
   },
   "column": {
@@ -40,30 +54,29 @@
     "owner": "所有者",
     "modified": "修改时间"
   },
-  "hidden": "隐藏文件",
-  "empty": "此文件夹为空。",
-  "dropHint": "把文件拖到这里即可上传。",
-  "dropHere": "松开即可上传到 {dir}",
-  "truncated": "此文件夹的条目超过 {max} 个，只列出了前 {max} 个。请用搜索查找其余条目。",
   "favorite": {
     "add": "收藏",
-    "remove": "取消收藏"
+    "remove": "取消收藏",
+    "removeNamed": "取消收藏 {path}",
+    "list": "收藏的文件夹",
+    "none": "给文件夹加星标后会显示在这里。"
   },
   "selection": {
     "count": "{count} 个条目",
-    "selected": "已选择 {count} 项",
-    "clear": "取消选择",
     "tooMany": "一次最多选择 {max} 个条目。"
   },
   "newFolder": {
-    "title": "新建文件夹"
+    "title": "新建文件夹",
+    "submit": "新建文件夹"
   },
   "newFile": {
-    "title": "新建文件"
+    "title": "新建文件",
+    "submit": "新建文件"
   },
   "rename": {
     "title": "重命名 {name}",
-    "submit": "重命名"
+    "submit": "重命名",
+    "done": "已重命名为 {name}。"
   },
   "picker": {
     "empty": "这里没有文件夹。"
@@ -71,17 +84,25 @@
   "transfer": {
     "copyTitle": "复制 {name}",
     "moveTitle": "移动 {name}",
-    "pick": "选择目标文件夹：",
+    "pick": "浏览到要放入的文件夹。",
+    "dest": "目标文件夹",
     "overwrite": "替换已存在的条目",
-    "copyHere": "复制到 {dir}",
-    "moveHere": "移动到 {dir}"
+    "copySubmit": "复制到这里",
+    "moveSubmit": "移动到这里",
+    "sameDir": "这些条目已经在此文件夹中。",
+    "stepCopy": "把 {count} 个条目复制到 {to}",
+    "stepMove": "把 {count} 个条目从 {from} 移动到 {to}",
+    "stepOverwrite": "替换那里的同名条目"
   },
   "chmod": {
-    "titleOne": "{name} 的权限",
+    "title": "{name} 的权限",
     "titleMany": "{count} 个条目的权限",
+    "hint": "面板不会设置 setuid，也不会给文件设置 setgid。",
     "octal": "八进制权限",
+    "octalInvalid": "请输入三位或四位八进制数字，例如 644 或 2775。",
     "files": "文件",
     "dirs": "文件夹",
+    "who": "对象",
     "owner": "所有者",
     "group": "用户组",
     "others": "其他人",
@@ -91,43 +112,55 @@
     "setgid": "设置组 ID（新条目继承用户组）",
     "sticky": "粘滞位（只有所有者能删除自己的条目）",
     "recursive": "同时应用到文件夹内的所有内容",
-    "hint": "面板不会设置 setuid，也不会给文件设置 setgid。"
+    "recursiveHint": "文件夹内的文件夹使用文件夹权限，文件使用文件权限。",
+    "submit": "应用权限",
+    "stepDirs": "把 {count} 个条目及其内部所有文件夹的权限设为 {mode}",
+    "stepFiles": "把其中文件的权限设为 {mode}"
   },
   "chown": {
-    "titleOne": "{name} 的所有者",
+    "title": "{name} 的所有者",
     "titleMany": "{count} 个条目的所有者",
-    "recursive": "同时应用到文件夹内的所有内容"
+    "intro": "留空的一项保持原来的所有者或用户组。",
+    "recursive": "同时应用到文件夹内的所有内容",
+    "submit": "更改所有者",
+    "step": "把 {count} 个条目及其内部所有内容交给 {owner}"
   },
   "compress": {
     "title": "压缩 {count} 个条目",
-    "submit": "压缩"
+    "submit": "压缩",
+    "step": "把 {count} 个条目打包为 {path}"
   },
   "extract": {
     "title": "解压 {name}",
-    "pick": "解压到此文件夹：",
+    "pick": "浏览到要解压到的文件夹。",
+    "dest": "目标文件夹",
     "overwrite": "替换已存在的文件",
-    "hint": "无法安全解压的条目会被跳过，并列在任务日志中。",
-    "submit": "解压到 {dir}",
+    "submit": "解压",
     "toolMissing": "解压 7z 和 rar 压缩包需要 unar 工具，但它尚未安装。",
-    "installTool": "到软件页面安装"
+    "installTool": "到软件页面安装",
+    "stepInto": "把 {name} 解压到 {dir}",
+    "stepOverwrite": "替换那里已存在的文件",
+    "stepKeep": "保留那里已存在的文件",
+    "stepSkip": "跳过无法安全解压的条目，并在任务日志中列出"
   },
   "fetch": {
     "title": "从网址下载",
     "intro": "服务器会把文件下载到 {dir}。",
+    "nameHint": "留空则使用网址的最后一段。",
     "namePlaceholder": "取自网址",
-    "submit": "下载"
+    "submit": "下载",
+    "step": "下载后保存为 {path}",
+    "stepOverwrite": "替换那里的同名文件"
   },
   "delete": {
-    "titleOne": "删除 {name}？",
-    "titleMany": "删除 {count} 个条目？",
+    "title": "删除 {name}？",
     "trashText": "条目会移入此位置的回收站，之后可以恢复。",
-    "permanentText": "条目会被永久删除。",
+    "permanentText": "条目会被永久删除。此操作无法撤销，需要再次输入密码。",
     "permanent": "永久删除（不放入回收站）",
-    "permanentWarning": "此操作无法撤销，需要再次输入密码。",
-    "submit": "移入回收站",
+    "submit": "移到回收站",
     "submitPermanent": "永久删除",
     "crossDeviceTitle": "{count} 个条目无法移入回收站",
-    "crossDeviceText": "回收站与这些条目不在同一个文件系统上。改为永久删除吗？"
+    "crossDeviceText": "回收站与这些条目不在同一个文件系统上。改为永久删除吗？此操作无法撤销。"
   },
   "editor": {
     "modified": "已修改",
@@ -135,50 +168,63 @@
     "saved": "已保存 {name}。",
     "tooLarge": "编辑器最多保存 {size} 的文件。",
     "reload": "重新加载",
-    "reloadTitle": "重新加载文件？",
     "overwrite": "覆盖对方的修改",
     "discard": "放弃修改",
     "discardTitle": "放弃对 {name} 的修改？",
-    "discardText": "未保存的修改将会丢失。"
+    "discardText": "未保存的修改将会丢失。",
+    "saveHint": "保存（Ctrl+S）",
+    "saveHintMac": "保存（⌘S）",
+    "saveKey": "Ctrl S",
+    "saveKeyMac": "⌘ S"
   },
   "preview": {
-    "failed": "无法显示该图片。"
+    "failed": "无法显示该图片。",
+    "size": "{width} × {height} 像素"
   },
   "search": {
     "title": "搜索",
+    "where": "在 {dir} 及其子文件夹中",
+    "intro": "按名称或文件中的文字，查找当前文件夹下的文件和文件夹。",
     "placeholder": "要查找的名称或文字",
     "submit": "搜索",
     "content": "搜索文件内容",
     "case": "区分大小写",
     "contentHint": "只搜索不超过 1 MiB 的文本文件。",
-    "none": "没有找到结果。",
+    "none": "没有找到",
+    "count": "{count} 个结果",
     "truncated": "结果多于显示的数量，请缩小搜索范围。"
   },
   "trash": {
-    "title": "{root} 的回收站",
-    "back": "返回 {root}",
-    "intro": "从此位置删除的条目。恢复后会回到原来的位置。",
+    "title": "{root}的回收站",
+    "which": "回收站位置",
+    "intro": "在这里删除的条目会留在回收站，直到你恢复或彻底删除它们。",
+    "search": "搜索回收站",
     "from": "原位置",
     "by": "删除者",
     "deletedAt": "删除时间",
     "restore": "恢复",
-    "overwrite": "替换原位置上现有的条目",
-    "purge": "永久删除",
-    "purgeTitle": "永久删除 {count} 个条目？",
+    "replace": "恢复并替换",
+    "existsTitle": "{count} 个条目的原位置已被占用",
+    "existsText": "原位置现在已有其他条目，例如 {path}。要用回收站中的条目替换它们吗？",
+    "purge": "彻底删除",
+    "purgeTitle": "彻底删除 {name}？",
     "purgeText": "此操作无法撤销，需要再次输入密码。",
     "empty": "清空回收站",
     "emptyTitle": "清空回收站？",
-    "emptyList": "回收站是空的。",
+    "emptyText": "{count} 个条目将被彻底删除。此操作无法撤销，需要再次输入密码。",
+    "emptyList": "回收站是空的",
     "total": "{count} 个条目，共 {size}"
   },
   "upload": {
     "title": "上传",
-    "clear": "清除已结束的",
+    "running": "{count} 个进行中",
+    "clear": "清除已完成",
     "replace": "替换",
     "retry": "重试",
     "existsTitle": "这里已有 {count} 个同名文件，要替换吗？",
-    "tooLarge": "文件太大，无法上传（最大 {size}）：{name}",
-    "noFolders": "无法上传文件夹；请上传其中的文件，或先打包成压缩包。",
+    "existsText": "上传将替换 {count} 个文件：{names}。",
+    "tooLarge": "文件过大，无法上传（最大 {size}）：{name}",
+    "noFolders": "无法上传文件夹；请上传其中的文件，或上传一个压缩包。",
     "state": {
       "queued": "等待中",
       "uploading": "上传中",
@@ -191,9 +237,11 @@
   "fullDisk": {
     "label": "全盘访问",
     "enableTitle": "开启全盘访问？",
-    "enableText": "文件管理器将以 root 身份访问整个系统：所有有文件管理权限的人都能读取和修改任何文件，包括系统配置和其他用户的数据。请只在需要时开启。",
+    "enableText": "文件管理器将以 root 身份访问整个系统：所有可以管理文件的人都能读取和修改任意文件，包括系统配置和其他用户的数据。请只在需要时开启。",
     "enable": "开启",
+    "enabled": "已开启全盘访问。",
+    "disabled": "已关闭全盘访问。",
     "locked": "服务器配置不允许 root 访问，因此全盘访问保持关闭。",
-    "active": "全盘访问已开启：在这里的修改会影响整个系统。"
+    "active": "已开启全盘访问：在这里的修改会影响整个系统。"
   }
 }

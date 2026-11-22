@@ -59,7 +59,10 @@
     "time": "时间",
     "ip": "来源",
     "method": "方式",
-    "result": "结果"
+    "result": "结果",
+    "search": "搜索登录记录",
+    "empty": "没有登录记录",
+    "older": "加载更早的记录"
   },
   "method": {
     "publickey": "密钥",

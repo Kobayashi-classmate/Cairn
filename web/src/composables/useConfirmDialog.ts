@@ -10,8 +10,8 @@ export interface ConfirmOptions {
   title: string
   /** The consequence, in one or two sentences; may depend on `option`. */
   description: string | ((optionChecked: boolean) => string)
-  /** The verb on the confirming button ("Delete site"). */
-  confirmLabel: string
+  /** The verb on the confirming button ("Delete site"); may depend on `option`. */
+  confirmLabel: string | ((optionChecked: boolean) => string)
   destructive?: boolean
   /** The user types this exact text (a site's primary domain) to enable the button. */
   typeToConfirm?: string

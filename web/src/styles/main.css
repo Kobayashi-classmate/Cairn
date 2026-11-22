@@ -228,6 +228,17 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* Code, paths and logs show every character as typed: JetBrains Mono would
+     otherwise join "!==", "->" or "=>" into one symbol. */
+  .font-mono,
+  code,
+  kbd,
+  pre,
+  samp,
+  .cm-editor {
+    font-variant-ligatures: none;
+  }
+
   body {
     @apply bg-background font-sans text-body text-foreground antialiased;
     margin: 0;

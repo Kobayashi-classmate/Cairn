@@ -312,6 +312,9 @@
       "mixed": "{file} 中混用了多个软件源，请手动修改。",
       "update_failed": "无法从新软件源更新软件包索引：{detail}。已恢复原来的文件。",
       "unsupported": "此处无法切换系统软件源：{reasonText}。"
+    },
+    "terminal": {
+      "too_many_snippets": "最多只能保存 {max} 条常用命令。"
     }
   },
   "software": {
@@ -426,7 +429,10 @@
     "too_many": "打开的终端数量已达上限。"
   },
   "terminal": {
-    "not_found": "此终端已结束。"
+    "not_found": "此终端已结束。",
+    "snippet_exists": "已有同名的常用命令。",
+    "too_many_snippets": "保存的常用命令数量已达上限。",
+    "snippet_not_found": "这条常用命令已不存在。"
   },
   "sameCause": "另有 {count} 个条目因同样的原因失败。",
   "cron": {
