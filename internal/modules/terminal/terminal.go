@@ -93,6 +93,7 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("DELETE /api/v1/terminal/sessions/{id}", m.close, api.Require(Use), doc("Close a terminal"), api.Returns(204, nil))
 	r.Handle("GET /api/v1/terminal/sessions/{id}/ws", m.attach, api.Require(Use),
 		doc("Attach to a terminal: binary messages carry input and output, text messages {\"type\":\"resize\",\"cols\",\"rows\"}"))
+	m.snippetRoutes(r, doc)
 }
 
 type settingsRequest struct {

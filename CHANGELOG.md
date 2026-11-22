@@ -55,3 +55,5 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   starts. Each installed version keeps its services, versions, extensions,
   configuration files and logs in one place. Databases show their size and
   last backup.
+- Saved commands on the Terminal page, kept with each account, to paste
+  into the open terminal or run in it.
