@@ -33,7 +33,9 @@ func (m *Module) Info() module.Info {
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
 	r.Handle("GET /api/v1/audit", m.list, api.Require(authz.AuditRead),
-		api.Doc("audit", "Audit trail, newest first (query: limit, before, user, action prefix)"), api.Returns(200, listResponse{}))
+		api.Doc("audit", "Audit trail, newest first (query: limit, before, user, action prefix, result ok|failed, since and until in Unix seconds)"),
+		api.Returns(200, listResponse{}))
+	r.Handle("GET /api/v1/audit/{id}", m.get, api.Require(authz.AuditRead), api.Doc("audit", "One audit entry"), api.Returns(200, audit.Entry{}))
 }
 
 type listResponse struct {
@@ -50,6 +52,24 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	if v := q.Get("before"); v != "" {
 		f.Before, _ = strconv.ParseInt(v, 10, 64)
 	}
+	switch v := q.Get("result"); v {
+	case "", "ok", "failed":
+		f.Result = v
+	default:
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "result", "rule": "oneof"})
+	}
+	for _, p := range []struct {
+		name string
+		dst  *int64
+	}{{"since", &f.Since}, {"until", &f.Until}} {
+		if v := q.Get(p.name); v != "" {
+			n, err := strconv.ParseInt(v, 10, 64)
+			if err != nil || n < 0 {
+				return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": p.name, "rule": "integer"})
+			}
+			*p.dst = n
+		}
+	}
 	entries, next, err := audit.List(r.Context(), m.DB, f)
 	if err != nil {
 		return err
@@ -59,4 +79,19 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 		resp.NextBefore = &next
 	}
 	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (m *Module) get(w http.ResponseWriter, r *http.Request) error {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return api.ErrNotFound
+	}
+	e, ok, err := audit.Get(r.Context(), m.DB, id)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return api.ErrNotFound
+	}
+	return api.WriteJSON(w, http.StatusOK, e)
 }

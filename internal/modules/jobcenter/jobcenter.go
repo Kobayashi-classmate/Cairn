@@ -10,7 +10,10 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
@@ -46,7 +49,8 @@ func (m *Module) Info() module.Info {
 func (m *Module) Routes(r *api.Router) {
 	self := api.Require(authz.Self)
 	doc := func(s string) api.RouteOption { return api.Doc("jobs", s) }
-	r.Handle("GET /api/v1/jobs", m.list, self, doc("Background jobs visible to the caller, newest first (query: limit, before = nextBefore of the previous page)"),
+	r.Handle("GET /api/v1/jobs", m.list, self,
+		doc("Background jobs visible to the caller, newest first (query: limit, before = nextBefore of the previous page, state (or \"active\": queued or running), kind or kind prefix such as \"software.\")"),
 		api.Returns(200, listResponse{}))
 	r.Handle("GET /api/v1/jobs/{id}", m.get, self, doc("One job"), api.Returns(200, jobResponse{}))
 	r.Handle("GET /api/v1/jobs/{id}/log", m.log, self,
@@ -86,9 +90,20 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	state, kind := q.Get("state"), q.Get("kind")
+	if state != "" && !slices.Contains(jobStates, state) {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "state", "rule": "oneof"})
+	}
+	if kind != "" && !jobKind.MatchString(kind) {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "kind", "rule": "pattern"})
+	}
 	list, next, err := m.Jobs.List(r.Context(), jobs.ListFilter{
 		Limit: limit, Before: before,
-		Visible: func(j jobs.Record) bool { return p.Can(j.Permission) },
+		Visible: func(j jobs.Record) bool {
+			// A kind ending in "." is a prefix ("software."), otherwise exact.
+			return p.Can(j.Permission) && matchesState(j, state) &&
+				(kind == "" || j.Kind == kind || (strings.HasSuffix(kind, ".") && strings.HasPrefix(j.Kind, kind)))
+		},
 	})
 	if err != nil {
 		return err
@@ -99,6 +114,23 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	}
 	return api.WriteJSON(w, http.StatusOK, resp)
 }
+
+// matchesState reports whether a job is in the state asked for: one of the
+// job states, "active" (queued or running) or "" (any).
+func matchesState(j jobs.Record, state string) bool {
+	switch state {
+	case "":
+		return true
+	case "active":
+		return !jobs.Done(j.State)
+	}
+	return j.State == state
+}
+
+var (
+	jobStates = []string{"active", jobs.Queued, jobs.Running, jobs.Succeeded, jobs.Failed, jobs.Canceled, jobs.Interrupted}
+	jobKind   = regexp.MustCompile(`^[a-z0-9_]+(\.[a-z0-9_]*)*$`)
+)
 
 // visible loads a job the caller may see; others look like they do not exist.
 func (m *Module) visible(r *http.Request) (jobs.Record, error) {

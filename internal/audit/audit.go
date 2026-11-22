@@ -55,7 +55,11 @@ type Filter struct {
 	Before       int64  // only entries with id < Before
 	Username     string // exact match
 	ActionPrefix string // e.g. "auth." or "users.create"
-	Limit        int    // 1..200, default 50
+	// Result is "ok" (succeeded) or "failed" (any error code).
+	Result string
+	Since  int64 // only entries at or after this Unix time
+	Until  int64 // only entries before this Unix time
+	Limit  int   // 1..200, default 50
 }
 
 // List returns entries newest first, plus the cursor for the next page
@@ -78,6 +82,20 @@ func List(ctx context.Context, db *sql.DB, f Filter) ([]Entry, int64, error) {
 	if f.ActionPrefix != "" {
 		where = append(where, `action LIKE ? ESCAPE '\'`)
 		args = append(args, escapeLike(f.ActionPrefix)+"%")
+	}
+	switch f.Result {
+	case "ok":
+		where = append(where, "result = 'ok'")
+	case "failed":
+		where = append(where, "result <> 'ok'")
+	}
+	if f.Since > 0 {
+		where = append(where, "ts >= ?")
+		args = append(args, f.Since)
+	}
+	if f.Until > 0 {
+		where = append(where, "ts < ?")
+		args = append(args, f.Until)
 	}
 	query := `SELECT id, ts, COALESCE(user_id, 0), username, action, params, result, remote_addr, source FROM audit_log`
 	if len(where) > 0 {
@@ -114,6 +132,15 @@ func List(ctx context.Context, db *sql.DB, f Filter) ([]Entry, int64, error) {
 		next = out[limit-1].ID
 	}
 	return out, next, nil
+}
+
+// Get returns one entry, or ok false when there is none with that id.
+func Get(ctx context.Context, db *sql.DB, id int64) (Entry, bool, error) {
+	entries, _, err := List(ctx, db, Filter{Before: id + 1, Limit: 1})
+	if err != nil || len(entries) == 0 || entries[0].ID != id {
+		return Entry{}, false, err
+	}
+	return entries[0], true, nil
 }
 
 func escapeLike(s string) string {

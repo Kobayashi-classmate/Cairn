@@ -71,6 +71,19 @@ func TestSoftwareRefreshJob(t *testing.T) {
 	if len(list) != 1 || list[0].(map[string]any)["id"] != id {
 		t.Fatalf("list: %v", list)
 	}
+	// Filters by state and by kind (exact, or a prefix ending in ".").
+	for _, c := range []struct {
+		query string
+		n     int
+	}{
+		{"state=succeeded", 1}, {"state=failed", 0}, {"state=active", 0}, {"kind=software.refresh", 1}, {"kind=software.", 1}, {"kind=software", 0}, {"kind=sites.", 0},
+	} {
+		if got := admin.expect(admin.do("GET", "/api/v1/jobs?"+c.query, nil), 200, "").body["jobs"].([]any); len(got) != c.n {
+			t.Fatalf("%s: %v", c.query, got)
+		}
+	}
+	admin.expect(admin.do("GET", "/api/v1/jobs?state=done", nil), 400, "validation.invalid")
+	admin.expect(admin.do("GET", "/api/v1/jobs?kind=%25", nil), 400, "validation.invalid")
 	var results []string
 	rows, _ := e.db.Query(`SELECT action || ':' || result FROM audit_log WHERE action IN ('software.refresh', 'job.finish') ORDER BY id`)
 	for rows.Next() {

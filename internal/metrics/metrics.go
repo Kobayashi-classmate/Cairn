@@ -133,6 +133,13 @@ func (c *Collector) Overview() Overview {
 	return Overview{Host: c.host, Current: cur, History: hist}
 }
 
+// Host returns the host information alone, without the usage history.
+func (c *Collector) Host() Host {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.host
+}
+
 func (c *Collector) refreshHost(ctx context.Context) {
 	h := Host{Arch: runtime.GOARCH}
 	if info, err := host.InfoWithContext(ctx); err == nil {

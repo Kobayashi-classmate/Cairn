@@ -70,3 +70,5 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   nftables, ufw and firewalld, with the same 60-second rollback as the
   other firewall changes. Forwarding to another host switches IPv4
   forwarding on while it is needed.
+- The audit log filters by result and time range, and the jobs list by
+  status and kind, over the whole history rather than the loaded page.

@@ -527,6 +527,9 @@ func TestUserManagementAndRoles(t *testing.T) {
 	ops := e.client()
 	ops.expect(ops.login("ops", pw), 200, "")
 	ops.expect(ops.do("GET", "/api/v1/system/overview", nil), 200, "")
+	if host := ops.expect(ops.do("GET", "/api/v1/system/host", nil), 200, "").body; host["addresses"] == nil || host["hostname"] == nil {
+		t.Fatalf("host %v", host)
+	}
 	ops.expect(ops.do("GET", "/api/v1/settings", nil), 200, "")
 	ops.expect(ops.do("GET", "/api/v1/users", nil), 403, "auth.forbidden")
 	ops.expect(ops.do("GET", "/api/v1/audit", nil), 403, "auth.forbidden")
@@ -599,6 +602,33 @@ func TestAuditListing(t *testing.T) {
 	if len(r.body["entries"].([]any)) != 1 {
 		t.Fatalf("user filter: %v", r.body)
 	}
+	// Result and time range are filtered on the server, over all entries.
+	if _, err := e.db.Exec(`INSERT INTO audit_log(ts, user_id, username, action, params, result, remote_addr, source)
+		VALUES(?, 1, 'admin', 'users.create', '{}', 'users.username_taken', '127.0.0.1', 'web')`, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	r = admin.expect(admin.do("GET", "/api/v1/audit?action=users.create&result=failed", nil), 200, "")
+	if es := r.body["entries"].([]any); len(es) != 1 || es[0].(map[string]any)["result"] != "users.username_taken" {
+		t.Fatalf("failed filter: %v", r.body)
+	}
+	r = admin.expect(admin.do("GET", "/api/v1/audit?action=users.create&result=ok", nil), 200, "")
+	if len(r.body["entries"].([]any)) != 3 {
+		t.Fatalf("ok filter: %v", r.body)
+	}
+	now := time.Now().Unix()
+	if r = admin.expect(admin.do("GET", fmt.Sprintf("/api/v1/audit?action=users.&since=%d", now+60), nil), 200, ""); len(r.body["entries"].([]any)) != 0 {
+		t.Fatalf("since: %v", r.body)
+	}
+	if r = admin.expect(admin.do("GET", fmt.Sprintf("/api/v1/audit?action=users.&since=%d&until=%d", now-60, now+60), nil), 200, ""); len(r.body["entries"].([]any)) != 4 {
+		t.Fatalf("range: %v", r.body)
+	}
+	admin.expect(admin.do("GET", "/api/v1/audit?result=maybe", nil), 400, "validation.invalid")
+	// One entry by id.
+	id := int64(first["id"].(float64))
+	if one := admin.expect(admin.do("GET", fmt.Sprintf("/api/v1/audit/%d", id), nil), 200, ""); one.body["action"] != "users.create" {
+		t.Fatalf("one: %v", one.body)
+	}
+	admin.expect(admin.do("GET", "/api/v1/audit/999999", nil), 404, "request.not_found")
 	// Secrets never end up in the audit log.
 	var leaked int
 	_ = e.db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE params LIKE ?`, "%"+pw+"%").Scan(&leaked)
