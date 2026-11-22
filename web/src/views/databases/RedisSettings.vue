@@ -63,8 +63,16 @@ function reset() {
   errors.value = {}
 }
 
-// The list reloads whenever a job starts or ends; edits stay unless the settings themselves changed.
-watch(() => `${props.engine.id}:${JSON.stringify(props.engine.redis ?? null)}`, reset, { immediate: true })
+// The list reloads whenever a job starts or ends; edits stay unless the settings themselves changed
+// (not the live key count or memory use).
+watch(
+  () => {
+    const redis = props.engine.redis
+    return JSON.stringify([props.engine.id, redis?.passwordSet, redis?.maxMemoryMb, redis?.maxMemoryPolicy, redis?.persistence])
+  },
+  reset,
+  { immediate: true },
+)
 
 const passwordSet = computed(() => props.engine.redis?.passwordSet === true)
 
@@ -124,7 +132,7 @@ async function save() {
 </script>
 
 <template>
-  <Card :title="t('databases.tabs.settings')" :level="3">
+  <Card :title="t('databases.tabs.settings')">
     <form class="flex max-w-[560px] flex-col gap-5" novalidate @submit.prevent="save">
       <fieldset class="m-0 flex min-w-0 flex-col gap-2 border-0 p-0" :disabled="!canManage || saving">
         <legend class="mb-1.5 flex flex-wrap items-center gap-2 p-0 text-detail font-medium">

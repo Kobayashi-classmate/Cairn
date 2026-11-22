@@ -41,6 +41,10 @@ watch(open, (value) => {
 })
 
 const owner = computed(() => form.user.trim() || form.name.trim())
+// An owner the panel already has gets access only: the server keeps its
+// password and hosts. One it did not create cannot be taken over.
+const existingOwner = computed(() => (form.withUser && owner.value ? props.engine.users.find((u) => u.name === owner.value) : undefined))
+const ownerKept = computed(() => !!existingOwner.value?.managed)
 
 function validate(): boolean {
   hostsInput.value?.commit()
@@ -50,8 +54,11 @@ function validate(): boolean {
   else if (!isDbName(kind.value, name)) next.name = validationMessage('name', 'db_name')
   if (form.withUser) {
     if (form.user.trim() && !isDbUser(kind.value, form.user.trim())) next.user = validationMessage('dbUser', 'db_user')
-    if (form.password && !isDbPassword(form.password)) next.password = validationMessage('password', 'db_password')
-    if (form.hosts.some((host) => !isDbHost(host))) next.hosts = validationMessage('hosts', 'db_host')
+    else if (existingOwner.value && !existingOwner.value.managed) next.user = t('databases.db.ownerUnmanaged', { user: owner.value })
+    if (!ownerKept.value) {
+      if (form.password && !isDbPassword(form.password)) next.password = validationMessage('password', 'db_password')
+      if (form.hosts.some((host) => !isDbHost(host))) next.hosts = validationMessage('hosts', 'db_host')
+    }
   }
   errors.value = next
   return Object.keys(next).length === 0
@@ -60,7 +67,9 @@ function validate(): boolean {
 const steps = computed(() => {
   const name = form.name.trim() || t('databases.db.namePlaceholder')
   const list = [t('databases.db.steps.create', { name, engine: engineLabel(props.engine) })]
-  if (form.withUser) {
+  if (form.withUser && ownerKept.value) {
+    list.push(t('databases.db.steps.grantExisting', { user: owner.value }))
+  } else if (form.withUser) {
     list.push(
       form.password ? t('databases.db.steps.user', { user: owner.value || name }) : t('databases.db.steps.userGenerated', { user: owner.value || name }),
     )
@@ -80,8 +89,8 @@ async function submit() {
     request.noUser = true
   } else {
     if (form.user.trim()) request.user = form.user.trim()
-    if (form.password) request.password = form.password
-    if (form.hosts.length) request.hosts = form.hosts
+    if (form.password && !ownerKept.value) request.password = form.password
+    if (form.hosts.length && !ownerKept.value) request.hosts = form.hosts
   }
   submitting.value = true
   error.value = null
@@ -140,7 +149,13 @@ async function submit() {
       </FormField>
       <FormField id="db-password" :label="t('common.field.password')" :hint="t('databases.hints.password')" :error="errors.password">
         <template #default="field">
-          <PasswordInput v-bind="field" v-model="form.password" autocomplete="new-password" :placeholder="t('databases.hints.generate')" />
+          <PasswordInput
+            v-bind="field"
+            v-model="form.password"
+            autocomplete="new-password"
+            :disabled="ownerKept"
+            :placeholder="ownerKept ? t('databases.db.ownerKeeps') : t('databases.hints.generate')"
+          />
         </template>
       </FormField>
       <FormField
@@ -150,7 +165,7 @@ async function submit() {
         :error="errors.hosts"
       >
         <template #default="field">
-          <TagInput ref="hostsInput" v-bind="field" v-model="form.hosts" :valid="isDbHost" mono placeholder="localhost" />
+          <TagInput ref="hostsInput" v-bind="field" v-model="form.hosts" :valid="isDbHost" :disabled="ownerKept" mono placeholder="localhost" />
         </template>
       </FormField>
     </template>

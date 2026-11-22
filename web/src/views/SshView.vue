@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { DoorClosed, Undo2 } from '@lucide/vue'
+import { serverClockOffset, serverNow } from '@/api/client'
 import { cancelSshPort, fetchSsh, finishSshPort, type SshView } from '@/api/ssh'
 import ErrorState from '@/components/common/ErrorState.vue'
 import Notice from '@/components/common/Notice.vue'
@@ -31,6 +32,8 @@ const TABS: readonly Tab[] = ['settings', 'port', 'keys', 'logins']
 
 /** After the old port's time is up, give the server's timer a moment before looking again. */
 const CLOSE_SETTLE_MS = 5000
+/** Looks again this many more times while the old port is still open after its time. */
+const CLOSE_RECHECKS = 6
 
 const { t } = useI18n()
 const session = useSessionStore()
@@ -79,21 +82,47 @@ const status = computed(() => {
   ].join(' · ')
 })
 
+// closeAt is on the server's clock, which may differ from this browser's.
+/** Milliseconds until a server time (Unix seconds). */
+function msUntil(at: number): number {
+  return at * 1000 - serverNow()
+}
+
 // The port move.
 const pending = computed(() => view.value?.pending ?? null)
-const closesIn = computed(() => (pending.value ? Math.max(0, pending.value.closeAt - now.value) : 0))
+/** The server's time in Unix seconds, ticking every second. */
+const serverSeconds = computed(() => now.value + serverClockOffset() / 1000)
+const closesIn = computed(() => (pending.value ? Math.max(0, Math.ceil(pending.value.closeAt - serverSeconds.value)) : 0))
 
-// The server's timer closes the old port at closeAt: look again then.
+// The server's timer closes the old port at closeAt: look again then, and
+// a few more times if it has not closed yet.
 let closeTimer: ReturnType<typeof setTimeout> | undefined
+let rechecks = 0
+let unmounted = false
+
+function scheduleCloseCheck() {
+  clearTimeout(closeTimer)
+  const closeAt = pending.value?.closeAt
+  if (!closeAt || unmounted) return
+  closeTimer = setTimeout(async () => {
+    await load()
+    if (unmounted || pending.value?.closeAt !== closeAt || rechecks >= CLOSE_RECHECKS) return
+    rechecks++
+    scheduleCloseCheck()
+  }, Math.max(0, msUntil(closeAt)) + CLOSE_SETTLE_MS)
+}
+
 watch(
   () => pending.value?.closeAt,
-  (closeAt) => {
-    clearTimeout(closeTimer)
-    if (!closeAt) return
-    closeTimer = setTimeout(() => void load(), Math.max(0, closeAt * 1000 - Date.now()) + CLOSE_SETTLE_MS)
+  () => {
+    rechecks = 0
+    scheduleCloseCheck()
   },
 )
-onBeforeUnmount(() => clearTimeout(closeTimer))
+onBeforeUnmount(() => {
+  unmounted = true
+  clearTimeout(closeTimer)
+})
 
 async function runPortJob(start: typeof finishSshPort, rethrow: boolean) {
   portBusy.value = true

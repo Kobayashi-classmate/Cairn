@@ -43,7 +43,8 @@ export function askResetTotp(user: ManagedUser): Promise<boolean> {
     destructive: true,
     run: async () => {
       await resetUserTotp(user.id)
-      useUsersStore().put({ ...user, totpEnabled: false })
+      // `user` is the menu's snapshot: change only this field, not a newer role or state.
+      useUsersStore().patch(user.id, { totpEnabled: false })
       notifySuccess(t('users.done.totpReset', { username: user.username }))
     },
   })

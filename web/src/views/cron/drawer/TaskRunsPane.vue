@@ -8,12 +8,14 @@ import { fetchRunLog, fetchRuns, type CronLog, type CronRun, type CronTask } fro
 import Card from '@/components/common/Card.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
+import Notice from '@/components/common/Notice.vue'
 import RelativeTime from '@/components/common/RelativeTime.vue'
 import SkeletonRows from '@/components/common/SkeletonRows.vue'
 import StatusDot from '@/components/common/StatusDot.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { errorMessage } from '@/i18n/errors'
 import { formatDuration } from '@/i18n/format'
 import { cn } from '@/lib/utils'
 import { resultText, resultTone } from '../labels'
@@ -58,6 +60,8 @@ async function showLog(invocation: string) {
   logController?.abort()
   const request = new AbortController()
   logController = request
+  // Another run's output never stands in for this one's while it loads.
+  if (picked.value !== invocation) log.value = null
   picked.value = invocation
   logLoading.value = true
   logError.value = null
@@ -104,6 +108,8 @@ function duration(run: CronRun): string {
     </Button>
   </div>
 
+  <!-- A failed refresh keeps the runs it had, and says so. -->
+  <Notice v-if="error && runs" tone="destructive">{{ errorMessage(error) }}</Notice>
   <Card v-if="error && !runs" :level="3" flush><ErrorState :error="error" compact @retry="load" /></Card>
   <Card v-else-if="!runs" :level="3" flush><SkeletonRows :rows="4" two-line /></Card>
   <Card v-else-if="runs.length === 0" :level="3" flush>
@@ -153,6 +159,7 @@ function duration(run: CronRun): string {
         <p v-if="log.truncated" class="m-0 border-b px-4 py-2 text-xs text-muted-foreground">{{ t('cron.runs.truncated') }}</p>
         <pre
           v-if="log.lines.length > 0"
+          tabindex="0"
           class="m-0 max-h-[min(60vh,560px)] overflow-auto px-4 py-3 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
           dir="ltr"
           role="log"

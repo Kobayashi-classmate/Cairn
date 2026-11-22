@@ -31,7 +31,7 @@ const canSeePanel = computed(() => session.can('settings.read'))
           <RouterLink
             v-if="canSeePanel"
             :to="{ name: 'settings-panel' }"
-            class="text-link underline-offset-2 hover:underline"
+            class="text-link underline underline-offset-2 hover:no-underline tap-y"
           >
             {{ t('settings.appearance.defaultLanguageLink') }}
           </RouterLink>

@@ -16,11 +16,6 @@ declare module 'vue-router' {
     navKey?: string
     /** Permission needed to open the page. */
     permission?: Permission
-    /**
-     * The page is built with the new components; the shell then leaves out
-     * the compatibility styles kept for pages still built with Naive UI.
-     */
-    newUi?: boolean
   }
 }
 
@@ -64,13 +59,13 @@ const routes: RouteRecordRaw[] = [
         path: '',
         name: 'overview',
         component: () => import('@/views/DashboardView.vue'),
-        meta: { titleKey: 'dashboard.title', navKey: 'overview', permission: 'system.read', newUi: true },
+        meta: { titleKey: 'dashboard.title', navKey: 'overview', permission: 'system.read' },
       },
       {
         path: 'sites',
         name: 'sites',
         component: () => import('@/views/SitesView.vue'),
-        meta: { titleKey: 'sites.title', navKey: 'sites', permission: 'sites.read', newUi: true },
+        meta: { titleKey: 'sites.title', navKey: 'sites', permission: 'sites.read' },
       },
       {
         // Sites have no page of their own: their settings open in a drawer of
@@ -83,7 +78,7 @@ const routes: RouteRecordRaw[] = [
         path: 'certs',
         name: 'certs',
         component: () => import('@/views/CertsView.vue'),
-        meta: { titleKey: 'certs.title', navKey: 'certs', permission: 'certs.read', newUi: true },
+        meta: { titleKey: 'certs.title', navKey: 'certs', permission: 'certs.read' },
       },
       {
         path: 'certs/:id',
@@ -94,13 +89,13 @@ const routes: RouteRecordRaw[] = [
         path: 'databases',
         name: 'databases',
         component: () => import('@/views/DatabasesView.vue'),
-        meta: { titleKey: 'databases.title', navKey: 'databases', permission: 'databases.read', newUi: true },
+        meta: { titleKey: 'databases.title', navKey: 'databases', permission: 'databases.read' },
       },
       {
         path: 'files',
         name: 'files',
         component: () => import('@/views/FilesView.vue'),
-        meta: { titleKey: 'files.title', navKey: 'files', permission: 'files.read', newUi: true },
+        meta: { titleKey: 'files.title', navKey: 'files', permission: 'files.read' },
         // Old addresses (?root=&path=, ?trash=1) open the same place.
         beforeEnter: (to) => {
           const query = legacyFilesQuery(to.query)
@@ -111,55 +106,55 @@ const routes: RouteRecordRaw[] = [
         path: 'terminal',
         name: 'terminal',
         component: () => import('@/views/TerminalView.vue'),
-        meta: { titleKey: 'terminal.title', navKey: 'terminal', permission: 'terminal.use', newUi: true },
+        meta: { titleKey: 'terminal.title', navKey: 'terminal', permission: 'terminal.use' },
       },
       {
         path: 'cron',
         name: 'cron',
         component: () => import('@/views/CronView.vue'),
-        meta: { titleKey: 'cron.title', navKey: 'cron', permission: 'cron.read', newUi: true },
+        meta: { titleKey: 'cron.title', navKey: 'cron', permission: 'cron.read' },
       },
       {
         path: 'backups',
         name: 'backups',
         component: () => import('@/views/BackupsView.vue'),
-        meta: { titleKey: 'backups.title', navKey: 'backups', permission: 'backups.read', newUi: true },
+        meta: { titleKey: 'backups.title', navKey: 'backups', permission: 'backups.read' },
       },
       {
         path: 'logs',
         name: 'logs',
         component: () => import('@/views/LogsView.vue'),
-        meta: { titleKey: 'logs.title', navKey: 'logs', permission: 'logs.read', newUi: true },
+        meta: { titleKey: 'logs.title', navKey: 'logs', permission: 'logs.read' },
       },
       {
         path: 'firewall',
         name: 'firewall',
         component: () => import('@/views/FirewallView.vue'),
-        meta: { titleKey: 'firewall.title', navKey: 'firewall', permission: 'firewall.read', newUi: true },
+        meta: { titleKey: 'firewall.title', navKey: 'firewall', permission: 'firewall.read' },
       },
       {
         path: 'ssh',
         name: 'ssh',
         component: () => import('@/views/SshView.vue'),
-        meta: { titleKey: 'ssh.title', navKey: 'ssh', permission: 'ssh.read', newUi: true },
+        meta: { titleKey: 'ssh.title', navKey: 'ssh', permission: 'ssh.read' },
       },
       {
         path: 'host',
         name: 'host',
         component: () => import('@/views/HostView.vue'),
-        meta: { titleKey: 'host.title', navKey: 'host', permission: 'host.read', newUi: true },
+        meta: { titleKey: 'host.title', navKey: 'host', permission: 'host.read' },
       },
       {
         path: 'software',
         name: 'software',
         component: () => import('@/views/SoftwareView.vue'),
-        meta: { titleKey: 'software.title', navKey: 'software', permission: 'software.read', newUi: true },
+        meta: { titleKey: 'software.title', navKey: 'software', permission: 'software.read' },
       },
       {
         path: 'jobs',
         name: 'jobs',
         component: () => import('@/views/JobsView.vue'),
-        meta: { titleKey: 'jobs.title', navKey: 'jobs', newUi: true },
+        meta: { titleKey: 'jobs.title', navKey: 'jobs' },
       },
       {
         // Jobs have no page of their own: they open in a drawer of the jobs
@@ -172,13 +167,13 @@ const routes: RouteRecordRaw[] = [
         path: 'users',
         name: 'users',
         component: () => import('@/views/UsersView.vue'),
-        meta: { titleKey: 'users.title', navKey: 'users', permission: 'users.manage', newUi: true },
+        meta: { titleKey: 'users.title', navKey: 'users', permission: 'users.manage' },
       },
       {
         path: 'messages',
         name: 'messages',
         component: () => import('@/views/MessagesView.vue'),
-        meta: { titleKey: 'messages.title', navKey: 'messages', newUi: true },
+        meta: { titleKey: 'messages.title', navKey: 'messages' },
         // Old links (?id=, from the banner of a critical message) open the message.
         beforeEnter: (to) => {
           const id = to.query.id
@@ -191,12 +186,12 @@ const routes: RouteRecordRaw[] = [
         path: 'audit',
         name: 'audit',
         component: () => import('@/views/AuditView.vue'),
-        meta: { titleKey: 'audit.title', navKey: 'audit', permission: 'audit.read', newUi: true },
+        meta: { titleKey: 'audit.title', navKey: 'audit', permission: 'audit.read' },
       },
       {
         path: 'settings',
         component: () => import('@/views/SettingsView.vue'),
-        meta: { titleKey: 'settings.title', navKey: 'settings', newUi: true },
+        meta: { titleKey: 'settings.title', navKey: 'settings' },
         children: [
           { path: '', name: 'settings', redirect: { name: 'settings-account' } },
           {

@@ -61,8 +61,10 @@ function onLocale(value: AcceptableValue) {
 
 <template>
   <DropdownMenu v-if="user">
+    <!-- The full row names itself from its visible text (name and role), so
+         the spoken name matches what is shown; only the rail needs a label. -->
     <DropdownMenuTrigger
-      :aria-label="triggerLabel"
+      :aria-label="props.compact ? triggerLabel : undefined"
       :class="
         cn(
           'flex min-w-0 items-center gap-2.5 rounded-md text-start outline-none hover:bg-sidebar-accent focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:bg-sidebar-accent',
@@ -82,9 +84,11 @@ function onLocale(value: AcceptableValue) {
           aria-hidden="true"
         />
       </span>
-      <span v-if="!props.compact" class="flex min-w-0 flex-1 flex-col" aria-hidden="true">
+      <span v-if="!props.compact" class="flex min-w-0 flex-1 flex-col">
+        <span class="sr-only">{{ t('shell.accountMenu') }}</span>
         <span class="truncate text-detail font-semibold text-sidebar-foreground">{{ user.username }}</span>
         <span class="truncate text-xs text-sidebar-muted">{{ role }}</span>
+        <span v-if="totpOff" class="sr-only">{{ t('shell.totpOffNote') }}</span>
       </span>
     </DropdownMenuTrigger>
 

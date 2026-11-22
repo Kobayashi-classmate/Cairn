@@ -13,11 +13,16 @@ const MAX_LOG_CHARS = 1024 * 1024
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms)
-    signal.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer)
       resolve()
-    })
+    }
+    const timer = setTimeout(() => {
+      // The signal lives as long as the follow: do not pile up listeners on it.
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
   })
 }
 

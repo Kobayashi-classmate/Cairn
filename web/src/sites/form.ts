@@ -20,6 +20,7 @@ import {
   isEnvValue,
   isHealthPath,
   isIndexName,
+  isNewSiteCodeEnding,
   isProxyUrl,
   isRelativePath,
   isSiteCode,
@@ -50,6 +51,8 @@ export interface SiteForm {
   rewrite: string
   php: string
   writable: string[]
+  /** Serve links to files of other owners (static and PHP sites). */
+  allowSymlinks: boolean
   proxyUrl: string
   webSocket: boolean
   upstreamHost: boolean
@@ -108,6 +111,7 @@ export function emptySiteForm(type: SiteType = 'static', php = ''): SiteForm {
     rewrite: '',
     php,
     writable: [],
+    allowSymlinks: false,
     proxyUrl: '',
     webSocket: false,
     upstreamHost: false,
@@ -130,6 +134,7 @@ export function formFromSite(site: SiteView): SiteForm {
     rewrite: site.rewrite ?? '',
     php: site.php ?? '',
     writable: [...(site.writable ?? [])],
+    allowSymlinks: site.allowSymlinks === true,
     proxyUrl: site.proxy?.url ?? '',
     webSocket: site.proxy?.webSocket === true,
     upstreamHost: site.proxy?.upstreamHost === true,
@@ -195,9 +200,9 @@ export function validateSiteForm(
   }
 
   set('domains', domainsError(form.domains))
-  if (mode === 'create' && form.code.trim() && !isSiteCode(form.code.trim())) {
-    set('code', validationMessage('siteCode', 'site_code'))
-  }
+  const code = form.code.trim()
+  if (mode === 'create' && code && !isSiteCode(code)) set('code', validationMessage('siteCode', 'site_code'))
+  else if (mode === 'create' && code && !isNewSiteCodeEnding(code)) set('code', validationMessage('siteCode', 'site_code_new'))
   if (form.tlsCert && certs) {
     const cert = certs.find((c) => c.id === form.tlsCert)
     // A certificate that is not listed may have expired; the server decides.
@@ -288,6 +293,7 @@ export function siteRequest(form: SiteForm, mode: 'create' | 'edit'): SiteReques
   if (form.root.trim()) request.root = form.root.trim()
   if (form.index.length) request.index = [...form.index]
   if (form.rewrite) request.rewrite = form.rewrite
+  if (form.allowSymlinks) request.allowSymlinks = true
   if (form.type === 'php') {
     request.php = form.php || undefined
     if (form.writable.length) request.writable = [...form.writable]

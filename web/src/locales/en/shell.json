@@ -7,6 +7,8 @@
   "server": "Server",
   "userMenu": "Account menu for {name}",
   "userMenuTotpOff": "Account menu for {name}; two-step verification is off",
+  "accountMenu": "Account menu,",
+  "totpOffNote": "Two-step verification is off",
   "turnOnTotp": "Turn on two-step verification",
   "group": {
     "apps": "Apps",
@@ -18,6 +20,7 @@
     "title": "Search or jump to",
     "description": "Type part of a page name, then press Enter to open it.",
     "placeholder": "Search pages…",
+    "results": "Results",
     "empty": "No matching page.",
     "pages": "Pages",
     "account": "Account",

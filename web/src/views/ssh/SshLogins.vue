@@ -33,32 +33,40 @@ const loaded = ref(false)
 const loadError = ref<unknown>(null)
 const search = ref('')
 
+/** Bumped by each refresh, so a page of older entries asked for before it is dropped. */
+let generation = 0
+
 async function load() {
+  const mine = ++generation
   loading.value = true
+  loadingMore.value = false
   try {
     const page = await fetchSshLogins(PAGE)
+    if (mine !== generation) return
     entries.value = keyed(page.entries)
     next.value = page.next
     loadError.value = null
     loaded.value = true
   } catch (err) {
-    loadError.value = err
+    if (mine === generation) loadError.value = err
   } finally {
-    loading.value = false
+    if (mine === generation) loading.value = false
   }
 }
 
 async function loadOlder() {
-  if (!next.value) return
+  if (!next.value || loading.value || loadingMore.value) return
+  const mine = generation
   loadingMore.value = true
   try {
     const page = await fetchSshLogins(PAGE, next.value)
+    if (mine !== generation) return
     entries.value = entries.value.concat(keyed(page.entries))
     next.value = page.next
   } catch (err) {
-    notifyError(err)
+    if (mine === generation) notifyError(err)
   } finally {
-    loadingMore.value = false
+    if (mine === generation) loadingMore.value = false
   }
 }
 
@@ -124,7 +132,7 @@ function searchText(entry: SshLogin): string {
       </template>
     </DataTable>
     <div v-if="next && loaded" class="flex justify-center">
-      <Button variant="outline" class="max-md:h-11" :disabled="loadingMore" @click="loadOlder">
+      <Button variant="outline" class="max-md:h-11" :disabled="loadingMore || loading" @click="loadOlder">
         <History aria-hidden="true" />
         {{ t('ssh.logins.older') }}
       </Button>

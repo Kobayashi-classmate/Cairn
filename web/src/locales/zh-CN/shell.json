@@ -7,6 +7,8 @@
   "server": "服务器",
   "userMenu": "{name} 的账号菜单",
   "userMenuTotpOff": "{name} 的账号菜单，两步验证未开启",
+  "accountMenu": "账号菜单，",
+  "totpOffNote": "两步验证未开启",
   "turnOnTotp": "开启两步验证",
   "group": {
     "apps": "应用",
@@ -18,6 +20,7 @@
     "title": "搜索或跳转",
     "description": "输入页面名称的一部分，按回车打开。",
     "placeholder": "搜索页面…",
+    "results": "搜索结果",
     "empty": "没有匹配的页面。",
     "pages": "页面",
     "account": "账号",

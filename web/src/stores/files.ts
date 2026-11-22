@@ -22,6 +22,7 @@ import {
 import type { Job } from '@/api/jobs'
 import { rememberRoots } from '@/files/paths'
 import { launchJob } from '@/jobs/dock'
+import { onAccountReset } from './accountReset'
 
 /** Remembers whether hidden files are shown (kept from the first file manager). */
 const HIDDEN_KEY = 'cairn.files.hidden'
@@ -60,13 +61,19 @@ export const useFilesStore = defineStore('files', () => {
     return lists.length > 0 ? lists.reduce((sum, entries) => sum + entries.length, 0) : undefined
   })
 
+  /** Numbers the reads of the roots, so one answering after leave() is dropped. */
+  let rootsSeq = 0
+
   async function loadRoots(): Promise<void> {
+    const mine = ++rootsSeq
     try {
-      roots.value = await fetchRoots()
-      rememberRoots(roots.value.roots)
+      const loaded = await fetchRoots()
+      if (mine !== rootsSeq) return
+      roots.value = loaded
+      rememberRoots(loaded.roots)
       rootsError.value = null
     } catch (err) {
-      rootsError.value = err
+      if (mine === rootsSeq) rootsError.value = err
     }
   }
 
@@ -127,11 +134,14 @@ export const useFilesStore = defineStore('files', () => {
   }
 
   /**
-   * The page is left: forget the folder, the favourites and the trash, so
-   * coming back reads them afresh (also for another account signing in on
-   * this tab).
+   * The page is left: forget the roots, the folder, the favourites and the
+   * trash, so coming back reads them afresh (also for another account
+   * signing in on this tab).
    */
   function leave(): void {
+    rootsSeq++
+    roots.value = null
+    rootsError.value = null
     listController?.abort()
     listController = null
     where.value = null
@@ -144,6 +154,7 @@ export const useFilesStore = defineStore('files', () => {
     trashErrors.value = {}
     trashLoading.value = {}
   }
+  onAccountReset(leave)
 
   watch(hidden, (value) => {
     try {

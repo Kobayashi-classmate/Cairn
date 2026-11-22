@@ -70,8 +70,11 @@
       "user": "Create user {user} with full access to it",
       "userGenerated": "Create user {user} with full access to it and a generated password",
       "hosts": "Let the user connect from {hosts}",
-      "local": "Let the user connect from this server only"
-    }
+      "local": "Let the user connect from this server only",
+      "grantExisting": "Give the existing user {user} full access to it (its password and hosts stay)"
+    },
+    "ownerUnmanaged": "A user {user} exists that the panel did not create; the panel does not take it over. Choose another name.",
+    "ownerKeeps": "The existing user keeps its password"
   },
   "user": {
     "createTitle": "Add user",
@@ -82,7 +85,10 @@
     "search": "Search users",
     "create": "Add user",
     "drop": "Delete user",
-    "more": "More actions for {name}"
+    "more": "More actions for {name}",
+    "setPassword": "Set password",
+    "setPasswordTitle": "Set the password of {name}",
+    "unmanagedNote": "The panel did not create this user and does not manage its privileges: only its password changes here, its access stays as it is."
   },
   "grant": {
     "all": "Full access",

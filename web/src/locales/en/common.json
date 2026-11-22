@@ -199,7 +199,8 @@
     "command": "Command",
     "toAddress": "Target address",
     "toPort": "Target port",
-    "forwards": "Port forwards"
+    "forwards": "Port forwards",
+    "allowSymlinks": "Serving links to files of other owners"
   },
   "boot": {
     "failed": "Cannot load the panel",
@@ -242,7 +243,8 @@
     },
     "software": {
       "read": "View software",
-      "manage": "Manage software"
+      "manage": "Manage software",
+      "config": "Read and change configuration files"
     },
     "sites": {
       "read": "View sites",
@@ -259,16 +261,16 @@
     "files": {
       "read": "Browse files",
       "manage": "Manage files",
-      "admin": "Turn full-disk access on and off"
+      "admin": "Open the backup directory and the whole disk, and turn full-disk access on and off"
     },
     "terminal": {
       "use": "Use the web terminal",
-      "admin": "Open root terminals and allow them"
+      "admin": "Open terminals as root and as other users than site owners, and allow root terminals"
     },
     "cron": {
       "read": "View scheduled tasks",
       "manage": "Manage scheduled tasks",
-      "root": "Manage tasks that run as root"
+      "root": "Manage shell tasks that run as root or as other users than site owners"
     },
     "backups": {
       "read": "View backups",
@@ -330,7 +332,8 @@
     "selectRow": "Select {row}",
     "selected": "{count} selected",
     "bulkLabel": "Actions for the selected rows",
-    "clearSelection": "Clear selection"
+    "clearSelection": "Clear selection",
+    "actions": "Actions"
   },
   "tags": {
     "remove": "Remove {value}"

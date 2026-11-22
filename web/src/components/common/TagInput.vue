@@ -80,8 +80,9 @@ defineExpose({ commit, focus: () => input.value?.focus() })
   <div
     :class="
       cn(
-        'flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-card px-2 py-1 transition-[color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50 has-[input[aria-invalid=true]]:border-destructive',
-        disabled && 'pointer-events-none opacity-50',
+        'flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-card px-2 py-1 max-md:min-h-11 transition-[color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50 has-[input[aria-invalid=true]]:border-destructive',
+        // Disabled (read-only accounts): the values stay readable, nothing can be removed or added.
+        disabled && 'pointer-events-none bg-muted/50',
         props.class,
       )
     "
@@ -92,7 +93,8 @@ defineExpose({ commit, focus: () => input.value?.focus() })
       :key="value"
       :class="
         cn(
-          'inline-flex max-w-full items-center gap-1 rounded-sm py-0.5 ps-2 pe-1 text-detail',
+          'inline-flex max-w-full items-center gap-1 rounded-sm py-0.5 ps-2 text-detail',
+          disabled ? 'pe-2' : 'pe-1',
           valid && !valid(value) ? 'bg-destructive-soft text-destructive' : 'bg-muted text-foreground',
           mono && 'font-mono text-[12.5px]',
         )
@@ -100,10 +102,10 @@ defineExpose({ commit, focus: () => input.value?.focus() })
     >
       <span class="min-w-0 truncate" dir="ltr">{{ value }}</span>
       <button
+        v-if="!disabled"
         type="button"
-        class="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:size-7"
+        class="inline-flex size-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 tap-area"
         :aria-label="t('common.tags.remove', { value })"
-        :disabled="disabled"
         @click="remove(index)"
       >
         <X class="size-3.5" aria-hidden="true" />

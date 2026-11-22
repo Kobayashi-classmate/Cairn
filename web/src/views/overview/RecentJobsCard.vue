@@ -63,7 +63,7 @@ function when(job: Job): number {
 <template>
   <Card :title="t('overview.jobs.title')" flush>
     <template #actions>
-      <RouterLink :to="{ name: 'jobs' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline">
+      <RouterLink :to="{ name: 'jobs' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline tap-y">
         {{ t('overview.jobs.all') }}
         <ArrowRight class="size-3.5" aria-hidden="true" />
       </RouterLink>
@@ -75,7 +75,7 @@ function when(job: Job): number {
       <li v-for="job in jobs" :key="job.id">
         <RouterLink
           :to="{ name: 'job', params: { id: job.id } }"
-          class="flex items-center gap-3 px-4 py-[11px] text-foreground outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset md:px-[18px]"
+          class="flex min-h-11 items-center gap-3 px-4 py-[11px] text-foreground outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset md:px-[18px]"
         >
           <component
             :is="stateLook(job.state).icon"

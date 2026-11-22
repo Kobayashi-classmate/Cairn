@@ -72,7 +72,7 @@ const issueLink = computed(() => ({
 <template>
   <Card v-if="site.tls" :title="t('sites.https.certificate')" :level="3" flush>
     <template v-if="certLink" #actions>
-      <RouterLink :to="certLink" class="text-detail font-medium text-link underline-offset-2 hover:underline">
+      <RouterLink :to="certLink" class="text-detail font-medium text-link underline-offset-2 hover:underline tap-y">
         {{ t('sites.https.openCert') }}
       </RouterLink>
     </template>
@@ -132,7 +132,7 @@ const issueLink = computed(() => ({
       <RouterLink
         v-else-if="canIssue"
         :to="issueLink"
-        class="self-start text-detail text-link underline-offset-2 hover:underline"
+        class="self-start text-detail text-link underline-offset-2 hover:underline tap-y"
       >
         {{ t('sites.https.issueAnother') }}
       </RouterLink>

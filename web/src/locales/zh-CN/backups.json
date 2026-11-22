@@ -78,7 +78,8 @@
     "saved": "已保存方案 {name}。",
     "scheduleMore": "{first} 等 {count} 个",
     "separator": "、",
-    "sheetIntro": "选择要备份的内容、保存位置和保留的备份数量。"
+    "sheetIntro": "选择要备份的内容、保存位置和保留的备份数量。",
+    "adminOnly": "此方案备份了网站目录以外的文件夹，只有能在文件管理中打开这些文件夹的账号才能保存它。"
   },
   "files": {
     "empty": "还没有备份。",
@@ -95,7 +96,8 @@
     "hint": "下载和恢复需要再次输入密码。只存在于存储桶中的副本会直接从存储桶下载。",
     "search": "搜索备份",
     "deleteConfirm": "删除备份",
-    "deleteTextRemote": "备份会从本服务器和存储桶中删除。"
+    "deleteTextRemote": "备份会从本服务器和存储桶中删除。",
+    "adminOnly": "网站目录以外文件夹的备份，只有能在文件管理中打开这些文件夹的账号才能下载或恢复。"
   },
   "restore": {
     "title": "恢复 {name}",
@@ -165,7 +167,8 @@
     "sheetIntro": "S3 兼容存储桶。密钥加密保存，之后不会再显示。",
     "testConnection": "测试连接",
     "unused": "未使用",
-    "usedBy": "使用者"
+    "usedBy": "使用者",
+    "adminOnly": "备份网站目录以外文件夹的方案把备份存放在这里：只有能在文件管理中打开这些文件夹的账号，才能修改此存储。"
   },
   "status": {
     "plans": "{count} 个方案 | {count} 个方案",

@@ -3,6 +3,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Database, Folder, Globe, Plus, X } from '@lucide/vue'
+import { isApiError, isStepUpRequired } from '@/api/client'
 import {
   AGE_RECIPIENT,
   DEFAULT_RETENTION,
@@ -15,7 +16,7 @@ import {
 } from '@/api/backups'
 import { fetchDatabases, type DbEngine } from '@/api/databases'
 import { fetchSites, type SiteView } from '@/api/sites'
-import { targetKey, targetLabel } from '@/backups/targets'
+import { backupRoots, reachesBeyondSites, targetKey, targetLabel } from '@/backups/targets'
 import DirBrowser from '@/components/common/DirBrowser.vue'
 import FormField from '@/components/common/FormField.vue'
 import FormSheet from '@/components/common/FormSheet.vue'
@@ -35,14 +36,14 @@ import { useSessionStore } from '@/stores/session'
 
 // "New plan" / "Change plan" (form sheet): what to back up (sites,
 // databases, folders), where to keep the backups, whom to encrypt them for
-// and how many to keep.
+// and how many to keep. Folders outside the sites root are offered to
+// holders of `files.admin` only, as in the file manager.
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ plan: BackupPlan | null }>()
 const emit = defineEmits<{ saved: [plan: BackupPlan] }>()
 
 const MAX_TARGETS = 100
 const MAX_RECIPIENTS = 16
-const ROOTS = ['sites', 'backups', 'system'] as const
 const RETENTION_KEYS = ['last', 'daily', 'weekly', 'monthly'] as const
 
 const { t } = useI18n()
@@ -57,7 +58,7 @@ const form = reactive({
   retention: { ...DEFAULT_RETENTION } as Retention,
   recipients: '',
 })
-type Field = 'name' | 'targets' | 'retention' | 'recipients'
+type Field = 'name' | 'targets' | 'storage' | 'retention' | 'recipients'
 const errors = ref<Partial<Record<Field, string>>>({})
 const submitting = ref(false)
 const error = ref<unknown>(null)
@@ -73,6 +74,9 @@ const dirPath = ref('')
 const editing = computed(() => props.plan !== null)
 const canSites = computed(() => session.can('sites.read'))
 const canDatabases = computed(() => session.can('databases.read'))
+const roots = computed(() => backupRoots(session.can('files.admin')))
+/** The targets reach beyond the sites root, which this account may not open: saving is refused. */
+const beyondRoots = computed(() => !session.can('files.admin') && reachesBeyondSites(form))
 
 watch(open, (value) => {
   if (!value) return
@@ -126,7 +130,7 @@ const databaseOptions = computed<SelectOption[]>(() =>
   ),
 )
 
-const rootOptions = computed<SelectOption[]>(() => ROOTS.map((root) => ({ value: root, label: rootLabel(root) })))
+const rootOptions = computed<SelectOption[]>(() => roots.value.map((root) => ({ value: root, label: rootLabel(root) })))
 
 function startAdding(kind: 'site' | 'database' | 'directory') {
   adding.value = kind
@@ -219,13 +223,19 @@ async function submit() {
   submitting.value = true
   error.value = null
   try {
+    // Changing a plan is step-up protected: the client asks for the password and retries.
     const saved = props.plan ? await updatePlan(props.plan.id, body) : await createPlan(body)
     notifySuccess(t('backups.plan.saved', { name: saved.name }))
     void store.load()
     emit('saved', saved)
     open.value = false
   } catch (err) {
-    error.value = err
+    if (isStepUpRequired(err)) return
+    if (isApiError(err) && err.code === 'backup.storage_not_found') {
+      // Deleted meanwhile: the list of storage is read again.
+      errors.value = { ...errors.value, storage: errorMessage(err) }
+      void store.load()
+    } else error.value = err
   } finally {
     submitting.value = false
   }
@@ -239,6 +249,7 @@ async function submit() {
     :description="t('backups.plan.sheetIntro')"
     :submit-label="editing ? t('common.action.save') : t('backups.plan.create')"
     :submitting="submitting"
+    :submit-disabled="beyondRoots"
     @submit="submit"
   >
     <FormField id="plan-name" :label="t('common.field.name')" :error="errors.name">
@@ -276,7 +287,13 @@ async function submit() {
           :aria-label="t('backups.plan.pickDatabase')"
         />
         <template v-else>
-          <SelectField :model-value="dirRoot" :options="rootOptions" :aria-label="t('backups.plan.pickRoot')" @update:model-value="onRoot" />
+          <SelectField
+            v-if="rootOptions.length > 1"
+            :model-value="dirRoot"
+            :options="rootOptions"
+            :aria-label="t('backups.plan.pickRoot')"
+            @update:model-value="onRoot"
+          />
           <DirBrowser v-model:path="dirPath" :root="dirRoot" :label="t('backups.plan.pickFolder')" />
         </template>
         <div class="flex justify-end gap-2">
@@ -306,9 +323,15 @@ async function submit() {
         </Button>
       </div>
       <p v-if="errors.targets" class="m-0 text-xs font-medium text-destructive">{{ errors.targets }}</p>
+      <Notice v-if="beyondRoots" tone="warning">{{ t('backups.plan.adminOnly') }}</Notice>
     </fieldset>
 
-    <FormField id="plan-storage" :label="t('backups.plan.storage')" :hint="(store.storages ?? []).length === 0 ? t('backups.plan.noStorage') : undefined">
+    <FormField
+      id="plan-storage"
+      :label="t('backups.plan.storage')"
+      :hint="(store.storages ?? []).length === 0 ? t('backups.plan.noStorage') : undefined"
+      :error="errors.storage"
+    >
       <template #default="field">
         <SelectField v-bind="field" v-model="form.storageId" :options="storageOptions" />
       </template>

@@ -40,7 +40,7 @@ function onUpdate(value: AcceptableValue) {
       :key="option.value"
       :value="option.value"
       :disabled="option.disabled"
-      class="group flex w-full items-start gap-2.5 rounded-md border bg-card px-3 py-2.5 text-start outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary-soft"
+      class="group flex min-h-11 w-full items-start gap-2.5 rounded-md border bg-card px-3 py-2.5 text-start outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:border-primary data-[state=checked]:bg-primary-soft"
     >
       <span
         class="mt-[3px] inline-flex size-4 shrink-0 items-center justify-center rounded-full border-[1.5px] border-muted-foreground group-data-[state=checked]:border-primary"

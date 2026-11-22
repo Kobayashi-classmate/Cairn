@@ -101,6 +101,7 @@ function run(action: ServiceAction) {
     </div>
     <pre
       v-if="failureOutput"
+      tabindex="0"
       class="m-0 max-h-60 overflow-auto rounded-md bg-card p-3 font-mono text-xs whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]"
       dir="ltr"
     >{{ failureOutput }}</pre>

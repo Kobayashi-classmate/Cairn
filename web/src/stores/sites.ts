@@ -8,6 +8,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { fetchRewrites, fetchSite, fetchSites, type RewriteRule, type SiteList, type SiteView } from '@/api/sites'
 import { fetchStreams, type StreamView } from '@/api/streams'
+import { onAccountReset } from './accountReset'
 
 /** How often lists refresh while a change is being applied. */
 const APPLYING_REFRESH_MS = 3000
@@ -29,22 +30,29 @@ export const useSitesStore = defineStore('sites', () => {
 
   const sites = computed<SiteView[]>(() => list.value?.sites ?? [])
 
+  /** Number the loads, so an answer arriving after a newer load or a reset is dropped. */
+  let seq = 0
+  let streamSeq = 0
+
   async function load(): Promise<void> {
     clearTimeout(siteTimer)
+    const mine = ++seq
     loading.value = true
     try {
       const [sitesList, rules] = await Promise.all([
         fetchSites(),
         rewrites.value.length > 0 ? Promise.resolve(rewrites.value) : fetchRewrites().catch(() => []),
       ])
+      if (mine !== seq) return
       list.value = sitesList
       rewrites.value = rules
       loadError.value = null
     } catch (err) {
-      loadError.value = err
+      if (mine === seq) loadError.value = err
     } finally {
-      loading.value = false
+      if (mine === seq) loading.value = false
     }
+    if (mine !== seq) return
     if (watchers > 0 && list.value?.sites.some((site) => site.state === 'applying')) {
       siteTimer = setTimeout(() => void load(), APPLYING_REFRESH_MS)
     }
@@ -52,15 +60,19 @@ export const useSitesStore = defineStore('sites', () => {
 
   async function loadStreams(): Promise<void> {
     clearTimeout(streamTimer)
+    const mine = ++streamSeq
     streamsLoading.value = true
     try {
-      streams.value = await fetchStreams()
+      const loaded = await fetchStreams()
+      if (mine !== streamSeq) return
+      streams.value = loaded
       streamsError.value = null
     } catch (err) {
-      streamsError.value = err
+      if (mine === streamSeq) streamsError.value = err
     } finally {
-      streamsLoading.value = false
+      if (mine === streamSeq) streamsLoading.value = false
     }
+    if (mine !== streamSeq) return
     if (watchers > 0 && streams.value?.some((stream) => stream.state === 'applying')) {
       streamTimer = setTimeout(() => void loadStreams(), APPLYING_REFRESH_MS)
     }
@@ -86,6 +98,20 @@ export const useSitesStore = defineStore('sites', () => {
       clearTimeout(streamTimer)
     }
   }
+
+  /** Forgets everything (sign-out): the next account loads its own. */
+  onAccountReset(() => {
+    seq++
+    streamSeq++
+    clearTimeout(siteTimer)
+    clearTimeout(streamTimer)
+    list.value = null
+    loadError.value = null
+    loading.value = false
+    streams.value = null
+    streamsError.value = null
+    streamsLoading.value = false
+  })
 
   return {
     list,

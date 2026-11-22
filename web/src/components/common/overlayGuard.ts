@@ -2,14 +2,14 @@
 //
 // Sheets, drawers and dialogs built on Reka close when the user interacts
 // outside them or presses Escape. Some layers outside them are part of the
-// same task and must not close them: the re-authentication dialog (Naive UI,
-// opened by the API client in the middle of a request), toasts and the job
-// dock. Bind these handlers on Reka's DialogContent / AlertDialogContent.
+// same task and must not close them: the re-authentication dialog (opened by
+// the API client in the middle of a request), toasts and the job dock. Bind
+// these handlers on Reka's DialogContent / AlertDialogContent.
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { stepUpOpen } from '@/auth/stepUp'
 
 /** Layers that may be used while a Reka dialog stays open (see also styles/main.css). */
-const COMPANION_LAYERS = '.n-modal-container, .n-message-container, [data-sonner-toaster], [data-job-dock]'
+const COMPANION_LAYERS = '[data-sonner-toaster], [data-job-dock]'
 
 interface OutsideEvent {
   target: EventTarget | null

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -20,7 +20,10 @@ const { t } = useI18n()
 const id = `mode-${useId()}`
 const text = ref(octal(mode.value))
 const mask = computed(() => (props.dir ? 0o3777 : 0o777))
-const invalid = ref(false)
+/** The octal text cannot be read, so `mode` is not what it shows: the form must not submit. */
+const invalid = defineModel<boolean>('invalid', { default: false })
+// A field that is gone holds no bad input.
+onBeforeUnmount(() => (invalid.value = false))
 
 watch(mode, (value) => {
   if (parseOctal(text.value, mask.value) !== value) text.value = octal(value)

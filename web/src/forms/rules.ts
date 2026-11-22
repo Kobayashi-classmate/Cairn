@@ -3,8 +3,6 @@
 // Client-side form checks mirroring the server's validation rules. Messages
 // are rendered on display, so a language switch updates visible errors. The
 // server stays the authority; these checks only give faster feedback.
-import type { FormItemRule } from 'naive-ui'
-import { validationMessage } from '@/i18n/errors'
 
 export const USERNAME_MIN = 3
 export const USERNAME_MAX = 32
@@ -54,28 +52,23 @@ export function textLength(value: string): number {
   return [...value].length
 }
 
-export function requiredRule(field: string): FormItemRule {
-  return {
-    required: true,
-    trigger: 'blur',
-    renderMessage: () => validationMessage(field, 'required'),
-  }
+const utf8 = new TextEncoder()
+
+/** Length in UTF-8 bytes, for limits the server counts in bytes. */
+export function byteLength(value: string): number {
+  return utf8.encode(value).length
 }
 
-/** A rule checked while typing; empty values are left to `requiredRule`. */
-export function checkRule(
-  field: string,
-  rule: string,
-  test: (value: string) => boolean,
-  params: Record<string, number> = {},
-): FormItemRule {
-  return {
-    trigger: ['blur', 'input'],
-    validator: (_rule, value: string) => value === '' || test(value),
-    renderMessage: () => validationMessage(field, rule, params),
+/** The longest start of value that fits in max UTF-8 bytes, without splitting a character. */
+export function truncateBytes(value: string, max: number): string {
+  if (byteLength(value) <= max) return value
+  let out = ''
+  let size = 0
+  for (const char of value) {
+    const n = byteLength(char)
+    if (size + n > max) break
+    out += char
+    size += n
   }
-}
-
-export function totpCodeRules(): FormItemRule[] {
-  return [requiredRule('code'), checkRule('code', 'pattern', (v) => TOTP_CODE_PATTERN.test(v))]
+  return out
 }

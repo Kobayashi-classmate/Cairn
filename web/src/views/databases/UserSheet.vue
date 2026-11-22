@@ -4,7 +4,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, X } from '@lucide/vue'
 import { isStepUpRequired } from '@/api/client'
-import { createDbUser, updateDbUser, type DbEngine, type DbGrant, type DbUser, type GrantLevel } from '@/api/databases'
+import { createDbUser, updateDbUser, type DbEngine, type DbGrant, type DbUser, type DbUserRequest, type GrantLevel } from '@/api/databases'
 import FormField from '@/components/common/FormField.vue'
 import FormSheet from '@/components/common/FormSheet.vue'
 import Notice from '@/components/common/Notice.vue'
@@ -21,7 +21,8 @@ import { useDatabasesStore } from '@/stores/databases'
 
 // "Add user" and "Edit user" (form sheet): password, where the user may
 // connect from and which databases it can use. Changing a user asks for
-// the password (step-up).
+// the password (step-up). A user the panel did not create gets only a new
+// password: the panel does not know (or manage) its privileges.
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{
   engine: DbEngine
@@ -40,6 +41,7 @@ const error = ref<unknown>(null)
 const hostsInput = ref<InstanceType<typeof TagInput> | null>(null)
 
 const editing = computed(() => props.user !== null)
+const passwordOnly = computed(() => props.user !== null && !props.user.managed)
 const kind = computed(() => props.engine.kind)
 
 watch(open, (value) => {
@@ -85,22 +87,38 @@ function validate(): boolean {
     if (!name) next.name = validationMessage('name', 'required')
     else if (!isDbUser(kind.value, name)) next.name = validationMessage('name', 'db_user')
   }
-  if (form.password && !isDbPassword(form.password)) next.password = validationMessage('password', 'db_password')
-  if (form.hosts.some((host) => !isDbHost(host))) next.hosts = validationMessage('hosts', 'db_host')
-  const databases = form.grants.map((g) => g.database).filter(Boolean)
-  if (new Set(databases).size !== databases.length) next.grants = validationMessage('grants', 'duplicate')
+  if (passwordOnly.value && !form.password) next.password = validationMessage('password', 'required')
+  else if (form.password && !isDbPassword(form.password)) next.password = validationMessage('password', 'db_password')
+  if (!passwordOnly.value) {
+    if (form.hosts.some((host) => !isDbHost(host))) next.hosts = validationMessage('hosts', 'db_host')
+    const databases = form.grants.map((g) => g.database).filter(Boolean)
+    if (new Set(databases).size !== databases.length) next.grants = validationMessage('grants', 'duplicate')
+  }
   errors.value = next
   return Object.keys(next).length === 0
 }
 
+/** Grants compared regardless of order. */
+function grantsKey(grants: readonly DbGrant[]): string {
+  return JSON.stringify(grants.map((g) => `${g.database}:${g.level}`).sort())
+}
+
 async function submit() {
-  if (!validate()) return
+  if (submitting.value || !validate()) return
+  // Without hosts or grants the server leaves them as they are: a change
+  // of the password alone never touches the user's privileges.
+  const user = props.user
   const grants = form.grants.filter((g) => g.database)
-  const body = { hosts: form.hosts, grants, ...(form.password ? { password: form.password } : {}) }
+  const body: DbUserRequest = form.password ? { password: form.password } : {}
+  if (!passwordOnly.value) {
+    const hostsChanged = !user || JSON.stringify(form.hosts) !== JSON.stringify(user.hosts)
+    if (hostsChanged) body.hosts = form.hosts
+    // New MySQL host entries get their access from the grants sent along.
+    if (hostsChanged || grantsKey(grants) !== grantsKey(user?.grants ?? [])) body.grants = grants
+  }
   submitting.value = true
   error.value = null
   try {
-    const user = props.user
     await store.runJob(
       () => (user ? updateDbUser(props.engine.id, user.name, body) : createDbUser(props.engine.id, { ...body, name: form.name.trim() })),
       { rethrow: true },
@@ -117,7 +135,13 @@ async function submit() {
 <template>
   <FormSheet
     v-model:open="open"
-    :title="editing ? t('databases.user.editTitle', { name: user?.name ?? '' }) : t('databases.user.createTitle')"
+    :title="
+      passwordOnly
+        ? t('databases.user.setPasswordTitle', { name: user?.name ?? '' })
+        : editing
+          ? t('databases.user.editTitle', { name: user?.name ?? '' })
+          : t('databases.user.createTitle')
+    "
     :description="engineLabel(engine)"
     :submit-label="editing ? t('common.action.save') : t('databases.user.create')"
     :submitting="submitting"
@@ -135,18 +159,21 @@ async function submit() {
       </template>
     </FormField>
 
+    <Notice v-if="passwordOnly">{{ t('databases.user.unmanagedNote') }}</Notice>
+
     <FormField id="user-password" :label="t('common.field.password')" :hint="t('databases.hints.password')" :error="errors.password">
       <template #default="field">
         <PasswordInput
           v-bind="field"
           v-model="form.password"
           autocomplete="new-password"
-          :placeholder="editing ? t('databases.hints.keep') : t('databases.hints.generate')"
+          :placeholder="passwordOnly ? undefined : editing ? t('databases.hints.keep') : t('databases.hints.generate')"
         />
       </template>
     </FormField>
 
     <FormField
+      v-if="!passwordOnly"
       id="user-hosts"
       :label="t('common.field.hosts')"
       :hint="kind === 'postgresql' ? t('databases.hints.pgHosts') : t('databases.hints.hosts')"
@@ -157,7 +184,7 @@ async function submit() {
       </template>
     </FormField>
 
-    <fieldset class="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
+    <fieldset v-if="!passwordOnly" class="m-0 flex min-w-0 flex-col gap-2 border-0 p-0">
       <legend class="mb-1.5 p-0 text-detail font-medium">{{ t('common.field.grants') }}</legend>
       <p v-if="form.grants.length === 0" class="m-0 text-xs text-muted-foreground">{{ t('databases.grant.none') }}</p>
       <div v-for="(grant, index) in form.grants" :key="index" class="flex items-center gap-2">

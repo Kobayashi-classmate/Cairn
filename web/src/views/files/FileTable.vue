@@ -247,7 +247,7 @@ const toolButton = 'max-md:size-11'
           <button
             v-if="filter"
             type="button"
-            class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:-me-2.5 max-md:size-11"
             :aria-label="t('common.table.clearSearch')"
             @click="filter = ''"
           >
@@ -358,7 +358,7 @@ const toolButton = 'max-md:size-11'
               type="button"
               :class="
                 cn(
-                  'max-w-full truncate rounded-sm text-start outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50',
+                  'max-w-full truncate rounded-sm text-start outline-none tap-y hover:underline focus-visible:ring-2 focus-visible:ring-ring/50',
                   row.type === 'dir' ? 'font-semibold' : 'font-medium',
                 )
               "

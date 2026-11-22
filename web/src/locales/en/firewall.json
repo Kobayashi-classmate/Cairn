@@ -44,7 +44,8 @@
     "kept": "The change is saved.",
     "rolledBack": "The change was rolled back: the panel could not confirm it in time.",
     "undone": "The change was rolled back.",
-    "step": "Check over a new connection that the panel can still be reached, and undo the change within a minute if not"
+    "step": "Check over a new connection that the panel can still be reached, and undo the change within a minute if not",
+    "failed": "The change could not be confirmed ({error}). It is rolled back in {seconds} s."
   },
   "pending": {
     "step": {
@@ -82,7 +83,9 @@
       "ping": "A ping setting",
       "enable": "Turning on the firewall",
       "other": "A firewall change"
-    }
+    },
+    "unconfirmedTitle": "Change not confirmed",
+    "unconfirmedText": "The panel could not confirm the change ({error}). The server rolls it back when its minute is up."
   },
   "summary": {
     "ruleAdd": "Rule added: {rule}",

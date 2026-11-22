@@ -78,6 +78,8 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   address.
 - The audit log filters by result and time range, and the jobs list by
   status and kind, over the whole history rather than the loaded page.
+- The interface works with the keyboard and with screen readers on every
+  page, and on tablets and phones; the old component library is gone.
 - Roles keep root-level work for administrators: editing the configuration
   files of services, the backup directory and the whole disk in the file
   manager (where reading, downloading and changing backup plans also asks

@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { isStepUpRequired } from '@/api/client'
 import { AGE_IDENTITY, isDatabaseBackup, restoreBackup, type BackupFile, type BackupPlan } from '@/api/backups'
 import type { Job } from '@/api/jobs'
+import { backupRoots } from '@/backups/targets'
 import DirBrowser from '@/components/common/DirBrowser.vue'
 import FormField from '@/components/common/FormField.vue'
 import FormSheet from '@/components/common/FormSheet.vue'
@@ -17,19 +18,22 @@ import { absolutePath, rootLabel } from '@/files/paths'
 import { errorMessage, validationMessage } from '@/i18n/errors'
 import { formatBytes } from '@/i18n/format'
 import { useBackupsStore } from '@/stores/backups'
+import { useSessionStore } from '@/stores/session'
 
 // "Restore" a backup (form sheet, step-up protected). Site and folder
 // backups are extracted into a folder; database backups become a dump on
 // the databases page. Encrypted backups need the private key, used for this
-// request only and never kept.
+// request only and never kept. Restoring into the backups or system root
+// takes `files.admin`, as opening them in the file manager does.
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ plan: BackupPlan | null; file: BackupFile | null }>()
 const emit = defineEmits<{ finished: [job: Job] }>()
 
-const ROOTS = ['sites', 'backups', 'system'] as const
-
 const { t } = useI18n()
 const store = useBackupsStore()
+const session = useSessionStore()
+
+const roots = computed(() => backupRoots(session.can('files.admin')))
 
 const identity = ref('')
 const root = ref('sites')
@@ -40,7 +44,7 @@ const error = ref<unknown>(null)
 const identityError = ref('')
 
 const database = computed(() => (props.file ? isDatabaseBackup(props.file.name) : false))
-const rootOptions = computed<SelectOption[]>(() => ROOTS.map((id) => ({ value: id, label: rootLabel(id) })))
+const rootOptions = computed<SelectOption[]>(() => roots.value.map((id) => ({ value: id, label: rootLabel(id) })))
 
 watch(open, (value) => {
   // The key is only kept while the sheet is open.
@@ -50,7 +54,8 @@ watch(open, (value) => {
   overwrite.value = false
   error.value = null
   // A site's backup goes back to where sites live, into a folder of the user's choosing.
-  root.value = props.file?.target.startsWith('site-') || props.file?.target.startsWith('dir-sites') ? 'sites' : 'backups'
+  const site = props.file?.target.startsWith('site-') || props.file?.target.startsWith('dir-sites')
+  root.value = site || !roots.value.includes('backups') ? 'sites' : 'backups'
   path.value = ''
 })
 
@@ -122,7 +127,7 @@ async function submit() {
   >
     <Notice v-if="database" tone="info">{{ t('backups.restore.database') }}</Notice>
     <template v-else>
-      <FormField id="restore-root" :label="t('backups.restore.pick')">
+      <FormField v-if="rootOptions.length > 1" id="restore-root" :label="t('backups.restore.pick')">
         <template #default="field">
           <SelectField v-bind="field" :model-value="root" :options="rootOptions" @update:model-value="onRoot" />
         </template>

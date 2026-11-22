@@ -99,10 +99,11 @@ async function load(mode: 'reset' | 'more' | 'refresh') {
   }
 }
 
-/** Polls while any shown job is still queued or running. */
+/** Polls while any shown job is still queued or running, and while only active jobs are shown (new ones appear). */
 function scheduleRefresh() {
   clearTimeout(timer)
-  if (unmounted || !jobs.value.some((job) => !isFinalState(job.state))) return
+  if (unmounted) return
+  if (stateFilter.value !== 'active' && !jobs.value.some((job) => !isFinalState(job.state))) return
   timer = setTimeout(() => void load('refresh'), REFRESH_MS)
 }
 
@@ -152,9 +153,20 @@ const stateOptions = computed(() => [
   ...STATE_FILTERS.map((value) => ({ value, label: stateFilterLabel(value) })),
 ])
 
-/** The kinds among the loaded jobs, by their short name. */
+/** Every kind loaded while on the page: a kind filter shows only its own jobs, and the others stay offered. */
+const seenKinds = ref<string[]>([])
+watch(
+  jobs,
+  (list) => {
+    const added = list.map((job) => job.kind).filter((kind) => !seenKinds.value.includes(kind))
+    if (added.length > 0) seenKinds.value = [...new Set([...seenKinds.value, ...added])]
+  },
+  { immediate: true },
+)
+
+/** The kinds seen, by their short name. */
 const kindOptions = computed(() => {
-  const kinds = new Set(jobs.value.map((job) => job.kind))
+  const kinds = new Set(seenKinds.value)
   if (kindFilter.value) kinds.add(kindFilter.value)
   const options = [...kinds].map((kind) => ({ value: kind, label: jobKindLabel(kind) })).sort((a, b) => a.label.localeCompare(b.label))
   return [{ value: '', label: t('jobs.filter.allKinds') }, ...options]
@@ -232,7 +244,7 @@ function searchText(job: Job): string {
           <span class="flex min-w-0 flex-col">
             <button
               type="button"
-              class="w-fit max-w-full rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] outline-none [overflow-wrap:anywhere] hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+              class="w-fit max-w-full rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] tap-y outline-none [overflow-wrap:anywhere] hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
               @click="drawer.open(row.id)"
             >
               {{ jobKindLabel(row.kind, row.params) }}

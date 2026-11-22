@@ -18,6 +18,12 @@ export interface Job {
   error?: { code: string; params?: ErrorParams }
   /** Whether the job can be canceled right now. */
   cancelable: boolean
+  /**
+   * Whether the signed-in user may cancel the job (holds its manage
+   * permission). Only the job endpoints say; jobs returned when an action
+   * starts one leave it out.
+   */
+  canCancel?: boolean
   username: string
   /** "web", "api" or "system". */
   source: string

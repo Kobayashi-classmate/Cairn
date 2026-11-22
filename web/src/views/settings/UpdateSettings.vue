@@ -200,7 +200,7 @@ function reload() {
       <KeyValueRow :label="t('updates.current')" mono>{{ status.current }}</KeyValueRow>
       <KeyValueRow :label="t('common.field.channel')">
         {{ channelText(status.channel) }}
-        <RouterLink :to="{ name: 'settings-cloud' }" class="text-detail text-link underline-offset-2 hover:underline">
+        <RouterLink :to="{ name: 'settings-cloud' }" class="text-detail text-link underline underline-offset-2 hover:no-underline tap-y">
           {{ t('updates.changeChannel') }}
         </RouterLink>
       </KeyValueRow>
@@ -235,7 +235,7 @@ function reload() {
       <p class="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{{ job.error }}</p>
       <details v-if="job.log" class="group mt-3">
         <summary class="cursor-pointer text-detail font-medium text-link">{{ t('updates.job.log') }}</summary>
-        <pre class="mt-2 max-h-80 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs leading-relaxed" dir="ltr">{{ job.log }}</pre>
+        <pre tabindex="0" class="mt-2 max-h-80 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs leading-relaxed" dir="ltr">{{ job.log }}</pre>
       </details>
     </Card>
     <Notice v-else-if="succeeded && job" tone="success">

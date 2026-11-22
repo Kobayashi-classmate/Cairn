@@ -30,12 +30,12 @@ defineExpose({ focus: () => input.value?.focus() })
       v-bind="$attrs"
       :type="visible ? 'text' : 'password'"
       data-slot="input"
-      :class="size === 'lg' ? 'h-10 max-md:h-11' : 'h-9'"
+      :class="size === 'lg' ? 'h-10 max-md:h-11' : 'h-9 max-md:h-11'"
       class="w-full min-w-0 rounded-md border border-input bg-card py-1 ps-3 pe-10 text-base transition-[color,box-shadow] outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 md:text-sm"
     />
     <button
       type="button"
-      class="absolute inset-y-0 end-0 flex w-10 items-center justify-center rounded-e-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+      class="absolute inset-y-0 end-0 flex w-10 items-center max-md:w-11 justify-center rounded-e-md text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
       :aria-label="visible ? t('common.action.hidePassword') : t('common.action.showPassword')"
       :aria-pressed="visible"
       @click="visible = !visible"

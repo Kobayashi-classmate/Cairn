@@ -1,9 +1,9 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { File, Folder, LoaderCircle, Search, SearchX, X } from '@lucide/vue'
-import { isAbortError } from '@/api/client'
+import { File, Folder, LoaderCircle, Lock, Search, SearchX, X } from '@lucide/vue'
+import { isAbortError, isStepUpRequired } from '@/api/client'
 import { searchFiles, type FileMatch } from '@/api/files'
 import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
@@ -14,6 +14,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { absolutePath } from '@/files/paths'
+import { byteLength } from '@/forms/rules'
+import { validationMessage } from '@/i18n/errors'
 
 // Finds entries below the folder shown, by name or by the text inside
 // files. Picking a folder goes there; picking a file opens it (at the line
@@ -22,7 +24,7 @@ const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ root: string; dir: string }>()
 const emit = defineEmits<{ pick: [match: FileMatch] }>()
 
-/** Longest search text the server takes. */
+/** Longest search text the server takes, in UTF-8 bytes. */
 const QUERY_MAX = 256
 
 const { t } = useI18n()
@@ -37,6 +39,8 @@ const loading = ref(false)
 const error = ref<unknown>(null)
 const input = ref<InstanceType<typeof Input> | null>(null)
 let controller: AbortController | null = null
+/** The server counts bytes: 256 characters of Chinese are far too many. */
+const queryError = computed(() => (byteLength(query.value) > QUERY_MAX ? validationMessage('query', 'max') : null))
 
 // A new place to search in starts afresh.
 watch(
@@ -57,7 +61,7 @@ function onOpenAutoFocus(event: Event) {
 
 async function search() {
   const q = query.value
-  if (!q.trim() || q.length > QUERY_MAX) return
+  if (!q.trim() || queryError.value) return
   controller?.abort()
   const request = new AbortController()
   controller = request
@@ -117,17 +121,20 @@ function pick(match: FileMatch) {
             :maxlength="QUERY_MAX"
             :placeholder="t('files.search.placeholder')"
             :aria-label="t('files.search.placeholder')"
+            :aria-invalid="queryError ? true : undefined"
+            :aria-describedby="queryError ? 'files-search-error' : undefined"
             autocomplete="off"
             autocapitalize="none"
             spellcheck="false"
             class="max-md:h-11"
           />
-          <Button type="submit" class="max-md:h-11" :disabled="!query.trim() || loading">
+          <Button type="submit" class="max-md:h-11" :disabled="!query.trim() || !!queryError || loading">
             <LoaderCircle v-if="loading" class="animate-spin" aria-hidden="true" />
             <Search v-else aria-hidden="true" />
             {{ t('files.search.submit') }}
           </Button>
         </div>
+        <p v-if="queryError" id="files-search-error" class="m-0 text-xs font-medium text-destructive">{{ queryError }}</p>
         <div class="flex flex-wrap gap-x-5 gap-y-2">
           <label class="flex cursor-pointer items-center gap-2 text-detail">
             <Checkbox :model-value="content" @update:model-value="(value: boolean | 'indeterminate') => (content = value === true)" />
@@ -142,7 +149,12 @@ function pick(match: FileMatch) {
       </form>
 
       <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading || undefined">
-        <ErrorState v-if="error" :error="error" compact @retry="search" />
+        <EmptyState v-if="isStepUpRequired(error)" :icon="Lock" compact :title="t('files.stepUp.search')" :text="t('files.stepUp.text')">
+          <template #actions>
+            <Button variant="outline" size="sm" class="max-md:h-11" @click="search">{{ t('common.action.retry') }}</Button>
+          </template>
+        </EmptyState>
+        <ErrorState v-else-if="error" :error="error" compact @retry="search" />
         <EmptyState v-else-if="searched && matches.length === 0" :icon="SearchX" compact :title="t('files.search.none')" />
         <template v-else-if="matches.length > 0">
           <div v-if="truncated" class="px-5 pt-4">

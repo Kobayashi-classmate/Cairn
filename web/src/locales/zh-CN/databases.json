@@ -70,8 +70,11 @@
       "user": "创建对它拥有完全权限的用户 {user}",
       "userGenerated": "创建对它拥有完全权限的用户 {user}，并自动生成密码",
       "hosts": "允许该用户从 {hosts} 连接",
-      "local": "只允许该用户从本机连接"
-    }
+      "local": "只允许该用户从本机连接",
+      "grantExisting": "授予已有用户 {user} 对它的完全权限（其密码和主机保持不变）"
+    },
+    "ownerUnmanaged": "已存在不是由面板创建的用户 {user}，面板不会接管它。请换一个用户名。",
+    "ownerKeeps": "已有用户保留其原密码"
   },
   "user": {
     "createTitle": "添加用户",
@@ -82,7 +85,10 @@
     "search": "搜索用户",
     "create": "添加用户",
     "drop": "删除用户",
-    "more": "{name} 的更多操作"
+    "more": "{name} 的更多操作",
+    "setPassword": "设置密码",
+    "setPasswordTitle": "设置 {name} 的密码",
+    "unmanagedNote": "该用户不是由面板创建的，面板不管理它的权限：这里只修改它的密码，它的访问权限保持不变。"
   },
   "grant": {
     "all": "完全权限",

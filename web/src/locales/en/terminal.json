@@ -13,7 +13,10 @@
     "nobody": "There is nobody a terminal can run as.",
     "step": "Open a login shell as {user} in {home}",
     "rootWarning": "A root terminal can change anything on the server: every command runs with full privileges.",
-    "submit": "Open terminal"
+    "submit": "Open terminal",
+    "nobodySites": "There is no site owner to open a terminal as. Terminals as root and other users are for administrators.",
+    "sitesOnly": "Only site owners are listed: terminals as root and other users are for administrators.",
+    "userWarning": "This user may be able to use sudo, which makes the terminal as powerful as a root terminal."
   },
   "user": {
     "site": "{user} ({site})",
@@ -42,7 +45,8 @@
   "closeTab": "Close tab",
   "empty": {
     "title": "No terminal is open",
-    "text": "Open a terminal to run commands on the server as a site owner or another user."
+    "text": "Open a terminal to run commands on the server as a site owner or another user.",
+    "textSites": "Open a terminal to run commands on the server as a site owner."
   },
   "state": {
     "connecting": "Connecting",
@@ -51,10 +55,11 @@
     "ended": "Ended"
   },
   "ended": "The shell has ended.",
-  "endedNotice": "This terminal has ended.",
+  "endedNotice": "This terminal has ended: the shell exited, or the server closed it (it does when your account's role or password changes).",
   "reopen": "Open a new one as {user}",
   "opened": "opened {time}",
   "hint": "Terminals keep running for 5 minutes after you leave this page.",
+  "focusHint": "Press Esc and then Tab to move out of the terminal.",
   "snippets": {
     "title": "Saved commands",
     "sheetIntro": "Saved commands are kept for your account and pasted into the terminal in front.",

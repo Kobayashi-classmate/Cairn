@@ -3,6 +3,7 @@
 // Certificate actions shared by the list's "more" menu and the drawer. Every
 // change of a certificate is a job that the job dock follows; the list
 // reloads when it starts and when it ends.
+import { reactive } from 'vue'
 import { deleteCert, renewCert, setPanelCert, type CertView } from '@/api/certs'
 import type { Job } from '@/api/jobs'
 import type { CertDisplayState } from '@/certs/labels'
@@ -10,6 +11,7 @@ import { confirmAction } from '@/composables/useConfirmDialog'
 import { i18n } from '@/i18n'
 import { launchJob } from '@/jobs/dock'
 import type { Tone } from '@/lib/tone'
+import { onAccountReset } from '@/stores/accountReset'
 import { useCertsStore } from '@/stores/certs'
 
 export const CERT_STATE_TONE: Record<CertDisplayState, Tone> = {
@@ -24,14 +26,39 @@ function reload() {
   void useCertsStore().load()
 }
 
-export async function runCertJob(start: () => Promise<Job>, options: { rethrow?: boolean } = {}): Promise<Job | null> {
-  const job = await launchJob(start, { onFinished: reload, rethrow: options.rethrow })
+export async function runCertJob(
+  start: () => Promise<Job>,
+  options: { rethrow?: boolean; onFinished?: (job: Job) => void } = {},
+): Promise<Job | null> {
+  const job = await launchJob(start, {
+    onFinished: (done) => {
+      reload()
+      options.onFinished?.(done)
+    },
+    rethrow: options.rethrow,
+  })
   if (job) reload()
   return job
 }
 
-export function renew(cert: CertView): Promise<Job | null> {
-  return runCertJob(() => renewCert(cert.id))
+/**
+ * Certificates whose renewal job started here has not finished: renewing
+ * does not show as "issuing", and each click would place an ACME order.
+ */
+const renewals = reactive(new Set<string>())
+onAccountReset(() => renewals.clear())
+
+/** Whether a renewal started from this tab is still running. */
+export function renewing(id: string): boolean {
+  return renewals.has(id)
+}
+
+export async function renew(cert: CertView): Promise<Job | null> {
+  if (renewals.has(cert.id)) return null
+  renewals.add(cert.id)
+  const job = await runCertJob(() => renewCert(cert.id), { onFinished: () => renewals.delete(cert.id) })
+  if (!job) renewals.delete(cert.id)
+  return job
 }
 
 /** Valid and not expired: the panel can serve it. */

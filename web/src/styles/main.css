@@ -270,149 +270,40 @@
 }
 
 /*
- * Pages and dialogs not yet moved to the new components were written for the
- * browser's default styles. Inside .legacy-ui (the shell's content area for
- * such pages) and Naive UI's own overlay containers, undo the parts of
- * Tailwind's preflight they depend on. This sits in the components layer, so
- * it beats preflight (base) but loses to utilities and to every unlayered
- * style (Naive UI and the pages' own scoped CSS).
+ * 5: on phones every control can be tapped over at least 44px, without
+ * changing the layout.
+ * - tap-y: a small text button or link (no background or border) gets extra
+ *   padding above and below, offset by negative margins. Works on truncated
+ *   text, which clips anything drawn outside its box.
+ * - tap-area: a small control with its own box (checkbox, switch, pill) gets
+ *   an invisible hit area of at least 44 x 44 centred on it.
  */
-@layer components {
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(p, h1, h2, h3, h4, h5, h6, ul, ol, menu, dl, dd, figure, blockquote, pre, hr, fieldset, legend) {
-    margin: revert;
-    padding: revert;
+@utility tap-y {
+  @media (width < 48rem) {
+    padding-block: 12px;
+    margin-block: -12px;
   }
+}
 
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(h1, h2, h3, h4, h5, h6) {
-    font-size: revert;
-    font-weight: revert;
-  }
+@utility tap-area {
+  position: relative;
 
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(ul, ol, menu) {
-    list-style: revert;
-  }
-
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(img, svg, video, canvas, audio, iframe, embed, object) {
-    display: revert;
-    vertical-align: revert;
-  }
-
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(img, video) {
-    max-width: revert;
-    height: revert;
-  }
-
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(a) {
-    color: var(--link);
-    text-decoration: underline;
-    text-underline-offset: 2px;
-  }
-
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(table) {
-    border-collapse: revert;
-  }
-
-  /* Fonts stay inherited: Naive UI's inputs rely on that. */
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(button, input, select, textarea),
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    ::file-selector-button {
-    padding: revert;
-    border: revert;
-    border-radius: revert;
-    background-color: revert;
-  }
-
-  :where(
-      .legacy-ui,
-      .n-modal-container,
-      .n-drawer-container,
-      .n-message-container,
-      .n-notification-container,
-      .v-binder-follower-container
-    )
-    :where(hr) {
-    border-block-start: 1px solid var(--border);
+  @media (width < 48rem) {
+    &::after {
+      content: '';
+      position: absolute;
+      inset-block: min(0px, calc((100% - 44px) / 2));
+      inset-inline: min(0px, calc((100% - 44px) / 2));
+    }
   }
 }
 
 /*
  * A Reka dialog (sheet, drawer, confirmation) turns off pointer events on
- * <body> while it is open. The re-authentication dialog, toasts and the job
- * dock stay usable meanwhile; components/common/overlayGuard.ts keeps the
- * Reka dialog open when they are used.
+ * <body> while it is open. Toasts and the job dock stay usable meanwhile;
+ * components/common/overlayGuard.ts keeps the Reka dialog open when they are
+ * used.
  */
-.n-modal-container,
 [data-sonner-toaster],
 [data-job-dock] {
   pointer-events: auto;

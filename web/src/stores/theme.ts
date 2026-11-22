@@ -66,7 +66,7 @@ export const useThemeStore = defineStore('theme', () => {
   const isDark = computed(() => resolved.value === 'dark')
 
   // Synchronous, so the class is in place before anything renders with the new mode
-  // (the Naive UI overrides read the CSS variables it switches).
+  // (the terminal and the code editor read the CSS variables it switches).
   watchSyncEffect(() => {
     const root = document.documentElement
     root.classList.toggle('dark', isDark.value)

@@ -19,7 +19,7 @@ import { usePageTab } from '@/composables/usePageTab'
 import { SOFTWARE_TABS, inTab, lineKey, type SoftwareTab } from '@/software/display'
 import { useSessionStore } from '@/stores/session'
 import { useSoftwareStore } from '@/stores/software'
-import { refreshIndexes } from './software/actions'
+import { refreshIndexes, refreshingIndexes as refreshing } from './software/actions'
 import SoftwareOverlays from './software/SoftwareOverlays.vue'
 import SoftwareTable from './software/SoftwareTable.vue'
 import SourcePolicySheet from './software/SourcePolicySheet.vue'
@@ -37,7 +37,6 @@ const { tab, tabLocation } = usePageTab(SOFTWARE_TABS, 'all')
 const canManage = computed(() => session.can('software.manage'))
 const catalog = computed(() => store.catalog)
 const showPolicy = ref(false)
-const refreshing = ref(false)
 
 onMounted(() => {
   void store.load()
@@ -68,10 +67,8 @@ const status = computed(() => {
 
 const emptyTitle = computed(() => (tab.value === 'installed' ? t('software.empty.installed') : t('software.empty.title')))
 
-async function refresh() {
-  refreshing.value = true
-  await refreshIndexes()
-  refreshing.value = false
+function refresh() {
+  void refreshIndexes()
 }
 
 function openWizard() {

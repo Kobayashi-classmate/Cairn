@@ -51,7 +51,7 @@ const shown = computed<SiteView[]>(() =>
 <template>
   <Card :title="t('sites.title')" flush>
     <template #actions>
-      <RouterLink :to="{ name: 'sites' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline">
+      <RouterLink :to="{ name: 'sites' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline tap-y">
         {{ t('overview.sites.all') }}
         <ArrowRight class="size-3.5" aria-hidden="true" />
       </RouterLink>
@@ -70,7 +70,7 @@ const shown = computed<SiteView[]>(() =>
         <div class="flex min-w-0 flex-1 flex-col">
           <RouterLink
             :to="{ name: 'sites', query: { open: `site:${site.code}` } }"
-            class="truncate font-medium text-foreground hover:underline"
+            class="truncate font-medium text-foreground tap-y hover:underline"
             dir="ltr"
           >
             {{ site.domains[0] ?? site.code }}

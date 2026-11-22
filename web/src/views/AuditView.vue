@@ -61,6 +61,8 @@ watch(
 let controller: AbortController | null = null
 /** The start of the time range when the list was (re)loaded; older pages keep it. */
 let since: number | undefined
+/** The load that failed was a reset (new filters): Retry resets again rather than append. */
+const failedReset = ref(false)
 
 /** Loads the newest page (reset) or the next older one. */
 async function load(reset: boolean) {
@@ -81,13 +83,22 @@ async function load(reset: boolean) {
       },
       current.signal,
     )
+    if (controller !== current) return
     entries.value = reset ? page.entries : [...entries.value, ...page.entries]
     nextBefore.value = page.nextBefore
     loadError.value = null
+    failedReset.value = false
     loaded.value = true
   } catch (err) {
-    if (isAbortError(err)) return
+    if (isAbortError(err) || controller !== current) return
     loadError.value = err
+    failedReset.value = reset
+    if (reset) {
+      // The rows shown belong to the previous filters.
+      entries.value = []
+      nextBefore.value = null
+      loaded.value = false
+    }
   } finally {
     if (controller === current) {
       controller = null
@@ -98,7 +109,10 @@ async function load(reset: boolean) {
 
 onMounted(() => void load(true))
 watch(serverKey, () => void load(true))
-onBeforeUnmount(() => controller?.abort())
+onBeforeUnmount(() => {
+  controller?.abort()
+  entryController?.abort()
+})
 
 /** DNS provider product names by id; entries show the id until (or unless) they are known. */
 const providerNames = ref<Record<string, string>>({})
@@ -181,18 +195,31 @@ const openEntry = computed(
   () => entries.value.find((entry) => entry.id === openId.value) ?? (fetchedEntry.value?.id === openId.value ? fetchedEntry.value : null),
 )
 
+let entryController: AbortController | null = null
+
 async function fetchEntry() {
+  // A fetch for another entry (or none) is no longer wanted.
+  entryController?.abort()
+  entryController = null
+  entryError.value = null
+  entryLoading.value = false
   const id = openId.value
   if (id === null || entries.value.some((entry) => entry.id === id)) return
+  const current = new AbortController()
+  entryController = current
   entryLoading.value = true
-  entryError.value = null
   try {
-    fetchedEntry.value = await fetchAuditEntry(id)
+    const entry = await fetchAuditEntry(id, current.signal)
+    if (entryController === current) fetchedEntry.value = entry
   } catch (err) {
+    if (isAbortError(err) || entryController !== current) return
     if (isApiError(err) && err.status === 404) drawer.close()
     else entryError.value = err
   } finally {
-    entryLoading.value = false
+    if (entryController === current) {
+      entryController = null
+      entryLoading.value = false
+    }
   }
 }
 
@@ -238,7 +265,7 @@ function openRow(entry: AuditEntry) {
           <button
             v-if="userDraft"
             type="button"
-            class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:-me-2.5 max-md:size-11"
             :aria-label="t('audit.filter.clearUser')"
             @click="userDraft = ''"
           >
@@ -285,7 +312,7 @@ function openRow(entry: AuditEntry) {
         :empty-text="anyFilter && canLoadMore ? t('audit.empty.loadMore') : undefined"
         :min-width="1060"
         :skeleton-rows="8"
-        @retry="load(entries.length === 0)"
+        @retry="load(failedReset || entries.length === 0)"
         @row-click="openRow"
       >
         <template #cell-time="{ row }"><RelativeTime :value="row.ts" /></template>
@@ -297,7 +324,7 @@ function openRow(entry: AuditEntry) {
           <span class="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              class="rounded-sm text-start underline decoration-border underline-offset-[3px] outline-none [overflow-wrap:anywhere] hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+              class="rounded-sm text-start underline decoration-border underline-offset-[3px] tap-y outline-none [overflow-wrap:anywhere] hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
               :title="row.action"
               @click="openRow(row)"
             >
@@ -307,7 +334,7 @@ function openRow(entry: AuditEntry) {
           </span>
         </template>
         <template #cell-result="{ row }">
-          <StatusDot :tone="row.result === 'ok' ? 'success' : 'destructive'" :title="row.result === 'ok' ? undefined : row.result">
+          <StatusDot :tone="row.result === 'ok' ? 'success' : 'destructive'" :title="row.result === 'ok' ? undefined : row.result" wrap>
             {{ resultText(row) }}
           </StatusDot>
         </template>

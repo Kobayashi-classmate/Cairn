@@ -9,6 +9,7 @@ import { fetchPlans, fetchStorages, type BackupPlan, type StorageView } from '@/
 import { fetchTasks, type CronTask } from '@/api/cron'
 import type { Job } from '@/api/jobs'
 import { launchJob } from '@/jobs/dock'
+import { onAccountReset } from './accountReset'
 import { useSessionStore } from './session'
 
 export const useBackupsStore = defineStore('backups', () => {
@@ -21,24 +22,25 @@ export const useBackupsStore = defineStore('backups', () => {
 
   const loaded = computed(() => plans.value !== null && storages.value !== null)
 
-  async function loadTasks() {
+  /** Numbers the loads, so an older answer arriving late is dropped. */
+  let seq = 0
+
+  async function loadTasks(mine: number) {
     if (!useSessionStore().can('cron.read')) return
     try {
       const list = await fetchTasks()
+      if (mine !== seq) return
       tasks.value = Object.fromEntries(list.tasks.map((task) => [task.id, task]))
     } catch {
       // Plans then show without their schedule.
     }
   }
 
-  /** Numbers the loads, so an older answer arriving late is dropped. */
-  let seq = 0
-
   async function load(): Promise<void> {
     const mine = ++seq
     loading.value = true
     try {
-      const [planList, storageList] = await Promise.all([fetchPlans(), fetchStorages(), loadTasks()])
+      const [planList, storageList] = await Promise.all([fetchPlans(), fetchStorages(), loadTasks(mine)])
       if (mine !== seq) return
       plans.value = planList
       storages.value = storageList
@@ -77,5 +79,17 @@ export const useBackupsStore = defineStore('backups', () => {
     return job
   }
 
-  return { plans, storages, tasks, loadError, loading, loaded, load, plan, storageName, tasksOf, runJob }
+  /** Forgets everything (sign-out): the next account loads its own. */
+  function reset(): void {
+    seq++
+    plans.value = null
+    storages.value = null
+    tasks.value = {}
+    loadError.value = null
+    loading.value = false
+  }
+
+  onAccountReset(reset)
+
+  return { plans, storages, tasks, loadError, loading, loaded, load, plan, storageName, tasksOf, runJob, reset }
 })

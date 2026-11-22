@@ -4,7 +4,10 @@
 import type { DropdownMenuRootEmits, DropdownMenuRootProps } from "reka-ui"
 import { DropdownMenuRoot, useForwardPropsEmits } from "reka-ui"
 
-const props = defineProps<DropdownMenuRootProps>()
+// Cairn: menus are not modal (as in the WAI-ARIA menu button pattern). A
+// modal menu hides the rest of the page from screen readers with
+// aria-hidden while its links and buttons stay in the tab order.
+const props = withDefaults(defineProps<DropdownMenuRootProps>(), { modal: false })
 const emits = defineEmits<DropdownMenuRootEmits>()
 
 const forwarded = useForwardPropsEmits(props, emits)

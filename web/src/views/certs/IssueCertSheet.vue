@@ -209,7 +209,7 @@ function addAccount() {
         :href="agreement"
         target="_blank"
         rel="noopener noreferrer"
-        class="inline-flex items-center gap-0.5 text-link underline-offset-2 hover:underline"
+        class="inline-flex items-center gap-0.5 text-link underline-offset-2 hover:underline tap-y"
       >
         {{ t('certs.issue.agreementLink') }}
         <ExternalLink class="size-3" aria-hidden="true" />
@@ -233,7 +233,7 @@ function addAccount() {
           />
         </template>
       </FormField>
-      <button type="button" class="-mt-3 self-start text-detail text-link underline-offset-2 hover:underline" @click="addAccount">
+      <button type="button" class="-mt-3 self-start text-detail text-link underline-offset-2 hover:underline tap-area" @click="addAccount">
         {{ t('certs.issue.addAccount') }}
       </button>
     </template>

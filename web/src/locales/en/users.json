@@ -39,11 +39,12 @@
   "role": {
     "title": "Change the role of {username}",
     "done": "The role of {username} was changed.",
-    "submit": "Change role"
+    "submit": "Change role",
+    "hint": "Changing the role closes the terminals {username} has open."
   },
   "password": {
     "title": "Set a new password for {username}",
-    "hint": "{username} will be signed out of all sessions.",
+    "hint": "{username} will be signed out of all sessions, and their open terminals are closed.",
     "submit": "Set password",
     "done": "The password of {username} was changed.",
     "rule": "At least {min} characters."
@@ -51,7 +52,7 @@
   "confirm": {
     "disable": {
       "title": "Disable {username}?",
-      "content": "{username} will be signed out and cannot sign in until the account is enabled again."
+      "content": "{username} will be signed out, their open terminals are closed, and they cannot sign in until the account is enabled again."
     },
     "resetTotp": {
       "title": "Reset two-step verification for {username}?",
@@ -59,7 +60,7 @@
     },
     "delete": {
       "title": "Delete {username}?",
-      "content": "The account is deleted permanently and signed out everywhere. Its entries in the audit log are kept.",
+      "content": "The account is deleted permanently, signed out everywhere and its open terminals are closed. Its entries in the audit log are kept.",
       "confirm": "Delete user"
     }
   },

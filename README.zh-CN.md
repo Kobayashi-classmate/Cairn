@@ -22,7 +22,7 @@
 
 ## 技术栈
 
-Go（静态编译，单二进制）· SQLite · Vue 3 + TypeScript + Naive UI · systemd · 产出 deb/rpm 两种安装包
+Go（静态编译，单二进制）· SQLite · Vue 3 + TypeScript + Tailwind CSS + Reka UI (shadcn-vue) · systemd · 产出 deb/rpm 两种安装包
 
 ## 许可证
 

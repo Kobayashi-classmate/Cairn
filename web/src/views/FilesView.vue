@@ -69,9 +69,13 @@ const viewer = useDrawerRoute('view')
 const canManage = computed(() => session.can('files.manage'))
 const canAdmin = computed(() => session.can('files.admin'))
 
-/** The root tabs there are; every tab counts until the roots are known. */
+/**
+ * The root tabs there are, as the server offers them (only the roots this
+ * account may open). Until they are known, every tab counts for those who
+ * may open them all; the others only reach the sites.
+ */
 const validTabs = computed<FilesTab[]>(() => {
-  if (!store.roots) return [...FILES_TABS]
+  if (!store.roots) return canAdmin.value ? [...FILES_TABS] : ['sites', 'trash']
   const ids = store.available.map((root) => root.id).filter((id): id is FilesTab => (FILES_TABS as readonly string[]).includes(id))
   return [...ids.filter((id) => id !== 'trash'), 'trash']
 })
@@ -88,7 +92,11 @@ const tab = computed<FilesTab>(() => {
 })
 /** The root whose folder is shown; null on the trash tab. */
 const root = computed(() => (tab.value === 'trash' ? null : tab.value))
-const path = computed(() => queryText('path'))
+/** The folder asked for; a folder of a root this account cannot open is not looked for in another one. */
+const path = computed(() => {
+  const asked = queryText(TAB_QUERY)
+  return !asked || asked === tab.value ? queryText('path') : ''
+})
 const trashRoot = computed(() => {
   const asked = queryText('root')
   if (asked && (!store.roots || store.available.some((entry) => entry.id === asked))) return asked

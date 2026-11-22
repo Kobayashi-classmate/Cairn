@@ -47,6 +47,7 @@
   "limitOption": "最近 {count} 条",
   "apply": "显示",
   "follow": "实时跟踪",
+  "filters": "筛选",
   "timeHint": "时间格式与 journalctl 相同：“today”“yesterday”“-1h”“-30min”“2026-11-16 10:00”。",
   "empty": "没有匹配的日志。",
   "dropped": "页面上只保留最新的 {count} 条日志。",

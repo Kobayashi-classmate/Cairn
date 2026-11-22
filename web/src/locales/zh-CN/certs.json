@@ -111,7 +111,8 @@
     "nothingToSet": "无需设置。",
     "save": "保存 ACME 设置",
     "saved": "ACME 设置已保存。",
-    "stepUp": "保存时需要再次输入密码。"
+    "stepUp": "保存时需要再次输入密码。",
+    "kidNeeded": "请同时填写密钥 ID：HMAC 密钥只能与它一起使用。"
   },
   "panel": {
     "title": "面板证书",

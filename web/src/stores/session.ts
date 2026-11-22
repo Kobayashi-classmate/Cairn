@@ -24,6 +24,7 @@ import {
 } from '@/i18n'
 import { matchLocale } from '@/i18n/negotiate'
 import { readStoredLocale, storeLocale } from '@/i18n/preference'
+import { resetAccountData } from './accountReset'
 import { useNavStore } from './nav'
 import { useThemeStore } from './theme'
 
@@ -60,6 +61,8 @@ export const useSessionStore = defineStore('session', () => {
     permissions.value = []
     elevatedUntil.value = 0
     useNavStore().clear()
+    // The pages' data (lists, scripts, uploads) is this account's only.
+    resetAccountData()
   }
   const setupRequired = computed(() => meta.value?.setupRequired === true)
 

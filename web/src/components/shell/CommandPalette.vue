@@ -60,7 +60,7 @@ async function go(to: RouteLocationRaw) {
 <template>
   <CommandDialog v-model:open="open" :title="t('shell.palette.title')" :description="t('shell.palette.description')">
     <CommandInput :placeholder="t('shell.palette.placeholder')" />
-    <CommandList class="max-h-[min(420px,60vh)] p-1">
+    <CommandList class="max-h-[min(420px,60vh)] p-1" :aria-label="t('shell.palette.results')">
       <CommandEmpty class="text-muted-foreground">{{ t('shell.palette.empty') }}</CommandEmpty>
       <CommandGroup v-for="section in sections" :key="section.key" :heading="section.heading">
         <CommandItem

@@ -23,6 +23,8 @@ const props = defineProps<{
   line?: number
   /** False keeps the focus where it is (an editor inside a form). */
   autofocus?: boolean
+  /** Accessible name of the text area; the file path when not given. */
+  label?: string
 }>()
 const emit = defineEmits<{ changed: []; save: [] }>()
 
@@ -106,6 +108,9 @@ onMounted(() => {
         theme.of(themeFor(panelTheme.isDark)),
         editable.of([EditorState.readOnly.of(!!props.readOnly)]),
         baseTheme,
+        // The editable area is a text box for screen readers; give it a name.
+        // tabindex makes it count as the focusable content of its scroller.
+        EditorView.contentAttributes.of({ 'aria-label': props.label || props.path, tabindex: '0' }),
         EditorView.updateListener.of((update) => {
           if (update.docChanged && !update.transactions.some((tr) => tr.annotation(external))) emit('changed')
         }),

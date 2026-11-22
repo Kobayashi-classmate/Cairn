@@ -3,9 +3,10 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { LoaderCircle, PlugZap } from '@lucide/vue'
-import { isStepUpRequired } from '@/api/client'
+import { isApiError, isStepUpRequired } from '@/api/client'
 import { BUCKET_NAME, createStorage, testNewStorage, updateStorage, type StorageRequest, type StorageView } from '@/api/backups'
 import { STORAGE_PROVIDERS, isEndpoint, providerOf } from '@/backups/providers'
+import { reachesBeyondSites } from '@/backups/targets'
 import FormField from '@/components/common/FormField.vue'
 import FormSheet from '@/components/common/FormSheet.vue'
 import Notice from '@/components/common/Notice.vue'
@@ -18,15 +19,20 @@ import { Input } from '@/components/ui/input'
 import { errorMessage, validationMessage } from '@/i18n/errors'
 import { notifySuccess } from '@/lib/notify'
 import { useBackupsStore } from '@/stores/backups'
+import { useSessionStore } from '@/stores/session'
 
 // "Add storage" / "Change storage" (form sheet, step-up protected): an
 // S3-compatible bucket, with a connection test before saving. The secret
-// key is never shown again; leaving it empty keeps the saved one.
+// key is never shown again; leaving it empty keeps the saved one (testing
+// it against the address in the form then asks for the password too).
+// A bucket that plans beyond the site directories use is changed by holders
+// of `files.admin` only.
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ storage: StorageView | null }>()
 
 const { t } = useI18n()
 const store = useBackupsStore()
+const session = useSessionStore()
 
 const provider = ref('aws')
 const form = reactive({
@@ -47,7 +53,21 @@ const testing = ref(false)
 const error = ref<unknown>(null)
 const testedOk = ref(false)
 
+/** What a connection test checks; a passed test no longer holds once it changes. */
+const connection = computed(() =>
+  JSON.stringify([provider.value, form.endpoint, form.region, form.bucket, form.prefix, form.accessKey, form.secretKey, form.pathStyle, form.insecure]),
+)
+watch(connection, () => {
+  testedOk.value = false
+})
+
 const editing = computed(() => props.storage !== null)
+/** Plans that back up beyond the site directories use this bucket, and this account may not open those. */
+const lockedByPlans = computed(() => {
+  const id = props.storage?.id
+  if (!id || session.can('files.admin')) return false
+  return (store.plans ?? []).some((plan) => plan.storageId === id && reachesBeyondSites(plan))
+})
 const current = computed(() => STORAGE_PROVIDERS.find((p) => p.id === provider.value) ?? STORAGE_PROVIDERS[0]!)
 const providerOptions = computed<SelectOption[]>(() =>
   STORAGE_PROVIDERS.map((p) => ({ value: p.id, label: p.name || t('backups.storage.otherProvider') })),
@@ -105,6 +125,15 @@ function validate(saving: boolean): boolean {
   return Object.keys(next).length === 0
 }
 
+/** Shows an error by its field where it belongs to one, otherwise below the form. */
+function showError(err: unknown) {
+  if (isApiError(err) && err.code === 'backup.endpoint_not_allowed') {
+    errors.value = { ...errors.value, endpoint: errorMessage(err) }
+    return
+  }
+  error.value = err
+}
+
 function body(): StorageRequest {
   return {
     name: form.name.trim(),
@@ -124,14 +153,18 @@ async function test() {
   testing.value = true
   testedOk.value = false
   error.value = null
+  const tested = connection.value
   try {
     // Without a new secret key, the saved storage's key is used.
     const { name: _name, ...settings } = body()
+    // Step-up protected then: the client asks for the password and retries.
     await testNewStorage({ ...settings, ...(props.storage ? { id: props.storage.id } : {}) })
+    // Edited while the test ran: it says nothing about the settings now.
+    if (connection.value !== tested) return
     testedOk.value = true
     notifySuccess(t('backups.storage.testOk'))
   } catch (err) {
-    error.value = err
+    if (!isStepUpRequired(err)) showError(err)
   } finally {
     testing.value = false
   }
@@ -148,7 +181,7 @@ async function submit() {
     void store.load()
     open.value = false
   } catch (err) {
-    if (!isStepUpRequired(err)) error.value = err
+    if (!isStepUpRequired(err)) showError(err)
   } finally {
     submitting.value = false
   }
@@ -162,8 +195,10 @@ async function submit() {
     :description="t('backups.storage.sheetIntro')"
     :submit-label="editing ? t('common.action.save') : t('backups.storage.add')"
     :submitting="submitting"
+    :submit-disabled="lockedByPlans"
     @submit="submit"
   >
+    <Notice v-if="lockedByPlans" tone="warning">{{ t('backups.storage.adminOnly') }}</Notice>
     <FormField id="storage-provider" :label="t('backups.storage.provider')" :hint="t(`backups.storage.hint.${current.id}`)">
       <template #default="field">
         <SelectField v-bind="field" :model-value="provider" :options="providerOptions" @update:model-value="pickProvider" />

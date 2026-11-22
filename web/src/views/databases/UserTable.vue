@@ -49,8 +49,13 @@ async function reveal(user: DbUser) {
 
 function actions(user: DbUser): RowAction[] {
   if (!props.canManage || user.missing) return []
+  // A user the panel did not create: its privileges are not the panel's to
+  // edit (it does not know them), only its password.
+  const edit: RowAction = user.managed
+    ? { key: 'edit', label: t('common.action.edit'), icon: Pencil, onSelect: () => emit('edit', user) }
+    : { key: 'password', label: t('databases.user.setPassword'), icon: KeyRound, onSelect: () => emit('edit', user) }
   return [
-    { key: 'edit', label: t('common.action.edit'), icon: Pencil, onSelect: () => emit('edit', user) },
+    edit,
     { key: 'delete', label: t('databases.user.drop'), icon: Trash2, destructive: true, onSelect: () => void askDropUser(props.engine, user) },
   ]
 }

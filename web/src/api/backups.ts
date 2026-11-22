@@ -3,7 +3,7 @@
 // Backups (`backups.read` to view, `backups.manage` to change): storage
 // (S3-compatible buckets) and plans. Storage changes, downloads, deleting
 // backups and restoring are step-up protected; runs and restores are jobs.
-import { API_BASE, api, type ErrorParams } from './client'
+import { api, type ErrorParams } from './client'
 import type { Job } from './jobs'
 
 export interface S3Storage {
@@ -207,9 +207,13 @@ export function fetchBackupFiles(id: string, signal?: AbortSignal): Promise<Back
   return api.get<BackupFiles>(`${planPath(id)}/files`, { signal })
 }
 
-/** Download address (step-up protected: call ensureElevated first). */
-export function backupFileUrl(id: string, name: string): string {
-  return `${API_BASE}${planPath(id)}/files/${encodeURIComponent(name)}`
+/**
+ * Where a backup downloads from (step-up protected): the panel's own copy,
+ * or a short-lived link to the bucket's. Asking first reports errors (gone,
+ * not allowed, the bucket unreachable) on the page instead of in place of it.
+ */
+export async function backupFileLink(id: string, name: string): Promise<string> {
+  return (await api.get<{ url: string }>(`${planPath(id)}/files/${encodeURIComponent(name)}?link=1`)).url
 }
 
 /** Step-up protected; `remote` deletes the bucket's copies too. */

@@ -34,7 +34,7 @@ const showPassword = ref(false)
           <StatusPill :tone="user.totpEnabled ? 'success' : 'warning'">
             {{ user.totpEnabled ? t('settings.security.stateOn') : t('settings.security.stateOff') }}
           </StatusPill>
-          <RouterLink :to="{ name: 'settings-security' }" class="text-detail text-link underline-offset-2 hover:underline">
+          <RouterLink :to="{ name: 'settings-security' }" class="text-detail text-link underline-offset-2 hover:underline tap-y">
             {{ t('settings.account.manageTotp') }}
           </RouterLink>
         </KeyValueRow>

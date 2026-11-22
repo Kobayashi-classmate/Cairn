@@ -1,7 +1,8 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts" generic="T">
-import { computed, ref, watch, type HTMLAttributes, type VNodeChild } from 'vue'
+import { computed, nextTick, ref, watch, type HTMLAttributes, type VNodeChild } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useResizeObserver } from '@vueuse/core'
 import { ArrowDown, ArrowUp, ArrowUpDown, Search, SearchX, X } from '@lucide/vue'
 import {
   FlexRender,
@@ -143,16 +144,27 @@ const showToolbar = computed(() => props.searchPlaceholder !== undefined)
 const initialLoading = computed(() => props.loading && props.data.length === 0 && !props.error)
 const failedEmpty = computed(() => !!props.error && props.data.length === 0)
 
-// Rows that disappear (deleted, filtered out by a refresh) leave the selection.
-watch(
-  () => props.data,
-  (data) => {
-    if (selection.value.length === 0) return
-    const keys = new Set((data as T[]).map((row) => props.rowKey(row)))
-    const kept = selection.value.filter((key) => keys.has(key))
-    if (kept.length !== selection.value.length) selection.value = kept
-  },
-)
+// A table wider than its card scrolls sideways. When nothing inside it can
+// take focus (no rows, read-only rows), the scroller itself joins the tab
+// order so the keyboard can scroll it.
+const scroller = ref<HTMLElement | null>(null)
+const scrollFocusable = ref(false)
+const FOCUSABLE = 'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])'
+function updateScrollFocusable() {
+  const el = scroller.value
+  scrollFocusable.value = !!el && el.scrollWidth > el.clientWidth + 1 && !el.querySelector(`tbody :is(${FOCUSABLE})`)
+}
+useResizeObserver(scroller, updateScrollFocusable)
+watch(rows, () => void nextTick(updateScrollFocusable))
+
+// Rows that are no longer shown (deleted, filtered out by a refresh, hidden
+// by the search) leave the selection: bulk actions act only on rows in view.
+watch(rows, (shown) => {
+  if (selection.value.length === 0) return
+  const keys = new Set(shown.map((row) => props.rowKey(row)))
+  const kept = selection.value.filter((key) => keys.has(key))
+  if (kept.length !== selection.value.length) selection.value = kept
+})
 
 const visibleKeys = computed(() =>
   rows.value.filter((row) => !props.canSelect || props.canSelect(row)).map((row) => props.rowKey(row)),
@@ -232,7 +244,7 @@ function rowLabel(row: T): string {
         <button
           v-if="search"
           type="button"
-          class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:-me-2.5 max-md:size-11"
           :aria-label="t('common.table.clearSearch')"
           @click="search = ''"
         >
@@ -255,10 +267,19 @@ function rowLabel(row: T): string {
       </Notice>
     </div>
 
-    <div class="min-w-0 overflow-x-auto">
+    <!-- relative: visually hidden text in cells is positioned inside the
+         scroller instead of widening the page. Without rows the table drops
+         its minimum width, so the empty state fits without scrolling. -->
+    <div
+      ref="scroller"
+      class="relative min-w-0 overflow-x-auto focus-visible:-outline-offset-2"
+      :tabindex="scrollFocusable ? 0 : undefined"
+      :role="scrollFocusable ? 'group' : undefined"
+      :aria-label="scrollFocusable ? label : undefined"
+    >
       <table
         class="w-full border-collapse text-sm"
-        :style="{ minWidth: `${minWidth}px` }"
+        :style="{ minWidth: rows.length > 0 || initialLoading ? `${minWidth}px` : undefined }"
         :aria-label="label"
         :aria-busy="loading || undefined"
       >
@@ -287,7 +308,7 @@ function rowLabel(row: T): string {
               <button
                 v-if="header.column.getCanSort()"
                 type="button"
-                class="-mx-1 inline-flex items-center gap-1 rounded-sm px-1 outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                class="-mx-1 inline-flex items-center gap-1 rounded-sm px-1 outline-none tap-area hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                 @click="header.column.toggleSorting(header.column.getIsSorted() === 'asc')"
               >
                 {{ headerText(header.column) }}
@@ -297,6 +318,8 @@ function rowLabel(row: T): string {
               </button>
               <template v-else-if="!header.isPlaceholder">
                 <span v-if="headerText(header.column)">{{ headerText(header.column) }}</span>
+                <!-- The row actions column has no visible heading. -->
+                <span v-else-if="header.column.id === 'actions'" class="sr-only">{{ t('common.table.actions') }}</span>
                 <FlexRender v-else :render="header.column.columnDef.header" :props="header.getContext()" />
               </template>
             </th>

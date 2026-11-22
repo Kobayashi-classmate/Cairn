@@ -229,7 +229,7 @@ const deliveryColumns = computed<ColumnDef<Delivery>[]>(() => [
           <span class="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              class="truncate rounded-sm text-start font-semibold underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+              class="truncate rounded-sm text-start font-semibold underline decoration-border underline-offset-[3px] tap-y outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
               dir="auto"
               @click="openEdit(row)"
             >

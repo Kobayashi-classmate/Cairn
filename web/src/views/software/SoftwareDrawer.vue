@@ -66,6 +66,9 @@ const installed = computed(() => offer.value?.installed === true)
 const lines = computed(() => (entry.value ? installedOffers(entry.value) : []))
 
 const canManage = computed(() => session.can('software.manage'))
+// Configuration files are as good as root (nginx loads modules and writes
+// logs where it is told): administrators only.
+const canConfig = computed(() => session.can('software.config'))
 const canReadLogs = computed(() => session.can('logs.read') && navRoutes.value.has('logs'))
 const hasUnits = computed(() => (offer.value?.units?.length ?? 0) > 0)
 const busy = computed(() => (entry.value ? store.runningFor(entry.value.id) !== null : false))
@@ -76,7 +79,7 @@ const items = computed<DrawerItem<Section>[]>(() => {
   if (installed.value && hasUnits.value) list.push({ value: 'service', label: t('software.drawer.service'), icon: Server })
   list.push({ value: 'version', label: t('software.drawer.version'), icon: Tag })
   if (installed.value && o?.extensions) list.push({ value: 'extensions', label: t('software.drawer.extensions'), icon: Blocks })
-  if (installed.value && canManage.value && (o?.configs?.length ?? 0) > 0) {
+  if (installed.value && canConfig.value && (o?.configs?.length ?? 0) > 0) {
     list.push({ value: 'configs', label: t('software.drawer.configs'), icon: FileCog })
   }
   if (installed.value && hasUnits.value && canReadLogs.value) list.push({ value: 'logs', label: t('software.drawer.logs'), icon: ScrollText })

@@ -9,7 +9,7 @@ import {
   deleteDump,
   dropDatabase,
   dropDbUser,
-  dumpUrl,
+  dumpLink,
   setRemoteAccess,
   type DbDatabase,
   type DbEngine,
@@ -25,6 +25,7 @@ import { i18n } from '@/i18n'
 import { notifyError, notifyInfo, notifySuccess } from '@/lib/notify'
 import type { Tone } from '@/lib/tone'
 import { useDatabasesStore } from '@/stores/databases'
+import { startDownload } from '@/utils/download'
 
 export function engineTone(engine: DbEngine): Tone {
   if (engine.error) return 'destructive'
@@ -90,19 +91,21 @@ export function dumpDatabase(engine: DbEngine, name?: string): Promise<Job | nul
 export function askDropDatabase(engine: DbEngine, db: DbDatabase): Promise<boolean> {
   const { t } = i18n.global
   const store = useDatabasesStore()
+  // The server drops only an owner the panel made the database with.
+  const owner = db.managed && db.owner && engine.users.some((u) => u.name === db.owner && u.managed) ? db.owner : ''
   return confirmAction({
     title: t('databases.db.dropTitle', { name: db.name }),
     description: (withOwner) =>
-      withOwner && db.owner
-        ? `${t('databases.db.dropContent')} ${t('databases.db.dropOwnerText', { user: db.owner })}`
+      withOwner && owner
+        ? `${t('databases.db.dropContent')} ${t('databases.db.dropOwnerText', { user: owner })}`
         : t('databases.db.dropContent'),
     confirmLabel: t('databases.db.drop'),
     destructive: true,
     typeToConfirm: db.name,
-    option: db.owner ? { label: t('databases.db.dropOwner', { user: db.owner }) } : undefined,
+    option: owner ? { label: t('databases.db.dropOwner', { user: owner }) } : undefined,
     run: async (withOwner) => {
       // Step-up protected: the client asks for the password and retries.
-      await store.runJob(() => dropDatabase(engine.id, db.name, withOwner && !!db.owner), { rethrow: true })
+      await store.runJob(() => dropDatabase(engine.id, db.name, withOwner && !!owner), { rethrow: true })
     },
   })
 }
@@ -123,20 +126,20 @@ export function askDropUser(engine: DbEngine, user: DbUser): Promise<boolean> {
   })
 }
 
-/** Downloads through a plain link after re-authenticating, so large dumps stream to disk. */
+/**
+ * Downloads through a plain link after re-authenticating, so large dumps
+ * stream to disk; the link is asked for first, so errors show as a toast.
+ */
 export async function downloadDump(engine: DbEngine, dump: DumpInfo): Promise<void> {
+  let url: string
   try {
     await ensureElevated()
+    url = await dumpLink(engine.id, dump.file)
   } catch (err) {
     if (!isStepUpRequired(err)) notifyError(err)
     return
   }
-  const link = document.createElement('a')
-  link.href = dumpUrl(engine.id, dump.file)
-  link.download = dump.file
-  document.body.append(link)
-  link.click()
-  link.remove()
+  startDownload(url, dump.file)
 }
 
 /** Deletes a dump file (step-up protected); resolves true once it is gone. */

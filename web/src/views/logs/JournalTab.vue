@@ -3,7 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { LoaderCircle } from '@lucide/vue'
+import { ChevronDown, ListFilter, LoaderCircle } from '@lucide/vue'
 import { isAbortError } from '@/api/client'
 import { JOURNAL_MAX, JOURNAL_TIME, fetchJournal, fetchUnits, type JournalEntry } from '@/api/logs'
 import ComboboxField from '@/components/common/ComboboxField.vue'
@@ -15,9 +15,12 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { byteLength } from '@/forms/rules'
 import { validationMessage } from '@/i18n/errors'
 import { formatLogTime, formatNumber } from '@/i18n/format'
 import {
+  DEFAULT_LIMIT,
+  GREP_MAX_BYTES,
   LIMITS,
   PRIORITIES,
   entryText,
@@ -26,6 +29,7 @@ import {
   journalQuery,
   priorityTone,
   sourceOf,
+  unitName,
   type JournalFilters,
 } from '@/logs/journal'
 import { TONE_TEXT } from '@/lib/tone'
@@ -54,6 +58,14 @@ const draft = reactive<JournalFilters>({ ...applied.value })
 
 watch(appliedKey, () => Object.assign(draft, applied.value))
 
+/** On phones the filters fold behind a button so the entries start on the first screen. */
+const filtersOpen = ref(false)
+/** How many filters differ from the defaults, shown on the folded button. */
+const activeFilters = computed(() => {
+  const f = applied.value
+  return [f.unit, f.priority, f.since, f.until, f.grep, f.boot, f.limit !== DEFAULT_LIMIT].filter(Boolean).length
+})
+
 const units = ref<string[]>([])
 const rows = ref<{ id: number; entry: JournalEntry }[]>([])
 const cursor = ref('')
@@ -70,6 +82,9 @@ let stopped = false
 
 const sinceError = computed(() => (draft.since && !JOURNAL_TIME.test(draft.since.trim()) ? validationMessage('since', 'journal_time') : null))
 const untilError = computed(() => (draft.until && !JOURNAL_TIME.test(draft.until.trim()) ? validationMessage('until', 'journal_time') : null))
+// The server counts the search text in bytes: a long Chinese query passes the field's character limit.
+const grepError = computed(() => (byteLength(draft.grep) > GREP_MAX_BYTES ? validationMessage('grep', 'max') : null))
+const draftInvalid = computed(() => !!sinceError.value || !!untilError.value || !!grepError.value)
 
 const priorityOptions = computed<SelectOption[]>(() => [
   { value: '', label: t('logs.allPriorities') },
@@ -81,9 +96,10 @@ const limitOptions = computed<SelectOption[]>(() =>
 
 /** Writes filters into the address; the list follows the address. */
 function apply(next: Partial<JournalFilters> = {}) {
-  if (sinceError.value || untilError.value) return
   Object.assign(draft, next)
-  const filters: JournalFilters = { ...draft, since: draft.since.trim(), until: draft.until.trim(), unit: draft.unit.trim() }
+  if (draftInvalid.value) return
+  const unit = draft.unit.trim()
+  const filters: JournalFilters = { ...draft, since: draft.since.trim(), until: draft.until.trim(), unit: unit && unitName(unit) }
   const query = filtersQuery(filters, route.query)
   if (JSON.stringify(filtersFrom(query)) === appliedKey.value) {
     void load()
@@ -112,6 +128,11 @@ async function load() {
     loaded.value = true
   } catch (err) {
     if (isAbortError(err) || controller !== request) return
+    // The old entries belong to other filters: drop them rather than show them under these.
+    rows.value = []
+    cursor.value = ''
+    dropped.value = false
+    loaded.value = false
     loadError.value = err
     follow.value = false
   } finally {
@@ -126,11 +147,15 @@ async function load() {
 async function poll() {
   // A load in flight continues the list itself.
   if (controller) return
-  if (!follow.value || !cursor.value) return schedule()
+  if (!follow.value) return schedule()
   const request = new AbortController()
   controller = request
   try {
-    const query = { ...journalQuery(applied.value), until: undefined, after: cursor.value, limit: JOURNAL_MAX }
+    // Without a cursor (nothing was found, and the server knew no end of
+    // the journal) ask again without the end time rather than idle.
+    const query = cursor.value
+      ? { ...journalQuery(applied.value), until: undefined, after: cursor.value, limit: JOURNAL_MAX }
+      : { ...journalQuery(applied.value), until: undefined, limit: applied.value.limit }
     const journal = await fetchJournal(query, request.signal)
     if (controller !== request) return
     if (journal.entries.length > 0) {
@@ -201,61 +226,84 @@ function toneClass(priority: number): string {
 <template>
   <div class="flex min-w-0 flex-col gap-3">
     <form class="flex flex-col gap-3 rounded-lg border bg-card px-4 py-3.5" novalidate @submit.prevent="apply()">
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)]">
-        <FormField id="journal-unit" :label="t('common.field.unit')">
-          <template #default="field">
-            <ComboboxField
-              v-bind="field"
-              v-model="draft.unit"
-              :options="units"
-              :placeholder="t('logs.allUnits')"
-              :clear-label="t('logs.clearUnit')"
-              mono
-              @commit="(unit: string) => apply({ unit })"
-            />
-          </template>
-        </FormField>
-        <FormField id="journal-priority" :label="t('logs.minimumLevel')">
-          <template #default="field">
-            <SelectField v-bind="field" :model-value="draft.priority" :options="priorityOptions" @update:model-value="(priority: string) => apply({ priority })" />
-          </template>
-        </FormField>
-        <FormField id="journal-since" :label="t('common.field.since')" :error="sinceError">
-          <template #default="field">
-            <Input v-bind="field" v-model="draft.since" :placeholder="t('logs.sincePlaceholder')" spellcheck="false" autocomplete="off" class="font-mono max-md:h-11" dir="ltr" />
-          </template>
-        </FormField>
-        <FormField id="journal-until" :label="t('common.field.until')" :error="untilError">
-          <template #default="field">
-            <Input v-bind="field" v-model="draft.until" :placeholder="t('logs.untilPlaceholder')" spellcheck="false" autocomplete="off" class="font-mono max-md:h-11" dir="ltr" />
-          </template>
-        </FormField>
-      </div>
-      <div class="flex flex-wrap items-end gap-x-4 gap-y-3">
-        <FormField id="journal-grep" :label="t('logs.grep')" class="min-w-0 flex-[1_1_220px]">
-          <template #default="field">
-            <Input v-bind="field" v-model="draft.grep" maxlength="200" type="search" spellcheck="false" autocomplete="off" class="max-md:h-11" />
-          </template>
-        </FormField>
-        <FormField id="journal-limit" :label="t('common.field.limit')" class="w-36">
-          <template #default="field">
-            <SelectField v-bind="field" :model-value="String(draft.limit)" :options="limitOptions" @update:model-value="(limit: string) => apply({ limit: Number(limit) })" />
-          </template>
-        </FormField>
-        <label class="flex h-9 cursor-pointer items-center gap-2 text-detail max-md:h-11">
-          <Checkbox :model-value="draft.boot" @update:model-value="(boot: boolean | 'indeterminate') => apply({ boot: boot === true })" />
-          {{ t('logs.boot') }}
-        </label>
-        <Button type="submit" class="max-md:h-11" :disabled="!!sinceError || !!untilError">
-          <LoaderCircle v-if="loading" class="animate-spin" aria-hidden="true" />
-          {{ t('logs.apply') }}
+      <!-- Phones: a button folds the filters; following stays at hand. -->
+      <div class="flex items-center gap-3 md:hidden">
+        <Button
+          type="button"
+          variant="outline"
+          :aria-expanded="filtersOpen"
+          aria-controls="journal-filters"
+          @click="filtersOpen = !filtersOpen"
+        >
+          <ListFilter aria-hidden="true" />
+          {{ t('logs.filters') }}
+          <span v-if="activeFilters > 0" class="rounded-full bg-primary-soft px-1.5 text-caption text-primary-soft-foreground tabular-nums">
+            {{ activeFilters }}
+          </span>
+          <ChevronDown :class="cn('transition-transform', filtersOpen && 'rotate-180')" aria-hidden="true" />
         </Button>
-        <label class="ms-auto flex h-9 cursor-pointer items-center gap-2 text-detail font-medium max-md:h-11">
+        <label class="ms-auto flex h-11 cursor-pointer items-center gap-2 text-detail font-medium">
           <Switch v-model="follow" />
           {{ t('logs.follow') }}
         </label>
       </div>
-      <p class="m-0 text-xs text-muted-foreground">{{ t('logs.timeHint') }}</p>
+      <div id="journal-filters" :class="cn('flex flex-col gap-3', !filtersOpen && 'max-md:hidden')">
+        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)]">
+          <FormField id="journal-unit" :label="t('common.field.unit')">
+            <template #default="field">
+              <ComboboxField
+                v-bind="field"
+                v-model="draft.unit"
+                :options="units"
+                :placeholder="t('logs.allUnits')"
+                :clear-label="t('logs.clearUnit')"
+                mono
+                @commit="(unit: string) => apply({ unit })"
+              />
+            </template>
+          </FormField>
+          <FormField id="journal-priority" :label="t('logs.minimumLevel')">
+            <template #default="field">
+              <SelectField v-bind="field" :model-value="draft.priority" :options="priorityOptions" @update:model-value="(priority: string) => apply({ priority })" />
+            </template>
+          </FormField>
+          <FormField id="journal-since" :label="t('common.field.since')" :error="sinceError">
+            <template #default="field">
+              <Input v-bind="field" v-model="draft.since" :placeholder="t('logs.sincePlaceholder')" spellcheck="false" autocomplete="off" class="font-mono max-md:h-11" dir="ltr" />
+            </template>
+          </FormField>
+          <FormField id="journal-until" :label="t('common.field.until')" :error="untilError">
+            <template #default="field">
+              <Input v-bind="field" v-model="draft.until" :placeholder="t('logs.untilPlaceholder')" spellcheck="false" autocomplete="off" class="font-mono max-md:h-11" dir="ltr" />
+            </template>
+          </FormField>
+        </div>
+        <div class="flex flex-wrap items-end gap-x-4 gap-y-3">
+          <FormField id="journal-grep" :label="t('logs.grep')" :error="grepError" class="min-w-0 flex-[1_1_220px]">
+            <template #default="field">
+              <Input v-bind="field" v-model="draft.grep" maxlength="200" type="search" spellcheck="false" autocomplete="off" class="max-md:h-11" />
+            </template>
+          </FormField>
+          <FormField id="journal-limit" :label="t('common.field.limit')" class="w-36">
+            <template #default="field">
+              <SelectField v-bind="field" :model-value="String(draft.limit)" :options="limitOptions" @update:model-value="(limit: string) => apply({ limit: Number(limit) })" />
+            </template>
+          </FormField>
+          <label class="flex h-9 cursor-pointer items-center gap-2 text-detail max-md:h-11">
+            <Checkbox :model-value="draft.boot" @update:model-value="(boot: boolean | 'indeterminate') => apply({ boot: boot === true })" />
+            {{ t('logs.boot') }}
+          </label>
+          <Button type="submit" class="max-md:h-11" :disabled="draftInvalid">
+            <LoaderCircle v-if="loading" class="animate-spin" aria-hidden="true" />
+            {{ t('logs.apply') }}
+          </Button>
+          <label class="ms-auto flex h-9 cursor-pointer items-center gap-2 text-detail font-medium max-md:hidden">
+            <Switch v-model="follow" />
+            {{ t('logs.follow') }}
+          </label>
+        </div>
+        <p class="m-0 text-xs text-muted-foreground">{{ t('logs.timeHint') }}</p>
+      </div>
     </form>
 
     <LogView
@@ -286,7 +334,7 @@ function toneClass(priority: number): string {
           <button
             v-if="entry.unit"
             type="button"
-            class="w-[30ch] shrink-0 truncate rounded-sm text-start text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 max-md:w-auto max-md:max-w-full"
+            class="-my-0.5 min-h-6 w-[30ch] shrink-0 truncate rounded-sm text-start max-md:-my-3 max-md:py-3 text-muted-foreground outline-none hover:text-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 max-md:w-auto max-md:max-w-full"
             :title="t('logs.filterUnit', { unit: entry.unit })"
             @click="apply({ unit: entry.unit })"
           >

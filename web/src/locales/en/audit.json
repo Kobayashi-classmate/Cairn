@@ -68,7 +68,8 @@
     "source": "Source: {source}",
     "filesDeleted": "Files and users deleted",
     "filesKept": "Files and users kept",
-    "healthRestart": "After failed health checks"
+    "healthRestart": "After failed health checks",
+    "baseUrl": "Service: {url}"
   },
   "action": {
     "auth": {

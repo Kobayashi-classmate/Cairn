@@ -179,7 +179,7 @@ function download() {
         <button
           v-if="query"
           type="button"
-          class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:-me-2.5 max-md:size-11"
           :aria-label="t('common.table.clearSearch')"
           @click="query = ''"
         >
@@ -225,6 +225,7 @@ function download() {
                 <h4 class="m-0 text-detail font-semibold">{{ t('apidocs.requestBody') }}</h4>
                 <pre
                   v-if="requestSchema(op.operation)"
+                  tabindex="0"
                   class="m-0 max-h-80 overflow-auto rounded-md border bg-card px-3 py-2 font-mono text-xs leading-relaxed"
                   dir="ltr"
                 >{{ requestSchema(op.operation) }}</pre>
@@ -239,6 +240,7 @@ function download() {
                   </div>
                   <pre
                     v-if="response.schema"
+                    tabindex="0"
                     class="m-0 max-h-80 overflow-auto rounded-md border bg-card px-3 py-2 font-mono text-xs leading-relaxed"
                     dir="ltr"
                   >{{ response.schema }}</pre>

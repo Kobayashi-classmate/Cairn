@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Archive, History, LayoutDashboard, Pencil, Play, Trash2 } from '@lucide/vue'
 import type { BackupPlan } from '@/api/backups'
@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { useDrawerRoute } from '@/composables/useDrawerRoute'
 import { useBackupsStore } from '@/stores/backups'
 import { useSessionStore } from '@/stores/session'
-import { askDeletePlan, runPlanNow, scheduleText, targetsSummary } from './actions'
+import { askDeletePlan, canHandlePlan, planRunning, runPlanNow, scheduleText, targetsSummary } from './actions'
 import PlanFilesPane from './drawer/PlanFilesPane.vue'
 import PlanOverviewPane from './drawer/PlanOverviewPane.vue'
 import PlanRunsPane from './drawer/PlanRunsPane.vue'
@@ -29,14 +29,15 @@ const drawer = useDrawerRoute('plan')
 
 const canManage = computed(() => session.can('backups.manage'))
 const plan = computed(() => (drawer.id.value ? store.plan(drawer.id.value) : null))
-const running = ref(false)
 
 const items = computed<DrawerItem<Section>[]>(() => [
   { value: 'overview', label: t('backups.drawer.overview'), icon: LayoutDashboard },
   { value: 'runs', label: t('backups.action.runs'), icon: History },
   { value: 'files', label: t('backups.action.files'), icon: Archive },
 ])
-const dangerItems = computed(() => (canManage.value ? [{ value: 'delete', label: t('backups.plan.delete'), icon: Trash2 }] : []))
+const dangerItems = computed(() =>
+  canManage.value && plan.value && canHandlePlan(plan.value) ? [{ value: 'delete', label: t('backups.plan.delete'), icon: Trash2 }] : [],
+)
 const section = computed<Section>(() => items.value.find((item) => item.value === drawer.section.value)?.value ?? 'overview')
 
 const status = computed(() => {
@@ -57,11 +58,8 @@ const meta = computed(() => {
 const loading = computed(() => drawer.id.value !== null && !store.plans && !store.loadError)
 const error = computed(() => (store.plans ? null : store.loadError))
 
-async function run() {
-  if (!plan.value) return
-  running.value = true
-  await runPlanNow(plan.value)
-  running.value = false
+function run() {
+  if (plan.value) void runPlanNow(plan.value)
 }
 
 function edit() {
@@ -95,11 +93,11 @@ async function onDanger() {
     @retry="store.load()"
   >
     <template v-if="plan && canManage" #actions>
-      <Button variant="outline" size="sm" class="max-md:h-11" @click="edit">
+      <Button v-if="canHandlePlan(plan)" variant="outline" size="sm" class="max-md:h-11" @click="edit">
         <Pencil aria-hidden="true" />
         {{ t('common.action.edit') }}
       </Button>
-      <Button size="sm" class="max-md:h-11" :disabled="running" @click="run">
+      <Button size="sm" class="max-md:h-11" :disabled="!plan || planRunning(plan.id)" @click="run">
         <Play aria-hidden="true" />
         {{ t('backups.action.run') }}
       </Button>

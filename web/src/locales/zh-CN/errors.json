@@ -7,7 +7,7 @@
   },
   "auth": {
     "invalid_credentials": "用户名或密码错误。",
-    "rate_limited": "登录尝试次数过多，请在 {retryAfter}后重试。",
+    "rate_limited": "失败次数过多，请稍后重试。",
     "unauthenticated": "请先登录。",
     "session_expired": "登录已过期，请重新登录。",
     "forbidden": "你没有执行此操作的权限。",
@@ -18,7 +18,8 @@
     "mfa_challenge_expired": "本次登录已超时，请重新输入密码。",
     "totp_not_pending": "两步验证设置已超时，请重新开始。",
     "totp_already_enabled": "两步验证已经开启。",
-    "token_invalid": "API 令牌无效、已过期，或不允许从当前地址使用。"
+    "token_invalid": "API 令牌无效、已过期，或不允许从当前地址使用。",
+    "busy": "同时进行的密码验证过多，请稍后重试。"
   },
   "setup": {
     "invalid_token": "初始化令牌无效或已过期。请使用服务器上最新打印的初始化链接。",
@@ -103,7 +104,19 @@
       "endpoint": "{field}必须是主机名，可带端口，不能带“https://”或路径。",
       "port_spec": "请检查{field}：每一项必须是端口（1–65535）或范围，如 8000-8100。",
       "same_port": "转发到本机时，{field}必须与监听端口不同。",
-      "forward_target": "{field}必须是另一台主机的 IPv4 地址，不能是 127.x.x.x、0.0.0.0、组播地址或广播地址。"
+      "forward_target": "{field}必须是另一台主机的 IPv4 地址，不能是 127.x.x.x、0.0.0.0、组播地址或广播地址。",
+      "cidr": "请检查{field}：每一项都必须是 IP 地址或 CIDR 网段。",
+      "min": "{field}太小。",
+      "extension": "{field}中包含无效的扩展名称。",
+      "fingerprint": "{field}不是有效的密钥指纹。",
+      "catalog": "{field}不在软件目录中。",
+      "site_code_new": "{field}不能以“-run”结尾：这个名称属于另一个网站的运行用户。",
+      "file_sites": "{field}只适用于静态网站和 PHP 网站。",
+      "firewall_id": "{field}不是防火墙规则。",
+      "trash_id": "{field}不是回收站里的条目。",
+      "upload_id": "{field}不是上传任务。",
+      "tus": "上传请求的格式不对。",
+      "tus_metadata": "上传请求没有正确给出文件名和所在目录。"
     }
   },
   "locale": {
@@ -183,7 +196,9 @@
     "ext_needed": "卸载它会同时卸载其他已安装的软件包，未卸载任何内容。",
     "service_none": "此版本没有服务。",
     "service_no_systemd": "无法控制服务：此系统没有运行 systemd。",
-    "service_no_reload": "该服务不支持重新加载配置，请改为重启。"
+    "service_no_reload": "该服务不支持重新加载配置，请改为重启。",
+    "remove_takes": "卸载此版本会同时卸载依赖它的其他已安装软件包，未卸载任何内容。",
+    "in_use": "仍有网站在使用此版本，请先把它们切换到其他版本。"
   },
   "module": {
     "disabled": "此功能已在模块设置中关闭。",
@@ -212,7 +227,9 @@
       "ext_unknown": "未知的扩展 {extension}。",
       "ext_unavailable": "扩展 {extension} 没有适用于此系统的版本。",
       "ext_needed": "卸载它会同时卸载 {packages}（{by} 需要它们），未卸载任何内容。",
-      "service_no_reload": "{service} 不支持重新加载配置，请改为重启。"
+      "service_no_reload": "{service} 不支持重新加载配置，请改为重启。",
+      "remove_takes": "卸载 {packages} 会同时卸载依赖它们的其他已安装软件包：{by}。未卸载任何内容。",
+      "in_use": "{software} {line} 仍被以下网站使用：{sites}。请先把它们切换到其他版本。"
     },
     "software": {
       "install_incomplete": "未安装：{failed}"
@@ -226,7 +243,8 @@
       "rewrite_unknown": "伪静态规则 {rewrite} 不存在，或不适用于此类网站。",
       "cert_missing": "证书 {cert} 不在这台服务器上。",
       "cert_coverage": "证书 {cert} 没有覆盖 {domains}。",
-      "selinux": "无法设置 SELinux 标签：{detail}"
+      "selinux": "无法设置 SELinux 标签：{detail}",
+      "user_conflict": "系统用户 {user} 已存在，但不在 {group} 组中：它是为其他用途创建的，网站不会接管它。请换一个网站代号。"
     },
     "cert": {
       "invalid": "证书或私钥无效：{reason}",
@@ -240,7 +258,9 @@
       "port_taken": "端口 {port} 已被{owner}占用。"
     },
     "stream": {
-      "port_taken": "端口 {port} 已被{owner}占用。"
+      "port_taken": "端口 {port} 已被{owner}占用。",
+      "local_upstream": "{upstream} 位于本服务器上：转发到它会把它暴露到网络上，这需要修改防火墙的权限。",
+      "upstream_name": "{upstream} 不是常规写法的 IP 地址。只有可以修改防火墙的账号才能用主机名指定上游，因为主机名可能指向本服务器。"
     },
     "db": {
       "engine_missing": "数据库服务 {engine} 未安装。",
@@ -277,7 +297,9 @@
       "no_space": "磁盘剩余空间不足（需要 {size}）。",
       "user_unknown": "服务器上没有名为 {name} 的用户或用户组。",
       "into_itself": "{path} 不能复制或移动到它自身里面。",
-      "too_many_favorites": "最多只能收藏 {max} 个。"
+      "too_many_favorites": "最多只能收藏 {max} 个。",
+      "fetch_failed": "下载失败：{detail}",
+      "unpack_failed": "无法准备解压该压缩包：{reasonText}。"
     },
     "term": {
       "user_not_allowed": "终端不能以 {user} 的身份运行。",
@@ -291,7 +313,8 @@
       "not_found": "备份 {name} 不存在（或已被删除）。",
       "storage_failed": "无法访问存储，或存储拒绝了请求：{detail}",
       "storage_in_use": "仍有 {plans} 个备份方案在使用此存储，请先修改它们。",
-      "plan_in_use": "仍有 {tasks} 个计划任务在运行此方案，请先删除它们。"
+      "plan_in_use": "仍有 {tasks} 个计划任务在运行此方案，请先删除它们。",
+      "endpoint_not_allowed": "{endpoint} 指向 {address}，这是本服务器自身或云元数据服务的地址。请使用其他主机上的存储（内网地址可以使用）。"
     },
     "firewall": {
       "self_block": "封禁 {address} 会封禁你自己的地址，导致你无法再访问面板。",
@@ -304,9 +327,10 @@
     "ssh": {
       "config_invalid": "SSH 配置无效：{output}",
       "conflict": "{key} 在 {file} 中设置，请先在那里修改或删除。",
-      "port_in_use": "端口 {port} 已被占用。",
+      "port_in_use": "端口 {port} 已被占用：已有其他程序在监听它，或者它是面板的端口。",
       "selinux_port": "SELinux 不允许 SSH 使用端口 {port}（类型 {type}）。",
-      "not_listening": "SSH 没有在端口 {port} 上监听。"
+      "not_listening": "SSH 没有在端口 {port} 上监听。",
+      "no_keys": "删除此密钥后，{user} 在密码登录关闭的情况下将没有可用的密钥，该账号将无法登录。请先添加其他密钥或开启密码登录。"
     },
     "host": {
       "swap_unsupported": "{reasonText}",
@@ -319,6 +343,9 @@
     },
     "terminal": {
       "too_many_snippets": "最多只能保存 {max} 条常用命令。"
+    },
+    "auth": {
+      "rate_limited": "失败次数过多，请在 {retryAfter}后重试。"
     }
   },
   "software": {
@@ -336,7 +363,8 @@
     "rewrite_unknown": "该伪静态规则不存在，或不适用于此类网站。",
     "cert_missing": "该网站使用的证书不在这台服务器上。",
     "cert_coverage": "该证书没有覆盖网站的所有域名。",
-    "selinux": "无法设置 SELinux 标签。"
+    "selinux": "无法设置 SELinux 标签。",
+    "user_conflict": "已存在与该网站同名的系统用户，且它是为其他用途创建的，网站不会接管它。"
   },
   "cert": {
     "not_found": "该证书不存在。",
@@ -348,6 +376,7 @@
     "http01_unavailable": "无法进行 HTTP 验证：nginx 未运行，且 80 端口已被占用。",
     "domains_not_covered": "该证书没有覆盖网站的所有域名。",
     "not_acme": "只有通过 ACME 签发的证书才能续期。",
+    "busy": "该证书正在签发或续期，请等待该任务完成。",
     "not_valid": "只能使用有效的证书。"
   },
   "dns": {
@@ -367,10 +396,13 @@
     "module_missing": "未安装 nginx 的 stream 模块。",
     "port_taken": "该端口已被占用。",
     "not_found": "该四层代理不存在。",
-    "code_taken": "该代号已被其他四层代理使用。"
+    "code_taken": "该代号已被其他四层代理使用。",
+    "local_upstream": "上游位于本服务器上（回环地址）：代理会把它暴露到网络上，这需要修改防火墙的权限。",
+    "port_listening": "端口 {port} 已被占用：本服务器上的其他程序正在监听它。",
+    "upstream_name": "没有修改防火墙的权限时，上游必须是常规写法的 IP 地址：主机名可能指向本服务器。"
   },
   "owner": {
-    "site": "网站 {name}",
+    "site": "应用网站 {name}",
     "stream": "四层代理 {name}",
     "panel": "面板"
   },
@@ -397,7 +429,7 @@
     "upload_too_large": "文件过大。"
   },
   "redis": {
-    "password_required": "允许远程访问 Redis 之前，请先设置密码。",
+    "password_required": "其他主机可以连接 Redis 时必须设置密码：请先设置密码再允许远程访问，移除密码前请先改为仅本机访问。",
     "command_failed": "Redis 拒绝了该命令。",
     "key_not_found": "该键不存在（可能已过期）。"
   },
@@ -422,7 +454,9 @@
     "upload_offset": "上传进度与服务器不一致。",
     "upload_complete": "此上传已经完成。",
     "fetch_failed": "下载失败。",
-    "too_many_favorites": "收藏数量已达上限。"
+    "too_many_favorites": "收藏数量已达上限。",
+    "fetch_not_allowed": "服务器不会从此地址下载：它指向服务器自身或内部网络。只允许公网地址。",
+    "unpack_failed": "无法准备解压该压缩包。"
   },
   "access": {
     "locked": "服务器配置不允许 root 访问。"
@@ -455,7 +489,8 @@
     "no_storage": "此方案没有设置存储桶。",
     "storage_in_use": "仍有备份方案在使用此存储，请先修改它们。",
     "plan_in_use": "仍有计划任务在运行此方案，请先删除它们。",
-    "storage_not_found": "此存储不存在（或已被删除）。"
+    "storage_not_found": "此存储不存在（或已被删除）。",
+    "endpoint_not_allowed": "存储地址指向本服务器自身或云元数据服务，备份不能使用它。"
   },
   "log": {
     "no_journal": "本服务器没有系统日志（journalctl）。"
@@ -494,7 +529,13 @@
     "root_disabled": "关闭 root 访问期间不能修改 root 的密钥。",
     "conflict_include": "sshd_config 没有读取 sshd_config.d 中的文件（{file}），请先为它们添加 Include 行。",
     "selinux_semanage_missing": "SELinux 会阻止 SSH 使用端口 {port}，而用于放行的 semanage（policycoreutils-python-utils）没有安装。",
-    "selinux_semanage_failed": "SELinux 会阻止 SSH 使用端口 {port}，用 semanage 放行失败。"
+    "selinux_semanage_failed": "SELinux 会阻止 SSH 使用端口 {port}，用 semanage 放行失败。",
+    "port_forwarded": "端口 {port} 已被防火墙的端口转发占用：到这个端口的连接永远不会到达 SSH。",
+    "keyInvalid": {
+      "too_many": "该用户的 authorized_keys 文件已超过 1 MiB，请先删除一些密钥再添加。",
+      "rsa_short": "此 RSA 密钥短于 2048 位，请使用更长的 RSA 密钥或 Ed25519 密钥。",
+      "not_found": "此密钥未被授权（或已被删除）。"
+    }
   },
   "host": {
     "hostname_invalid": "只能使用字母、数字、连字符和点，最多 253 个字符。",

@@ -7,6 +7,7 @@ import {
   markAnnouncementRead,
   type Announcement,
 } from '@/api/announcements'
+import { onAccountReset } from './accountReset'
 
 /** Official messages for the top-bar bell, the banner and the messages page. */
 export const useAnnouncementsStore = defineStore('announcements', () => {
@@ -76,6 +77,7 @@ export const useAnnouncementsStore = defineStore('announcements', () => {
     dismissed.value.clear()
     lastFetch = 0
   }
+  onAccountReset(reset)
 
   return {
     items,

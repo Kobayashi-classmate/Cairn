@@ -3,7 +3,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, toRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RotateCw } from '@lucide/vue'
-import { isAbortError } from '@/api/client'
+import { isAbortError, isApiError } from '@/api/client'
 import { fetchAppLog, fetchAppStatus, type AppStatus, type SiteView } from '@/api/sites'
 import Card from '@/components/common/Card.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
@@ -63,6 +63,14 @@ let statusController: AbortController | null = null
 let logController: AbortController | null = null
 let unmounted = false
 
+/**
+ * An answer that stays the same however often it is asked (no systemd, the
+ * app or site is gone, not allowed): polling stops; "Retry" starts it again.
+ */
+function permanent(err: unknown): boolean {
+  return isApiError(err) && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429
+}
+
 async function loadStatus() {
   clearTimeout(statusTimer)
   statusController?.abort()
@@ -74,6 +82,7 @@ async function loadStatus() {
   } catch (err) {
     if (isAbortError(err)) return
     statusError.value = err
+    if (permanent(err)) return
   }
   if (!unmounted) statusTimer = setTimeout(() => void loadStatus(), STATUS_MS)
 }
@@ -99,6 +108,7 @@ async function loadLog() {
   } catch (err) {
     if (isAbortError(err)) return
     logError.value = err
+    if (permanent(err)) return
   }
   if (!unmounted && follow.value) logTimer = setTimeout(() => void loadLog(), LOG_MS)
 }
@@ -214,6 +224,7 @@ const uptime = computed(() => {
         part="all"
         id-prefix="site-drawer-app"
         :disabled="!canManage || busy"
+        :env-hidden="!canManage"
       />
     </div>
   </Card>
@@ -227,7 +238,7 @@ const uptime = computed(() => {
       </label>
     </template>
     <ErrorState v-if="logError && lines.length === 0" :error="logError" compact @retry="loadLog" />
-    <div v-else ref="box" class="max-h-[min(60vh,520px)] overflow-auto bg-muted/60 px-4 py-3">
+    <div v-else ref="box" class="max-h-[min(60vh,520px)] overflow-auto bg-muted/60 px-4 py-3" role="log" :aria-label="t('sites.process.journal')" tabindex="0">
       <p v-if="lines.length === 0" class="m-0 text-detail text-muted-foreground">{{ t('sites.logs.empty') }}</p>
       <pre v-else class="m-0 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]" dir="ltr">{{
         lines.join('\n')

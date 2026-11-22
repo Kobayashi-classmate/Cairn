@@ -78,7 +78,8 @@
     "saved": "Plan {name} saved.",
     "scheduleMore": "{first} and {count} more",
     "separator": ", ",
-    "sheetIntro": "What to back up, where to keep it and how many backups to keep."
+    "sheetIntro": "What to back up, where to keep it and how many backups to keep.",
+    "adminOnly": "This plan backs up folders outside the site directories. Only accounts that may open those folders in the file manager can save it."
   },
   "files": {
     "empty": "There are no backups yet.",
@@ -95,7 +96,8 @@
     "hint": "Downloading and restoring ask for your password. A copy that is only in the bucket downloads from the bucket directly.",
     "search": "Search backups",
     "deleteConfirm": "Delete backups",
-    "deleteTextRemote": "The backups are deleted from this server and from the bucket."
+    "deleteTextRemote": "The backups are deleted from this server and from the bucket.",
+    "adminOnly": "Backups of folders outside the site directories can only be downloaded or restored by accounts that may open those folders in the file manager."
   },
   "restore": {
     "title": "Restore {name}",
@@ -165,7 +167,8 @@
     "sheetIntro": "An S3-compatible bucket. The secret key is kept encrypted and never shown again.",
     "testConnection": "Test connection",
     "unused": "Not used",
-    "usedBy": "Used by"
+    "usedBy": "Used by",
+    "adminOnly": "Plans that back up folders outside the site directories keep their backups here: only accounts that may open those folders in the file manager can change this storage."
   },
   "status": {
     "plans": "{count} plan | {count} plans",

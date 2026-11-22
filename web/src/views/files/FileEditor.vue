@@ -3,9 +3,10 @@
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
-import { Download, FileText, LoaderCircle, Save, X } from '@lucide/vue'
+import { Download, FileText, LoaderCircle, Lock, Save, X } from '@lucide/vue'
 import { isApiError, isStepUpRequired } from '@/api/client'
 import { FILE_READ_MAX, downloadUrl, readFile, saveFile, type FileEntry } from '@/api/files'
+import EmptyState from '@/components/common/EmptyState.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
 import Notice from '@/components/common/Notice.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
@@ -21,6 +22,7 @@ import { absolutePath, baseName } from '@/files/paths'
 import { errorMessage } from '@/i18n/errors'
 import { formatBytes } from '@/i18n/format'
 import { notifySuccess } from '@/lib/notify'
+import { onDownloadClick } from './actions'
 
 // A text file in the editor, in a wide sheet whose state is in the address
 // (`?open=edit:<path>`, `&line=` from a search). Saving names the version
@@ -247,7 +249,7 @@ const size = computed(() => (entry.value ? formatBytes(entry.value.size) : ''))
           </SheetDescription>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-          <Button v-if="path" as="a" variant="outline" :href="downloadUrl(root, path)" class="max-md:h-11">
+          <Button v-if="path" as="a" variant="outline" :href="downloadUrl(root, path)" :download="name" class="max-md:h-11" @click="onDownloadClick($event, root, path)" @auxclick="onDownloadClick($event, root, path)">
             <Download aria-hidden="true" />
             {{ t('files.action.download') }}
           </Button>
@@ -293,11 +295,22 @@ const size = computed(() => (entry.value ? formatBytes(entry.value.size) : ''))
         <div v-else-if="loadError && notText" class="flex flex-col items-center gap-3 rounded-md border bg-card px-4 py-12 text-center">
           <FileText class="size-6 text-muted-foreground" aria-hidden="true" />
           <p class="m-0 font-medium">{{ errorMessage(loadError) }}</p>
-          <Button v-if="path" as="a" variant="outline" :href="downloadUrl(root, path)">
+          <Button v-if="path" as="a" variant="outline" :href="downloadUrl(root, path)" :download="name" @click="onDownloadClick($event, root, path)" @auxclick="onDownloadClick($event, root, path)">
             <Download aria-hidden="true" />
             {{ t('files.action.download') }}
           </Button>
         </div>
+        <EmptyState
+          v-else-if="isStepUpRequired(loadError)"
+          :icon="Lock"
+          class="rounded-md border bg-card"
+          :title="t('files.stepUp.file')"
+          :text="t('files.stepUp.text')"
+        >
+          <template #actions>
+            <Button variant="outline" size="sm" class="max-md:h-11" @click="load">{{ t('common.action.retry') }}</Button>
+          </template>
+        </EmptyState>
         <ErrorState v-else-if="loadError" :error="loadError" class="rounded-md border bg-card" @retry="load" />
         <CodeEditor
           v-else-if="path"

@@ -125,7 +125,8 @@ async function removeSelected(list: string[], clear: () => void) {
     run: async () => {
       const deleted = await deleteRedisKeys(number, list)
       notifySuccess(t('databases.keys.deleted', { count: deleted }, deleted))
-      keys.value = keys.value.filter((k) => !list.includes(k.key))
+      const gone = new Set(list)
+      keys.value = keys.value.filter((k) => !gone.has(k.key))
     },
   })
   if (ok) clear()
@@ -199,9 +200,12 @@ function closeValue(open: boolean) {
       flat
     >
       <template #cell-key="{ row }">
+        <!-- Values are for those who may change them (databases.manage). -->
+        <span v-if="!canManage" class="block truncate font-mono text-[12.5px]" dir="ltr">{{ row.key }}</span>
         <button
+          v-else
           type="button"
-          class="inline-flex max-w-full items-center gap-1.5 rounded-sm text-start font-mono text-[12.5px] underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="inline-flex max-w-full items-center gap-1.5 rounded-sm text-start font-mono text-[12.5px] underline decoration-border underline-offset-[3px] tap-y outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
           dir="ltr"
           :disabled="opening !== null"
           @click="open(row)"
@@ -241,11 +245,12 @@ function closeValue(open: boolean) {
           </DialogDescription>
         </div>
         <pre
-          v-if="value.value !== undefined && !value.items"
+          v-if="!value.items && (value.value !== undefined || value.type === 'string')"
+          tabindex="0"
           class="m-0 max-h-[50vh] overflow-auto rounded-md bg-muted px-3 py-2.5 font-mono text-[12.5px] whitespace-pre-wrap [overflow-wrap:anywhere]"
           dir="ltr"
-        >{{ value.value }}</pre>
-        <div v-else class="max-h-[50vh] overflow-auto rounded-md border">
+        >{{ value.value ?? '' }}</pre>
+        <div v-else class="max-h-[50vh] overflow-auto rounded-md border" tabindex="0">
           <table class="w-full border-collapse font-mono text-[12.5px]" dir="ltr">
             <tbody>
               <tr v-for="(row, index) in rows" :key="index" class="border-t first:border-t-0">

@@ -39,11 +39,12 @@
   "role": {
     "title": "修改 {username} 的角色",
     "done": "已修改 {username} 的角色。",
-    "submit": "修改角色"
+    "submit": "修改角色",
+    "hint": "修改角色会关闭 {username} 已打开的终端。"
   },
   "password": {
     "title": "为 {username} 设置新密码",
-    "hint": "{username} 的所有会话都会被退出登录。",
+    "hint": "{username} 的所有会话都会被退出登录，已打开的终端也会关闭。",
     "submit": "设置密码",
     "done": "已修改 {username} 的密码。",
     "rule": "至少 {min} 个字符。"
@@ -51,7 +52,7 @@
   "confirm": {
     "disable": {
       "title": "停用 {username}？",
-      "content": "{username} 会被退出登录，在账号重新启用之前无法登录。"
+      "content": "{username} 会被退出登录，已打开的终端会关闭，在账号重新启用之前无法登录。"
     },
     "resetTotp": {
       "title": "重置 {username} 的两步验证？",
@@ -59,7 +60,7 @@
     },
     "delete": {
       "title": "删除 {username}？",
-      "content": "该账号将被永久删除，并在所有地方退出登录。审计日志中的相关记录会保留。",
+      "content": "该账号将被永久删除，在所有地方退出登录，已打开的终端也会关闭。审计日志中的相关记录会保留。",
       "confirm": "删除用户"
     }
   },

@@ -301,7 +301,9 @@
       "restart": "Restart {service}",
       "restartDatabase": "Restart {service}: its connections are briefly interrupted",
       "rollback": "Put the previous file back if any of this fails"
-    }
+    },
+    "reloadTitle": "Reload the file?",
+    "reloadText": "Your changes in the editor are discarded and the file is read as it is on the server now."
   },
   "logs": {
     "unit": "Service",

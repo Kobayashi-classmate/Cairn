@@ -13,7 +13,7 @@ type NamedParams = Record<string, string | number | boolean>
 const UNKNOWN_KEY = 'errors.unknown'
 
 /** Field names the server shares between forms, labelled by the rule that failed. */
-const FIELD_BY_RULE: Record<string, string> = { site_code: 'siteCode', cert_id: 'certificate' }
+const FIELD_BY_RULE: Record<string, string> = { site_code: 'siteCode', site_code_new: 'siteCode', cert_id: 'certificate' }
 
 /**
  * Translated label of a form field; unknown fields are shown by name.
@@ -93,11 +93,22 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
   if (code === 'file.too_large' && typeof params.entries === 'number') return t('errors.file.too_many_entries', { max: params.entries })
   // Some codes read differently depending on a parameter.
   if (code === 'ssh.conflict' && params.key === 'Include') return t('errors.ssh.conflict_include', decorate(params))
+  // Why a key cannot be added or deleted (too short, too many keys, gone).
+  if (code === 'ssh.key_invalid' && typeof params.reason === 'string' && te(`errors.ssh.keyInvalid.${params.reason}`)) {
+    return t(`errors.ssh.keyInvalid.${params.reason}`)
+  }
   if (code === 'ssh.selinux_port' && (params.type === 'semanage_missing' || params.type === 'semanage_failed')) {
     return t(`errors.ssh.selinux_${params.type}`, decorate(params))
   }
   // A line without a service because the system does not run systemd.
   if (code === 'pkg.service_none' && params.reason === 'no_systemd') return t('errors.pkg.service_no_systemd')
+  // Why a port cannot be used: another program listens on it, or a port forward takes it.
+  if (code === 'stream.port_taken' && params.listening === true) return t('errors.stream.port_listening', decorate(params))
+  if (code === 'ssh.port_in_use' && params.forward === true) return t('errors.ssh.port_forwarded', decorate(params))
+  // A download the server does not make: the address is the server itself or in the internal network.
+  if (code === 'file.fetch_failed' && typeof params.detail === 'string' && params.detail.includes('not allowed')) {
+    return t('errors.file.fetch_not_allowed')
+  }
   // A file operation where every entry failed (the job log lists them).
   if (code === 'op.failed' && typeof params.failed === 'number') return t('errors.op.all_failed', { failed: params.failed }, params.failed)
   const detailed = `errors.detailed.${code}`
@@ -120,6 +131,7 @@ function withOthers(text: string, code: string, params: ErrorParams): string {
 
 /** Where the texts of a code's `reason` parameter live. */
 const REASON_TEXTS: Record<string, string> = {
+  'file.unpack_failed': 'files.unpackReason',
   'firewall.unsupported': 'firewall.unsupportedReason',
   'host.swap_unsupported': 'host.swap.unsupported',
   'syssrc.unsupported': 'host.sources.unsupportedReason',
@@ -147,14 +159,17 @@ function decorateFor(code: string, params: ErrorParams): NamedParams {
   if (code === 'file.no_space' && typeof params.size === 'number') named.size = formatBytes(params.size)
   if (code === 'file.root_unavailable' && typeof params.root === 'string') named.root = rootLabel(params.root)
   if (code === 'file.user_unknown') named.name = String(params.user ?? params.group ?? '')
+  // Site codes come separated by spaces.
+  if (code === 'pkg.in_use' && typeof params.sites === 'string') named.sites = params.sites.split(' ').filter(Boolean).join(', ')
   // Providers of prebuilt runtimes are shown by name (not translated).
   if (typeof params.provider === 'string') named.provider = providerName(params.provider)
   return named
 }
 
 /**
- * Who uses a port, from `site`, `stream` or `panel` parameters, or from
- * `by` ("site <code>", "stream <code>", "panel").
+ * Who uses a port, from `site` (always an app: the ports in question are
+ * an app's), `stream` or `panel` parameters, or from `by` ("site <code>",
+ * "stream <code>", "panel").
  */
 function portOwner(params: ErrorParams): string {
   const { t } = i18n.global

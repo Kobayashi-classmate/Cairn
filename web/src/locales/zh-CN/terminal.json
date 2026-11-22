@@ -13,7 +13,10 @@
     "nobody": "没有可以用来运行终端的用户。",
     "step": "以 {user} 的身份在 {home} 打开登录 Shell",
     "rootWarning": "root 终端可以修改服务器上的任何内容：每条命令都以最高权限运行。",
-    "submit": "打开终端"
+    "submit": "打开终端",
+    "nobodySites": "没有可以用来打开终端的网站所有者。以 root 或其他用户打开终端仅限管理员。",
+    "sitesOnly": "这里只列出网站所有者：以 root 或其他用户打开终端仅限管理员。",
+    "userWarning": "该用户可能可以使用 sudo，这样此终端的权限就与 root 终端相当。"
   },
   "user": {
     "site": "{user}（{site}）",
@@ -42,7 +45,8 @@
   "closeTab": "关闭标签",
   "empty": {
     "title": "没有打开的终端",
-    "text": "打开终端后，可以以网站所有者或其他用户的身份在服务器上运行命令。"
+    "text": "打开终端后，可以以网站所有者或其他用户的身份在服务器上运行命令。",
+    "textSites": "打开终端后，可以以网站所有者的身份在服务器上运行命令。"
   },
   "state": {
     "connecting": "连接中",
@@ -51,10 +55,11 @@
     "ended": "已结束"
   },
   "ended": "Shell 已结束。",
-  "endedNotice": "此终端已结束。",
+  "endedNotice": "此终端已结束：shell 已退出，或服务器关闭了它（账号的角色或密码变更时会这样）。",
   "reopen": "以 {user} 新建一个",
   "opened": "{time}打开",
   "hint": "离开此页面后终端会继续运行 5 分钟。",
+  "focusHint": "先按 Esc 再按 Tab，可以离开终端。",
   "snippets": {
     "title": "常用命令",
     "sheetIntro": "常用命令保存在你的账号里，可以粘贴到当前终端中。",

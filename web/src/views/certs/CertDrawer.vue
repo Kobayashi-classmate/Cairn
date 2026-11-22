@@ -30,7 +30,7 @@ import { copyText, notifyError, notifySuccess } from '@/lib/notify'
 import { expiryStatus } from '@/sites/display'
 import { useCertsStore } from '@/stores/certs'
 import { useSessionStore } from '@/stores/session'
-import { CERT_STATE_TONE, askDeleteCert, askPanelCert, canServePanel, renew } from './actions'
+import { CERT_STATE_TONE, askDeleteCert, askPanelCert, canServePanel, renew, renewing } from './actions'
 
 // A certificate's drawer: its facts with the name and auto-renewal
 // editable, the chain, and what uses it. Renew and "Use for the panel" sit
@@ -49,6 +49,8 @@ const error = ref<unknown>(null)
 const name = ref('')
 const savingName = ref(false)
 const savingRenew = ref(false)
+/** One save at a time: each sends the whole settings, so two would undo each other. */
+const savingSettings = computed(() => savingName.value || savingRenew.value)
 const nameError = ref<unknown>(null)
 
 const canManage = computed(() => session.can('certs.manage'))
@@ -139,7 +141,8 @@ async function saveChanges(changes: { name?: string; autoRenew?: boolean }) {
       autoRenew: changes.autoRenew ?? current.autoRenew,
     })
     cert.value = { ...current, ...updated, chain: current.chain }
-    name.value = cert.value.name
+    // A name being typed stays when only auto-renewal changed.
+    if (changes.name !== undefined) name.value = cert.value.name
     notifySuccess(t('certs.drawer.saved'))
     void store.load()
     return true
@@ -151,7 +154,7 @@ async function saveChanges(changes: { name?: string; autoRenew?: boolean }) {
 
 async function saveName() {
   const trimmed = name.value.trim()
-  if (!trimmed || trimmed === cert.value?.name) return
+  if (savingSettings.value || !trimmed || trimmed === cert.value?.name) return
   savingName.value = true
   nameError.value = null
   try {
@@ -164,6 +167,7 @@ async function saveName() {
 }
 
 async function setAutoRenew(value: boolean) {
+  if (savingSettings.value) return
   savingRenew.value = true
   try {
     await saveChanges({ autoRenew: value })
@@ -210,7 +214,7 @@ const inUse = computed(() => (cert.value ? cert.value.sites.length > 0 || cert.v
         variant="outline"
         size="sm"
         class="max-md:h-11"
-        :disabled="cert.state === 'issuing'"
+        :disabled="cert.state === 'issuing' || renewing(cert.id)"
         @click="renew(cert)"
       >
         <RefreshCw aria-hidden="true" />
@@ -289,7 +293,7 @@ const inUse = computed(() => (cert.value ? cert.value.sites.length > 0 || cert.v
               <RouterLink
                 v-if="cert.lastJob"
                 :to="{ name: 'job', params: { id: cert.lastJob } }"
-                class="text-detail text-link underline-offset-2 hover:underline"
+                class="text-detail text-link underline-offset-2 hover:underline tap-y"
               >
                 {{ t('sites.overview.viewChange') }}
               </RouterLink>
@@ -302,7 +306,7 @@ const inUse = computed(() => (cert.value ? cert.value.sites.length > 0 || cert.v
             <div class="flex flex-wrap items-end gap-2">
               <FormField id="cert-name" :label="t('common.field.name')" class="min-w-0 flex-[1_1_240px]">
                 <template #default="field">
-                  <Input v-bind="field" v-model="name" maxlength="100" autocomplete="off" :disabled="!canManage || savingName" />
+                  <Input v-bind="field" v-model="name" maxlength="100" autocomplete="off" :disabled="!canManage || savingSettings" />
                 </template>
               </FormField>
               <Button
@@ -310,7 +314,7 @@ const inUse = computed(() => (cert.value ? cert.value.sites.length > 0 || cert.v
                 type="submit"
                 variant="outline"
                 class="max-md:h-11"
-                :disabled="savingName || !name.trim() || name.trim() === cert.name"
+                :disabled="savingSettings || !name.trim() || name.trim() === cert.name"
               >
                 {{ t('certs.detail.rename') }}
               </Button>
@@ -321,7 +325,7 @@ const inUse = computed(() => (cert.value ? cert.value.sites.length > 0 || cert.v
               v-model="autoRenew"
               :label="t('certs.issue.autoRenew')"
               :hint="t('certs.drawer.autoRenewHint')"
-              :disabled="!canManage || savingRenew"
+              :disabled="!canManage || savingSettings"
             />
           </form>
         </Card>
@@ -354,7 +358,7 @@ const inUse = computed(() => (cert.value ? cert.value.sites.length > 0 || cert.v
               <RouterLink
                 v-if="navRoutes.has('sites')"
                 :to="{ name: 'sites', query: { open: `site:${code}`, section: 'https' } }"
-                class="text-detail font-medium text-link underline-offset-2 hover:underline"
+                class="text-detail font-medium text-link underline-offset-2 hover:underline tap-y"
               >
                 {{ t('certs.drawer.openSite') }}
               </RouterLink>
@@ -364,7 +368,7 @@ const inUse = computed(() => (cert.value ? cert.value.sites.length > 0 || cert.v
               <RouterLink
                 v-if="session.can('settings.read')"
                 :to="{ name: 'settings-panel' }"
-                class="text-detail font-medium text-link underline-offset-2 hover:underline">
+                class="text-detail font-medium text-link underline-offset-2 hover:underline tap-y">
                 {{ t('common.nav.settings') }}
               </RouterLink>
             </li>

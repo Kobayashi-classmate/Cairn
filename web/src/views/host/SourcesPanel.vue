@@ -132,6 +132,7 @@ const columns = computed<ColumnDef<SourceBackup>[]>(() => [
           :repos="noRepos"
           :switchable="canManage"
           :switch-disabled="busy || probing"
+          :heading-level="3"
           @switch="switchTo"
         />
         <EmptyState v-else compact :title="t('errors.syssrc.unsupported')" />

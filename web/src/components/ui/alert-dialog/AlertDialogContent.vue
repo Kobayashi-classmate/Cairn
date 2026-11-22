@@ -5,6 +5,7 @@ import type { AlertDialogContentEmits, AlertDialogContentProps } from "reka-ui"
 import type { HTMLAttributes } from "vue"
 import { reactiveOmit } from "@vueuse/core"
 import { cn } from "@/lib/utils"
+import { useOpenCount } from "@/lib/portalOrder"
 import {
   AlertDialogContent,
   AlertDialogOverlay,
@@ -22,10 +23,12 @@ const emits = defineEmits<AlertDialogContentEmits>()
 const delegatedProps = reactiveOmit(props, "class")
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+// Cairn: the dialog opened last is painted on top (lib/portalOrder.ts).
+const openCount = useOpenCount()
 </script>
 
 <template>
-  <AlertDialogPortal>
+  <AlertDialogPortal :key="openCount">
     <AlertDialogOverlay
       data-slot="alert-dialog-overlay"
       class="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-overlay"

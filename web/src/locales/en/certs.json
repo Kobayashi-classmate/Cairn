@@ -111,7 +111,8 @@
     "nothingToSet": "Nothing to set up.",
     "save": "Save ACME settings",
     "saved": "ACME settings saved.",
-    "stepUp": "Saving asks for your password again."
+    "stepUp": "Saving asks for your password again.",
+    "kidNeeded": "Enter the key ID too: the HMAC key is used only with it."
   },
   "panel": {
     "title": "Panel certificate",

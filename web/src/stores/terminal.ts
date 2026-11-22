@@ -5,6 +5,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { deleteSnippet, fetchSnippets, type TermSnippet } from '@/api/terminal'
+import { onAccountReset } from './accountReset'
 
 function byName(a: TermSnippet, b: TermSnippet): number {
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id - b.id
@@ -51,6 +52,8 @@ export const useTerminalStore = defineStore('terminal', () => {
     error.value = null
     loading.value = false
   }
+
+  onAccountReset(clear)
 
   return { snippets, error, loading, load, put, remove, clear }
 })

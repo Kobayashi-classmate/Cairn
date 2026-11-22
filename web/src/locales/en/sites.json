@@ -85,7 +85,7 @@
   "form": {
     "domainsHint": "Press Enter after each domain. Wildcards (*.example.com) and IPv4 addresses work; international names are converted automatically. No ports.",
     "codePlaceholder": "derived from the first domain",
-    "codeHint": "A short name for the site directory and users, fixed once the site exists. Leave it empty to derive it from the first domain.",
+    "codeHint": "A short name for the site directory and users, fixed once the site exists. Leave it empty to derive it from the first domain; it cannot end in “-run”.",
     "webSocket": "WebSocket",
     "webSocketHint": "Pass WebSocket connections through to the upstream.",
     "upstreamHost": "Send the upstream’s host name",
@@ -191,7 +191,10 @@
     "envNameLabel": "Name of variable {index}",
     "envValueLabel": "Value of variable {index}",
     "removeEnv": "Remove variable {name}",
-    "noSystemdNotice": "Apps run as systemd services. This system has no systemd, so apps cannot be created here."
+    "noSystemdNotice": "Apps run as systemd services. This system has no systemd, so apps cannot be created here.",
+    "envHidden": "Set (value hidden)",
+    "envNone": "No variables",
+    "envHiddenHint": "Values are shown only to accounts that may manage sites: they often hold passwords and keys."
   },
   "process": {
     "state": {
@@ -294,7 +297,10 @@
   },
   "dirs": {
     "location": "Location",
-    "settings": "Web root and writable directories"
+    "settings": "Web root and writable directories",
+    "allowSymlinks": "Serve links to files of other owners",
+    "allowSymlinksHint": "By default nginx serves a symbolic link only when the link and the file it points to have the same owner. Turn this on when the project's links cross owners, such as Laravel's public/storage.",
+    "allowSymlinksRisk": "With this on, a link in this site can serve any file nginx may read, such as another site's files and the passwords in its configuration."
   },
   "drawer": {
     "runner": "runs as {runner}"

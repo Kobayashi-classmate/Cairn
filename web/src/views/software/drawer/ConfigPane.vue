@@ -22,6 +22,7 @@ import Notice from '@/components/common/Notice.vue'
 import RelativeTime from '@/components/common/RelativeTime.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { confirmAction } from '@/composables/useConfirmDialog'
 import { errorMessage, errorText } from '@/i18n/errors'
 import { formatBytes } from '@/i18n/format'
 import { notifyError, notifySuccess } from '@/lib/notify'
@@ -66,7 +67,11 @@ const version = ref<ConfigVersionContent | null>(null)
 const versionLoading = ref<string | null>(null)
 
 let controller: AbortController | null = null
-onBeforeUnmount(() => controller?.abort())
+let unmounted = false
+onBeforeUnmount(() => {
+  unmounted = true
+  controller?.abort()
+})
 
 const busy = computed(() => store.runningFor(props.entry.id) !== null)
 
@@ -111,6 +116,8 @@ async function load(file: ConfigFile) {
 }
 
 function openFile(file: ConfigFile) {
+  versionSeq++
+  versionLoading.value = null
   current.value = file
   view.value = null
   version.value = null
@@ -125,6 +132,8 @@ function reloadFile() {
 }
 
 function closeFile() {
+  versionSeq++
+  versionLoading.value = null
   controller?.abort()
   current.value = null
   view.value = null
@@ -161,15 +170,20 @@ const steps = computed(() => {
   return list
 })
 
-function onSaved(job: Job, file: ConfigFile) {
+function onSaved(job: Job, file: ConfigFile, content: string) {
   applying.value = false
-  if (current.value?.id !== file.id) return
+  if (job.state === 'succeeded') notifySuccess(t('software.configs.saved', { path: file.path }))
+  // Gone (another file, the drawer closed): nothing on this page to update.
+  if (unmounted || current.value?.id !== file.id) return
   if (job.state === 'succeeded') {
-    notifySuccess(t('software.configs.saved', { path: file.path }))
-    void load(file)
-  } else if (job.error) {
-    failure.value = job.error
+    // Edits made meanwhile (the editor is read-only, but a version may have
+    // been loaded) are not overwritten.
+    if (!dirty.value) void load(file)
+    return
   }
+  if (job.error) failure.value = job.error
+  // The old file stays: what the editor holds is unsaved again.
+  if (view.value && content !== view.value.content) dirty.value = true
 }
 
 async function save() {
@@ -184,12 +198,13 @@ async function save() {
   try {
     const job = await store.runJob(() => saveConfig(props.entry.id, props.offer.line, file.id, content, loaded.sha256), {
       rethrow: true,
-      onFinished: (done) => onSaved(done, file),
+      onFinished: (done) => onSaved(done, file, content),
     })
-    // The editor keeps the new text while the job applies it.
+    // The editor keeps the new text, read-only, while the job applies it.
     if (job) {
       applying.value = true
       editorValue.value = content
+      dirty.value = false
     }
   } catch (err) {
     if (isApiError(err) && err.code === 'pkg.config_changed') conflict.value = true
@@ -208,17 +223,38 @@ const failureOutput = computed(() => {
   return typeof output === 'string' ? output.trim() : ''
 })
 
+/** Numbers the version reads, so a late answer never lands with another file. */
+let versionSeq = 0
+
 async function viewVersion(id: string) {
   const file = current.value
   if (!file) return
+  const mine = ++versionSeq
   versionLoading.value = id
   try {
-    version.value = await fetchConfigVersion(props.entry.id, props.offer.line, file.id, id)
+    const shown = await fetchConfigVersion(props.entry.id, props.offer.line, file.id, id)
+    if (mine === versionSeq && current.value?.id === file.id) version.value = shown
   } catch (err) {
-    notifyError(err)
+    if (mine === versionSeq && current.value?.id === file.id) notifyError(err)
   } finally {
-    versionLoading.value = null
+    if (mine === versionSeq) versionLoading.value = null
   }
+}
+
+/** Reads the file again; unsaved edits go only after asking. */
+async function reloadDiscarding() {
+  if (
+    dirty.value &&
+    !(await confirmAction({
+      title: t('software.configs.reloadTitle'),
+      description: t('software.configs.reloadText'),
+      confirmLabel: t('software.configs.reload'),
+      destructive: true,
+    }))
+  ) {
+    return
+  }
+  reloadFile()
 }
 
 /** Puts the version shown into the editor; saving it restores it. */
@@ -300,7 +336,7 @@ function loadShownVersion() {
       <Notice v-if="conflict" tone="warning">
         {{ t('errors.pkg.config_changed') }}
         <template #action>
-          <button type="button" class="underline underline-offset-2 hover:no-underline" @click="reloadFile">
+          <button type="button" class="underline underline-offset-2 hover:no-underline" @click="reloadDiscarding">
             {{ t('software.configs.reload') }}
           </button>
         </template>
@@ -319,6 +355,7 @@ function loadShownVersion() {
         </div>
         <pre
           v-if="failureOutput"
+          tabindex="0"
           class="m-0 max-h-60 overflow-auto rounded-md bg-card p-3 font-mono text-xs whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]"
           dir="ltr"
         >{{ failureOutput }}</pre>
@@ -337,7 +374,7 @@ function loadShownVersion() {
           :key="editorKey"
           :value="editorValue"
           :path="current.path"
-          :read-only="locked"
+          :read-only="locked || applying"
           :autofocus="false"
           @changed="dirty = true"
           @save="save"
@@ -376,7 +413,7 @@ function loadShownVersion() {
 
       <Card v-if="version" :title="t('software.configs.versionTitle')" :level="3" flush>
         <template #actions>
-          <Button v-if="!locked" variant="outline" size="sm" @click="loadShownVersion">{{ t('software.configs.loadVersion') }}</Button>
+          <Button v-if="!locked" variant="outline" size="sm" :disabled="applying" @click="loadShownVersion">{{ t('software.configs.loadVersion') }}</Button>
           <Button variant="ghost" size="icon" :aria-label="t('common.action.close')" @click="version = null">
             <X aria-hidden="true" />
           </Button>
@@ -384,7 +421,7 @@ function loadShownVersion() {
         <p class="m-0 border-b px-4 py-2 text-xs text-muted-foreground md:px-[18px]">
           <RelativeTime :value="version.savedAt" /> · {{ formatBytes(version.size) }}
         </p>
-        <pre class="m-0 max-h-[50vh] overflow-auto px-4 py-3 font-mono text-xs whitespace-pre md:px-[18px]" dir="ltr">{{ version.content }}</pre>
+        <pre tabindex="0" class="m-0 max-h-[50vh] overflow-auto px-4 py-3 font-mono text-xs whitespace-pre md:px-[18px]" dir="ltr">{{ version.content }}</pre>
       </Card>
 
       <Card v-if="showVersions && view.versions.length > 0" :title="t('software.configs.versionsTitle')" :level="3" flush>

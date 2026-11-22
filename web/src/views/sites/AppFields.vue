@@ -24,6 +24,8 @@ const props = defineProps<{
   /** Which fields: the main ones, the advanced ones, or both. */
   part?: 'main' | 'advanced' | 'all'
   disabled?: boolean
+  /** The values of the environment were not sent (read-only accounts): they show as hidden. */
+  envHidden?: boolean
   idPrefix: string
 }>()
 
@@ -68,7 +70,7 @@ const showAdvanced = computed(() => props.part !== 'main')
       </template>
     </FormField>
     <p v-if="navRoutes.has('software')" class="-mt-3 m-0 text-xs">
-      <RouterLink :to="{ name: 'software' }" class="text-link underline-offset-2 hover:underline">
+      <RouterLink :to="{ name: 'software' }" class="text-link underline-offset-2 hover:underline tap-y">
         {{ t('sites.app.installRuntime') }}
       </RouterLink>
     </p>
@@ -122,7 +124,7 @@ const showAdvanced = computed(() => props.part !== 'main')
     <FormField
       :id="`${idPrefix}-env`"
       :label="t('common.field.app.env')"
-      :hint="t('sites.app.envHint')"
+      :hint="envHidden ? t('sites.app.envHiddenHint') : t('sites.app.envHint')"
       :error="errors['app.env']"
     >
       <template #default="field">
@@ -130,7 +132,8 @@ const showAdvanced = computed(() => props.part !== 'main')
           v-model="app.env"
           :described-by="field['aria-describedby']"
           :invalid="!!field['aria-invalid']"
-          :disabled="disabled"
+          :disabled="disabled || envHidden"
+          :values-hidden="envHidden"
         />
       </template>
     </FormField>

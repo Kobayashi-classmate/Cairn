@@ -29,7 +29,10 @@ const props = defineProps<{
   switchable?: boolean
   /** Switching is not possible right now (another change runs). */
   switchDisabled?: boolean
+  /** Heading level of each slot's title: 3 directly under a page card, 4 (default) inside sheets. */
+  headingLevel?: 3 | 4
 }>()
+const slotHeading = computed(() => (props.headingLevel === 3 ? 'h3' : 'h4'))
 const emit = defineEmits<{ switch: [slot: SourceSlot, candidate: SourceCandidate] }>()
 
 /** Chosen candidate id per runtime slot id. */
@@ -115,7 +118,7 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
   <div class="flex flex-col gap-5">
     <!-- The runtime download: choose where the official file comes from. -->
     <section v-for="slot in downloadSlots" :key="slot.id" class="flex flex-col gap-2.5">
-      <h4 class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</h4>
+      <component :is="slotHeading" class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</component>
       <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-detail">
         <template v-if="slot.version">
           <dt class="text-muted-foreground">{{ t('software.install.version') }}</dt>
@@ -187,7 +190,7 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
 
     <!-- Repositories and system sources: shown for information only. -->
     <section v-for="slot in infoSlots" :key="slot.id" class="flex flex-col gap-2.5">
-      <h4 class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</h4>
+      <component :is="slotHeading" class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</component>
       <Notice v-if="slot.error" tone="destructive">
         {{ slotErrorText(slot) }}
         <code v-if="slotErrorReason(slot)" class="mt-1 block font-mono text-xs font-normal whitespace-pre-wrap [overflow-wrap:anywhere]" dir="ltr">
@@ -195,7 +198,7 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
         </code>
       </Notice>
       <Notice v-if="slot.warning" :tone="slot.warning === 'no_eligible' ? 'destructive' : 'warning'">{{ warningText(slot) }}</Notice>
-      <div v-if="split(slot).compared.length > 0" class="min-w-0 overflow-x-auto rounded-md border">
+      <div v-if="split(slot).compared.length > 0" class="relative min-w-0 overflow-x-auto rounded-md border">
         <table class="w-full min-w-[520px] border-collapse text-detail">
           <thead>
             <tr class="bg-muted text-caption text-muted-foreground">
@@ -222,7 +225,7 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
               <td class="px-3 py-1.5">
                 <Tooltip v-if="candidate.status === 'unreachable' && candidate.error">
                   <TooltipTrigger as-child>
-                    <button type="button" class="rounded-sm text-destructive underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                    <button type="button" class="rounded-sm text-destructive underline decoration-dotted underline-offset-2 outline-none tap-y focus-visible:ring-2 focus-visible:ring-ring/50">
                       {{ statusText(candidate) }}
                     </button>
                   </TooltipTrigger>

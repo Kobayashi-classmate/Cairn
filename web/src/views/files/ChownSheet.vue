@@ -33,8 +33,12 @@ const name = computed(() => entriesLabel(props.entries.map((entry) => entry.path
 
 watch(open, (value) => {
   if (!value) return
-  const first = props.entries[0]
-  Object.assign(form, { user: first?.owner ?? '', group: first?.group ?? '', recursive: false })
+  // Prefilled only where every entry agrees; an empty field keeps each entry's own.
+  const shared = (pick: (entry: FileEntry) => string | undefined) => {
+    const values = new Set(props.entries.map((entry) => pick(entry) ?? ''))
+    return values.size === 1 ? ([...values][0] ?? '') : ''
+  }
+  Object.assign(form, { user: shared((entry) => entry.owner), group: shared((entry) => entry.group), recursive: false })
   errors.value = {}
   error.value = null
 })

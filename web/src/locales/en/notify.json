@@ -115,7 +115,10 @@
     "enableNamed": "Send through {name}",
     "enabledHint": "A turned-off channel keeps its settings but receives nothing.",
     "levelAtLeast": "{level} and above",
-    "typeFixed": "The type of a saved channel cannot change."
+    "typeFixed": "The type of a saved channel cannot change.",
+    "passwordAgain": "The server or port changed: enter the password again, or remove it. The stored password is not sent to another server.",
+    "secretAgain": "The URL changed: enter the signing secret again, or remove it. The stored secret is not sent to another address.",
+    "passwordClear": "Without encryption the password would travel in the clear: enter it again to confirm, or remove it."
   },
   "email": {
     "securityMode": {

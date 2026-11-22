@@ -32,7 +32,7 @@ function onUpdate(value: unknown) {
 }
 
 const itemClass =
-  'inline-flex h-7 min-w-0 flex-auto items-center max-md:h-11 justify-center gap-1 rounded-sm px-1.5 text-caption text-muted-foreground transition-colors outline-none select-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-raise dark:data-[state=on]:bg-track [&_svg]:size-3.5 [&_svg]:shrink-0'
+  'inline-flex h-7 min-w-0 flex-auto items-center max-md:h-11 max-md:min-w-11 justify-center gap-1 rounded-sm px-1.5 text-caption text-muted-foreground transition-colors outline-none select-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-raise dark:data-[state=on]:bg-track [&_svg]:size-3.5 [&_svg]:shrink-0'
 </script>
 
 <template>

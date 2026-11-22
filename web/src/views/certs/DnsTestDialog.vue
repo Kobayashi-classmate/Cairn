@@ -88,6 +88,7 @@ function onOpenChange(open: boolean) {
         <Notice v-if="error" tone="destructive">{{ errorMessage(error) }}</Notice>
         <pre
           v-if="reason"
+          tabindex="0"
           class="m-0 max-h-40 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs whitespace-pre-wrap [overflow-wrap:anywhere]"
           dir="ltr"
         >{{ reason }}</pre>

@@ -12,7 +12,8 @@
   },
   "target": {
     "shell": "以 {user} 身份运行",
-    "backup": "备份方案 {plan}"
+    "backup": "备份方案 {plan}",
+    "urlHidden": "地址已隐藏"
   },
   "state": {
     "applying": "应用中",
@@ -70,7 +71,9 @@
       "backup": "运行备份方案 {plan}",
       "schedule": "运行计划：{schedule}",
       "disabled": "保持停用，直到手动启用"
-    }
+    },
+    "userHintSites": "网站所有者。以 root 或其他用户运行的任务仅限管理员。",
+    "userNote": "该用户不是网站所有者，可能可以使用 sudo：与 root 任务一样，修改、运行和删除此任务都需要管理员权限，保存时还需要再次输入密码。"
   },
   "schedule": {
     "kind": {
@@ -145,6 +148,8 @@
     "nextRuns": "接下来的运行",
     "applying": "正在应用更改。",
     "unknown": "没有这个任务",
-    "unknownText": "它可能已被删除。"
+    "unknownText": "它可能已被删除。",
+    "scriptHidden": "已隐藏：脚本中可能包含密码，只有可以修改此任务的账号才能看到。",
+    "urlHidden": "已隐藏：地址中可能包含密钥，只有可以修改此任务的账号才能看到。"
   }
 }

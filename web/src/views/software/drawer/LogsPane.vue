@@ -121,7 +121,7 @@ function priorityClass(priority: number): string {
       <Skeleton v-for="row in 6" :key="row" class="h-3.5" :style="{ width: `${92 - row * 7}%` }" />
     </div>
     <p v-else-if="entries.length === 0" class="m-0 px-4 py-4 text-detail text-muted-foreground">{{ t('software.logs.empty') }}</p>
-    <div v-else ref="box" class="max-h-[min(65vh,620px)] overflow-auto" role="log" :aria-label="t('software.logs.label', { unit })">
+    <div v-else ref="box" class="max-h-[min(65vh,620px)] overflow-auto" role="log" tabindex="0" :aria-label="t('software.logs.label', { unit })">
       <ol class="m-0 list-none p-0 py-2 font-mono text-xs leading-relaxed" dir="ltr">
         <li v-for="(entry, index) in entries" :key="index" class="flex gap-3 px-4 py-0.5 hover:bg-accent/50">
           <span class="shrink-0 text-muted-foreground tabular-nums">{{ formatLogTime(entry.time / 1000) }}</span>

@@ -137,7 +137,7 @@ function failure(site: SiteView): string {
       <div class="flex min-w-0 flex-col">
         <button
           type="button"
-          class="self-start truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="self-start truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] tap-y outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
           dir="ltr"
           @click="emit('open', row.code)"
         >
@@ -155,7 +155,7 @@ function failure(site: SiteView): string {
       <div class="flex flex-col gap-0.5">
         <Tooltip v-if="siteDisplayState(row) === 'failed' && failure(row)">
           <TooltipTrigger as-child>
-            <button type="button" class="self-start rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+            <button type="button" class="self-start rounded-sm outline-none tap-y focus-visible:ring-2 focus-visible:ring-ring/50">
               <StatusDot :tone="SITE_STATE_TONE[siteDisplayState(row)]">{{ siteStateText(row) }}</StatusDot>
             </button>
           </TooltipTrigger>

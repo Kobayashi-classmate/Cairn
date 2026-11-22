@@ -36,11 +36,26 @@ watch(open, (value) => {
   error.value = null
 })
 
-/** The name the server uses when none is given: the URL's last part. */
+/** Go's path.Base, which the server applies to the URL's path. */
+function pathBase(path: string): string {
+  if (path === '') return '.'
+  const trimmed = path.replace(/\/+$/, '')
+  if (trimmed === '') return '/'
+  return trimmed.slice(trimmed.lastIndexOf('/') + 1)
+}
+
+/**
+ * The name the server uses when none is given: the last part of the URL's
+ * decoded path, taken as written (the browser's URL parser would resolve
+ * "." and ".." segments, the server's does not). "" when that is no usable
+ * name, so one has to be typed.
+ */
 const defaultName = computed(() => {
+  const match = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*([^?#]*)/i.exec(form.url.trim())
+  if (!match) return ''
   try {
-    const path = new URL(form.url.trim()).pathname
-    return decodeURIComponent(path.slice(path.lastIndexOf('/') + 1))
+    const name = pathBase(decodeURIComponent(match[1] ?? ''))
+    return isFileName(name) ? name : ''
   } catch {
     return ''
   }
@@ -61,6 +76,7 @@ function validate(): boolean {
   else if (!isHttpUrl(url) || url.length > 2048 || /^[a-z]+:\/\/[^/]*@/i.test(url)) next.url = validationMessage('url', 'http_url')
   const name = form.name.trim()
   if (name && !isFileName(name)) next.name = validationMessage('name', 'file_name')
+  else if (!name && !next.url && !defaultName.value) next.name = validationMessage('name', 'required')
   errors.value = next
   return Object.keys(next).length === 0
 }
@@ -93,7 +109,7 @@ async function submit() {
     :steps="steps"
     @submit="submit"
   >
-    <FormField id="fetch-url" :label="t('common.field.url')" :error="errors.url">
+    <FormField id="fetch-url" :label="t('common.field.url')" :hint="t('files.fetch.urlHint')" :error="errors.url">
       <template #default="field">
         <Input
           v-bind="field"

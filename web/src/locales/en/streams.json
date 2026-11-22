@@ -2,7 +2,7 @@
   "intro": "Forward TCP or UDP connections on a port of this server to one or more upstreams.",
   "code": "Code",
   "empty": "No layer-4 proxies yet.",
-  "firewallNote": "Opening the port in the firewall comes with the firewall settings in a later version.",
+  "firewallNote": "While the proxy listens, its port is open in the firewall: anyone who can reach this server can connect through it to the upstreams.",
   "dialog": {
     "createTitle": "Add layer-4 proxy",
     "editTitle": "Edit {code}",
@@ -12,7 +12,9 @@
     "hashHint": "Chooses the upstream by the client's address; otherwise connections go to the upstreams in turn.",
     "codeHint": "A short name, fixed once created. Leave it empty for protocol-port.",
     "create": "Add proxy",
-    "save": "Save changes"
+    "save": "Save changes",
+    "localHint": "An upstream on this server itself (127.0.0.1, localhost) becomes reachable from the network through the proxy.",
+    "localAdminHint": "Without the permission to change the firewall, upstreams are IP addresses of other hosts: no host names, and nothing on this server (127.0.0.1)."
   },
   "balance": {
     "hash": "Client hash",

@@ -3,7 +3,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { I18nT, useI18n } from 'vue-i18n'
 import { LoaderCircle, Send } from '@lucide/vue'
-import { isStepUpRequired } from '@/api/client'
+import { isApiError, isStepUpRequired } from '@/api/client'
 import {
   CHANNEL_TYPES,
   EMAIL_SECURITY,
@@ -60,7 +60,7 @@ const FROM_EXAMPLE = 'cairn@example.com'
 const WEBHOOK_EXAMPLE = 'https://example.com/hooks/cairn'
 
 type ChannelKind = (typeof CHANNEL_TYPES)[number]
-type Field = 'name' | 'events' | 'host' | 'port' | 'from' | 'to' | 'url'
+type Field = 'name' | 'events' | 'host' | 'port' | 'from' | 'to' | 'url' | 'secret'
 
 function emptyForm() {
   return {
@@ -121,6 +121,41 @@ watch(open, (value) => {
   } else {
     form.webhook.url = channel.config.url
   }
+})
+
+/** Mail would now go out without encryption, which it did not before. */
+const encryptionOff = computed(() => {
+  const channel = props.channel
+  return channel?.type === 'email' && form.email.security === 'none' && channel.config.security !== 'none'
+})
+/**
+ * The channel would now send elsewhere (another mail host or port, another
+ * webhook URL) or in the clear. The stored password or signing secret was
+ * given for the old destination and is not sent on to a new one: it must
+ * be entered again (or removed).
+ */
+const destinationChanged = computed(() => {
+  const channel = props.channel
+  if (!channel || !secretStored.value) return false
+  if (channel.type === 'email') {
+    return form.email.host.trim() !== channel.config.host || Number(form.email.port.trim()) !== channel.config.port || encryptionOff.value
+  }
+  return form.webhook.url.trim() !== channel.config.url
+})
+/** Saving now needs the secret again: keeping the stored one is refused. */
+const secretNeeded = computed(() => destinationChanged.value && secretPatch(secret.mode, secret.value) === undefined)
+const secretAgain = computed(() => {
+  if (form.type !== 'email') return t('notify.channel.secretAgain')
+  return encryptionOff.value ? t('notify.channel.passwordClear') : t('notify.channel.passwordAgain')
+})
+
+// A new destination opens the field for the secret.
+watch(destinationChanged, (changed) => {
+  if (changed && secret.mode === 'keep') secret.mode = 'set'
+})
+// The error goes once the secret is given again (or nothing needs it any more).
+watch(secretNeeded, (needed) => {
+  if (!needed) errors.value = { ...errors.value, secret: undefined }
 })
 
 // Keep the port in step with the encryption mode while it is still a default.
@@ -188,6 +223,7 @@ function validate(): boolean {
     if (!url) next.url = validationMessage('url', 'required')
     else if (!isHttpUrl(url)) next.url = validationMessage('url', 'url')
   }
+  if (secretNeeded.value) next.secret = secretAgain.value
   errors.value = next
   return Object.keys(next).length === 0
 }
@@ -237,7 +273,15 @@ async function submit() {
     emit('saved', saved)
     open.value = false
   } catch (err) {
-    if (!isStepUpRequired(err)) error.value = err
+    if (isStepUpRequired(err)) return
+    // The server refuses to keep the secret for a new destination.
+    const secretMissing =
+      isApiError(err) &&
+      err.code === 'validation.invalid' &&
+      (err.params.field === 'password' || err.params.field === 'secret') &&
+      err.params.rule === 'required'
+    if (secretMissing) errors.value = { ...errors.value, secret: secretAgain.value }
+    else error.value = err
   } finally {
     submitting.value = false
   }
@@ -360,7 +404,12 @@ async function submit() {
           />
         </template>
       </FormField>
-      <FormField id="channel-password" :label="t('common.field.password')">
+      <FormField
+        id="channel-password"
+        :label="t('common.field.password')"
+        :hint="destinationChanged && !errors.secret ? secretAgain : undefined"
+        :error="errors.secret ? secretAgain : undefined"
+      >
         <template #default="field">
           <SecretInput
             v-bind="field"
@@ -369,6 +418,7 @@ async function submit() {
             :stored="secretStored"
             :label="t('common.field.password')"
             :disabled="submitting"
+            :aria-required="destinationChanged || undefined"
           />
         </template>
       </FormField>
@@ -410,7 +460,12 @@ async function submit() {
           />
         </template>
       </FormField>
-      <FormField id="channel-secret" :label="t('common.field.secret')">
+      <FormField
+        id="channel-secret"
+        :label="t('common.field.secret')"
+        :hint="destinationChanged && !errors.secret ? secretAgain : undefined"
+        :error="errors.secret ? secretAgain : undefined"
+      >
         <template #default="field">
           <SecretInput
             v-bind="field"
@@ -419,6 +474,7 @@ async function submit() {
             :stored="secretStored"
             :label="t('common.field.secret')"
             :disabled="submitting"
+            :aria-required="destinationChanged || undefined"
           />
         </template>
       </FormField>

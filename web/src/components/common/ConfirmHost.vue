@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input'
 import { confirmRequest } from '@/composables/useConfirmDialog'
 import { errorMessage } from '@/i18n/errors'
 import Notice from './Notice.vue'
+import { focusReturnTarget, returnFocus } from './focusReturn'
 import { keepOpenOnCompanion, keepOpenOnEscape, trackOverlay } from './overlayGuard'
 
 // Renders the confirmation asked for with confirmAction (one at a time).
@@ -30,11 +31,11 @@ const error = ref<unknown>(null)
 
 const options = computed(() => confirmRequest.value?.options ?? null)
 /** Where focus was before the dialog opened; it returns there afterwards. */
-let returnFocus: HTMLElement | null = null
+let returnTo: HTMLElement | null = null
 
 watch(confirmRequest, (request) => {
   if (!request) return
-  if (!open.value) returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  if (!open.value) returnTo = focusReturnTarget()
   typed.value = ''
   checked.value = request.options.option?.checked === true
   error.value = null
@@ -59,12 +60,10 @@ function finish(confirmed: boolean) {
   open.value = false
   confirmRequest.value = null
   request?.resolve(confirmed)
-  const target = returnFocus
-  returnFocus = null
-  // The element may be gone (a menu item, a deleted row).
-  void nextTick(() => {
-    if (target?.isConnected) target.focus()
-  })
+  const target = returnTo
+  returnTo = null
+  // The element may be gone (a deleted row).
+  void nextTick(() => returnFocus(target))
 }
 
 function onOpenChange(value: boolean) {

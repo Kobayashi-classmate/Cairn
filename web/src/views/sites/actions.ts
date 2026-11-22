@@ -3,12 +3,14 @@
 // Site actions shared by the list, its "more" menu and the settings drawer.
 // Every change runs as a job that the job dock follows; the list reloads
 // when it starts and when it ends.
+import { ApiError } from '@/api/client'
 import type { Job } from '@/api/jobs'
 import { deleteSite, restartSite, startSite, stopSite, updateSite, type SiteRequest, type SiteView } from '@/api/sites'
 import { deleteStream, startStream, stopStream, type StreamView } from '@/api/streams'
 import { confirmAction } from '@/composables/useConfirmDialog'
 import { i18n } from '@/i18n'
 import { launchJob } from '@/jobs/dock'
+import { useSessionStore } from '@/stores/session'
 import { useSitesStore } from '@/stores/sites'
 
 function reloadSites() {
@@ -34,8 +36,13 @@ export function restartApp(site: SiteView): Promise<Job | null> {
   return runSiteJob(() => restartSite(site.code))
 }
 
-/** Saves the whole site; errors go back to the caller, which shows them by the fields. */
+/**
+ * Saves the whole site; errors go back to the caller, which shows them by
+ * the fields. Accounts that may not manage sites get an app's environment
+ * without its values: their copy of a site is never sent back.
+ */
 export function saveSite(site: SiteView, request: SiteRequest): Promise<Job | null> {
+  if (!useSessionStore().can('sites.manage')) return Promise.reject(new ApiError(403, 'auth.forbidden'))
   return runSiteJob(() => updateSite(site.code, request), { rethrow: true })
 }
 

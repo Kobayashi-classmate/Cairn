@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { isStepUpRequired } from '@/api/client'
+import { isApiError, isStepUpRequired } from '@/api/client'
 import { fetchPlans, type BackupPlan } from '@/api/backups'
 import {
   SCRIPT_MAX,
@@ -85,6 +85,8 @@ async function loadUsers() {
   try {
     users.value = await fetchCronUsers()
     usersError.value = null
+    // The list's cached copy (which tasks this account may change) catches up.
+    if (!canRoot.value) store.setUsers(users.value)
   } catch (err) {
     usersError.value = err
   }
@@ -158,6 +160,10 @@ const userOptions = computed<SelectOption[]>(() => {
 
 const planOptions = computed<SelectOption[]>(() => (plans.value ?? []).map((plan) => ({ value: plan.id, label: plan.name })))
 const isRoot = computed(() => form.type === 'shell' && form.user === 'root')
+/** A login user who is not a site owner (and may be able to use sudo). */
+const isOtherUser = computed(
+  () => form.type === 'shell' && !isRoot.value && users.value?.users.some((user) => user.name === form.user && user.kind === 'user') === true,
+)
 
 function scriptOf(): string {
   return editor.value?.getValue() ?? form.script
@@ -208,6 +214,8 @@ const steps = computed(() => {
 })
 
 async function submit() {
+  // The script editor saves with Mod-S too: never a second request while one runs.
+  if (submitting.value) return
   const script = form.type === 'shell' ? scriptOf() : ''
   if (!validate(script)) return
   const body: TaskRequest = {
@@ -224,14 +232,20 @@ async function submit() {
   error.value = null
   try {
     const task = props.task
-    // Root tasks are step-up protected: the client asks for the password and retries.
+    // Tasks as root or other users than site owners are step-up protected:
+    // the client asks for the password and retries.
     await store.runJob(() => (task ? updateTask(task.id, body) : createTask(body)), {
       rethrow: true,
       onFinished: () => emit('finished'),
     })
     open.value = false
   } catch (err) {
-    if (!isStepUpRequired(err)) error.value = err
+    if (isStepUpRequired(err)) return
+    if (isApiError(err) && err.code === 'cron.plan_not_found') {
+      // Deleted meanwhile: the plans are read again.
+      errors.value = { ...errors.value, plan: errorMessage(err) }
+      void loadPlans()
+    } else error.value = err
   } finally {
     submitting.value = false
   }
@@ -266,7 +280,7 @@ async function submit() {
     </div>
 
     <template v-if="form.type === 'shell'">
-      <FormField id="task-user" :label="t('cron.task.user')" :hint="t('cron.task.userHint')" :error="errors.user">
+      <FormField id="task-user" :label="t('cron.task.user')" :hint="canRoot ? t('cron.task.userHint') : t('cron.task.userHintSites')" :error="errors.user">
         <template #default="field">
           <Skeleton v-if="!users && !usersError" class="h-9 w-full" />
           <SelectField v-else v-bind="field" v-model="form.user" :options="userOptions" :placeholder="t('cron.task.userPlaceholder')" />
@@ -277,10 +291,11 @@ async function submit() {
         {{ t('cron.task.rootNote') }}
         <template v-if="users && !users.rootTerminal"> {{ t('cron.task.rootOff') }}</template>
       </Notice>
+      <Notice v-else-if="isOtherUser" tone="warning">{{ t('cron.task.userNote') }}</Notice>
       <div class="flex flex-col gap-1.5">
         <span id="task-script-label" class="text-detail font-medium">{{ t('common.field.script') }}</span>
         <div class="h-60" role="group" aria-labelledby="task-script-label">
-          <CodeEditor ref="editor" :key="scriptVersion" :value="form.script" path="task.sh" :autofocus="false" @changed="syncScript" @save="submit" />
+          <CodeEditor ref="editor" :key="scriptVersion" :value="form.script" path="task.sh" :label="t('common.field.script')" :autofocus="false" @changed="syncScript" @save="submit" />
         </div>
         <p class="m-0 text-xs text-muted-foreground">{{ t('cron.task.scriptHint', { size: formatBytes(SCRIPT_MAX) }) }}</p>
         <p v-if="errors.script" class="m-0 text-xs font-medium text-destructive">{{ errors.script }}</p>

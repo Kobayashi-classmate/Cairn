@@ -14,6 +14,7 @@ export type KnownPermission =
   | 'notify.manage'
   | 'software.read'
   | 'software.manage'
+  | 'software.config'
   | 'sites.read'
   | 'sites.manage'
   | 'certs.read'

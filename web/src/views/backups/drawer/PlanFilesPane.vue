@@ -15,11 +15,13 @@ import type { ColumnDef } from '@/components/common/dataTable'
 import { Button } from '@/components/ui/button'
 import { errorText } from '@/i18n/errors'
 import { formatBytes } from '@/i18n/format'
-import { askDeleteFiles, downloadBackup } from '../actions'
+import { askDeleteFiles, canTakeBackup, downloadBackup } from '../actions'
 import RestoreSheet from '../RestoreSheet.vue'
 
 // A plan's backups, on this server and in the bucket: download, restore
 // with its options, or select several to delete (the plan's name is typed).
+// Backups of folders beyond the sites root (by their names) are downloaded
+// and restored by those who may open those folders.
 const props = defineProps<{ plan: BackupPlan; canManage: boolean }>()
 
 const { t } = useI18n()
@@ -64,6 +66,9 @@ watch(() => props.plan.lastRun?.finished, (now, before) => {
   if (now !== before) void load()
 })
 
+/** Some backups here cannot be downloaded or restored by this account (see canTakeBackup). */
+const someLocked = computed(() => props.canManage && files.value.some((file) => !canTakeBackup(file)))
+
 const columns = computed<ColumnDef<BackupFile>[]>(() => [
   { id: 'name', header: t('common.field.name'), accessorFn: (file) => file.name, meta: { class: 'min-w-[260px]' } },
   { id: 'size', header: t('files.column.size'), accessorFn: (file) => file.size, meta: { class: 'w-[100px] tabular-nums' } },
@@ -96,6 +101,7 @@ async function remove(names: string[], clear: () => void) {
     </template>
   </Notice>
   <Notice v-if="remoteError" tone="warning">{{ t('backups.files.remoteError', { reason: remoteError }) }}</Notice>
+  <Notice v-if="someLocked" tone="info">{{ t('backups.files.adminOnly') }}</Notice>
 
   <DataTable
     v-model:search="search"
@@ -133,7 +139,7 @@ async function remove(names: string[], clear: () => void) {
     <template #cell-size="{ row }">{{ formatBytes(row.size) }}</template>
     <template #cell-created="{ row }"><RelativeTime :value="row.created" /></template>
     <template #cell-actions="{ row }">
-      <div v-if="canManage" class="flex justify-end gap-2">
+      <div v-if="canManage && canTakeBackup(row)" class="flex justify-end gap-2">
         <Button variant="outline" size="sm" class="max-md:h-11" @click="downloadBackup(plan, row)">
           <Download aria-hidden="true" />
           {{ t('common.action.download') }}

@@ -6,6 +6,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { fetchUsers, type ManagedUser } from '@/api/users'
+import { onAccountReset } from './accountReset'
 
 export const useUsersStore = defineStore('users', () => {
   const users = ref<ManagedUser[] | null>(null)
@@ -36,9 +37,22 @@ export const useUsersStore = defineStore('users', () => {
     users.value = list.some((u) => u.id === user.id) ? list.map((u) => (u.id === user.id ? user : u)) : [...list, user]
   }
 
+  /** Changes some fields of a listed account, keeping the rest as the list has them now. */
+  function patch(id: number, fields: Partial<ManagedUser>): void {
+    if (users.value) users.value = users.value.map((u) => (u.id === id ? { ...u, ...fields } : u))
+  }
+
   function remove(id: number): void {
     users.value = (users.value ?? []).filter((u) => u.id !== id)
   }
 
-  return { users, loadError, loading, load, put, remove }
+  /** Forgets everything (sign-out): the next account loads its own. */
+  onAccountReset(() => {
+    seq++
+    users.value = null
+    loadError.value = null
+    loading.value = false
+  })
+
+  return { users, loadError, loading, load, put, patch, remove }
 })

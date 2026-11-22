@@ -124,6 +124,10 @@ export function actionDetails(entry: AuditEntry): string[] {
       const key = `updates.channel.${entry.params.channel}`
       list.push(t('audit.detail.channel', { channel: te(key) ? t(key) : entry.params.channel }))
     }
+    // The service the panel trusts for messages and updates.
+    if (typeof entry.params.baseUrl === 'string' && entry.params.baseUrl) {
+      list.push(t('audit.detail.baseUrl', { url: entry.params.baseUrl }))
+    }
     return list
   }
   // Service actions the descriptions do not name yet are shown as they are.

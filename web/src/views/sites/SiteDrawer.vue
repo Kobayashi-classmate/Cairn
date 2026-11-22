@@ -68,9 +68,11 @@ async function fetchMissing() {
   if (!code || store.sites.some((s) => s.code === code)) return
   fetchError.value = null
   try {
-    fetched.value = await store.site(code)
+    const found = await store.site(code)
+    // Another site may be open by now.
+    if (drawer.id.value === code) fetched.value = found
   } catch (err) {
-    fetchError.value = err
+    if (drawer.id.value === code) fetchError.value = err
   }
 }
 

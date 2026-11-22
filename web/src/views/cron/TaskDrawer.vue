@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Archive, Globe, History, LayoutDashboard, Pencil, Play, SquareTerminal, Timer, Trash2 } from '@lucide/vue'
 import type { CronTask } from '@/api/cron'
@@ -11,8 +11,7 @@ import { Button } from '@/components/ui/button'
 import { useDrawerRoute } from '@/composables/useDrawerRoute'
 import { describeSchedule } from '@/cron/schedule'
 import { useCronStore } from '@/stores/cron'
-import { useSessionStore } from '@/stores/session'
-import { askDeleteTask, canChange, runTaskNow, taskTarget } from './actions'
+import { askDeleteTask, canChange, canDelete, runTaskNow, taskStarting, taskTarget } from './actions'
 import TaskOverviewPane from './drawer/TaskOverviewPane.vue'
 import TaskRunsPane from './drawer/TaskRunsPane.vue'
 import { taskState } from './labels'
@@ -25,19 +24,16 @@ const emit = defineEmits<{ edit: [task: CronTask] }>()
 
 const { t } = useI18n()
 const store = useCronStore()
-const session = useSessionStore()
 const drawer = useDrawerRoute('task')
 
 const task = computed(() => (drawer.id.value ? store.task(drawer.id.value) : null))
-const canManage = computed(() => session.can('cron.manage'))
 const changeable = computed(() => (task.value ? canChange(task.value) : false))
-const running = ref(false)
 
 const items = computed<DrawerItem<Section>[]>(() => [
   { value: 'overview', label: t('cron.drawer.overview'), icon: LayoutDashboard },
   { value: 'runs', label: t('cron.action.history'), icon: History },
 ])
-const dangerItems = computed(() => (changeable.value ? [{ value: 'delete', label: t('cron.task.delete'), icon: Trash2 }] : []))
+const dangerItems = computed(() => (task.value && canDelete(task.value) ? [{ value: 'delete', label: t('cron.task.delete'), icon: Trash2 }] : []))
 const section = computed<Section>(() => items.value.find((item) => item.value === drawer.section.value)?.value ?? 'overview')
 
 const TYPE_ICON = { shell: SquareTerminal, url: Globe, backup: Archive } as const
@@ -58,11 +54,8 @@ const meta = computed(() => {
 const loading = computed(() => drawer.id.value !== null && !store.list && !store.loadError)
 const error = computed(() => (store.list ? null : store.loadError))
 
-async function run() {
-  if (!task.value) return
-  running.value = true
-  await runTaskNow(task.value)
-  running.value = false
+function run() {
+  if (task.value) void runTaskNow(task.value)
 }
 
 function edit() {
@@ -96,7 +89,7 @@ async function onDanger() {
         <Pencil aria-hidden="true" />
         {{ t('common.action.edit') }}
       </Button>
-      <Button v-if="canManage" size="sm" class="max-md:h-11" :disabled="running || task.running || task.state === 'applying'" @click="run">
+      <Button v-if="changeable" size="sm" class="max-md:h-11" :disabled="taskStarting(task.id) || task.running || task.state === 'applying'" @click="run">
         <Play aria-hidden="true" />
         {{ t('cron.action.run') }}
       </Button>

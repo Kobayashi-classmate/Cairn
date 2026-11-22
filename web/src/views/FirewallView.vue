@@ -3,6 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Plus, Power, PowerOff, Undo2 } from '@lucide/vue'
+import { serverClockOffset, serverNow } from '@/api/client'
 import {
   CONFIRM_SECONDS,
   FORWARDS_MAX,
@@ -28,6 +29,7 @@ import { confirmAction } from '@/composables/useConfirmDialog'
 import { useFirewallConfirm, type ChangeInfo } from '@/composables/useFirewallConfirm'
 import { useNow } from '@/composables/useNow'
 import { usePageTab } from '@/composables/usePageTab'
+import { errorMessage } from '@/i18n/errors'
 import { formatWhen } from '@/i18n/format'
 import { launchJob } from '@/jobs/dock'
 import { notifyError, notifySuccess } from '@/lib/notify'
@@ -58,6 +60,8 @@ const FOREIGN_SETTLE_MS = 3000
 const { t } = useI18n()
 const session = useSessionStore()
 const now = useNow(1000)
+/** The server's time in Unix seconds, ticking every second: pending changes expire on its clock. */
+const serverSeconds = computed(() => now.value + serverClockOffset() / 1000)
 const { tab, tabLocation } = usePageTab(TABS, 'rules')
 
 const view = ref<FirewallView | null>(null)
@@ -85,7 +89,7 @@ async function load() {
 onMounted(load)
 
 const changes = useFirewallConfirm(() => void load())
-const { pending, info, abandoned, kept, busy, remaining } = changes
+const { pending, info, abandoned, unconfirmed, kept, busy, remaining } = changes
 
 /** Changes are possible: allowed, nothing waiting, no second firewall in the way. */
 const writable = computed(
@@ -107,7 +111,7 @@ const canAddForward = computed(() => (view.value?.forwards.length ?? 0) < FORWAR
 const foreignPending = computed(() => {
   const waiting = view.value?.pending
   if (!waiting || busy.value) return null
-  return waiting.expires > now.value ? waiting : null
+  return waiting.expires > serverSeconds.value ? waiting : null
 })
 
 // A change made elsewhere is kept or rolled back when it expires: look again then.
@@ -118,7 +122,7 @@ watch(
     clearTimeout(foreignTimer)
     const waiting = view.value?.pending
     if (!waiting || busy.value) return
-    const wait = Math.max(0, waiting.expires * 1000 - Date.now()) + FOREIGN_SETTLE_MS
+    const wait = Math.max(0, waiting.expires * 1000 - serverNow()) + FOREIGN_SETTLE_MS
     foreignTimer = setTimeout(() => void load(), wait)
   },
 )
@@ -126,7 +130,7 @@ onBeforeUnmount(() => clearTimeout(foreignTimer))
 
 const recentRollback = computed(() => {
   const rollback = view.value?.lastRollback
-  return rollback && now.value - rollback.at < ROLLBACK_NOTICE_SECONDS ? rollback : null
+  return rollback && serverSeconds.value - rollback.at < ROLLBACK_NOTICE_SECONDS ? rollback : null
 })
 
 /** Starts confirming a change the server just made. */
@@ -176,15 +180,18 @@ function keepForeign() {
 }
 
 // Enabling and disabling are jobs. Enabling leaves a change to confirm:
-// once the job is done, the pending change of kind "enable" is the one it made.
+// the finished job names it (params.pending).
 async function startEnable(rethrow: boolean) {
   const job = await launchJob(enableFirewall, {
     rethrow,
     onFinished: async (done: Job) => {
       jobRunning.value = false
       await load()
+      const made = done.params.pending
       const waiting = view.value?.pending
-      if (done.state === 'succeeded' && waiting?.kind === 'enable') void changes.confirm(waiting, { summary: t('firewall.summary.enable') })
+      if (done.state === 'succeeded' && waiting && typeof made === 'string' && waiting.id === made) {
+        void changes.confirm(waiting, { summary: t('firewall.summary.enable') })
+      }
     },
   })
   if (job) jobRunning.value = true
@@ -277,7 +284,7 @@ const addAction = computed(() => {
 // The banner.
 const steps = computed(() => [t('firewall.pending.step.applied'), t('firewall.pending.step.confirm'), t('firewall.pending.step.saved')])
 const timeLeft = computed(() => (remaining.value / CONFIRM_SECONDS) * 100)
-const foreignLeft = computed(() => (foreignPending.value ? Math.max(0, foreignPending.value.expires - now.value) : 0))
+const foreignLeft = computed(() => (foreignPending.value ? Math.max(0, Math.ceil(foreignPending.value.expires - serverSeconds.value)) : 0))
 </script>
 
 <template>
@@ -351,8 +358,8 @@ const foreignLeft = computed(() => (foreignPending.value ? Math.max(0, foreignPe
           <PendingChangeBanner
             v-else-if="abandoned"
             tone="warning"
-            :title="t('firewall.pending.abandonedTitle')"
-            :description="t('firewall.pending.abandonedText')"
+            :title="unconfirmed ? t('firewall.pending.unconfirmedTitle') : t('firewall.pending.abandonedTitle')"
+            :description="unconfirmed ? t('firewall.pending.unconfirmedText', { error: errorMessage(unconfirmed) }) : t('firewall.pending.abandonedText')"
             :steps="steps"
             :current="1"
             :countdown="t('firewall.pending.abandonedCountdown', { seconds: remaining })"
@@ -401,7 +408,7 @@ const foreignLeft = computed(() => (foreignPending.value ? Math.max(0, foreignPe
           </PendingChangeBanner>
 
           <Notice v-if="recentRollback && !busy" tone="warning">
-            {{ t('firewall.rolledBack', { time: formatWhen(recentRollback.at, now) }) }}
+            {{ t('firewall.rolledBack', { time: formatWhen(recentRollback.at, serverSeconds) }) }}
           </Notice>
 
           <p v-if="canManage && !view.enabled && tab !== 'basic'" class="m-0 text-detail text-muted-foreground">{{ t('firewall.enableFirst') }}</p>

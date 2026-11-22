@@ -8,6 +8,7 @@ import { computed, ref } from 'vue'
 import { fetchDatabases, type DbEngine, type DbStatus } from '@/api/databases'
 import type { Job } from '@/api/jobs'
 import { launchJob } from '@/jobs/dock'
+import { onAccountReset } from './accountReset'
 
 export const useDatabasesStore = defineStore('databases', () => {
   const status = ref<DbStatus | null>(null)
@@ -57,6 +58,15 @@ export const useDatabasesStore = defineStore('databases', () => {
     if (job) void load()
     return job
   }
+
+  /** Forgets everything (sign-out): the next account loads its own. */
+  function reset(): void {
+    seq++
+    status.value = null
+    loadError.value = null
+    loading.value = false
+  }
+  onAccountReset(reset)
 
   return { status, loadError, loading, version, engines, load, engine, runJob }
 })

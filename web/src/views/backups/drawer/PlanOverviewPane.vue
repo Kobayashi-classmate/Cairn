@@ -45,7 +45,7 @@ const lastError = computed(() => {
 <template>
   <Card :title="t('backups.drawer.lastRun')" :level="3" flush>
     <template #actions>
-      <button type="button" class="text-detail font-medium text-link hover:underline" @click="emit('go', 'runs')">
+      <button type="button" class="text-detail font-medium text-link hover:underline tap-y" @click="emit('go', 'runs')">
         {{ t('backups.action.runs') }}
       </button>
     </template>
@@ -99,7 +99,7 @@ const lastError = computed(() => {
     <ul v-if="tasks.length > 0" class="m-0 list-none divide-y p-0">
       <li v-for="task in tasks" :key="task.id" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 md:px-[18px]">
         <span class="flex min-w-0 flex-[1_1_200px] flex-col">
-          <RouterLink v-if="cronLink" :to="{ name: 'cron', query: { open: `task:${task.id}` } }" class="font-medium text-link hover:underline">
+          <RouterLink v-if="cronLink" :to="{ name: 'cron', query: { open: `task:${task.id}` } }" class="font-medium text-link hover:underline tap-y">
             {{ task.name }}
           </RouterLink>
           <span v-else class="font-medium">{{ task.name }}</span>

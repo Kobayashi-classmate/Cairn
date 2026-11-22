@@ -228,10 +228,8 @@ export function purgeTrash(root: string, ids: string[]): Promise<Job> {
   return jobOf(api.post('/files/trash/purge', { root, ids }))
 }
 
-/** Empties a root's trash (step-up protected). */
-export function emptyTrash(root: string): Promise<Job> {
-  // Everything deleted before now (plus a little clock leeway).
-  const olderThan = Math.floor(Date.now() / 1000) + 60
+/** Deletes for good a root's trash entries deleted before `olderThan` (Unix seconds; step-up protected). */
+export function emptyTrash(root: string, olderThan: number): Promise<Job> {
   return jobOf(api.post('/files/trash/purge', { root, olderThan }))
 }
 

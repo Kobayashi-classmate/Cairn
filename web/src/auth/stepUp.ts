@@ -5,7 +5,7 @@
 // StepUpDialog. Requests that need step-up at the same time share one dialog
 // and are all retried (or all rejected) when it closes.
 import { ref } from 'vue'
-import { ApiError, STEP_UP_REQUIRED, setStepUpHandler } from '@/api/client'
+import { ApiError, STEP_UP_REQUIRED, serverNow, setStepUpHandler } from '@/api/client'
 import { useSessionStore } from '@/stores/session'
 
 interface Waiter {
@@ -48,7 +48,8 @@ export function installStepUp(): void {
  */
 export async function ensureElevated(): Promise<void> {
   const session = useSessionStore()
-  // Keep a margin so the elevation does not run out during the request.
-  if (session.elevatedUntil > Date.now() / 1000 + 30) return
+  // Keep a margin so the elevation does not run out during the request;
+  // elevatedUntil is on the server's clock.
+  if (session.elevatedUntil > serverNow() / 1000 + 30) return
   await requestStepUp(new ApiError(403, STEP_UP_REQUIRED))
 }

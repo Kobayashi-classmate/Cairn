@@ -165,7 +165,8 @@ const itemClass =
           </template>
         </nav>
 
-        <div class="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <!-- Focusable so the keyboard can scroll a pane that has no controls. -->
+        <div class="min-h-0 min-w-0 flex-1 overflow-y-auto focus-visible:-outline-offset-2" tabindex="0" role="region" :aria-label="current?.label">
           <div class="flex flex-col gap-4 px-4 pt-5 pb-10 md:px-6">
             <ErrorState v-if="error" :error="error" @retry="emit('retry')" />
             <template v-else-if="loading">

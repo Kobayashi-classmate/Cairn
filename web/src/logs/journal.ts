@@ -5,12 +5,15 @@
 // so other pages can link to a unit's messages, and how entries are shown.
 import type { LocationQuery } from 'vue-router'
 import { JOURNAL_MAX, JOURNAL_TIME, type JournalEntry, type JournalQuery } from '@/api/logs'
+import { truncateBytes } from '@/forms/rules'
 import type { Tone } from '@/lib/tone'
 
 /** Minimum levels offered (1 alert … 7 debug); none shows everything. */
 export const PRIORITIES = [1, 2, 3, 4, 5, 6, 7] as const
 export const LIMITS = [100, 200, 500, JOURNAL_MAX] as const
 export const DEFAULT_LIMIT = 200
+/** The longest search text the server takes, in UTF-8 bytes. */
+export const GREP_MAX_BYTES = 200
 
 export interface JournalFilters {
   unit: string
@@ -41,7 +44,7 @@ export function filtersFrom(query: LocationQuery): JournalFilters {
     priority: (PRIORITIES as readonly number[]).includes(Number(priority)) ? priority : '',
     since: time(text(query, 'since')),
     until: time(text(query, 'until')),
-    grep: text(query, 'grep').slice(0, 200),
+    grep: truncateBytes(text(query, 'grep'), GREP_MAX_BYTES),
     boot: text(query, 'boot') === '1',
     limit: (LIMITS as readonly number[]).includes(limit) ? limit : DEFAULT_LIMIT,
   }
@@ -61,10 +64,15 @@ export function filtersQuery(filters: JournalFilters, base: LocationQuery): Loca
   return query
 }
 
+/** A unit typed without a suffix ("nginx") is a service; the server wants the full name. */
+export function unitName(name: string): string {
+  return /\.(service|socket|timer|scope|mount|target|path)$/.test(name) ? name : `${name}.service`
+}
+
 /** The request for the filters. */
 export function journalQuery(filters: JournalFilters): JournalQuery {
   return {
-    unit: filters.unit || undefined,
+    unit: filters.unit ? unitName(filters.unit) : undefined,
     priority: filters.priority ? Number(filters.priority) : undefined,
     since: filters.since || undefined,
     until: filters.until || undefined,

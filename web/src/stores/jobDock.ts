@@ -11,6 +11,7 @@ import { isApiError } from '@/api/client'
 import { fetchJob, type Job } from '@/api/jobs'
 import { i18n } from '@/i18n'
 import { isFinalState, jobKindLabel, jobStateLabel } from '@/jobs/labels'
+import { onAccountReset } from './accountReset'
 
 export interface DockEntry {
   id: string
@@ -68,7 +69,17 @@ export const useJobDockStore = defineStore('jobDock', () => {
   function track(job: Job, options: TrackOptions = {}) {
     if (options.onFinished) listeners.set(job.id, [...(listeners.get(job.id) ?? []), options.onFinished])
     if (!entries.value.some((entry) => entry.id === job.id)) {
-      entries.value = [{ id: job.id, job, done: false }, ...entries.value].slice(0, MAX_ENTRIES)
+      const next = [{ id: job.id, job, done: false }, ...entries.value]
+      while (next.length > MAX_ENTRIES) {
+        // The oldest finished card makes room first; else the oldest running
+        // one, whose job is then followed quietly (pages wait on its end).
+        let index = next.length - 1
+        while (index > 0 && !next[index]?.done) index--
+        if (index === 0) index = next.length - 1
+        const [gone] = next.splice(index, 1)
+        if (gone) evict(gone)
+      }
+      entries.value = next
     }
     collapsed.value = false
     persist()
@@ -115,6 +126,14 @@ export const useJobDockStore = defineStore('jobDock', () => {
         if (hidden.has(id)) followHidden(id)
       }, HIDDEN_POLL_MS),
     )
+  }
+
+  /** A card pushed out by newer ones: a running job's callbacks still fire. */
+  function evict(entry: DockEntry) {
+    clearTimeout(timers.get(entry.id))
+    timers.delete(entry.id)
+    if (!entry.done && (listeners.get(entry.id)?.length ?? 0) > 0) followHidden(entry.id)
+    else listeners.delete(entry.id)
   }
 
   /** The card's latest view of its job. */
@@ -167,6 +186,8 @@ export const useJobDockStore = defineStore('jobDock', () => {
     announcement.value = ''
     persist()
   }
+
+  onAccountReset(clear)
 
   return { entries, collapsed, announcement, height, aside, track, update, lost, dismiss, clear }
 })

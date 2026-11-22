@@ -203,7 +203,7 @@ const columns = computed<ColumnDef<SwapDevice>[]>(() => [
           min="0"
           max="100"
           step="1"
-          class="h-9 min-w-0 flex-[1_1_160px] accent-primary"
+          class="h-9 min-w-0 flex-[1_1_160px] accent-primary max-md:h-11"
           :aria-label="t('host.swap.swappiness')"
           :disabled="!canManage || savingSwappiness"
         />

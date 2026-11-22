@@ -22,7 +22,7 @@ An open-source control panel for Linux servers.
 
 ## Tech stack
 
-Go (statically linked, single binary) · SQLite · Vue 3 + TypeScript + Naive UI · systemd · ships as deb and rpm packages
+Go (statically linked, single binary) · SQLite · Vue 3 + TypeScript + Tailwind CSS + Reka UI (shadcn-vue) · systemd · ships as deb and rpm packages
 
 ## License
 

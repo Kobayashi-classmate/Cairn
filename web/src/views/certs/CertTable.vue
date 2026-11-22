@@ -17,7 +17,7 @@ import { useClock } from '@/composables/useClock'
 import { useNavRoutes } from '@/composables/useNavRoutes'
 import { errorText } from '@/i18n/errors'
 import { expiryStatus } from '@/sites/display'
-import { CERT_STATE_TONE, askDeleteCert, askPanelCert, canServePanel, renew } from './actions'
+import { CERT_STATE_TONE, askDeleteCert, askPanelCert, canServePanel, renew, renewing } from './actions'
 
 // The certificates: name (opens the drawer), domains, source, state,
 // expiry, auto-renew and what uses it.
@@ -68,7 +68,7 @@ function actions(cert: CertView): RowAction[] {
       key: 'renew',
       label: t('certs.detail.renew'),
       icon: RefreshCw,
-      disabled: cert.state === 'issuing',
+      disabled: cert.state === 'issuing' || renewing(cert.id),
       onSelect: () => void renew(cert),
     })
   }
@@ -108,7 +108,7 @@ function actions(cert: CertView): RowAction[] {
       <div class="flex min-w-0 flex-col">
         <button
           type="button"
-          class="self-start truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="self-start truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] tap-y outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
           @click="emit('open', row.id)"
         >
           {{ row.name }}

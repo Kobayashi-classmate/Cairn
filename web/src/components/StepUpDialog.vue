@@ -1,50 +1,53 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NForm,
-  NFormItem,
-  NInput,
-  NModal,
-  NText,
-  type FormInst,
-  type FormRules,
-} from 'naive-ui'
-import { FocusScope } from 'reka-ui'
+import { LoaderCircle } from '@lucide/vue'
 import { isApiError } from '@/api/client'
-import { requiredRule, totpCodeRules } from '@/forms/rules'
 import { finishStepUp, stepUpOpen } from '@/auth/stepUp'
-import { errorMessage } from '@/i18n/errors'
+import { focusReturnTarget, returnFocus } from '@/components/common/focusReturn'
+import FormField from '@/components/common/FormField.vue'
+import Notice from '@/components/common/Notice.vue'
+import OtpInput from '@/components/common/OtpInput.vue'
+import PasswordInput from '@/components/common/PasswordInput.vue'
+import { trackOverlay } from '@/components/common/overlayGuard'
+import { AlertDialog, AlertDialogContent, AlertDialogDescription, AlertDialogTitle } from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { TOTP_CODE_PATTERN } from '@/forms/rules'
+import { errorMessage, validationMessage } from '@/i18n/errors'
 import { useSessionStore } from '@/stores/session'
 
-// Stays on Naive UI until the pages that trigger it are migrated: it often
-// opens on top of a Naive UI modal, whose focus trap and Escape handling only
-// cooperate with other Naive UI modals.
-//
-// It also opens on top of sheets and drawers built on Reka. Its content sits
-// in a Reka FocusScope, which pauses their focus trap while it is open; they
-// keep themselves open meanwhile (components/common/overlayGuard.ts).
+// Re-authentication before a sensitive request (auth/stepUp.ts): the
+// password, and the one-time code when two-step sign-in is on. It opens on
+// top of whatever sheet, drawer or dialog sent the request; Reka keeps the
+// layers in order (Escape and outside clicks reach this one only), and the
+// layers below stay open meanwhile (components/common/overlayGuard.ts).
+// Clicking outside does not cancel: the requests wait for an answer.
 
 const { t } = useI18n()
 const session = useSessionStore()
+trackOverlay(() => stepUpOpen.value)
 
-const formRef = ref<FormInst | null>(null)
-const form = reactive({ password: '', code: '' })
+const password = ref('')
+const code = ref('')
 const askCode = ref(false)
 const submitting = ref(false)
 const error = ref<unknown>(null)
+const errors = ref<{ password?: string; code?: string }>({})
+const passwordInput = ref<{ focus: () => void } | null>(null)
+/** Where focus was when the request asked for re-authentication. */
+let returnTo: HTMLElement | null = null
 
 // Immediate: the component may be loaded only when the first request arrives.
 watch(
   stepUpOpen,
   (open) => {
     if (!open) return
-    form.password = ''
-    form.code = ''
+    returnTo = focusReturnTarget()
+    password.value = ''
+    code.value = ''
     error.value = null
+    errors.value = {}
     askCode.value = session.user?.totpEnabled === true
   },
   { immediate: true },
@@ -58,24 +61,24 @@ watch(
   },
 )
 
-const rules = computed<FormRules>(() => ({
-  password: [requiredRule('password')],
-  code: askCode.value ? totpCodeRules() : [],
-}))
+const errorText = computed(() => (error.value ? errorMessage(error.value) : ''))
+
+function validate(): boolean {
+  const next: typeof errors.value = {}
+  if (!password.value) next.password = validationMessage('password', 'required')
+  if (askCode.value && !TOTP_CODE_PATTERN.test(code.value)) {
+    next.code = code.value ? validationMessage('code', 'pattern') : validationMessage('code', 'required')
+  }
+  errors.value = next
+  return Object.keys(next).length === 0
+}
 
 async function submit() {
-  try {
-    await formRef.value?.validate()
-  } catch {
-    return
-  }
+  if (submitting.value || !validate()) return
   error.value = null
   submitting.value = true
   try {
-    await session.elevate({
-      password: form.password,
-      code: askCode.value ? form.code : undefined,
-    })
+    await session.elevate({ password: password.value, code: askCode.value ? code.value : undefined })
     finishStepUp(true)
   } catch (err) {
     // The server wants a code even though the profile said 2FA was off.
@@ -86,65 +89,66 @@ async function submit() {
   }
 }
 
-function onShowChange(show: boolean) {
-  if (!show) finishStepUp(false)
+function onOpenChange(open: boolean) {
+  if (!open && !submitting.value) finishStepUp(false)
+}
+
+/** Back to where the user was; a menu item that opened the request has closed by now. */
+function onCloseAutoFocus(event: Event) {
+  const target = returnTo
+  returnTo = null
+  if (returnFocus(target)) event.preventDefault()
+}
+
+/** Start in the password field rather than on the first button. */
+function onOpenAutoFocus(event: Event) {
+  event.preventDefault()
+  void nextTick(() => passwordInput.value?.focus())
 }
 </script>
 
 <template>
-  <NModal
-    :show="stepUpOpen"
-    preset="card"
-    :title="t('auth.stepUp.title')"
-    :mask-closable="false"
-    :style="{ inlineSize: 'min(420px, calc(100vw - 32px))' }"
-    @update:show="onShowChange"
-  >
-    <FocusScope>
-      <NText depth="3" tag="p" class="step-up__intro">{{ t('auth.stepUp.intro') }}</NText>
-      <NForm ref="formRef" :model="form" :rules="rules" :disabled="submitting" @submit.prevent="submit">
-        <NAlert v-if="error" type="error" class="step-up__alert">{{ errorMessage(error) }}</NAlert>
-        <NFormItem path="password" :label="t('common.field.password')">
-          <NInput
-            v-model:value="form.password"
-            type="password"
-            show-password-on="click"
-            :input-props="{ autocomplete: 'current-password' }"
-            autofocus
-          />
-        </NFormItem>
-        <NFormItem v-if="askCode" path="code" :label="t('common.field.code')">
-          <NInput
-            v-model:value="form.code"
-            :maxlength="6"
-            :input-props="{ autocomplete: 'one-time-code', inputmode: 'numeric' }"
-          />
-        </NFormItem>
-        <div class="step-up__actions">
-          <NButton :disabled="submitting" @click="finishStepUp(false)">
-            {{ t('common.action.cancel') }}
-          </NButton>
-          <NButton type="primary" attr-type="submit" :loading="submitting">
-            {{ t('common.action.confirm') }}
-          </NButton>
+  <AlertDialog :open="stepUpOpen" @update:open="onOpenChange">
+    <AlertDialogContent class="sm:max-w-[420px]" @open-auto-focus="onOpenAutoFocus" @close-auto-focus="onCloseAutoFocus">
+      <form class="flex flex-col gap-4" novalidate @submit.prevent="submit">
+        <div class="flex flex-col gap-2">
+          <AlertDialogTitle class="text-title">{{ t('auth.stepUp.title') }}</AlertDialogTitle>
+          <AlertDialogDescription class="m-0 text-muted-foreground">{{ t('auth.stepUp.intro') }}</AlertDialogDescription>
         </div>
-      </NForm>
-    </FocusScope>
-  </NModal>
+        <Notice v-if="errorText" tone="destructive" role="alert">{{ errorText }}</Notice>
+        <FormField id="step-up-password" :label="t('common.field.password')" :error="errors.password">
+          <template #default="field">
+            <PasswordInput
+              ref="passwordInput"
+              v-model="password"
+              v-bind="field"
+              autocomplete="current-password"
+              :disabled="submitting"
+            />
+          </template>
+        </FormField>
+        <FormField v-if="askCode" id="step-up-code" :label="t('common.field.code')" :error="errors.code">
+          <template #default="field">
+            <OtpInput
+              v-model="code"
+              :id="field.id"
+              :described-by="field['aria-describedby']"
+              :invalid="!!errors.code"
+              :disabled="submitting"
+              @complete="submit"
+            />
+          </template>
+        </FormField>
+        <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="outline" class="max-md:h-11" :disabled="submitting" @click="finishStepUp(false)">
+            {{ t('common.action.cancel') }}
+          </Button>
+          <Button type="submit" class="max-md:h-11" :disabled="submitting">
+            <LoaderCircle v-if="submitting" class="animate-spin" aria-hidden="true" />
+            {{ t('common.action.confirm') }}
+          </Button>
+        </div>
+      </form>
+    </AlertDialogContent>
+  </AlertDialog>
 </template>
-
-<style scoped>
-.step-up__intro {
-  margin-block: 0 16px;
-}
-
-.step-up__alert {
-  margin-block-end: 16px;
-}
-
-.step-up__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-</style>

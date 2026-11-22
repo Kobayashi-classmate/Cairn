@@ -128,7 +128,7 @@ function picked(keys: readonly string[]): TrashEntry[] {
           variant="outline"
           class="text-destructive hover:bg-destructive-soft hover:text-destructive max-md:h-11"
           :disabled="entries.length === 0"
-          @click="askEmpty(root, entries.length)"
+          @click="askEmpty(root, entries)"
         >
           <Trash2 aria-hidden="true" />
           {{ t('files.trash.empty') }}

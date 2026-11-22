@@ -18,6 +18,7 @@ import {
 } from '@/api/client'
 import { followJobLog } from '@/api/jobs'
 import { isFinalState } from '@/jobs/labels'
+import { onAccountReset } from './accountReset'
 
 export type UploadState = 'queued' | 'uploading' | 'placing' | 'done' | 'failed' | 'canceled'
 
@@ -137,7 +138,14 @@ export const useUploadsStore = defineStore('uploads', () => {
   }
 
   async function transfer(entry: UploadItem, job: Pending): Promise<string | null> {
+    // Cancelling while the upload code loads must stop it too: the stop
+    // handle exists before the first await, and is checked after it.
+    let stopped = false
+    job.stop = () => {
+      stopped = true
+    }
     const tus = await import('tus-js-client')
+    if (stopped || job.controller.signal.aborted) throw new DOMException('Upload canceled', 'AbortError')
     let jobId: string | null = null
     await new Promise<void>((resolve, reject) => {
       const metadata: Record<string, string> = { root: entry.root, dir: entry.dir, filename: entry.name }
@@ -162,6 +170,9 @@ export const useUploadsStore = defineStore('uploads', () => {
         },
         onShouldRetry: (err) => {
           const status = err.originalResponse?.getStatus() ?? 0
+          // Terminating (DELETE, when cancelled) is not retried: a 409 there
+          // means the upload is already being placed or gone.
+          if (err.originalRequest?.getMethod() === 'DELETE') return status === 0
           // Network trouble, a conflict over the offset (resolved by asking
           // the server), or a server error other than a full disk.
           return status === 0 || status === 409 || status === 423 || (status >= 500 && status !== 507)
@@ -173,6 +184,9 @@ export const useUploadsStore = defineStore('uploads', () => {
       job.stop = () => reject(new DOMException('Upload canceled', 'AbortError'))
       instance.start()
     })
+    // Cancelled as the last part went: the file is placed anyway, but this
+    // upload no longer follows it.
+    if (job.controller.signal.aborted) throw new DOMException('Upload canceled', 'AbortError')
     entry.sent = entry.size
     return jobId
   }
@@ -250,5 +264,27 @@ export const useUploadsStore = defineStore('uploads', () => {
     return pending.has(key)
   }
 
-  return { items, active, placedVersion, lastPlaced, add, cancel, retry, canRetry, clearFinished }
+  /**
+   * Forgets every upload (sign-out, the session ended): running ones stop,
+   * and no file of this account can be retried under another one.
+   */
+  function reset() {
+    const jobs = [...pending.values()]
+    pending.clear()
+    for (const entry of items.value) {
+      if (entry.state === 'queued' || entry.state === 'uploading' || entry.state === 'placing') entry.state = 'canceled'
+    }
+    items.value = []
+    for (const job of jobs) {
+      job.controller.abort()
+      job.stop?.()
+      // Not terminated on the server: the session that owned it is gone; the
+      // server drops abandoned uploads after a day.
+      void job.upload?.abort(false).catch(() => {})
+    }
+  }
+
+  onAccountReset(reset)
+
+  return { items, active, placedVersion, lastPlaced, add, cancel, retry, canRetry, clearFinished, reset }
 })

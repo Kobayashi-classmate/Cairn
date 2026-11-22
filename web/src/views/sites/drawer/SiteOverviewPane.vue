@@ -107,7 +107,7 @@ async function reapply() {
         <RouterLink
           v-if="site.lastJob"
           :to="{ name: 'job', params: { id: site.lastJob } }"
-          class="text-detail text-link underline-offset-2 hover:underline"
+          class="text-detail text-link underline-offset-2 hover:underline tap-y"
         >
           {{ t('sites.overview.viewChange') }}
         </RouterLink>
@@ -120,7 +120,7 @@ async function reapply() {
       <KeyValueRow :label="t('sites.form.https')">
         <StatusPill :tone="https.tone">{{ https.text }}</StatusPill>
         <span v-if="site.cert" class="text-detail text-muted-foreground">{{ site.cert.name }}</span>
-        <button type="button" class="text-detail text-link underline-offset-2 hover:underline" @click="emit('go', 'https')">
+        <button type="button" class="text-detail text-link underline-offset-2 hover:underline tap-y" @click="emit('go', 'https')">
           {{ t('sites.overview.manage') }}
         </button>
       </KeyValueRow>
@@ -130,7 +130,7 @@ async function reapply() {
           <StatusPill v-if="backup.text" :tone="backup.tone">{{ backup.text }}</StatusPill>
           <RelativeTime v-if="backup.at" :value="backup.at" />
         </template>
-        <button type="button" class="text-detail text-link underline-offset-2 hover:underline" @click="emit('go', 'backup')">
+        <button type="button" class="text-detail text-link underline-offset-2 hover:underline tap-y" @click="emit('go', 'backup')">
           {{ t('sites.overview.manage') }}
         </button>
       </KeyValueRow>

@@ -60,7 +60,7 @@ function openLine(line: string) {
           :href="repoHome"
           target="_blank"
           rel="noopener noreferrer"
-          class="inline-flex items-center gap-0.5 text-link underline-offset-2 hover:underline"
+          class="inline-flex items-center gap-0.5 text-link underline-offset-2 hover:underline tap-y"
         >
           {{ t('software.homepage') }}
           <ExternalLink class="size-3" aria-hidden="true" />

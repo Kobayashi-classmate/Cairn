@@ -10,11 +10,13 @@ import Notice from '@/components/common/Notice.vue'
 import OptionGroup from '@/components/common/OptionGroup.vue'
 import type { OptionItem } from '@/components/common/types'
 import { errorMessage } from '@/i18n/errors'
+import { useSessionStore } from '@/stores/session'
 import { userLabel } from './labels'
 
 // "New terminal" (form sheet, step-up protected): whom the shell runs as —
-// a site owner, an ordinary user or (administrators, when switched on)
-// root — and where it starts.
+// a site owner, or (administrators) an ordinary user or, when switched on,
+// root — and where it starts. Others than site owners may be able to use
+// sudo, so the server offers only site owners to everyone else.
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{
   users: TermUser[]
@@ -32,6 +34,8 @@ const START_ROWS = 32
 const FILTER_FROM = 8
 
 const { t } = useI18n()
+const session = useSessionStore()
+const canAdmin = computed(() => session.can('terminal.admin'))
 const user = ref('')
 const filter = ref('')
 const submitting = ref(false)
@@ -112,12 +116,14 @@ async function submit() {
         class="h-full min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground md:text-sm"
       />
     </label>
-    <p v-if="users.length === 0" class="m-0 text-detail text-muted-foreground">{{ t('terminal.new.nobody') }}</p>
+    <p v-if="users.length === 0" class="m-0 text-detail text-muted-foreground">{{ canAdmin ? t('terminal.new.nobody') : t('terminal.new.nobodySites') }}</p>
     <section v-for="group in groups" :key="group.kind" class="flex flex-col gap-2">
       <h3 :id="`term-kind-${group.kind}`" class="m-0 text-caption text-muted-foreground">{{ t(`terminal.user.kind.${group.kind}`) }}</h3>
       <OptionGroup v-model="user" :options="group.options" :aria-labelledby="`term-kind-${group.kind}`" />
     </section>
+    <p v-if="!canAdmin && users.length > 0" class="m-0 text-xs text-muted-foreground">{{ t('terminal.new.sitesOnly') }}</p>
     <Notice v-if="selected?.kind === 'root'" tone="destructive">{{ t('terminal.new.rootWarning') }}</Notice>
+    <Notice v-else-if="selected?.kind === 'user'" tone="warning">{{ t('terminal.new.userWarning') }}</Notice>
     <Notice v-if="error" tone="destructive">{{ errorMessage(error) }}</Notice>
   </FormSheet>
 </template>

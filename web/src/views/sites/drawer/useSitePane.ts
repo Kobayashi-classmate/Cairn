@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
-import { computed, reactive, ref, watch, type Ref } from 'vue'
+import { computed, onScopeDispose, reactive, ref, watch, type Ref } from 'vue'
 import type { CertView } from '@/api/certs'
 import { isStepUpRequired } from '@/api/client'
 import type { SiteView } from '@/api/sites'
@@ -12,6 +12,9 @@ import {
   type SiteForm,
 } from '@/sites/form'
 import { saveSite } from '../actions'
+
+/** How long a saved change locks the button at most while the list catches up. */
+const AWAIT_LIST_MS = 10_000
 
 /**
  * State of one sub-item of the site drawer: a copy of the whole site as a
@@ -36,7 +39,22 @@ export function useSitePane(
     error.value = null
   }
 
-  watch(() => [site.value.code, site.value.updatedAt], reset)
+  // Scalars: a list refresh brings a new copy of the site, which must not
+  // wipe unsaved edits unless the site itself changed.
+  watch([() => site.value.code, () => site.value.updatedAt], reset)
+
+  /**
+   * Saved, until the list shows the site again (as applying) or a while has
+   * passed: until then the button must not start the same change twice.
+   */
+  const awaitingList = ref(false)
+  let awaitTimer: ReturnType<typeof setTimeout> | undefined
+  function stopAwaiting() {
+    clearTimeout(awaitTimer)
+    awaitingList.value = false
+  }
+  watch(site, stopAwaiting)
+  onScopeDispose(stopAwaiting)
 
   /** The form differs from the site. */
   const dirty = computed(
@@ -44,7 +62,7 @@ export function useSitePane(
   )
 
   /** A change is being applied: wait for it before starting another. */
-  const busy = computed(() => saving.value || site.value.state === 'applying')
+  const busy = computed(() => saving.value || awaitingList.value || site.value.state === 'applying')
 
   /** Checks the sub-item's fields and saves the site; resolves true once the job started. */
   async function save(): Promise<boolean> {
@@ -53,7 +71,11 @@ export function useSitePane(
     saving.value = true
     error.value = null
     try {
-      await saveSite(site.value, siteRequest(form, 'edit'))
+      if (await saveSite(site.value, siteRequest(form, 'edit'))) {
+        awaitingList.value = true
+        clearTimeout(awaitTimer)
+        awaitTimer = setTimeout(stopAwaiting, AWAIT_LIST_MS)
+      }
       return true
     } catch (err) {
       if (!isStepUpRequired(err)) error.value = err

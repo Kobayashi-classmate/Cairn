@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { describeSchedule } from '@/cron/schedule'
 import { useCronStore } from '@/stores/cron'
-import { askDeleteTask, canChange, runTaskNow, setEnabled, taskTarget } from './actions'
+import { askDeleteTask, canChange, canDelete, runTaskNow, setEnabled, taskStarting, taskTarget } from './actions'
 import { resultText, resultTone, taskFailure, taskState } from './labels'
 
 // The scheduled tasks: what each runs, its schedule in words with the next
@@ -25,7 +25,6 @@ const props = defineProps<{
   tasks: readonly CronTask[]
   loading: boolean
   error: unknown
-  canManage: boolean
   canCreate: boolean
 }>()
 
@@ -50,7 +49,7 @@ function searchText(task: CronTask): string {
 
 function actions(task: CronTask): RowAction[] {
   const list: RowAction[] = [{ key: 'runs', label: t('cron.action.history'), icon: History, onSelect: () => emit('open', task.id, 'runs') }]
-  if (canChange(task)) {
+  if (canDelete(task)) {
     list.push({ key: 'delete', label: t('cron.task.delete'), icon: Trash2, destructive: true, onSelect: () => void askDeleteTask(task) })
   }
   return list
@@ -79,14 +78,14 @@ function actions(task: CronTask): RowAction[] {
         <span class="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            class="truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] tap-y outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
             @click="emit('open', row.id)"
           >
             {{ row.name }}
           </button>
           <StatusPill v-if="row.state !== 'active'" :tone="taskState(row).tone" :title="taskFailure(row) || undefined">{{ taskState(row).text }}</StatusPill>
         </span>
-        <span class="truncate text-xs text-muted-foreground" :dir="row.type === 'url' ? 'ltr' : undefined" :title="taskTarget(row, store.planNames)">
+        <span class="truncate text-xs text-muted-foreground" :dir="row.type === 'url' && row.url ? 'ltr' : undefined" :title="taskTarget(row, store.planNames)">
           {{ taskTarget(row, store.planNames) }}
         </span>
       </div>
@@ -118,7 +117,7 @@ function actions(task: CronTask): RowAction[] {
     </template>
     <template #cell-actions="{ row }">
       <div class="flex justify-end gap-2">
-        <Button v-if="canManage" variant="outline" size="sm" class="max-md:h-11" :disabled="row.running || row.state === 'applying'" @click="runTaskNow(row)">
+        <Button v-if="canChange(row)" variant="outline" size="sm" class="max-md:h-11" :disabled="row.running || row.state === 'applying' || taskStarting(row.id)" @click="runTaskNow(row)">
           <Play aria-hidden="true" />
           {{ t('cron.action.run') }}
         </Button>

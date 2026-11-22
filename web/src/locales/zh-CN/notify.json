@@ -115,7 +115,10 @@
     "enableNamed": "通过 {name} 发送",
     "enabledHint": "停用的渠道会保留设置，但不会收到任何消息。",
     "levelAtLeast": "{level}及以上",
-    "typeFixed": "已保存渠道的类型不能修改。"
+    "typeFixed": "已保存渠道的类型不能修改。",
+    "passwordAgain": "服务器或端口已更改：请重新输入密码，或将其删除。已保存的密码不会发送给其他服务器。",
+    "secretAgain": "网址已更改：请重新输入签名密钥，或将其删除。已保存的密钥不会发送到其他地址。",
+    "passwordClear": "不加密时密码会以明文传输：请重新输入密码以确认，或将其删除。"
   },
   "email": {
     "securityMode": {

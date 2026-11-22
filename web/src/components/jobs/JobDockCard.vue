@@ -144,7 +144,7 @@ async function cancel() {
         <RouterLink :to="{ name: 'jobs', query: { open: `job:${entry.id}`, section: 'log' } }">{{ t('common.dock.viewLog') }}</RouterLink>
       </Button>
       <Button
-        v-if="!final && current?.cancelable"
+        v-if="!final && current?.cancelable && current.canCancel"
         variant="ghost"
         size="sm"
         class="text-muted-foreground max-md:h-11"

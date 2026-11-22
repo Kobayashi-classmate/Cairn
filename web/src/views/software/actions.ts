@@ -3,6 +3,7 @@
 // Software actions shared by the table, the settings drawer and the
 // databases page. Every change runs as a job that the job dock follows; the
 // software is locked meanwhile and the catalog reloads when it ends.
+import { ref } from 'vue'
 import type { Job } from '@/api/jobs'
 import {
   controlSoftwareService,
@@ -16,6 +17,7 @@ import { confirmAction } from '@/composables/useConfirmDialog'
 import { i18n } from '@/i18n'
 import { launchJob } from '@/jobs/dock'
 import { lineKey } from '@/software/display'
+import { onAccountReset } from '@/stores/accountReset'
 import { useSoftwareStore } from '@/stores/software'
 
 /** What stopping a line's services takes offline, in one sentence. */
@@ -79,7 +81,22 @@ export function askUninstall(entry: SoftwareEntry, offer: Offer): Promise<boolea
 }
 
 /** Refreshes the package indexes; the catalog reloads when it ends. */
-export function refreshIndexes(): Promise<Job | null> {
+/** A refresh of the package indexes started from this tab runs: one at a time. */
+export const refreshingIndexes = ref(false)
+onAccountReset(() => {
+  refreshingIndexes.value = false
+})
+
+export async function refreshIndexes(): Promise<Job | null> {
+  if (refreshingIndexes.value) return null
   const store = useSoftwareStore()
-  return launchJob(refreshPackageIndexes, { onFinished: () => void store.load() })
+  refreshingIndexes.value = true
+  const job = await launchJob(refreshPackageIndexes, {
+    onFinished: () => {
+      refreshingIndexes.value = false
+      void store.load()
+    },
+  })
+  if (!job) refreshingIndexes.value = false
+  return job
 }

@@ -301,7 +301,9 @@
       "restart": "重启 {service}",
       "restartDatabase": "重启 {service}，连接会短暂中断",
       "rollback": "任何一步失败都会还原为原来的文件"
-    }
+    },
+    "reloadTitle": "重新加载该文件？",
+    "reloadText": "编辑器中的修改将被丢弃，并按服务器上当前的内容重新读取该文件。"
   },
   "logs": {
     "unit": "服务",

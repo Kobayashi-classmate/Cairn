@@ -75,7 +75,7 @@ function runError(plan: BackupPlan): string {
 
   <Card v-if="canRead" :title="t('sites.backup.plans')" :level="3" flush>
     <template #actions>
-      <RouterLink :to="{ name: 'backups' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline">
+      <RouterLink :to="{ name: 'backups' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline tap-y">
         {{ t('common.nav.backups') }}
         <ArrowRight class="size-3.5 rtl:rotate-180" aria-hidden="true" />
       </RouterLink>

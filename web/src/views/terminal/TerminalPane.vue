@@ -4,13 +4,16 @@
 // messages carry input and output, text messages control ({"type":"resize"}
 // from here, {"type":"exit"} from the server). On every (re)connection the
 // server first replays recent output, so the screen is cleared first. The
-// colours follow the panel's light and dark mode as it changes.
+// colours follow the panel's light and dark mode as it changes. The server
+// also ends sessions itself, for example when the account's role or
+// password changes: the terminal then shows that it ended.
 // Loaded on demand, so xterm.js stays out of the main bundle.
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { isApiError } from '@/api/client'
 import { fetchTermSessions, termSocketUrl, type TermConnection } from '@/api/terminal'
 import { useThemeStore } from '@/stores/theme'
 import { TERMINAL_FONT, terminalTheme } from '@/terminal/theme'
@@ -19,12 +22,26 @@ const props = defineProps<{ sessionId: string; active: boolean }>()
 const emit = defineEmits<{ status: [status: TermConnection] }>()
 
 const { t } = useI18n()
+/** Tells screen reader users how to leave the terminal with the keyboard. */
+const hintId = `term-hint-${props.sessionId}`
 const theme = useThemeStore()
 const host = ref<HTMLElement | null>(null)
 const status = ref<TermConnection>('connecting')
 
 /** Longest pause between reconnection attempts. */
 const MAX_DELAY_MS = 15000
+/**
+ * Connections in a row the server refused although it still lists the
+ * session (it closes the socket before it opens when the account may not
+ * join it any more): then the session counts as ended.
+ */
+const MAX_REFUSED = 3
+/**
+ * A connection counts as working once it stayed open this long; only then
+ * do the pauses between attempts start short again (a server that drops a
+ * flooding connection right away is not retried every second).
+ */
+const STABLE_MS = 10000
 /** Longest wait for the bundled font before the terminal measures its cells. */
 const FONT_WAIT_MS = 1500
 const encoder = new TextEncoder()
@@ -34,7 +51,9 @@ let fit: FitAddon | null = null
 let socket: WebSocket | null = null
 let observer: ResizeObserver | null = null
 let retryTimer: ReturnType<typeof setTimeout> | undefined
+let stableTimer: ReturnType<typeof setTimeout> | undefined
 let attempts = 0
+let refused = 0
 let disposed = false
 let sentSize = ''
 
@@ -74,8 +93,14 @@ function connect() {
   const ws = new WebSocket(termSocketUrl(props.sessionId))
   ws.binaryType = 'arraybuffer'
   socket = ws
+  let opened = false
   ws.onopen = () => {
-    attempts = 0
+    opened = true
+    refused = 0
+    clearTimeout(stableTimer)
+    stableTimer = setTimeout(() => {
+      if (socket === ws) attempts = 0
+    }, STABLE_MS)
     setStatus('open')
     // What follows starts with the replayed output.
     term?.reset()
@@ -95,8 +120,12 @@ function connect() {
     term?.write(new Uint8Array(event.data))
   }
   ws.onclose = () => {
-    if (socket === ws) socket = null
+    if (socket === ws) {
+      socket = null
+      clearTimeout(stableTimer)
+    }
     if (disposed || status.value === 'ended') return
+    if (!opened) refused++
     scheduleReconnect()
   }
 }
@@ -111,11 +140,17 @@ function scheduleReconnect() {
     try {
       // Reconnect only while the session exists; otherwise it has ended.
       const sessions = await fetchTermSessions()
-      if (!sessions.some((session) => session.id === props.sessionId)) {
+      if (!sessions.some((session) => session.id === props.sessionId) || refused >= MAX_REFUSED) {
         ended()
         return
       }
-    } catch {
+    } catch (err) {
+      // Signed out, or no longer allowed to use terminals: the server has
+      // closed the session (the sign-in page follows a 401 by itself).
+      if (isApiError(err) && (err.status === 401 || err.status === 403)) {
+        ended()
+        return
+      }
       // The panel may be restarting; try again later.
       scheduleReconnect()
       return
@@ -157,6 +192,23 @@ onMounted(async () => {
   fit = new FitAddon()
   term.loadAddon(fit)
   term.open(host.value)
+  // Tab belongs to the shell, so it cannot leave the terminal. Esc and then
+  // Tab within a second moves keyboard focus on instead (as in the code
+  // editor); the Escape itself still reaches the shell.
+  let escapeAt = -Infinity
+  term.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown') return true
+    if (event.key === 'Escape') {
+      escapeAt = event.timeStamp
+      return true
+    }
+    if (event.key === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey && event.timeStamp - escapeAt < 1000) {
+      escapeAt = -Infinity
+      return false
+    }
+    return true
+  })
+  term.textarea?.setAttribute('aria-describedby', hintId)
   term.onData((data) => send(encoder.encode(data)))
   // Some mouse reports are raw bytes, not UTF-8 text.
   term.onBinary((data) => send(Uint8Array.from(data, (char) => char.charCodeAt(0) & 0xff)))
@@ -188,6 +240,7 @@ watch(
 onBeforeUnmount(() => {
   disposed = true
   clearTimeout(retryTimer)
+  clearTimeout(stableTimer)
   observer?.disconnect()
   socket?.close()
   term?.dispose()
@@ -223,6 +276,7 @@ defineExpose({ paste, run, bracketedPaste, focus: () => term?.focus() })
 
 <template>
   <div class="h-full min-h-0 bg-card px-2 pt-2 pb-1">
+    <p :id="hintId" class="sr-only">{{ t('terminal.focusHint') }}</p>
     <div ref="host" class="h-full min-h-0" dir="ltr" />
   </div>
 </template>

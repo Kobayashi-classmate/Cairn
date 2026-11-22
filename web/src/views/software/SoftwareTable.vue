@@ -132,7 +132,7 @@ function versionTitle(offer: Offer): string | undefined {
             <button
               v-if="installedOffers(row).length > 0"
               type="button"
-              class="truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+              class="truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] tap-y outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
               @click="emit('open', row.id, installedOffers(row)[0]!.line)"
             >
               {{ row.name }}
@@ -143,7 +143,7 @@ function versionTitle(offer: Offer): string | undefined {
               :href="homepage(row) ?? undefined"
               target="_blank"
               rel="noopener noreferrer"
-              class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:size-9"
+              class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none tap-area hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
               :aria-label="t('software.homepageOf', { name: row.name })"
               :title="t('software.homepageOf', { name: row.name })"
             >
@@ -161,7 +161,7 @@ function versionTitle(offer: Offer): string | undefined {
           v-for="offer in installedOffers(row)"
           :key="offer.line"
           type="button"
-          class="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="rounded-full outline-none tap-area focus-visible:ring-2 focus-visible:ring-ring/50"
           :title="versionTitle(offer)"
           :aria-label="t('software.openLine', { name: row.name, line: offer.line, state: lineStateText(lineState(offer)) })"
           @click="emit('open', row.id, offer.line)"

@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button'
 import { targetLabel } from '@/backups/targets'
 import { errorText } from '@/i18n/errors'
 import { useBackupsStore } from '@/stores/backups'
-import { askDeletePlan, nextRun, runPlanNow, scheduleText, targetsSummary } from './actions'
+import { askDeletePlan, canHandlePlan, nextRun, planRunning, runPlanNow, scheduleText, targetsSummary } from './actions'
 
 // The backup plans: what each backs up, where to, when it runs and how the
 // last run went, with Run now, Edit and a "more" menu.
@@ -37,7 +37,6 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const store = useBackupsStore()
 const search = ref('')
-const running = ref<string | null>(null)
 
 const columns = computed<ColumnDef<BackupPlan>[]>(() => [
   { id: 'name', header: t('common.field.name'), accessorFn: (plan) => plan.name.toLowerCase(), meta: { class: 'min-w-[160px]' } },
@@ -58,10 +57,8 @@ function runError(plan: BackupPlan): string {
   return err ? (errorText(err.code, err.params ?? {}) ?? err.code) : ''
 }
 
-async function run(plan: BackupPlan) {
-  running.value = plan.id
-  await runPlanNow(plan)
-  running.value = null
+function run(plan: BackupPlan) {
+  void runPlanNow(plan)
 }
 
 function actions(plan: BackupPlan): RowAction[] {
@@ -70,7 +67,8 @@ function actions(plan: BackupPlan): RowAction[] {
     { key: 'runs', label: t('backups.action.runs'), icon: History, onSelect: () => emit('open', plan.id, 'runs') },
   ]
   if (props.canSchedule) list.push({ key: 'schedule', label: t('backups.action.schedule'), icon: CalendarClock, onSelect: () => emit('schedule', plan) })
-  if (props.canManage) {
+  // A plan reaching beyond the site directories is an administrator's to delete too.
+  if (props.canManage && canHandlePlan(plan)) {
     list.push({ key: 'delete', label: t('backups.plan.delete'), icon: Trash2, destructive: true, onSelect: () => void askDeletePlan(plan) })
   }
   return list
@@ -97,7 +95,7 @@ function actions(plan: BackupPlan): RowAction[] {
     <template #cell-name="{ row }">
       <button
         type="button"
-        class="self-start truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+        class="self-start truncate rounded-sm text-start font-semibold text-foreground underline decoration-border underline-offset-[3px] tap-y outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
         @click="emit('open', row.id)"
       >
         {{ row.name }}
@@ -130,12 +128,12 @@ function actions(plan: BackupPlan): RowAction[] {
     </template>
     <template #cell-actions="{ row }">
       <div class="flex justify-end gap-2">
-        <Button v-if="canManage" variant="outline" size="sm" class="max-md:h-11" :disabled="running === row.id" @click="run(row)">
+        <Button v-if="canManage" variant="outline" size="sm" class="max-md:h-11" :disabled="planRunning(row.id)" @click="run(row)">
           <Play aria-hidden="true" />
           {{ t('backups.action.run') }}
         </Button>
         <Button
-          v-if="canManage"
+          v-if="canHandlePlan(row)"
           variant="outline"
           size="icon"
           class="max-md:size-11"

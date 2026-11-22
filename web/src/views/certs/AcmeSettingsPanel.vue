@@ -43,6 +43,8 @@ const loadError = ref<unknown>(null)
 const saving = ref(false)
 const saveError = ref<unknown>(null)
 const emailError = ref('')
+/** By CA: an HMAC key typed without its key ID (the server would drop it). */
+const kidErrors = ref<Record<string, string>>({})
 
 /** Editable copy; EAB HMAC keys start empty (they are never returned). */
 const form = reactive({ email: '', defaultCa: '', cas: {} as Record<string, CaEdit> })
@@ -76,7 +78,12 @@ const caOptions = computed<SelectOption[]>(() =>
 async function save() {
   const email = form.email.trim()
   emailError.value = email && !isEmail(email) ? validationMessage('email', 'email') : ''
-  if (emailError.value) return
+  const missingKid: Record<string, string> = {}
+  for (const [name, edit] of Object.entries(form.cas)) {
+    if (edit.eabHmac.trim() && !edit.clearHmac && !edit.eabKid.trim()) missingKid[name] = t('certs.acme.kidNeeded')
+  }
+  kidErrors.value = missingKid
+  if (emailError.value || Object.keys(missingKid).length > 0) return
   const cas: Record<string, AcmeCaRequest> = {}
   for (const ca of settings.value?.cas ?? []) {
     const edit = form.cas[ca.name]
@@ -175,7 +182,7 @@ function setClear(name: string, value: boolean | 'indeterminate') {
             :href="caAgreementUrl(ca.name)!"
             target="_blank"
             rel="noopener noreferrer"
-            class="inline-flex items-center gap-1 text-detail text-link underline-offset-2 hover:underline"
+            class="inline-flex items-center gap-1 text-detail text-link underline-offset-2 hover:underline tap-y"
           >
             {{ t('certs.issue.agreementLink') }}
             <ExternalLink class="size-3" aria-hidden="true" />
@@ -217,7 +224,7 @@ function setClear(name: string, value: boolean | 'indeterminate') {
           <template v-if="(ca.needsEab || ca.name === 'custom') && form.cas[ca.name]">
             <p v-if="ca.needsEab" class="m-0 text-detail text-muted-foreground">{{ t('certs.acme.eabIntro') }}</p>
             <div class="grid gap-4 md:grid-cols-2">
-              <FormField :id="`acme-${ca.name}-kid`" :label="t('certs.acme.eabKid')">
+              <FormField :id="`acme-${ca.name}-kid`" :label="t('certs.acme.eabKid')" :error="kidErrors[ca.name]">
                 <template #default="field">
                   <Input
                     v-bind="field"

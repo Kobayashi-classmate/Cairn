@@ -68,7 +68,8 @@
     "source": "来源：{source}",
     "filesDeleted": "已删除文件和用户",
     "filesKept": "保留了文件和用户",
-    "healthRestart": "因健康检查失败"
+    "healthRestart": "因健康检查失败",
+    "baseUrl": "服务地址：{url}"
   },
   "action": {
     "auth": {

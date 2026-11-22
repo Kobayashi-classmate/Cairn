@@ -19,8 +19,8 @@ import { notifyError, notifySuccess } from '@/lib/notify'
 const props = defineProps<{ view: HostView; canManage: boolean; rebooting: boolean }>()
 const emit = defineEmits<{ changed: []; reboot: [] }>()
 
-/** A host name: labels of letters, digits and hyphens, at most 253 characters. */
-const HOSTNAME = /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/
+/** A host name as the server takes it: lower-case labels of letters, digits and hyphens, at most 253 characters. */
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/
 
 const { t } = useI18n()
 
@@ -43,7 +43,9 @@ watch(
   { immediate: true },
 )
 
-const hostnameValid = computed(() => HOSTNAME.test(hostname.value.trim()))
+/** Host names do not tell case apart: what is typed is saved in lower case. */
+const hostnameValue = computed(() => hostname.value.trim().toLowerCase())
+const hostnameValid = computed(() => HOSTNAME.test(hostnameValue.value))
 const hostnameError = computed(() => (hostname.value.trim() && !hostnameValid.value ? t('errors.host.hostname_invalid') : null))
 /** A zone the system knows (once the list is loaded). */
 const zoneValid = computed(() => zones.value.length === 0 || zones.value.includes(timezone.value.trim()))
@@ -66,7 +68,7 @@ async function saveHostname() {
   savingHostname.value = true
   try {
     // Step-up protected: the client asks for the password and retries.
-    await setHostname(hostname.value.trim())
+    await setHostname(hostnameValue.value)
     notifySuccess(t('host.general.saved'))
     emit('changed')
   } catch (err) {
@@ -130,7 +132,7 @@ const ntpState = computed(() => {
               :aria-invalid="hostnameError ? true : undefined"
               :disabled="!canManage || savingHostname"
             />
-            <Button v-if="canManage" type="submit" class="max-md:h-11" :disabled="!hostnameValid || hostname.trim() === view.hostname || savingHostname">
+            <Button v-if="canManage" type="submit" class="max-md:h-11" :disabled="!hostnameValid || hostnameValue === view.hostname || savingHostname">
               <LoaderCircle v-if="savingHostname" class="animate-spin" aria-hidden="true" />
               {{ t('host.general.saveHostname') }}
             </Button>

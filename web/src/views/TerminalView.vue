@@ -154,6 +154,23 @@ function setPane(id: string, pane: unknown) {
   panes.value[id] = (pane as Pane | null) ?? null
 }
 
+/**
+ * A terminal changed state. One that ended may have been closed by the
+ * server because the account changed (its role, say): who it may open a
+ * terminal as is read again before offering a new one.
+ */
+function onState(id: string, state: TermConnection) {
+  const before = states.value[id]
+  states.value[id] = state
+  if (state === 'ended' && before !== 'ended') void loadUsers().catch(() => undefined)
+}
+
+/** A new terminal can be opened as the same user as an ended one. */
+function canReopen(entry: TermSession): boolean {
+  const user = users.value?.users.find((item) => item.name === entry.user)
+  return !!user && (user.kind !== 'root' || users.value?.rootTerminal === true)
+}
+
 // Opening and closing ---------------------------------------------------------------
 
 function openNew(user?: string) {
@@ -375,7 +392,14 @@ watch(workspace, () => void nextTick(measure))
       :aria-label="t('terminal.title')"
     >
       <div class="flex min-w-0 items-stretch border-b bg-muted/50">
-        <div role="tablist" :aria-label="t('terminal.tabs')" class="flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:thin]">
+        <div class="relative flex min-w-0 flex-1 items-stretch overflow-x-auto [scrollbar-width:thin]">
+          <!-- A tab list may only contain tabs: it owns the tab buttons, and each
+               tab's close button stays next to it in the strip, outside the list. -->
+          <div
+            role="tablist"
+            :aria-label="t('terminal.tabs')"
+            :aria-owns="sessions.map((entry) => `term-tab-${entry.id}`).join(' ') || undefined"
+          />
           <div
             v-for="(entry, index) in sessions"
             :key="entry.id"
@@ -408,7 +432,7 @@ watch(workspace, () => void nextTick(measure))
             </button>
             <button
               type="button"
-              class="me-1.5 inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:size-9"
+              class="me-1.5 inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-accent hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 max-md:me-0 max-md:size-11"
               :aria-label="t('terminal.close.named', { name: label(entry) })"
               :title="t('terminal.close.submit')"
               @click="close(entry)"
@@ -459,12 +483,20 @@ watch(workspace, () => void nextTick(measure))
                 <template #time><RelativeTime :value="current.createdAt" /></template>
               </i18n-t>
               <span class="ms-auto max-lg:hidden">{{ t('terminal.hint') }}</span>
+              <span class="max-lg:hidden">{{ t('terminal.focusHint') }}</span>
             </div>
             <div v-if="currentState === 'ended'" class="border-b px-3 py-2">
               <Notice tone="info">
                 {{ t('terminal.endedNotice') }}
                 <template #action>
-                  <Button variant="outline" size="sm" class="max-md:h-11" :disabled="reopening === current.id || full" @click="reopen(current)">
+                  <Button
+                    v-if="canReopen(current)"
+                    variant="outline"
+                    size="sm"
+                    class="max-md:h-11"
+                    :disabled="reopening === current.id || full"
+                    @click="reopen(current)"
+                  >
                     <RotateCcw aria-hidden="true" />
                     {{ t('terminal.reopen', { user: current.user }) }}
                   </Button>
@@ -487,7 +519,7 @@ watch(workspace, () => void nextTick(measure))
               :ref="(pane: unknown) => setPane(entry.id, pane)"
               :session-id="entry.id"
               :active="active === entry.id"
-              @status="(state: TermConnection) => (states[entry.id] = state)"
+              @status="(state: TermConnection) => onState(entry.id, state)"
             />
           </div>
 
@@ -496,7 +528,7 @@ watch(workspace, () => void nextTick(measure))
             :icon="SquareTerminal"
             class="my-auto"
             :title="t('terminal.empty.title')"
-            :text="t('terminal.empty.text')"
+            :text="canAdmin ? t('terminal.empty.text') : t('terminal.empty.textSites')"
           >
             <template #actions>
               <Button :disabled="!users" @click="openNew()">

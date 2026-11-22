@@ -123,8 +123,10 @@ export interface DbUserRequest {
   name?: string
   /** Empty generates one on create and keeps the current one on update. */
   password?: string
-  hosts: string[]
-  grants: DbGrant[]
+  /** Absent on update keeps them (default on create: local only). */
+  hosts?: string[]
+  /** Absent on update leaves the privileges untouched; [] revokes them all. */
+  grants?: DbGrant[]
 }
 
 export interface DumpInfo {
@@ -227,9 +229,12 @@ export async function deleteDump(engine: string, file: string): Promise<void> {
   await api.delete<unknown>(`${base(engine)}/dumps/${encodeURIComponent(file)}`)
 }
 
-/** Address of a dump for a plain download link (needs a re-authenticated session). */
-export function dumpUrl(engine: string, file: string): string {
-  return `${API_BASE}${base(engine)}/dumps/${encodeURIComponent(file)}`
+/**
+ * Where a dump downloads from (step-up protected). Asking first reports
+ * errors (gone, not allowed) on the page instead of in place of it.
+ */
+export async function dumpLink(engine: string, file: string): Promise<string> {
+  return (await api.get<{ url: string }>(`${base(engine)}/dumps/${encodeURIComponent(file)}?link=1`)).url
 }
 
 /** Step-up protected; runs as the database's owner or `user`. */
@@ -303,8 +308,17 @@ export function fetchRedisValue(db: number, key: string): Promise<RedisValue> {
 }
 
 /** Step-up protected. Returns how many keys were deleted. */
+/** The most keys one delete request takes (helperapi.RedisDeleteMax). */
+export const REDIS_DELETE_MAX = 500
+
+/** Step-up protected; more than REDIS_DELETE_MAX keys go in several requests. */
 export async function deleteRedisKeys(db: number, keys: string[]): Promise<number> {
-  return (await api.post<{ deleted: number }>('/databases/redis/delete', { db, keys })).deleted
+  let deleted = 0
+  for (let i = 0; i < keys.length; i += REDIS_DELETE_MAX) {
+    const batch = keys.slice(i, i + REDIS_DELETE_MAX)
+    deleted += (await api.post<{ deleted: number }>('/databases/redis/delete', { db, keys: batch })).deleted
+  }
+  return deleted
 }
 
 /** Step-up protected; 0 seconds removes the expiry. */

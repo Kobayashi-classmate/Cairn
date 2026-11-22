@@ -119,7 +119,7 @@ async function cancel() {
     @update:section="drawer.setSection"
     @retry="drawer.id.value && start(drawer.id.value)"
   >
-    <template v-if="current && current.cancelable && !final" #actions>
+    <template v-if="current && current.cancelable && current.canCancel && !final" #actions>
       <Button variant="outline" size="sm" class="text-destructive hover:text-destructive max-md:h-11" :disabled="canceling" @click="cancel">
         <CircleX aria-hidden="true" />
         {{ t('jobs.detail.cancel') }}
@@ -138,6 +138,7 @@ async function cancel() {
             <code
               v-for="(detail, index) in details"
               :key="index"
+              tabindex="0"
               class="block max-h-60 overflow-auto rounded-sm bg-card/60 px-2 py-1.5 font-mono text-xs font-normal whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]"
               dir="ltr"
             >{{ detail }}</code>

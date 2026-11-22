@@ -7,10 +7,11 @@
 // what is in the way of a restore).
 import { FILE_BATCH_MAX, deleteEntries, downloadUrl, emptyTrash, purgeTrash, restoreTrash, type TrashEntry } from '@/api/files'
 import { followJobLog, type Job } from '@/api/jobs'
+import { ensureElevated } from '@/auth/stepUp'
 import { confirmAction } from '@/composables/useConfirmDialog'
 import { absolutePath, baseName } from '@/files/paths'
 import { i18n } from '@/i18n'
-import { notifyInfo } from '@/lib/notify'
+import { notifyError, notifyInfo } from '@/lib/notify'
 import { useFilesStore } from '@/stores/files'
 
 /** What a row's "more" menu or the bulk bar asks the page to do. */
@@ -33,9 +34,80 @@ export function withinBatch(count: number): boolean {
   return false
 }
 
-/** Starts a download of an entry through a plain link. */
-export function download(root: string, path: string): void {
-  window.location.assign(downloadUrl(root, path))
+/**
+ * Whether reading a file of a root through a plain link (download, image
+ * preview) needs a recent re-authentication: everything but the sites root
+ * holds backups or the whole disk.
+ */
+export function linkNeedsStepUp(root: string): boolean {
+  return root !== 'sites'
+}
+
+/**
+ * Saves a URL of this origin through a `download` link. The page stays: a
+ * navigation would ask about unsaved edits and running uploads, and an
+ * error answer would replace the app.
+ */
+function saveLink(url: string, name: string): void {
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  link.hidden = true
+  document.body.append(link)
+  link.click()
+  link.remove()
+}
+
+/**
+ * Starts a download of an entry; from roots other than the sites, after
+ * re-authenticating (otherwise the browser would save the server's
+ * refusal). Does nothing when the user cancels.
+ */
+export async function download(root: string, path: string): Promise<void> {
+  if (linkNeedsStepUp(root)) {
+    try {
+      await ensureElevated()
+    } catch (err) {
+      // A declined re-authentication stays silent.
+      notifyError(err)
+      return
+    }
+  }
+  saveLink(downloadUrl(root, path), baseName(path))
+}
+
+/**
+ * Click and auxclick handler for download links (which carry a `download`
+ * attribute, so following them leaves the page alone): the browser follows
+ * a link to the sites root itself; for other roots any click, a middle or
+ * modified one too, waits for the re-authentication first.
+ */
+export function onDownloadClick(event: MouseEvent, root: string, path: string): void {
+  // auxclick also reports the right button, which opens the context menu.
+  if (event.type === 'auxclick' && event.button !== 1) return
+  if (!linkNeedsStepUp(root)) return
+  event.preventDefault()
+  void download(root, path)
+}
+
+/**
+ * Most of a finished job's log read to find the entries it left out. A
+ * batch names at most FILE_BATCH_MAX entries, so this is far more than
+ * their lines take; a longer log is cut here.
+ */
+const LOG_READ_MAX = 16 << 20
+
+/** A finished job's log, read chunk by chunk (the server sends 256 KiB at a time) up to LOG_READ_MAX. */
+async function wholeLog(id: string): Promise<string> {
+  const parts: string[] = []
+  let offset = 0
+  for (;;) {
+    const chunk = await followJobLog(id, offset, 0)
+    parts.push(chunk.log)
+    if (chunk.offset <= offset || chunk.offset >= chunk.logSize || chunk.offset >= LOG_READ_MAX) break
+    offset = chunk.offset
+  }
+  return parts.join('')
 }
 
 /**
@@ -46,7 +118,7 @@ async function failedWith(job: Job, code: string, all: readonly string[]): Promi
   if (job.state === 'failed' && job.error?.code === code) return [...all]
   if (job.state !== 'succeeded' && !(job.state === 'failed' && job.error?.code === 'op.failed')) return []
   try {
-    const { log } = await followJobLog(job.id, 0, 0)
+    const log = await wholeLog(job.id)
     const suffix = `: ${code}`
     return log
       .split('\n')
@@ -149,16 +221,23 @@ export function askPurge(root: string, entries: readonly TrashEntry[]): Promise<
   })
 }
 
-/** Empties a root's trash (step-up protected). */
-export function askEmpty(root: string, count: number): Promise<boolean> {
+/**
+ * Empties a root's trash (step-up protected): the entries listed, which the
+ * dialog counts, and nothing deleted after the newest of them.
+ */
+export function askEmpty(root: string, entries: readonly TrashEntry[]): Promise<boolean> {
   const { t } = i18n.global
+  const count = entries.length
+  if (count === 0) return Promise.resolve(false)
+  // The server purges entries deleted strictly before olderThan.
+  const olderThan = Math.max(...entries.map((entry) => entry.deletedAt)) + 1
   return confirmAction({
     title: t('files.trash.emptyTitle'),
     description: t('files.trash.emptyText', { count }, count),
     confirmLabel: t('files.trash.empty'),
     destructive: true,
     run: async () => {
-      await useFilesStore().runJob(() => emptyTrash(root), { rethrow: true })
+      await useFilesStore().runJob(() => emptyTrash(root, olderThan), { rethrow: true })
     },
   })
 }

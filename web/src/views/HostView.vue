@@ -85,15 +85,19 @@ const status = computed(() => {
   return parts.join(' · ')
 })
 
-// Restarting: the panel goes away and comes back.
+// Restarting: the panel goes away and comes back. Watched only while this
+// page is open, and timed by this browser's clock (the server's may differ).
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+let unmounted = false
 
-function waitForReturn(at: number) {
+function waitForReturn() {
+  const started = Date.now()
   let sawDown = false
   const poll = async () => {
     try {
       await fetchHost()
-      if (sawDown || Date.now() / 1000 > at + ASSUME_BACK_S) {
+      if (unmounted) return
+      if (sawDown || Date.now() - started > ASSUME_BACK_S * 1000) {
         rebooting.value = false
         notifySuccess(t('host.reboot.back'))
         void load()
@@ -102,6 +106,7 @@ function waitForReturn(at: number) {
     } catch {
       sawDown = true
     }
+    if (unmounted) return
     pollTimer = setTimeout(() => void poll(), REBOOT_POLL_MS)
   }
   pollTimer = setTimeout(() => void poll(), REBOOT_POLL_MS * 2)
@@ -117,14 +122,17 @@ function reboot() {
     destructive: true,
     run: async () => {
       // Step-up protected: the client asks for the password and retries.
-      const { at } = await rebootHost()
+      await rebootHost()
       rebooting.value = true
-      waitForReturn(at)
+      if (!unmounted) waitForReturn()
     },
   })
 }
 
-onBeforeUnmount(() => clearTimeout(pollTimer))
+onBeforeUnmount(() => {
+  unmounted = true
+  clearTimeout(pollTimer)
+})
 </script>
 
 <template>

@@ -61,6 +61,7 @@ async function submit() {
   <FormSheet
     v-model:open="open"
     :title="t('users.role.title', { username: user?.username ?? '' })"
+    :description="t('users.role.hint', { username: user?.username ?? '' })"
     :submit-label="t('users.role.submit')"
     :submitting="submitting"
     :submit-disabled="role === user?.role"

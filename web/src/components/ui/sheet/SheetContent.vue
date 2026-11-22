@@ -6,6 +6,7 @@ import type { HTMLAttributes } from "vue"
 import { X } from "@lucide/vue"
 import { reactiveOmit } from "@vueuse/core"
 import { cn } from "@/lib/utils"
+import { useOpenCount } from "@/lib/portalOrder"
 import { useI18n } from "vue-i18n"
 import {
   DialogClose,
@@ -34,11 +35,13 @@ const emits = defineEmits<DialogContentEmits>()
 const delegatedProps = reactiveOmit(props, "class", "side", "showCloseButton")
 
 const forwarded = useForwardPropsEmits(delegatedProps, emits)
+// Cairn: the dialog opened last is painted on top (lib/portalOrder.ts).
+const openCount = useOpenCount()
 const { t } = useI18n()
 </script>
 
 <template>
-  <DialogPortal>
+  <DialogPortal :key="openCount">
     <SheetOverlay />
     <DialogContent
       data-slot="sheet-content"

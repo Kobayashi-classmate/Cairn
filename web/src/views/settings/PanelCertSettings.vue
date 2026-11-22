@@ -87,7 +87,7 @@ async function apply() {
         <RouterLink
           v-if="current"
           :to="{ name: 'certs', query: { open: `cert:${current.id}` } }"
-          class="text-detail text-link underline-offset-2 hover:underline"
+          class="text-detail text-link underline-offset-2 hover:underline tap-y"
         >
           {{ t('certs.panel.view') }}
         </RouterLink>

@@ -12,6 +12,7 @@ import { fetchJob, fetchJobs, type Job } from '@/api/jobs'
 import { fetchSoftware, type Repository, type SoftwareCatalog, type SoftwareEntry } from '@/api/software'
 import { launchJob } from '@/jobs/dock'
 import { isFinalState } from '@/jobs/labels'
+import { onAccountReset } from './accountReset'
 
 /** Job kinds that change what is installed or how it runs. */
 const SOFTWARE_KINDS: ReadonlySet<string> = new Set([
@@ -48,6 +49,8 @@ export const useSoftwareStore = defineStore('software', () => {
   let timer: ReturnType<typeof setTimeout> | undefined
   let loadPromise: Promise<void> | null = null
   let loadAgain = false
+  /** Bumped on reset, so answers read for the previous account are dropped. */
+  let epoch = 0
 
   const software = computed<SoftwareEntry[]>(() => catalog.value?.software ?? [])
   const repos = computed<ReadonlyMap<string, Repository>>(
@@ -60,13 +63,18 @@ export const useSoftwareStore = defineStore('software', () => {
       loadAgain = true
       return loadPromise
     }
+    const mine = epoch
     loadPromise = (async () => {
       loading.value = true
       try {
-        catalog.value = await fetchSoftware()
-        loadError.value = null
+        const loaded = await fetchSoftware()
+        // Read for an account that has signed out since: dropped.
+        if (mine === epoch) {
+          catalog.value = loaded
+          loadError.value = null
+        }
       } catch (err) {
-        loadError.value = err
+        if (mine === epoch) loadError.value = err
       } finally {
         loading.value = false
         loadPromise = null
@@ -170,6 +178,19 @@ export const useSoftwareStore = defineStore('software', () => {
     installTarget.value = { software, line }
     installOpen.value = true
   }
+
+  /** Forgets everything (sign-out): the next account loads its own. */
+  onAccountReset(() => {
+    epoch++
+    clearTimeout(timer)
+    timer = undefined
+    catalog.value = null
+    loadError.value = null
+    running.value = {}
+    serviceFailures.value = {}
+    installOpen.value = false
+    installTarget.value = null
+  })
 
   return {
     catalog,

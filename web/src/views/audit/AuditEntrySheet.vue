@@ -117,18 +117,18 @@ function onOpenChange(value: boolean) {
               </div>
             </section>
 
-            <nav class="flex flex-wrap gap-x-4 gap-y-2 text-detail" :aria-label="t('audit.entry.related')">
+            <nav class="flex flex-wrap gap-x-4 gap-y-2 text-detail max-md:gap-y-0" :aria-label="t('audit.entry.related')">
               <RouterLink
                 v-if="entry.username"
                 :to="filterLocation({ user: entry.username })"
-                class="text-link underline-offset-2 hover:underline"
+                class="text-link underline-offset-2 hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center"
               >
                 {{ t('audit.entry.byUser', { user: entry.username }) }}
               </RouterLink>
               <RouterLink
                 v-if="category"
                 :to="filterLocation({ category })"
-                class="text-link underline-offset-2 hover:underline"
+                class="text-link underline-offset-2 hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center"
               >
                 {{ t('audit.entry.byCategory', { category: t(`audit.category.${category}`) }) }}
               </RouterLink>

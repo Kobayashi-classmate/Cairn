@@ -7,6 +7,8 @@ import Card from '@/components/common/Card.vue'
 import FormField from '@/components/common/FormField.vue'
 import KeyValueList from '@/components/common/KeyValueList.vue'
 import KeyValueRow from '@/components/common/KeyValueRow.vue'
+import Notice from '@/components/common/Notice.vue'
+import SwitchField from '@/components/common/SwitchField.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import { Input } from '@/components/ui/input'
 import { hasWritable, servesFiles, type SiteField } from '@/sites/form'
@@ -15,7 +17,8 @@ import SaveBar from './SaveBar.vue'
 import { useSitePane } from './useSitePane'
 
 // Where the site's files are and who may write them: web root and index
-// files (static and PHP), and the directories the runtime user may write.
+// files (static and PHP), the directories the runtime user may write, and
+// whether links to files of other owners are served (static and PHP).
 const props = defineProps<{ site: SiteView; canManage: boolean }>()
 
 const { t } = useI18n()
@@ -70,6 +73,14 @@ const isWritable = (path: string) => path !== '' && isRelativePath(path)
             />
           </template>
         </FormField>
+        <SwitchField
+          id="site-dirs-symlinks"
+          v-model="form.allowSymlinks"
+          :label="t('sites.dirs.allowSymlinks')"
+          :hint="t('sites.dirs.allowSymlinksHint')"
+          :disabled="disabled"
+        />
+        <Notice v-if="form.allowSymlinks" tone="warning">{{ t('sites.dirs.allowSymlinksRisk') }}</Notice>
       </template>
       <FormField
         v-if="hasWritable(site.type)"

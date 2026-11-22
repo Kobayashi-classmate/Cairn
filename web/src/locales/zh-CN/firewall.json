@@ -44,7 +44,8 @@
     "kept": "修改已保存。",
     "rolledBack": "修改已回滚：面板未能及时确认。",
     "undone": "修改已回滚。",
-    "step": "通过新连接确认面板仍可访问，不能访问时在一分钟内撤销修改"
+    "step": "通过新连接确认面板仍可访问，不能访问时在一分钟内撤销修改",
+    "failed": "无法确认该变更（{error}），它将在 {seconds} 秒后回滚。"
   },
   "pending": {
     "step": {
@@ -82,7 +83,9 @@
       "ping": "ping 设置",
       "enable": "开启防火墙",
       "other": "一项防火墙修改"
-    }
+    },
+    "unconfirmedTitle": "变更未确认",
+    "unconfirmedText": "面板无法确认该变更（{error}），服务器会在一分钟期满时将其回滚。"
   },
   "summary": {
     "ruleAdd": "已添加规则：{rule}",

@@ -58,8 +58,21 @@ const pageTitle = computed(() => {
   return key && te(key) ? t(key) : t('common.app.name')
 })
 
-/** Pages still built with Naive UI get the browser-default compatibility styles. */
-const legacyPage = computed(() => route.meta.newUi !== true)
+// Screen readers do not notice a client-side page change; say the new page's
+// name once it has rendered (tabs and drawers only change the query).
+const routeAnnouncement = ref('')
+let announceTimer = 0
+watch(
+  () => route.path,
+  () => {
+    routeAnnouncement.value = ''
+    window.clearTimeout(announceTimer)
+    announceTimer = window.setTimeout(() => {
+      routeAnnouncement.value = pageTitle.value
+    }, 150)
+  },
+)
+onBeforeUnmount(() => window.clearTimeout(announceTimer))
 
 const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent)
 const shortcut = computed(() => (isMac ? t('shell.shortcut.mac') : t('shell.shortcut.other')))
@@ -100,12 +113,14 @@ async function markBannerRead(item: Announcement) {
       {{ t('shell.skipToContent') }}
     </a>
 
-    <!-- Sidebar: fixed from 1024px, icon rail from 768px -->
-    <aside
+    <!-- Sidebar: fixed from 1024px, icon rail from 768px. It holds the logo,
+         search, menu and account, so it is the page's banner landmark; on
+         phones the top bar below takes that role. -->
+    <header
       class="fixed inset-y-0 start-0 z-30 hidden w-16 border-e border-sidebar-border md:block lg:w-[232px]"
     >
       <AppSidebar :items="items" :home="home" :rail="rail" :shortcut="shortcut" @search="openPalette" />
-    </aside>
+    </header>
 
     <!-- Phone: top bar and the menu in a sheet -->
     <header
@@ -117,7 +132,7 @@ async function markBannerRead(item: Announcement) {
       <RouterLink v-slot="{ href, navigate }" :to="home" custom>
         <a
           :href="href"
-          class="shrink-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="-mx-1.5 inline-flex shrink-0 items-center justify-center rounded-md p-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
           :aria-label="t('common.app.name')"
           @click="navigate"
         >
@@ -169,12 +184,11 @@ async function markBannerRead(item: Announcement) {
             </template>
           </Notice>
         </div>
-        <div :class="legacyPage ? 'legacy-ui' : undefined">
-          <RouterView />
-        </div>
+        <RouterView />
       </main>
     </div>
 
+    <p class="sr-only" aria-live="polite" aria-atomic="true">{{ routeAnnouncement }}</p>
     <CommandPalette v-model:open="paletteOpen" :items="items" />
     <!-- Long jobs started from any page, followed in the bottom right corner. -->
     <JobDock />

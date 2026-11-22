@@ -100,6 +100,7 @@
     "hint": "The panel never sets setuid, nor setgid on files.",
     "octal": "Mode in octal",
     "octalInvalid": "Enter three or four octal digits, such as 644 or 2775.",
+    "dirNoneRefused": "Folders cannot be set to 000 in the same change as files that get other permissions. Change the folders on their own, or leave them some permission.",
     "files": "Files",
     "dirs": "Folders",
     "who": "Who",
@@ -150,7 +151,8 @@
     "namePlaceholder": "Taken from the URL",
     "submit": "Download",
     "step": "Save the download as {path}",
-    "stepOverwrite": "Replace a file of the same name there"
+    "stepOverwrite": "Replace a file of the same name there",
+    "urlHint": "A public address: the server does not download from itself or from the internal network."
   },
   "delete": {
     "title": "Delete {name}?",
@@ -243,5 +245,17 @@
     "disabled": "Full-disk access is off.",
     "locked": "The server's configuration does not allow root access, so full-disk access stays off.",
     "active": "Full-disk access is on: changes here affect the whole system."
+  },
+  "stepUp": {
+    "image": "Confirm your identity to see this image",
+    "file": "Confirm your identity to open this file",
+    "search": "Confirm your identity to search the contents of these files",
+    "text": "Outside the site directories, files are opened, searched and downloaded after you confirm your password."
+  },
+  "unpackReason": {
+    "systemd": "extracting 7z and RAR archives needs systemd, which this server does not run",
+    "account": "the {user} account that the panel's package creates is missing; reinstall the package",
+    "scratch": "its working directory could not be prepared",
+    "copy": "the archive could not be copied into its working directory"
   }
 }

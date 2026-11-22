@@ -133,7 +133,7 @@ async function submit() {
       :href="provider.homepage"
       target="_blank"
       rel="noopener noreferrer"
-      class="-mt-3 inline-flex items-center gap-1 self-start text-detail text-link underline-offset-2 hover:underline"
+      class="-mt-3 inline-flex items-center gap-1 self-start text-detail text-link underline-offset-2 hover:underline tap-area"
     >
       {{ t('dns.dialog.providerSite', { name: provider.name }) }}
       <ExternalLink class="size-3" aria-hidden="true" />

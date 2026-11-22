@@ -89,6 +89,36 @@ export function setStepUpHandler(handler: StepUpHandler | null): void {
   stepUpHandler = handler
 }
 
+// The server's clock, estimated from the Date header of API responses.
+// Pages compare the server's timestamps (expiry times, deadlines) with it
+// rather than with this browser's clock, which may be off by minutes.
+/** How many recent estimates the offset is the median of. */
+const CLOCK_SAMPLES = 5
+/** Recent estimates of the server's clock minus the browser's, in milliseconds. */
+const clockSamples: number[] = []
+
+function noteServerDate(response: Response, sent: number): void {
+  const date = Date.parse(response.headers.get('Date') ?? '')
+  if (!Number.isFinite(date)) return
+  const received = Date.now()
+  // The header has whole seconds: the server's time was within the second
+  // after it, at about the middle of the request.
+  clockSamples.push(date + 500 - (sent + received) / 2)
+  if (clockSamples.length > CLOCK_SAMPLES) clockSamples.shift()
+}
+
+/** The server's clock minus this browser's, in milliseconds (0 before the first response). */
+export function serverClockOffset(): number {
+  if (clockSamples.length === 0) return 0
+  const sorted = [...clockSamples].sort((a, b) => a - b)
+  return sorted[Math.floor(sorted.length / 2)] ?? 0
+}
+
+/** The server's time now, in milliseconds since the epoch (to about a second). */
+export function serverNow(): number {
+  return Date.now() + serverClockOffset()
+}
+
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 async function request<T>(
@@ -109,6 +139,7 @@ async function request<T>(
   }
 
   let response: Response
+  const sent = Date.now()
   try {
     response = await fetch(API_BASE + path, {
       method,
@@ -122,6 +153,7 @@ async function request<T>(
     if (isAbortError(err)) throw err
     throw new ApiError(0, ClientErrorCode.network)
   }
+  noteServerDate(response, sent)
 
   if (response.ok) {
     if (response.status === 204) return undefined as T

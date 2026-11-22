@@ -47,6 +47,7 @@
   "limitOption": "Last {count}",
   "apply": "Show",
   "follow": "Follow",
+  "filters": "Filters",
   "timeHint": "Times as journalctl reads them: \"today\", \"yesterday\", \"-1h\", \"-30min\", \"2026-11-16 10:00\".",
   "empty": "No entries match.",
   "dropped": "Only the newest {count} entries are kept on the page.",

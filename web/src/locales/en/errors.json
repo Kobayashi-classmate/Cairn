@@ -7,7 +7,7 @@
   },
   "auth": {
     "invalid_credentials": "Incorrect username or password.",
-    "rate_limited": "Too many sign-in attempts. Try again in {retryAfter}.",
+    "rate_limited": "Too many failed attempts. Wait a little and try again.",
     "unauthenticated": "Please sign in to continue.",
     "session_expired": "Your session has expired. Please sign in again.",
     "forbidden": "You do not have permission to do this.",
@@ -18,7 +18,8 @@
     "mfa_challenge_expired": "The sign-in attempt has expired. Enter your password again.",
     "totp_not_pending": "Setting up two-factor authentication took too long. Start again.",
     "totp_already_enabled": "Two-factor authentication is already turned on.",
-    "token_invalid": "The API token is invalid, has expired, or is not allowed from this address."
+    "token_invalid": "The API token is invalid, has expired, or is not allowed from this address.",
+    "busy": "Too many password checks are running at once. Try again in a moment."
   },
   "setup": {
     "invalid_token": "The setup token is invalid or has expired. Use the latest setup link printed on the server.",
@@ -103,7 +104,19 @@
       "endpoint": "{field} must be a host name, with an optional port, without “https://” or a path.",
       "port_spec": "Check {field}: each entry must be a port (1–65535) or a range such as 8000-8100.",
       "same_port": "{field} must differ from the listening port when the forward goes to this host.",
-      "forward_target": "{field} must be the IPv4 address of another host, not 127.x.x.x, 0.0.0.0, a multicast or the broadcast address."
+      "forward_target": "{field} must be the IPv4 address of another host, not 127.x.x.x, 0.0.0.0, a multicast or the broadcast address.",
+      "cidr": "Check {field}: each entry must be an IP address or a CIDR range.",
+      "min": "{field} is too small.",
+      "extension": "{field} contains a name that is not a valid extension.",
+      "fingerprint": "{field} is not a valid key fingerprint.",
+      "catalog": "{field} is not in the software catalog.",
+      "site_code_new": "{field} cannot end in “-run”: that name belongs to the runner user of another site.",
+      "file_sites": "{field} is only possible for static and PHP sites.",
+      "firewall_id": "{field} is not a firewall rule.",
+      "trash_id": "{field} is not an entry in the trash.",
+      "upload_id": "{field} is not an upload.",
+      "tus": "The upload request is not in the expected format.",
+      "tus_metadata": "The upload request does not name the file and its directory correctly."
     }
   },
   "locale": {
@@ -183,7 +196,9 @@
     "ext_needed": "Removing it would also remove other installed packages; nothing was removed.",
     "service_none": "This version has no service.",
     "service_no_systemd": "Services cannot be controlled: this system does not run systemd.",
-    "service_no_reload": "The service cannot reload its configuration; restart it instead."
+    "service_no_reload": "The service cannot reload its configuration; restart it instead.",
+    "remove_takes": "Removing this version would also remove other installed packages that depend on it; nothing was removed.",
+    "in_use": "Sites still use this version; move them to another version first."
   },
   "module": {
     "disabled": "This feature is turned off in the module settings.",
@@ -212,7 +227,9 @@
       "ext_unknown": "Extension {extension} is not known.",
       "ext_unavailable": "Extension {extension} is not built for this system.",
       "ext_needed": "Removing it would also remove {packages}, which {by} needs; nothing was removed.",
-      "service_no_reload": "{service} cannot reload its configuration; restart it instead."
+      "service_no_reload": "{service} cannot reload its configuration; restart it instead.",
+      "remove_takes": "Removing {packages} would also remove other installed packages that depend on them: {by}. Nothing was removed.",
+      "in_use": "{software} {line} is still used by these sites: {sites}. Move them to another version first."
     },
     "software": {
       "install_incomplete": "Not installed: {failed}"
@@ -226,7 +243,8 @@
       "rewrite_unknown": "The rewrite rule {rewrite} does not exist or does not fit this site type.",
       "cert_missing": "Certificate {cert} is not stored on this server.",
       "cert_coverage": "Certificate {cert} does not cover {domains}.",
-      "selinux": "An SELinux label could not be set: {detail}"
+      "selinux": "An SELinux label could not be set: {detail}",
+      "user_conflict": "The system user {user} already exists but is not in the group {group}: it was made for something else, and the site does not take it over. Choose another site code."
     },
     "cert": {
       "invalid": "The certificate or key is not valid: {reason}",
@@ -240,7 +258,9 @@
       "port_taken": "Port {port} is already used by {owner}."
     },
     "stream": {
-      "port_taken": "Port {port} is already used by {owner}."
+      "port_taken": "Port {port} is already used by {owner}.",
+      "local_upstream": "{upstream} is on this server itself: forwarding to it would make it reachable from the network, which needs the permission to change the firewall.",
+      "upstream_name": "{upstream} is not an IP address written the usual way. Only accounts that may change the firewall can name upstreams by host name, since a name could point to this server."
     },
     "db": {
       "engine_missing": "The database server {engine} is not installed.",
@@ -277,7 +297,9 @@
       "no_space": "There is not enough free disk space ({size} needed).",
       "user_unknown": "There is no user or group named {name} on the server.",
       "into_itself": "{path} cannot be copied or moved into itself.",
-      "too_many_favorites": "You can keep at most {max} favorites."
+      "too_many_favorites": "You can keep at most {max} favorites.",
+      "fetch_failed": "The download failed: {detail}",
+      "unpack_failed": "The archive could not be prepared for extraction: {reasonText}."
     },
     "term": {
       "user_not_allowed": "Terminals cannot run as {user}.",
@@ -291,7 +313,8 @@
       "not_found": "The backup {name} does not exist (any more).",
       "storage_failed": "The storage could not be reached or refused the request: {detail}",
       "storage_in_use": "{plans} backup plan(s) still use this storage; change them first.",
-      "plan_in_use": "{tasks} scheduled task(s) still run this plan; delete them first."
+      "plan_in_use": "{tasks} scheduled task(s) still run this plan; delete them first.",
+      "endpoint_not_allowed": "{endpoint} points to {address}, which is this server itself or a cloud metadata service. Use a storage on another host (addresses in a private network are fine)."
     },
     "firewall": {
       "self_block": "Blocking {address} would block your own address, so you could no longer reach the panel.",
@@ -304,9 +327,10 @@
     "ssh": {
       "config_invalid": "The SSH configuration is not valid: {output}",
       "conflict": "{key} is set in {file}; change it there or remove it first.",
-      "port_in_use": "Port {port} is already in use.",
+      "port_in_use": "Port {port} is already in use: another program listens on it, or it is the panel's port.",
       "selinux_port": "SELinux does not allow SSH on port {port} (type {type}).",
-      "not_listening": "SSH is not listening on port {port}."
+      "not_listening": "SSH is not listening on port {port}.",
+      "no_keys": "Deleting this key would leave {user} without a usable key while password sign-in is off, so the account could no longer sign in. Add another key or turn on password sign-in first."
     },
     "host": {
       "swap_unsupported": "{reasonText}",
@@ -319,6 +343,9 @@
     },
     "terminal": {
       "too_many_snippets": "You can save at most {max} commands."
+    },
+    "auth": {
+      "rate_limited": "Too many failed attempts. Try again in {retryAfter}."
     }
   },
   "software": {
@@ -336,7 +363,8 @@
     "rewrite_unknown": "The rewrite rule does not exist or does not fit this site type.",
     "cert_missing": "The site's certificate is not stored on this server.",
     "cert_coverage": "The certificate does not cover every domain of the site.",
-    "selinux": "An SELinux label could not be set."
+    "selinux": "An SELinux label could not be set.",
+    "user_conflict": "A system user with one of the site's names already exists and was made for something else; the site does not take it over."
   },
   "cert": {
     "not_found": "The certificate does not exist.",
@@ -348,6 +376,7 @@
     "http01_unavailable": "HTTP validation is not possible: nginx is not running and port 80 is in use.",
     "domains_not_covered": "The certificate does not cover every domain of the site.",
     "not_acme": "Only certificates issued through ACME can be renewed.",
+    "busy": "This certificate is already being issued or renewed. Wait for that task to finish.",
     "not_valid": "Only valid certificates can be used."
   },
   "dns": {
@@ -367,11 +396,14 @@
     "module_missing": "nginx's stream module is not installed.",
     "port_taken": "The port is already in use.",
     "not_found": "The layer-4 proxy does not exist.",
-    "code_taken": "This code is already used by another layer-4 proxy."
+    "code_taken": "This code is already used by another layer-4 proxy.",
+    "local_upstream": "An upstream on this server itself (a loopback address) needs the permission to change the firewall: the proxy would make it reachable from the network.",
+    "port_listening": "Port {port} is already in use: another program on this server listens on it.",
+    "upstream_name": "Without the permission to change the firewall, upstreams must be IP addresses written the usual way: a host name could point to this server."
   },
   "owner": {
-    "site": "site {name}",
-    "stream": "layer-4 proxy {name}",
+    "site": "the app site {name}",
+    "stream": "the layer-4 proxy {name}",
     "panel": "the panel"
   },
   "db": {
@@ -397,7 +429,7 @@
     "upload_too_large": "The file is too large."
   },
   "redis": {
-    "password_required": "Set a password before allowing remote access to Redis.",
+    "password_required": "Redis needs a password while other hosts can connect to it: set one before allowing remote access, and allow local access only before removing it.",
     "command_failed": "Redis refused the command.",
     "key_not_found": "The key does not exist (it may have expired)."
   },
@@ -422,7 +454,9 @@
     "upload_offset": "The upload got out of step with the server.",
     "upload_complete": "This upload is already complete.",
     "fetch_failed": "The download failed.",
-    "too_many_favorites": "You already have the most favorites allowed."
+    "too_many_favorites": "You already have the most favorites allowed.",
+    "fetch_not_allowed": "The server does not download from this address: it is the server itself or in the internal network. Only public addresses are allowed.",
+    "unpack_failed": "The archive could not be prepared for extraction."
   },
   "access": {
     "locked": "The server's configuration does not allow root access."
@@ -455,7 +489,8 @@
     "no_storage": "This plan has no storage bucket.",
     "storage_in_use": "Backup plans still use this storage; change them first.",
     "plan_in_use": "Scheduled tasks still run this plan; delete them first.",
-    "storage_not_found": "This storage does not exist (any more)."
+    "storage_not_found": "This storage does not exist (any more).",
+    "endpoint_not_allowed": "The storage address points to this server itself or to a cloud metadata service, which backups may not use."
   },
   "log": {
     "no_journal": "This server has no system journal (journalctl)."
@@ -494,7 +529,13 @@
     "root_disabled": "Root's keys cannot be changed while root access is turned off.",
     "conflict_include": "sshd_config does not read the files in sshd_config.d ({file}); add an Include line for them first.",
     "selinux_semanage_missing": "SELinux would block SSH on port {port}, and semanage (policycoreutils-python-utils) is not installed to allow it.",
-    "selinux_semanage_failed": "SELinux would block SSH on port {port}, and allowing it with semanage failed."
+    "selinux_semanage_failed": "SELinux would block SSH on port {port}, and allowing it with semanage failed.",
+    "port_forwarded": "Port {port} is taken by a port forward of the firewall: connections to it would never reach SSH.",
+    "keyInvalid": {
+      "too_many": "The user's authorized_keys file is already larger than 1 MiB; remove keys before adding another.",
+      "rsa_short": "This RSA key is shorter than 2048 bits; use a longer RSA key or an Ed25519 key.",
+      "not_found": "This key is not authorized (any more)."
+    }
   },
   "host": {
     "hostname_invalid": "Use letters, digits, hyphens and dots, at most 253 characters.",

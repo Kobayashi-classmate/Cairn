@@ -23,6 +23,8 @@ const store = useFilesStore()
 const fileMode = ref(0o644)
 const dirMode = ref(0o755)
 const recursive = ref(false)
+const dirInvalid = ref(false)
+const fileInvalid = ref(false)
 const submitting = ref(false)
 const error = ref<unknown>(null)
 
@@ -31,10 +33,20 @@ const hasFiles = computed(() => props.entries.some((entry) => entry.type !== 'di
 /** Files inside the folders get a mode too when applied recursively. */
 const showFiles = computed(() => hasFiles.value || recursive.value)
 const name = computed(() => entriesLabel(props.entries.map((entry) => entry.path)))
+/** Octal text in a shown editor that cannot be read. */
+const modeInvalid = computed(() => (hasDirs.value && dirInvalid.value) || (showFiles.value && fileInvalid.value))
+/**
+ * The server gives folders the file mode when the folder mode is 0, so
+ * "000" for folders can only go with files that get 000 too (or no files).
+ */
+const dirNoneRefused = computed(
+  () => hasDirs.value && showFiles.value && (dirMode.value & DIR_MODE_MASK) === 0 && (fileMode.value & FILE_MODE_MASK) !== 0,
+)
 
 watch(open, (value) => {
   if (!value) return
-  const file = props.entries.find((entry) => entry.type !== 'dir')
+  // A symbolic link's own mode is always 777: it says nothing about the files.
+  const file = props.entries.find((entry) => entry.type !== 'dir' && entry.type !== 'link')
   const dir = props.entries.find((entry) => entry.type === 'dir')
   fileMode.value = file ? file.mode & FILE_MODE_MASK : 0o644
   dirMode.value = dir ? dir.mode & DIR_MODE_MASK : 0o755
@@ -52,6 +64,7 @@ const steps = computed(() => {
 })
 
 async function submit() {
+  if (modeInvalid.value || dirNoneRefused.value) return
   submitting.value = true
   error.value = null
   try {
@@ -77,11 +90,13 @@ async function submit() {
     :description="t('files.chmod.hint')"
     :submit-label="t('files.chmod.submit')"
     :submitting="submitting"
+    :submit-disabled="modeInvalid || dirNoneRefused"
     :steps="steps"
     @submit="submit"
   >
-    <ModeEditor v-if="hasDirs" v-model:mode="dirMode" dir :label="t('files.chmod.dirs')" />
-    <ModeEditor v-if="showFiles" v-model:mode="fileMode" :dir="false" :label="t('files.chmod.files')" />
+    <ModeEditor v-if="hasDirs" v-model:mode="dirMode" v-model:invalid="dirInvalid" dir :label="t('files.chmod.dirs')" />
+    <ModeEditor v-if="showFiles" v-model:mode="fileMode" v-model:invalid="fileInvalid" :dir="false" :label="t('files.chmod.files')" />
+    <Notice v-if="dirNoneRefused" tone="warning">{{ t('files.chmod.dirNoneRefused') }}</Notice>
     <SwitchField v-if="hasDirs" v-model="recursive" :label="t('files.chmod.recursive')" :hint="t('files.chmod.recursiveHint')" />
     <Notice v-if="error" tone="destructive">{{ errorMessage(error) }}</Notice>
   </FormSheet>

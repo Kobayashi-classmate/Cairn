@@ -97,7 +97,7 @@ const columns = computed<ColumnDef<ApiToken>[]>(() => [
       </I18nT>
       <p class="m-0">{{ t('tokens.help.stepUp') }} {{ t('tokens.help.audit') }}</p>
       <p class="m-0">
-        <RouterLink :to="{ name: 'settings-api' }" class="text-link underline-offset-2 hover:underline">
+        <RouterLink :to="{ name: 'settings-api' }" class="text-link underline-offset-2 hover:underline tap-y">
           {{ t('tokens.help.reference') }}
         </RouterLink>
       </p>
@@ -132,7 +132,7 @@ const columns = computed<ColumnDef<ApiToken>[]>(() => [
           </StatusPill>
           <Tooltip v-if="row.permissions.length > SHOWN_PERMISSIONS">
             <TooltipTrigger as-child>
-              <button type="button" class="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+              <button type="button" class="rounded-full outline-none tap-area focus-visible:ring-2 focus-visible:ring-ring/50">
                 <StatusPill>{{ t('tokens.morePermissions', { count: row.permissions.length - SHOWN_PERMISSIONS }) }}</StatusPill>
               </button>
             </TooltipTrigger>

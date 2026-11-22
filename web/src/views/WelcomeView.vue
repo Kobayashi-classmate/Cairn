@@ -25,9 +25,9 @@ import { saveWizardState, type WizardState } from '@/api/wizard'
 import CairnLogo from '@/components/common/CairnLogo.vue'
 import LocaleSelect from '@/components/common/LocaleSelect.vue'
 import Notice from '@/components/common/Notice.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 import DownloadEstimate from '@/components/DownloadEstimate.vue'
-import JobStateTag from '@/components/JobStateTag.vue'
 import SourceSlots from '@/components/SourceSlots.vue'
 import TotpEnrollment from '@/components/TotpEnrollment.vue'
 import { Badge } from '@/components/ui/badge'
@@ -38,7 +38,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useJobFollow } from '@/composables/useJobFollow'
 import { errorMessage, errorText } from '@/i18n/errors'
 import { formatPercent } from '@/i18n/format'
-import { isFinalState } from '@/jobs/labels'
+import { isFinalState, jobStateLabel } from '@/jobs/labels'
+import { jobTone } from '@/views/jobs/labels'
 import { homeLocation } from '@/layouts/navigation'
 import { useSessionStore } from '@/stores/session'
 
@@ -341,15 +342,14 @@ const jobErrorText = computed(() => {
       <!-- Step 1: two-step verification -->
       <section v-if="step === 'security'" class="rounded-lg border border-border bg-card p-5">
         <h2 class="m-0 mb-3 text-section">{{ t('wizard.security.title') }}</h2>
-        <Notice v-if="totpOn" tone="success" class="mb-3">{{ t('wizard.security.on') }}</Notice>
-        <template v-else>
+        <Notice v-if="totpOn && !enrolling" tone="success" class="mb-3">{{ t('wizard.security.on') }}</Notice>
+        <template v-else-if="!totpOn">
           <p class="m-0 mb-3">{{ t('wizard.security.why') }}</p>
           <p class="m-0 mb-3 text-muted-foreground">{{ t('wizard.security.how') }}</p>
-          <div v-if="enrolling">
-            <TotpEnrollment @done="enrolling = false" @cancel="enrolling = false" />
-          </div>
         </template>
-        <div v-if="!enrolling" class="mt-4 flex flex-wrap items-center gap-2">
+        <!-- Mounted by `enrolling` alone: confirming turns totpOn on before the recovery codes are shown. -->
+        <TotpEnrollment v-if="enrolling" @done="enrolling = false" @cancel="enrolling = false" />
+        <div v-else class="mt-4 flex flex-wrap items-center gap-2">
           <Button v-if="!totpOn" @click="enrolling = true">{{ t('wizard.security.setUp') }}</Button>
           <Button v-if="!totpOn" variant="outline" @click="step = 'software'">{{ t('wizard.security.later') }}</Button>
           <Button v-else @click="step = 'software'">{{ t('wizard.continue') }}</Button>
@@ -444,7 +444,7 @@ const jobErrorText = computed(() => {
           <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
           <span>{{ t('software.install.probing') }}</span>
         </div>
-        <div v-else-if="result" class="legacy-ui">
+        <div v-else-if="result">
           <SourceSlots v-model:selection="selection" :slots="result.slots" :repos="repos" :names="names" />
           <h3 class="mt-4 mb-2 text-section">{{ t('wizard.confirm.estimate') }}</h3>
           <DownloadEstimate :result="result" :selection="selection" class="mb-3" />
@@ -460,7 +460,7 @@ const jobErrorText = computed(() => {
             {{ t('software.install.checkAgain') }}
           </Button>
           <span class="flex-1" />
-          <Button :disabled="starting || items.length === 0" @click="startInstall">
+          <Button :disabled="starting || probing || items.length === 0" @click="startInstall">
             <LoaderCircle v-if="starting" class="animate-spin" aria-hidden="true" />
             {{ t('wizard.confirm.start') }}
           </Button>
@@ -473,8 +473,8 @@ const jobErrorText = computed(() => {
         <p class="m-0 mb-3">{{ t('wizard.start.background') }}</p>
         <template v-if="job">
           <div class="mb-3 flex items-center gap-3">
-            <span class="legacy-ui"><JobStateTag :state="job.state" /></span>
-            <RouterLink :to="{ name: 'job', params: { id: job.id } }" class="text-link underline-offset-2 hover:underline">
+            <StatusPill :tone="jobTone(job.state)" dot>{{ jobStateLabel(job.state) }}</StatusPill>
+            <RouterLink :to="{ name: 'jobs', query: { open: `job:${job.id}`, section: 'log' } }" class="text-link underline-offset-2 hover:underline">
               {{ t('software.viewOutput') }}
             </RouterLink>
           </div>
@@ -498,6 +498,7 @@ const jobErrorText = computed(() => {
           <Notice v-else-if="jobFinal && jobErrorText" tone="destructive" class="mb-3">{{ jobErrorText }}</Notice>
           <pre
             v-if="logTail"
+            tabindex="0"
             class="m-0 max-h-80 overflow-auto rounded-md bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap"
             dir="ltr"
           >{{ logTail }}</pre>

@@ -13,15 +13,21 @@ import SwitchField from '@/components/common/SwitchField.vue'
 import TagInput from '@/components/common/TagInput.vue'
 import { Input } from '@/components/ui/input'
 import { errorMessage, validationMessage } from '@/i18n/errors'
-import { MAX_UPSTREAMS, isHostPort, isSiteCode, isStreamPort } from '@/sites/validate'
+import { MAX_UPSTREAMS, isAddressUpstream, isHostPort, isLocalUpstream, isSiteCode, isStreamPort } from '@/sites/validate'
+import { useSessionStore } from '@/stores/session'
 import { runStreamJob } from './actions'
 
-// Create or change a four-layer proxy.
+// Create or change a four-layer proxy (step-up protected: the proxy listens
+// on a port open to the network). An upstream on this host publishes one of
+// its services, which is the firewall's decision: without `firewall.manage`
+// upstreams are IP addresses of other hosts only (a name could point here).
 const open = defineModel<boolean>('open', { required: true })
 /** The proxy to change, or null to create one. */
 const props = defineProps<{ stream: StreamView | null }>()
 
 const { t } = useI18n()
+const session = useSessionStore()
+const canLocal = computed(() => session.can('firewall.manage'))
 
 const form = reactive({
   code: '',
@@ -73,11 +79,18 @@ function normalize(value: string): string {
 
 function validate(): boolean {
   const next: typeof errors.value = {}
-  if (!editing.value && form.code.trim() && !isSiteCode(form.code.trim())) next.code = validationMessage('code', 'site_code')
+  if (!editing.value && form.code.trim() && !isSiteCode(form.code.trim())) next.code = validationMessage('siteCode', 'site_code')
   if (port.value === null || !isStreamPort(port.value)) next.port = validationMessage('port', 'port')
   if (form.upstreams.length === 0) next.upstreams = validationMessage('upstreams', 'required')
   else if (form.upstreams.length > MAX_UPSTREAMS) next.upstreams = validationMessage('upstreams', 'count')
   else if (!form.upstreams.every(isHostPort)) next.upstreams = validationMessage('upstreams', 'host_port')
+  else if (!canLocal.value) {
+    const named = form.upstreams.find((upstream) => !isAddressUpstream(upstream))
+    const local = form.upstreams.find(isLocalUpstream)
+    // The same messages as the server's refusals.
+    if (named) next.upstreams = t('errors.detailed.stream.upstream_name', { upstream: named })
+    else if (local) next.upstreams = t('errors.detailed.stream.local_upstream', { upstream: local })
+  }
   errors.value = next
   return Object.keys(next).length === 0
 }
@@ -92,10 +105,16 @@ async function submit() {
   error.value = null
   try {
     const current = props.stream
+    // Step-up protected: the client asks for the password and retries.
     await runStreamJob(() => (current ? updateStream(current.code, request) : createStream(request)), { rethrow: true })
     open.value = false
   } catch (err) {
-    if (!isStepUpRequired(err)) error.value = err
+    if (isStepUpRequired(err)) return
+    // Errors about the upstreams or the port go to their fields.
+    const code = isApiError(err) ? err.code : ''
+    if (code === 'stream.local_upstream' || code === 'stream.upstream_name') errors.value = { ...errors.value, upstreams: errorMessage(err) }
+    else if (code === 'stream.port_taken') errors.value = { ...errors.value, port: errorMessage(err) }
+    else error.value = err
   } finally {
     submitting.value = false
   }
@@ -149,7 +168,7 @@ const moduleMissing = computed(() => isApiError(error.value) && error.value.code
     <FormField
       id="stream-upstreams"
       :label="t('common.field.upstreams')"
-      :hint="t('streams.dialog.upstreamsHint')"
+      :hint="`${t('streams.dialog.upstreamsHint')} ${canLocal ? t('streams.dialog.localHint') : t('streams.dialog.localAdminHint')}`"
       :error="errors.upstreams"
     >
       <template #default="field">
@@ -161,7 +180,7 @@ const moduleMissing = computed(() => isApiError(error.value) && error.value.code
           :valid="isHostPort"
           :max="MAX_UPSTREAMS"
           mono
-          placeholder="127.0.0.1:3306"
+          :placeholder="canLocal ? '127.0.0.1:3306' : '10.0.0.5:3306'"
         />
       </template>
     </FormField>

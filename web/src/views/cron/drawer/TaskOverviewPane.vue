@@ -17,6 +17,7 @@ import { describeSchedule } from '@/cron/schedule'
 import { formatDateTime, formatMinutes } from '@/i18n/format'
 import { useCronStore } from '@/stores/cron'
 import { useSessionStore } from '@/stores/session'
+import { contentHidden } from '../actions'
 import { resultText, resultTone, taskFailure, taskState } from '../labels'
 
 // A task at a glance: what it runs and as whom, when (with the next runs as
@@ -50,6 +51,8 @@ const state = computed(() => taskState(props.task))
 const failure = computed(() => taskFailure(props.task))
 const planLink = computed(() => props.task.type === 'backup' && navRoutes.value.has('backups') && session.can('backups.read'))
 const planName = computed(() => store.planNames[props.task.plan ?? ''] ?? props.task.plan ?? '')
+/** Scripts and URLs can hold passwords and keys: the server sends them only to those who may change the task. */
+const hidden = computed(() => contentHidden(props.task))
 </script>
 
 <template>
@@ -58,7 +61,7 @@ const planName = computed(() => store.planNames[props.task.plan ?? ''] ?? props.
 
   <Card :title="t('cron.drawer.lastRun')" :level="3" flush>
     <template #actions>
-      <button type="button" class="text-detail font-medium text-link hover:underline" @click="emit('go', 'runs')">{{ t('cron.action.history') }}</button>
+      <button type="button" class="text-detail font-medium text-link hover:underline tap-y" @click="emit('go', 'runs')">{{ t('cron.action.history') }}</button>
     </template>
     <KeyValueList>
       <KeyValueRow :label="t('cron.column.lastRun')">
@@ -83,17 +86,24 @@ const planName = computed(() => store.planNames[props.task.plan ?? ''] ?? props.
     <KeyValueList>
       <KeyValueRow :label="t('common.field.type')">{{ t(`cron.type.${task.type}`) }}</KeyValueRow>
       <KeyValueRow v-if="task.type === 'shell'" :label="t('cron.task.user')" mono>{{ task.user }}</KeyValueRow>
-      <KeyValueRow v-if="task.type === 'url'" :label="t('common.field.url')" mono>
+      <KeyValueRow v-if="task.type === 'shell' && hidden" :label="t('common.field.script')">
+        <span class="text-muted-foreground">{{ t('cron.drawer.scriptHidden') }}</span>
+      </KeyValueRow>
+      <KeyValueRow v-if="task.type === 'url' && hidden" :label="t('common.field.url')">
+        <span class="text-muted-foreground">{{ t('cron.drawer.urlHidden') }}</span>
+      </KeyValueRow>
+      <KeyValueRow v-else-if="task.type === 'url'" :label="t('common.field.url')" mono>
         <span dir="ltr" class="[overflow-wrap:anywhere]">{{ task.url }}</span>
       </KeyValueRow>
       <KeyValueRow v-if="task.type === 'backup'" :label="t('common.field.plan')">
-        <RouterLink v-if="planLink" :to="{ name: 'backups', query: { open: `plan:${task.plan}` } }" class="text-link hover:underline">{{ planName }}</RouterLink>
+        <RouterLink v-if="planLink" :to="{ name: 'backups', query: { open: `plan:${task.plan}` } }" class="text-link hover:underline tap-y">{{ planName }}</RouterLink>
         <span v-else>{{ planName }}</span>
       </KeyValueRow>
       <KeyValueRow :label="t('cron.task.timeout')">{{ formatMinutes(task.timeoutMin || TIMEOUT_DEFAULT) }}</KeyValueRow>
     </KeyValueList>
     <pre
-      v-if="task.type === 'shell' && task.script"
+      v-if="task.type === 'shell' && !hidden"
+      tabindex="0"
       class="m-0 max-h-72 overflow-auto border-t bg-muted/50 px-4 py-3 font-mono text-xs whitespace-pre md:px-[18px]"
       dir="ltr"
       :aria-label="t('common.field.script')"

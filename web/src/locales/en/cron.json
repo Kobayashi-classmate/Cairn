@@ -12,7 +12,8 @@
   },
   "target": {
     "shell": "Runs as {user}",
-    "backup": "Backup plan {plan}"
+    "backup": "Backup plan {plan}",
+    "urlHidden": "Address hidden"
   },
   "state": {
     "applying": "Applying",
@@ -70,7 +71,9 @@
       "backup": "Run backup plan {plan}",
       "schedule": "Schedule: {schedule}",
       "disabled": "Leave it off until it is enabled"
-    }
+    },
+    "userHintSites": "A site owner. Tasks as root or other users are for administrators.",
+    "userNote": "This user is not a site owner and may be able to use sudo: as with root tasks, changing, running and deleting this task take the administrator permission, and saving asks for your password."
   },
   "schedule": {
     "kind": {
@@ -145,6 +148,8 @@
     "nextRuns": "Next runs",
     "applying": "The change is being applied.",
     "unknown": "No such task",
-    "unknownText": "It may have been deleted."
+    "unknownText": "It may have been deleted.",
+    "scriptHidden": "Hidden: scripts can hold passwords, so only accounts that may change this task see them.",
+    "urlHidden": "Hidden: addresses can hold keys, so only accounts that may change this task see them."
   }
 }

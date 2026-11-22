@@ -15,7 +15,7 @@ const segments = computed(() => pathSegments(props.path))
 const base = computed(() => absolutePath(props.root, ''))
 
 const crumb =
-  'inline-flex h-7 max-w-full items-center rounded-sm px-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 max-md:h-9'
+  'inline-flex h-7 max-w-full items-center rounded-sm px-1.5 outline-none hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 max-md:h-11 max-md:min-w-11 max-md:justify-center'
 </script>
 
 <template>

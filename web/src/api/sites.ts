@@ -80,6 +80,11 @@ export interface SiteRequest {
   proxy?: ProxySpec
   tls?: SiteTls
   app?: AppSpec
+  /**
+   * Static and PHP sites: serve links to files of other owners. Off, nginx
+   * serves a link only when it and its target have the same owner.
+   */
+  allowSymlinks?: boolean
 }
 
 export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>> {
@@ -92,6 +97,7 @@ export interface SiteView extends Required<Pick<SiteRequest, 'type' | 'domains'>
   proxy?: ProxySpec
   tls?: SiteTls
   app?: AppSpec
+  allowSymlinks?: boolean
   /** False keeps the site configured but answering 503. */
   enabled: boolean
   state: SiteState
@@ -229,6 +235,7 @@ export function requestOf(site: SiteView): SiteRequest {
     proxy: site.proxy,
     tls: site.tls,
     app: site.app,
+    allowSymlinks: site.allowSymlinks,
   }
 }
 

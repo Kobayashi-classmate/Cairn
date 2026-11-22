@@ -83,7 +83,6 @@ function openEdit(task: CronTask) {
         :tasks="store.tasks"
         :loading="store.loading && !list"
         :error="store.loadError"
-        :can-manage="canManage"
         :can-create="canCreate"
         @open="(id: string, section?: string) => drawer.open(id, section)"
         @create="openCreate"

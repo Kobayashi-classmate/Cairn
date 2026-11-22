@@ -27,7 +27,7 @@ const { t } = useI18n()
 <template>
   <Card :title="t('overview.services.title')" flush>
     <template v-if="softwareLink" #actions>
-      <RouterLink :to="{ name: 'software' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline">
+      <RouterLink :to="{ name: 'software' }" class="inline-flex items-center gap-1 text-detail font-medium text-link hover:underline tap-y">
         {{ t('common.nav.software') }}
         <ArrowRight class="size-3.5" aria-hidden="true" />
       </RouterLink>
