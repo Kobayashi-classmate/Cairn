@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Confirmations for pages built with the new components (interface spec,
-// section 7): the dialog states the consequence, destructive actions use the
-// danger colour, and deleting a site asks for its name. ConfirmHost (in the
-// shell) renders the request; pages still on Naive UI keep useConfirm.
+// Confirmations (interface spec, section 7): the dialog states the
+// consequence, destructive actions use the danger colour, and deleting a
+// site asks for its name. ConfirmHost (in the shell) renders the request.
 import { shallowRef } from 'vue'
 
 export interface ConfirmOptions {
   title: string
   /** The consequence, in one or two sentences; may depend on `option`. */
   description: string | ((optionChecked: boolean) => string)
+  /** Text shown as is under the description, in monospace (an address, a path). */
+  detail?: string
   /** The verb on the confirming button ("Delete site"); may depend on `option`. */
   confirmLabel: string | ((optionChecked: boolean) => string)
   destructive?: boolean

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Short toasts for pages built with the new components (interface spec,
-// section 7: bottom right, 3 seconds). Pages still on Naive UI keep using
-// useErrorToast and useCopy.
+// Short toasts (interface spec, section 7: bottom right, 3 seconds).
 import { toast } from 'vue-sonner'
 import { isAbortError, isStepUpRequired } from '@/api/client'
 import { i18n } from '@/i18n'

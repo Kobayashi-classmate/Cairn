@@ -2,8 +2,20 @@
   "title": "Audit log",
   "noUser": "System",
   "filter": {
-    "user": "Filter by username",
-    "category": "All actions"
+    "user": "Exact username",
+    "category": "All actions",
+    "clearUser": "Clear the username",
+    "categoryLabel": "Kind of action",
+    "rangeLabel": "Time range",
+    "resultLabel": "Result",
+    "anyResult": "All",
+    "anyTime": "Any time",
+    "range": {
+      "24h": "Last 24 hours",
+      "7d": "Last 7 days",
+      "30d": "Last 30 days"
+    },
+    "clear": "Clear filters"
   },
   "category": {
     "auth": "Sign-in and account",
@@ -39,7 +51,8 @@
     "remote": "IP address"
   },
   "result": {
-    "ok": "Succeeded"
+    "ok": "Succeeded",
+    "failed": "Failed"
   },
   "source": {
     "web": "Web",
@@ -219,7 +232,11 @@
       "ping": "Changed whether ping is blocked",
       "confirm": "Confirmed a firewall change",
       "enable": "Turned on the firewall",
-      "disable": "Turned off the firewall"
+      "disable": "Turned off the firewall",
+      "forward_add": "Added port forward: {protocol} {port} to port {toPort} of this server",
+      "forward_update": "Changed port forward: {protocol} {port} to port {toPort} of this server",
+      "forward_delete": "Deleted a port forward",
+      "rollback": "Rolled back a firewall change"
     },
     "ssh": {
       "key_add": "Authorized an SSH key for {user}",
@@ -316,6 +333,12 @@
       "ping": {
         "block": "Blocked ping",
         "allow": "Allowed ping"
+      },
+      "forward_add": {
+        "remote": "Added port forward: {protocol} {port} to {toAddress}:{toPort}"
+      },
+      "forward_update": {
+        "remote": "Changed port forward: {protocol} {port} to {toAddress}:{toPort}"
       }
     },
     "host": {
@@ -342,5 +365,26 @@
         "reload": "Reloaded {name} {line}"
       }
     }
+  },
+  "loadOlder": "Load older entries",
+  "status": {
+    "newest": "The newest {count} entry | The newest {count} entries",
+    "all": "{count} entry | {count} entries"
+  },
+  "empty": {
+    "title": "Nothing recorded yet",
+    "filtered": "No entries match the filters",
+    "loadMore": "Only the newest entries are loaded. Load older ones to look further back."
+  },
+  "entry": {
+    "title": "Audit entry",
+    "actionCode": "Action code",
+    "errorCode": "Error code",
+    "id": "Entry",
+    "params": "Parameters",
+    "noParams": "This entry has no parameters.",
+    "related": "Related entries",
+    "byUser": "All entries by {user}",
+    "byCategory": "All entries for {category}"
   }
 }

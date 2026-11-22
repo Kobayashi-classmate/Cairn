@@ -15,7 +15,7 @@
   },
   "reason": {
     "dev_build": "这是开发版本，无法在线更新。",
-    "cloud_disabled": "云服务已在下方关闭，因此不会检查更新。",
+    "cloud_disabled": "云服务已关闭，因此不会检查更新。",
     "no_trusted_key": "尚未配置发布签名密钥，无法校验更新。",
     "fetch_failed": "无法下载版本信息。请检查服务地址和服务器的网络连接。",
     "verification_failed": "版本信息未通过签名校验，已忽略。",
@@ -38,10 +38,11 @@
     "reload": "刷新页面"
   },
   "cloud": {
-    "title": "云服务",
     "enabled": "连接 Cairn 云服务",
     "helpDownloadOnly": "面板只会从此地址下载经过签名的公开数据，例如官方消息和版本信息，不会上传任何内容。",
     "helpDisable": "关闭后，官方消息和更新检查也会随之关闭。",
     "helpMirror": "此地址可以指向自建的镜像。"
-  }
+  },
+  "changeChannel": "修改",
+  "openCloud": "云服务设置"
 }

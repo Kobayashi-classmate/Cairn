@@ -2,75 +2,70 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NForm,
-  NFormItem,
-  NSelect,
-  NSpin,
-  NText,
-  useMessage,
-} from 'naive-ui'
 import { isStepUpRequired } from '@/api/client'
 import { fetchSettings, updateDefaultLocale } from '@/api/settings'
-import { useLocaleSwitch } from '@/composables/useLocaleSwitch'
-import { errorMessage } from '@/i18n/errors'
+import Card from '@/components/common/Card.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
+import Notice from '@/components/common/Notice.vue'
+import SelectField from '@/components/common/SelectField.vue'
+import type { SelectOption } from '@/components/common/types'
+import { Skeleton } from '@/components/ui/skeleton'
+import { certsAvailable } from '@/certs/useCertChoices'
+import { localeNativeName } from '@/i18n'
+import { notifyError, notifySuccess } from '@/lib/notify'
 import { useNavStore } from '@/stores/nav'
 import { useSessionStore } from '@/stores/session'
-import { certsAvailable } from '@/certs/useCertChoices'
 import DownloadPolicySettings from './DownloadPolicySettings.vue'
 import PanelCertSettings from './PanelCertSettings.vue'
+import SettingRow from './SettingRow.vue'
+import SettingRows from './SettingRows.vue'
 
+// Panel-wide settings: the default language, the certificate the panel
+// serves and where runtimes are downloaded from. Quick changes save at once.
 const { t } = useI18n()
-const message = useMessage()
 const session = useSessionStore()
-// Reuses the language list (native names); `select` is not used here.
-const { options: localeOptions, renderLabel } = useLocaleSwitch()
+const nav = useNavStore()
 
 const canManage = computed(() => session.can('settings.manage'))
-
-// The menu only lists the software page when its module is on and the user
-// may read it, which is exactly when its download policy is worth showing.
-const nav = useNavStore()
 // Only when the certificates module is on and the user may read certificates.
 const showPanelCert = computed(() => certsAvailable())
-
+// The menu lists the software page only when its module is on and the user
+// may read it, which is exactly when its download policy is worth showing.
 const showDownloadPolicy = computed(
   () => session.can('software.read') && nav.entries.some((entry) => entry.route === 'software'),
 )
-const saved = ref<string | null>(null)
+
 const defaultLocale = ref<string | null>(null)
-const loading = ref(true)
+const loadError = ref<unknown>(null)
 const saving = ref(false)
-const error = ref<unknown>(null)
 
-onMounted(async () => {
+async function load() {
+  loadError.value = null
   try {
-    const settings = await fetchSettings()
-    saved.value = settings.defaultLocale
-    defaultLocale.value = settings.defaultLocale
+    defaultLocale.value = (await fetchSettings()).defaultLocale
   } catch (err) {
-    error.value = err
-  } finally {
-    loading.value = false
+    loadError.value = err
   }
-})
+}
 
-const changed = computed(() => defaultLocale.value !== null && defaultLocale.value !== saved.value)
+onMounted(load)
 
-async function save() {
-  if (!defaultLocale.value) return
-  error.value = null
+const localeOptions = computed<SelectOption[]>(() =>
+  session.supportedLocales.map((code) => ({ value: code, label: localeNativeName(code) })),
+)
+
+async function changeLocale(value: string) {
+  const previous = defaultLocale.value
+  if (!canManage.value || value === previous) return
+  defaultLocale.value = value
   saving.value = true
   try {
-    await updateDefaultLocale(defaultLocale.value)
-    saved.value = defaultLocale.value
-    if (session.meta) session.meta.defaultLocale = defaultLocale.value
-    message.success(t('settings.panel.saved'))
+    await updateDefaultLocale(value)
+    if (session.meta) session.meta.defaultLocale = value
+    notifySuccess(t('settings.panel.saved'))
   } catch (err) {
-    if (!isStepUpRequired(err)) error.value = err
+    defaultLocale.value = previous
+    if (!isStepUpRequired(err)) notifyError(err)
   } finally {
     saving.value = false
   }
@@ -78,62 +73,30 @@ async function save() {
 </script>
 
 <template>
-  <NCard :title="t('settings.panel.title')" size="small">
-    <NAlert v-if="!canManage" type="info" class="block">{{ t('settings.panel.readOnly') }}</NAlert>
-    <NAlert v-if="error" type="error" class="block">{{ errorMessage(error) }}</NAlert>
-    <NSpin :show="loading">
-      <NForm :show-feedback="false" @submit.prevent="save">
-        <NFormItem :label="t('settings.panel.defaultLocale')">
-          <div class="field">
-            <NSelect
-              v-model:value="defaultLocale"
-              :options="localeOptions"
-              :render-label="renderLabel"
-              :disabled="!canManage || saving"
-              class="field__control"
-            />
-            <NText depth="3" class="field__hint">{{ t('settings.panel.defaultLocaleHint') }}</NText>
-          </div>
-        </NFormItem>
-      </NForm>
-      <NButton
-        v-if="canManage"
-        type="primary"
-        :disabled="!changed"
-        :loading="saving"
-        class="save"
-        @click="save"
+  <Notice v-if="!canManage" tone="info">{{ t('settings.panel.readOnly') }}</Notice>
+
+  <Card flush>
+    <ErrorState v-if="loadError" :error="loadError" compact @retry="load" />
+    <SettingRows v-else>
+      <SettingRow
+        :title="t('settings.panel.defaultLocale')"
+        :description="t('settings.panel.defaultLocaleHint')"
+        label-for="panel-default-locale"
       >
-        {{ t('common.action.save') }}
-      </NButton>
-    </NSpin>
-  </NCard>
+        <Skeleton v-if="defaultLocale === null" class="h-9 w-full @lg:w-56" />
+        <SelectField
+          v-else
+          id="panel-default-locale"
+          :model-value="defaultLocale"
+          :options="localeOptions"
+          :disabled="!canManage || saving"
+          class="w-full @lg:w-56"
+          @update:model-value="changeLocale"
+        />
+      </SettingRow>
+    </SettingRows>
+  </Card>
 
   <PanelCertSettings v-if="showPanelCert" />
   <DownloadPolicySettings v-if="showDownloadPolicy" />
 </template>
-
-<style scoped>
-.block {
-  margin-block-end: 16px;
-}
-
-.field {
-  display: flex;
-  inline-size: 100%;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.field__control {
-  max-inline-size: 320px;
-}
-
-.field__hint {
-  font-size: 13px;
-}
-
-.save {
-  margin-block-start: 16px;
-}
-</style>

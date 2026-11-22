@@ -12,10 +12,7 @@ export interface LocaleChoice {
   name: string
 }
 
-/**
- * Language switching for the new components (the Naive UI pages keep
- * useLocaleSwitch). Failures are reported as a toast.
- */
+/** Language switching for every language picker. Failures are reported as a toast. */
 export function useLocaleChoice() {
   const { locale } = useI18n()
   const session = useSessionStore()

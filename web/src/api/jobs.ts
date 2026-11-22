@@ -44,10 +44,21 @@ export interface JobLogChunk {
   logSize: number
 }
 
-export function fetchJobs(query: { limit?: number; before?: number }, signal?: AbortSignal): Promise<JobPage> {
+export interface JobQuery {
+  limit?: number
+  before?: number
+  /** A job state, or "active" (queued or running). */
+  state?: string
+  /** A job kind, or a prefix ending in "." ("software."). */
+  kind?: string
+}
+
+export function fetchJobs(query: JobQuery, signal?: AbortSignal): Promise<JobPage> {
   const params = new URLSearchParams()
   if (query.limit !== undefined) params.set('limit', String(query.limit))
   if (query.before !== undefined) params.set('before', String(query.before))
+  if (query.state) params.set('state', query.state)
+  if (query.kind) params.set('kind', query.kind)
   const search = params.toString()
   return api.get<JobPage>(`/jobs${search ? `?${search}` : ''}`, { signal })
 }

@@ -4,22 +4,25 @@
   "never": "Never",
   "column": {
     "status": "Status",
-    "totp": "Two-factor",
+    "totp": "Two-step",
     "created": "Created",
-    "lastLogin": "Last sign-in",
-    "actions": "Actions"
+    "lastLogin": "Last sign-in"
   },
   "status": {
     "active": "Active",
-    "disabled": "Disabled"
+    "disabled": "Disabled",
+    "count": "{count} user | {count} users",
+    "disabledCount": "{count} disabled",
+    "noTotp": "{count} without two-step verification"
   },
   "action": {
     "changeRole": "Change role",
     "disable": "Disable",
     "enable": "Enable",
     "resetPassword": "Set new password",
-    "resetTotp": "Reset two-factor authentication",
-    "delete": "Delete"
+    "resetTotp": "Reset two-step verification",
+    "delete": "Delete",
+    "more": "More actions for {username}"
   },
   "roleHelp": {
     "admin": "Full access, including users and panel settings.",
@@ -27,19 +30,23 @@
     "auditor": "Views the system status, panel settings and the audit log."
   },
   "create": {
-    "title": "Add user",
-    "submit": "Add user",
-    "done": "User {username} was added."
+    "title": "New user",
+    "submit": "Create user",
+    "done": "User {username} was added.",
+    "intro": "The person signs in with this name and password and can change the password in their own settings.",
+    "usernameHint": "3–32 characters: lowercase letters, digits, “.”, “_” and “-”, starting with a letter."
   },
   "role": {
     "title": "Change the role of {username}",
-    "done": "The role of {username} was changed."
+    "done": "The role of {username} was changed.",
+    "submit": "Change role"
   },
   "password": {
     "title": "Set a new password for {username}",
     "hint": "{username} will be signed out of all sessions.",
     "submit": "Set password",
-    "done": "The password of {username} was changed."
+    "done": "The password of {username} was changed.",
+    "rule": "At least {min} characters."
   },
   "confirm": {
     "disable": {
@@ -47,18 +54,25 @@
       "content": "{username} will be signed out and cannot sign in until the account is enabled again."
     },
     "resetTotp": {
-      "title": "Reset two-factor authentication for {username}?",
-      "content": "{username} will be able to sign in with the password alone and can set up two-factor authentication again."
+      "title": "Reset two-step verification for {username}?",
+      "content": "{username} will be able to sign in with the password alone and can set up two-step verification again."
     },
     "delete": {
       "title": "Delete {username}?",
-      "content": "The account is deleted permanently. Its entries in the audit log are kept."
+      "content": "The account is deleted permanently and signed out everywhere. Its entries in the audit log are kept.",
+      "confirm": "Delete user"
     }
   },
   "done": {
     "disabled": "{username} was disabled.",
     "enabled": "{username} was enabled.",
-    "totpReset": "Two-factor authentication was reset for {username}.",
+    "totpReset": "Two-step verification was reset for {username}.",
     "deleted": "{username} was deleted."
+  },
+  "search": "Search users",
+  "ownSettings": "Your settings",
+  "totp": {
+    "on": "On",
+    "off": "Off"
   }
 }

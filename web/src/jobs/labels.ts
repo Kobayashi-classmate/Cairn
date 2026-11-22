@@ -62,6 +62,10 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
       return typeof params.block === 'boolean' ? (params.block ? 'block' : 'allow') : null
     case 'firewall.address_add':
       return params.action === 'allow' || params.action === 'deny' ? params.action : null
+    case 'firewall.forward_add':
+    case 'firewall.forward_update':
+      // Forwards to another host name it; those to this host have no address.
+      return typeof params.toAddress === 'string' && params.toAddress !== '' ? 'remote' : null
     default:
       return null
   }
@@ -81,6 +85,11 @@ export function decorateParams(kind: string, named: Record<string, string | numb
     const action = translate('firewall.action', named.action)
     const protocol = translate('firewall.protocol', named.protocol)
     if (action !== undefined) named.action = action
+    if (protocol !== undefined) named.protocol = protocol
+  }
+  // Port forwards read "TCP 8090 to 10.0.0.5:80".
+  if (kind === 'firewall.forward_add' || kind === 'firewall.forward_update') {
+    const protocol = translate('firewall.protocol', named.protocol)
     if (protocol !== undefined) named.protocol = protocol
   }
   if (kind.startsWith('host.sources_')) {

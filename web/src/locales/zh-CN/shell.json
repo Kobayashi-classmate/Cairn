@@ -20,10 +20,12 @@
     "placeholder": "搜索页面…",
     "empty": "没有匹配的页面。",
     "pages": "页面",
-    "account": "账号"
+    "account": "账号",
+    "appearance": "外观"
   },
   "shortcut": {
     "mac": "⌘K",
     "other": "Ctrl K"
-  }
+  },
+  "copyAddress": "复制地址 {address}"
 }

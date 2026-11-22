@@ -1,51 +1,53 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-// Host name, time zone and time sync, and rebooting.
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NAlert, NButton, NCard, NFormItem, NInput, NSelect, NSwitch, NTag, NText, useMessage } from 'naive-ui'
+import { LoaderCircle, Power } from '@lucide/vue'
 import { isStepUpRequired } from '@/api/client'
-import { fetchHost, fetchTimezones, rebootHost, setHostname, setNtp, setTimezone, type HostView } from '@/api/host'
-import { useConfirm } from '@/composables/useConfirm'
-import { useErrorToast } from '@/composables/useErrorToast'
-import { errorMessage } from '@/i18n/errors'
+import { fetchTimezones, setHostname, setNtp, setTimezone, type HostView } from '@/api/host'
+import Card from '@/components/common/Card.vue'
+import ComboboxField from '@/components/common/ComboboxField.vue'
+import KeyValueList from '@/components/common/KeyValueList.vue'
+import KeyValueRow from '@/components/common/KeyValueRow.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
+import { notifyError, notifySuccess } from '@/lib/notify'
 
-const props = defineProps<{ view: HostView; canManage: boolean }>()
-const emit = defineEmits<{ changed: [] }>()
+// Host name, time zone and time sync, and restarting the server.
+const props = defineProps<{ view: HostView; canManage: boolean; rebooting: boolean }>()
+const emit = defineEmits<{ changed: []; reboot: [] }>()
 
 /** A host name: labels of letters, digits and hyphens, at most 253 characters. */
 const HOSTNAME = /^(?=.{1,253}$)[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/
-const POLL_MS = 3000
-/** After this long the panel counts as back even if it never seemed to go away. */
-const ASSUME_BACK_S = 120
 
 const { t } = useI18n()
-const message = useMessage()
-const confirm = useConfirm()
-const showError = useErrorToast()
 
 const hostname = ref('')
 const savingHostname = ref(false)
 const zones = ref<string[]>([])
 const zonesLoading = ref(false)
-const timezone = ref<string | null>(null)
+const timezone = ref('')
 const savingZone = ref(false)
 const savingNtp = ref(false)
-const rebooting = ref(false)
-const rebootError = ref<unknown>(null)
-let pollTimer: ReturnType<typeof setTimeout> | undefined
 
 watch(
-  () => props.view,
-  (view) => {
-    hostname.value = view.hostname
-    timezone.value = view.timezone
-  },
+  () => props.view.hostname,
+  (value) => (hostname.value = value),
+  { immediate: true },
+)
+watch(
+  () => props.view.timezone,
+  (value) => (timezone.value = value),
   { immediate: true },
 )
 
 const hostnameValid = computed(() => HOSTNAME.test(hostname.value.trim()))
-const zoneOptions = computed(() => (zones.value.length ? zones.value : [props.view.timezone]).map((zone) => ({ value: zone, label: zone })))
+const hostnameError = computed(() => (hostname.value.trim() && !hostnameValid.value ? t('errors.host.hostname_invalid') : null))
+/** A zone the system knows (once the list is loaded). */
+const zoneValid = computed(() => zones.value.length === 0 || zones.value.includes(timezone.value.trim()))
+const zoneError = computed(() => (timezone.value.trim() && !zoneValid.value ? t('errors.host.timezone_invalid') : null))
 
 async function loadZones() {
   if (zones.value.length || zonesLoading.value) return
@@ -53,7 +55,7 @@ async function loadZones() {
   try {
     zones.value = await fetchTimezones()
   } catch (err) {
-    showError(err)
+    notifyError(err)
   } finally {
     zonesLoading.value = false
   }
@@ -65,24 +67,25 @@ async function saveHostname() {
   try {
     // Step-up protected: the client asks for the password and retries.
     await setHostname(hostname.value.trim())
-    message.success(t('host.general.saved'))
+    notifySuccess(t('host.general.saved'))
     emit('changed')
   } catch (err) {
-    if (!isStepUpRequired(err)) showError(err)
+    if (!isStepUpRequired(err)) notifyError(err)
   } finally {
     savingHostname.value = false
   }
 }
 
 async function saveZone() {
-  if (!timezone.value) return
+  const zone = timezone.value.trim()
+  if (!zone || !zoneValid.value) return
   savingZone.value = true
   try {
-    await setTimezone(timezone.value)
-    message.success(t('host.general.saved'))
+    await setTimezone(zone)
+    notifySuccess(t('host.general.saved'))
     emit('changed')
   } catch (err) {
-    showError(err)
+    notifyError(err)
   } finally {
     savingZone.value = false
   }
@@ -92,192 +95,115 @@ async function toggleNtp(enabled: boolean) {
   savingNtp.value = true
   try {
     await setNtp(enabled)
+    notifySuccess(enabled ? t('host.general.ntpOn') : t('host.general.ntpOff'))
     emit('changed')
   } catch (err) {
-    showError(err)
+    notifyError(err)
   } finally {
     savingNtp.value = false
   }
 }
 
-/** Waits for the panel to answer again after the reboot. */
-function waitForReturn(at: number) {
-  let sawDown = false
-  const poll = async () => {
-    try {
-      await fetchHost()
-      const now = Date.now() / 1000
-      if (sawDown || now > at + ASSUME_BACK_S) {
-        rebooting.value = false
-        message.success(t('host.reboot.back'))
-        emit('changed')
-        return
-      }
-    } catch {
-      sawDown = true
-    }
-    pollTimer = setTimeout(() => void poll(), POLL_MS)
-  }
-  pollTimer = setTimeout(() => void poll(), POLL_MS * 2)
-}
-
-async function reboot() {
-  const ok = await confirm({
-    title: t('host.reboot.title', { host: props.view.hostname }),
-    content: t('host.reboot.text'),
-    confirmText: t('host.reboot.submit'),
-    danger: true,
-  })
-  if (!ok) return
-  rebootError.value = null
-  try {
-    // Step-up protected: the client asks for the password and retries.
-    const { at } = await rebootHost()
-    rebooting.value = true
-    waitForReturn(at)
-  } catch (err) {
-    if (!isStepUpRequired(err)) rebootError.value = err
-  }
-}
-
-onBeforeUnmount(() => clearTimeout(pollTimer))
+const ntpState = computed(() => {
+  const ntp = props.view.ntp
+  if (!ntp.available || !ntp.enabled) return null
+  return ntp.synchronized ? { tone: 'success' as const, text: t('host.general.synced') } : { tone: 'warning' as const, text: t('host.general.notSynced') }
+})
 </script>
 
 <template>
-  <div class="cards">
-    <NCard size="small" :title="t('host.general.hostname')">
-      <div class="inline">
-        <NInput
-          v-model:value="hostname"
-          :disabled="!canManage"
-          :status="hostname && !hostnameValid ? 'error' : undefined"
-          :input-props="{ autocomplete: 'off', spellcheck: false }"
-        />
-        <NButton
-          v-if="canManage"
-          type="primary"
-          :loading="savingHostname"
-          :disabled="!hostnameValid || hostname.trim() === view.hostname"
-          @click="saveHostname"
-        >
-          {{ t('common.action.save') }}
-        </NButton>
-      </div>
-      <NText v-if="hostname && !hostnameValid" type="error" tag="p" class="hint">{{ t('errors.host.hostname_invalid') }}</NText>
-      <NText v-else depth="3" tag="p" class="hint">{{ t('host.general.hostnameHint') }}</NText>
-    </NCard>
+  <div class="grid items-start gap-4 lg:grid-cols-2">
+    <div class="flex flex-col gap-4">
+      <Card :title="t('host.general.hostname')">
+        <form class="flex flex-col gap-1.5" novalidate @submit.prevent="saveHostname">
+          <label for="host-name" class="sr-only">{{ t('host.general.hostname') }}</label>
+          <div class="flex flex-wrap gap-2">
+            <Input
+              id="host-name"
+              v-model="hostname"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              dir="ltr"
+              class="min-w-0 flex-[1_1_200px] font-mono"
+              aria-describedby="host-name-hint"
+              :aria-invalid="hostnameError ? true : undefined"
+              :disabled="!canManage || savingHostname"
+            />
+            <Button v-if="canManage" type="submit" class="max-md:h-11" :disabled="!hostnameValid || hostname.trim() === view.hostname || savingHostname">
+              <LoaderCircle v-if="savingHostname" class="animate-spin" aria-hidden="true" />
+              {{ t('host.general.saveHostname') }}
+            </Button>
+          </div>
+          <p v-if="hostnameError" class="m-0 text-xs font-medium text-destructive">{{ hostnameError }}</p>
+          <p id="host-name-hint" class="m-0 text-xs text-muted-foreground">{{ t('host.general.hostnameHint') }}</p>
+        </form>
+      </Card>
 
-    <NCard size="small" :title="t('host.general.time')">
-      <NFormItem :label="t('common.field.timezone')" :show-feedback="false">
-        <div class="inline">
-          <NSelect
-            v-model:value="timezone"
-            :options="zoneOptions"
-            filterable
-            :loading="zonesLoading"
-            :disabled="!canManage"
-            @focus="loadZones"
-          />
-          <NButton v-if="canManage" type="primary" :loading="savingZone" :disabled="!timezone || timezone === view.timezone" @click="saveZone">
-            {{ t('common.action.save') }}
-          </NButton>
+      <!-- The time zone suggestions open below the field: the card must not clip them. -->
+      <Card :title="t('host.general.time')" class="overflow-visible" flush>
+        <div class="divide-y">
+          <form class="flex flex-col gap-1.5 px-4 py-4 md:px-[18px]" novalidate @submit.prevent="saveZone">
+            <label for="host-zone" class="text-detail font-medium">{{ t('common.field.timezone') }}</label>
+            <div class="flex flex-wrap gap-2">
+              <ComboboxField
+                id="host-zone"
+                v-model="timezone"
+                :options="zones"
+                :disabled="!canManage || savingZone"
+                :placeholder="view.timezone"
+                class="min-w-0 flex-[1_1_220px]"
+                :aria-invalid="zoneError ? true : undefined"
+                @focusin="loadZones"
+              />
+              <Button v-if="canManage" type="submit" class="max-md:h-11" :disabled="!timezone.trim() || timezone.trim() === view.timezone || !zoneValid || savingZone">
+                <LoaderCircle v-if="savingZone" class="animate-spin" aria-hidden="true" />
+                {{ t('host.general.saveZone') }}
+              </Button>
+            </div>
+            <p v-if="zoneError" class="m-0 text-xs font-medium text-destructive">{{ zoneError }}</p>
+            <p v-else-if="zonesLoading" class="m-0 text-xs text-muted-foreground">{{ t('host.general.zonesLoading') }}</p>
+          </form>
+          <div class="flex flex-col gap-2 px-4 py-4 md:px-[18px]">
+            <div class="flex flex-wrap items-center gap-3">
+              <Switch
+                id="host-ntp"
+                :model-value="view.ntp.enabled"
+                :disabled="!canManage || !view.ntp.available || savingNtp"
+                aria-describedby="host-ntp-hint"
+                @update:model-value="toggleNtp"
+              />
+              <label for="host-ntp" class="cursor-pointer text-detail font-medium">{{ t('host.general.ntp') }}</label>
+              <StatusPill v-if="ntpState" :tone="ntpState.tone">{{ ntpState.text }}</StatusPill>
+            </div>
+            <p id="host-ntp-hint" class="m-0 text-xs text-muted-foreground">
+              {{ view.ntp.available ? t('host.general.ntpHint') : t('errors.host.ntp_unavailable') }}
+            </p>
+          </div>
         </div>
-      </NFormItem>
-      <div class="ntp">
-        <label class="switch">
-          <NSwitch
-            :value="view.ntp.enabled"
-            :disabled="!canManage || !view.ntp.available"
-            :loading="savingNtp"
-            @update:value="toggleNtp"
-          />
-          <span>{{ t('host.general.ntp') }}</span>
-        </label>
-        <NTag v-if="view.ntp.available && view.ntp.enabled" size="small" :type="view.ntp.synchronized ? 'success' : 'warning'" :bordered="false">
-          {{ view.ntp.synchronized ? t('host.general.synced') : t('host.general.notSynced') }}
-        </NTag>
-      </div>
-      <NText v-if="!view.ntp.available" depth="3" tag="p" class="hint">{{ t('errors.host.ntp_unavailable') }}</NText>
-    </NCard>
+      </Card>
+    </div>
 
-    <NCard size="small" :title="t('host.reboot.cardTitle')">
-      <NAlert v-if="view.rebootRequired" type="warning" class="block">{{ t('host.reboot.required') }}</NAlert>
-      <dl class="facts">
-        <dt>{{ t('host.reboot.running') }}</dt>
-        <dd class="mono">{{ view.kernel.running }}</dd>
-        <template v-if="view.kernel.latest && view.kernel.latest !== view.kernel.running">
-          <dt>{{ t('host.reboot.latest') }}</dt>
-          <dd class="mono">{{ view.kernel.latest }}</dd>
-        </template>
-      </dl>
-      <NAlert v-if="rebooting" type="info" class="block">{{ t('host.reboot.waiting') }}</NAlert>
-      <NAlert v-if="rebootError" type="error" class="block">{{ errorMessage(rebootError) }}</NAlert>
-      <div v-if="canManage" class="actions">
-        <NButton type="error" ghost :loading="rebooting" :disabled="rebooting" @click="reboot">{{ t('host.reboot.submit') }}</NButton>
-      </div>
-    </NCard>
+    <Card :title="t('host.reboot.cardTitle')" flush>
+      <KeyValueList>
+        <KeyValueRow :label="t('host.reboot.running')" mono>{{ view.kernel.running }}</KeyValueRow>
+        <KeyValueRow v-if="view.kernel.latest && view.kernel.latest !== view.kernel.running" :label="t('host.reboot.latest')" mono>
+          {{ view.kernel.latest }}
+        </KeyValueRow>
+        <KeyValueRow :label="t('host.reboot.needed')">
+          <StatusPill :tone="view.rebootRequired ? 'warning' : 'neutral'">
+            {{ view.rebootRequired ? t('host.reboot.neededYes') : t('host.reboot.neededNo') }}
+          </StatusPill>
+        </KeyValueRow>
+      </KeyValueList>
+      <template v-if="canManage" #footer>
+        <p class="m-0 min-w-0 flex-1 basis-60 text-xs text-muted-foreground">{{ t('host.reboot.text') }}</p>
+        <Button variant="outline" class="text-destructive hover:text-destructive max-md:h-11" :disabled="rebooting" @click="emit('reboot')">
+          <LoaderCircle v-if="rebooting" class="animate-spin" aria-hidden="true" />
+          <Power v-else aria-hidden="true" />
+          {{ t('host.reboot.submit') }}
+        </Button>
+      </template>
+    </Card>
   </div>
 </template>
-
-<style scoped>
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 12px;
-}
-
-.inline {
-  display: flex;
-  gap: 8px;
-  inline-size: 100%;
-}
-
-.hint {
-  margin: 8px 0 0;
-  font-size: 12px;
-}
-
-.ntp {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-block-start: 12px;
-}
-
-.switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: 4px 12px;
-  margin: 0 0 12px;
-  font-size: 13px;
-}
-
-.facts dt {
-  opacity: 0.7;
-}
-
-.facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-</style>

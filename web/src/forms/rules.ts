@@ -76,60 +76,6 @@ export function checkRule(
   }
 }
 
-export function usernameRules(field = 'username'): FormItemRule[] {
-  return [
-    requiredRule(field),
-    checkRule(field, 'min_length', (v) => textLength(v) >= USERNAME_MIN, { min: USERNAME_MIN }),
-    checkRule(field, 'max_length', (v) => textLength(v) <= USERNAME_MAX, { max: USERNAME_MAX }),
-    checkRule(field, 'pattern', (v) => USERNAME_PATTERN.test(v)),
-  ]
-}
-
-/** Rules for choosing a new password. */
-export function newPasswordRules(field = 'password'): FormItemRule[] {
-  return [
-    requiredRule(field),
-    checkRule(field, 'min_length', (v) => textLength(v) >= PASSWORD_MIN, { min: PASSWORD_MIN }),
-  ]
-}
-
-/** Rules for repeating a password; `password` returns the value to match. */
-export function confirmPasswordRules(password: () => string): FormItemRule[] {
-  return [
-    requiredRule('passwordConfirm'),
-    checkRule('passwordConfirm', 'mismatch', (v) => v === password()),
-  ]
-}
-
 export function totpCodeRules(): FormItemRule[] {
   return [requiredRule('code'), checkRule('code', 'pattern', (v) => TOTP_CODE_PATTERN.test(v))]
-}
-
-/** A list that must not be empty (checkbox groups, recipient lists). */
-export function requiredListRule(field: string): FormItemRule {
-  return {
-    trigger: 'change',
-    validator: (_rule, value: unknown) => Array.isArray(value) && value.length > 0,
-    renderMessage: () => validationMessage(field, 'required'),
-  }
-}
-
-/** Every entry of a list must pass `test`. */
-export function listRule(field: string, rule: string, test: (value: string) => boolean): FormItemRule {
-  return {
-    trigger: 'change',
-    validator: (_rule, value: unknown) =>
-      !Array.isArray(value) || value.every((item) => test(String(item))),
-    renderMessage: () => validationMessage(field, rule),
-  }
-}
-
-/** A required whole number between `min` and `max`. */
-export function rangeRule(field: string, min: number, max: number): FormItemRule {
-  return {
-    trigger: ['blur', 'change'],
-    validator: (_rule, value: unknown) =>
-      typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max,
-    renderMessage: () => validationMessage(field, 'range', { min, max }),
-  }
 }

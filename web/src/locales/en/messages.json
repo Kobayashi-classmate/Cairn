@@ -5,7 +5,6 @@
   "unread": "Unread",
   "markRead": "Mark as read",
   "markAllRead": "Mark all as read",
-  "viewAll": "View all messages",
   "view": "View message",
   "learnMore": "Learn more",
   "expired": "Expired",
@@ -15,5 +14,15 @@
     "security": "Security",
     "maintenance": "Maintenance",
     "general": "General"
+  },
+  "emptyText": "Releases, security advisories and maintenance notices will appear here.",
+  "listLabel": "Messages",
+  "readerLabel": "Message",
+  "nothingOpen": "Choose a message to read it.",
+  "published": "Published",
+  "read": "Read",
+  "status": {
+    "count": "{count} message | {count} messages",
+    "unread": "{count} unread"
   }
 }

@@ -1,5 +1,4 @@
 {
-  "title": "Modules",
   "intro": "Features of the panel. Optional modules can be turned off; their pages and API routes are then unavailable.",
   "core": "Part of the core",
   "coreTooltip": "This module is part of the core and cannot be turned off.",
@@ -25,5 +24,26 @@
     "firewall": "Firewall",
     "ssh": "SSH",
     "host": "System management"
+  },
+  "description": {
+    "core": "Sign-in, accounts, sessions and panel settings.",
+    "system": "The overview page and the server's live usage.",
+    "software": "Installing and managing web servers, runtimes and databases.",
+    "jobs": "The task list that follows long operations.",
+    "users": "Panel accounts and their roles.",
+    "auditlog": "The record of every change made through the panel.",
+    "notifications": "Email and webhook notifications.",
+    "cloud": "Official messages and update checks from the Cairn service.",
+    "sites": "Websites, reverse proxies, projects and layer-4 proxies.",
+    "certs": "TLS certificates and DNS accounts for issuing them.",
+    "databases": "MariaDB, MySQL, PostgreSQL and Redis databases and users.",
+    "files": "The file manager and the trash.",
+    "terminal": "Shells on the server in the browser.",
+    "cron": "Scheduled scripts, address calls and backups.",
+    "backups": "Backup plans, storage and restores.",
+    "logs": "System, site and SSH sign-in logs.",
+    "firewall": "Port and address rules.",
+    "ssh": "The SSH server's settings and authorized keys.",
+    "host": "Host name, time, swap, system updates and package sources."
   }
 }

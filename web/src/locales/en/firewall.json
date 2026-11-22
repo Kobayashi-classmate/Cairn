@@ -2,26 +2,29 @@
   "title": "Firewall",
   "tabs": {
     "rules": "Port rules",
-    "addresses": "Addresses"
+    "addresses": "Address rules",
+    "forwards": "Port forwards",
+    "basic": "Basic settings"
   },
   "state": {
     "enabled": "On",
-    "disabled": "Off"
+    "disabled": "Off",
+    "notLoaded": "On, rules not in effect"
   },
-  "backend": "Using {backend}",
-  "backendMissing": " (installed when you turn it on)",
+  "status": {
+    "noBackend": "No supported firewall",
+    "clientIp": "Your address"
+  },
+  "backendMissing": "installed when you turn it on",
   "noBackend": "No supported firewall can be used on this system.",
-  "clientIp": "Your address: {ip}",
   "blockPing": "Block ping",
-  "alwaysOpen": "SSH ({ssh}) and the panel ({panel}) always stay open, so you cannot lock yourself out.",
   "noSystemd": "The firewall can only be managed on systems that run systemd.",
   "notLoaded": "The firewall is on, but its rules are not in effect right now.",
   "reapply": "Apply again",
   "rolledBack": "The last change ({time}) was rolled back because it was not confirmed in time.",
-  "foreignPending": "A change waits for confirmation and is rolled back in {seconds} s unless it is kept.",
-  "keep": "Keep this change",
   "enableFirst": "Turn the firewall on to change its rules.",
   "anywhere": "Anywhere",
+  "saved": "Saved.",
   "action": {
     "allow": "Allow",
     "deny": "Deny"
@@ -38,14 +41,69 @@
     "db": "Remote access to {engine}"
   },
   "confirm": {
-    "checking": "Checking that the panel is still reachable… {seconds} s",
-    "kept": "The change is in effect.",
+    "kept": "The change is saved.",
     "rolledBack": "The change was rolled back: the panel could not confirm it in time.",
-    "explain": "After saving, the panel checks that it can still be reached; if not, the change is undone within a minute."
+    "undone": "The change was rolled back.",
+    "step": "Check over a new connection that the panel can still be reached, and undo the change within a minute if not"
+  },
+  "pending": {
+    "step": {
+      "applied": "Applied",
+      "confirm": "Confirm over a new connection",
+      "saved": "Saved"
+    },
+    "checkingTitle": "Confirming the change",
+    "checkingText": "The panel checks over a new connection that it can still be reached; you need not do anything. If it cannot, the change is undone.",
+    "countdown": "Rolled back in {seconds} s unless confirmed",
+    "rollBack": "Roll back now",
+    "abandonedTitle": "Rolling back the change",
+    "abandonedText": "The change is being undone. Should the server not answer now, it undoes the change anyway when its minute is up.",
+    "abandonedCountdown": "Rolled back in {seconds} s",
+    "foreignTitle": "A change waits for confirmation",
+    "foreignText": "{change} was made elsewhere and is rolled back unless it is kept.",
+    "keep": "Keep this change",
+    "keptTitle": "Change saved",
+    "undo": "Undo",
+    "kind": {
+      "rule": {
+        "add": "A new port rule",
+        "update": "A changed port rule",
+        "delete": "A deleted port rule"
+      },
+      "address": {
+        "add": "A new trusted or blocked address",
+        "delete": "A removed address"
+      },
+      "forward": {
+        "add": "A new port forward",
+        "update": "A changed port forward",
+        "delete": "A deleted port forward"
+      },
+      "ping": "A ping setting",
+      "enable": "Turning on the firewall",
+      "other": "A firewall change"
+    }
+  },
+  "summary": {
+    "ruleAdd": "Rule added: {rule}",
+    "ruleUpdate": "Rule changed: {rule}",
+    "ruleDelete": "Rule deleted: {rule}",
+    "address": {
+      "allow": "{address} trusted",
+      "deny": "{address} blocked",
+      "delete": "{address} removed"
+    },
+    "forwardAdd": "Forward added: {forward}",
+    "forwardUpdate": "Forward changed: {forward}",
+    "forwardDelete": "Forward deleted: {forward}",
+    "pingBlock": "Ping blocked",
+    "pingAllow": "Ping allowed",
+    "enable": "Firewall turned on",
+    "undo": "Undone: {summary}"
   },
   "enable": {
     "title": "Turn on the firewall?",
-    "text": "The firewall ({backend}) blocks all incoming connections except the rules below. SSH {ssh} and the panel {panel} stay open.",
+    "text": "The firewall ({backend}) blocks all incoming connections except the port rules. SSH {ssh} and the panel {panel} stay open.",
     "submit": "Turn on"
   },
   "disable": {
@@ -54,39 +112,116 @@
     "submit": "Turn off"
   },
   "rule": {
-    "createTitle": "Add a rule",
+    "add": "Add rule",
+    "save": "Save rule",
+    "createTitle": "Add a port rule",
     "editTitle": "Change the rule",
+    "sourcesTitle": "Change who may connect",
     "intro": "Incoming connections are refused unless a rule allows them.",
     "owner": "Made by",
     "protected": "Always allowed so you cannot lock yourself out",
-    "editSources": "Change sources",
+    "edit": "Change the rule for {ports}",
+    "editSources": "Change who may connect to {ports}",
+    "more": "More actions for {ports}",
     "managedNote": "This rule belongs to {owner}; only who may connect can change here.",
     "portsHint": "Ports such as 80 or ranges such as 8000-8100, at most {max}. Press Enter after each.",
     "sourcesHint": "Addresses or ranges (10.0.0.0/8) that may connect; none means anywhere.",
     "denyHint": "A deny rule needs sources: everything else is refused anyway.",
     "addMine": "Add my address ({ip})",
-    "deleteTitle": "Delete the rule?",
-    "deleteText": "Connections to {ports} are no longer allowed by this rule."
+    "delete": "Delete rule",
+    "deleteTitle": "Delete the rule for {ports}?",
+    "deleteText": "Connections to {ports} are no longer allowed by this rule. Once saved, it can be undone here for a few minutes.",
+    "describe": "{action} {ports} ({protocol})",
+    "steps": {
+      "allow": "Allow {protocol} connections to {ports} from {sources}",
+      "deny": "Refuse {protocol} connections to {ports} from {sources}",
+      "anywhere": "anywhere"
+    },
+    "search": "Search rules",
+    "empty": "No port rules"
   },
   "address": {
-    "createTitle": "Add an address",
+    "add": "Add address",
+    "createTitle": "Trust or block an address",
     "intro": "Trusted addresses reach every port; blocked addresses reach none, not even SSH. A block wins over any allow.",
     "hint": "An IPv4 or IPv6 address, or a range such as 203.0.113.0/24.",
     "allow": "Trusted",
     "allowHint": "May connect to every port.",
     "deny": "Blocked",
     "denyHint": "Cannot connect to any port, SSH included.",
-    "empty": "No trusted or blocked addresses.",
-    "deleteTitle": "Delete {address}?",
+    "trust": "Trust address",
+    "block": "Block address",
+    "empty": "No trusted or blocked addresses",
+    "emptyText": "Trust an office network on every port, or block an address that misbehaves.",
+    "search": "Search addresses",
+    "more": "More actions for {address}",
+    "delete": "Remove address",
+    "deleteTitle": "Remove {address}?",
     "deleteAllowText": "The address is no longer trusted; the port rules apply to it again.",
-    "deleteDenyText": "The address is no longer blocked."
+    "deleteDenyText": "The address is no longer blocked.",
+    "steps": {
+      "allow": "Let {address} connect to every port",
+      "deny": "Refuse every connection from {address}, SSH included"
+    }
+  },
+  "forward": {
+    "add": "Add forward",
+    "save": "Save forward",
+    "createTitle": "Forward a port",
+    "editTitle": "Change the forward",
+    "intro": "Connections to a port of this server go on to another port, here or on another IPv4 host.",
+    "port": "Listening port",
+    "portHint": "The port people connect to (1–65535). It cannot be the SSH or panel port.",
+    "target": "Target",
+    "thisHost": "This host",
+    "otherHost": "Another host",
+    "thisHostPort": "this host, port {port}",
+    "addressHint": "The IPv4 address of the other host.",
+    "toPortHint": "A different port than the listening port.",
+    "ipv6Note": "IPv6 targets are not offered: switching on IPv6 forwarding would stop this server from setting up its own IPv6 addresses.",
+    "describe": "{protocol} {port} to {target}",
+    "steps": {
+      "forward": "Forward {protocol} port {port} to {target}",
+      "accept": "Let the forwarded connections through the firewall; no port rule is needed",
+      "ipForward": "Switch on IPv4 forwarding (it is off now)",
+      "masquerade": "Masquerade the forwarded connections, so replies come back through this server"
+    },
+    "edit": "Change the forward of port {port}",
+    "more": "More actions for port {port}",
+    "delete": "Delete forward",
+    "deleteTitle": "Delete the forward of port {port}?",
+    "deleteText": "Forwarding {forward} stops. Once saved, it can be undone here for a few minutes.",
+    "search": "Search forwards",
+    "empty": "No port forwards",
+    "emptyText": "Forward a port to another port of this server or to a service on another host.",
+    "limit": "This server keeps at most {max} port forwards; delete one to add another."
+  },
+  "basic": {
+    "title": "Firewall",
+    "state": "State",
+    "backend": "Backend",
+    "incoming": "Incoming connections",
+    "incomingValue": "Refused unless a rule allows them",
+    "alwaysOpen": "Always open",
+    "alwaysOpenValue": "SSH {ssh} · panel {panel}",
+    "clientIp": "Your address",
+    "ping": "Ping",
+    "pingHint": "Do not answer ICMP echo requests. The change is confirmed like any other.",
+    "forwarding": "Port forwarding",
+    "ipForward": "IPv4 forwarding",
+    "on": "On",
+    "off": "Off",
+    "ipForwardHint": "Forwards to other hosts need it. The panel switches it on for them, and off again when the last one goes if it was the panel that switched it on."
   },
   "external": {
-    "title": "Other rules on this system ({count})",
-    "intro": "Rules not made by the panel. They are shown as the firewall lists them and are left alone."
+    "title": "Rules not made by the panel ({count})",
+    "intro": "Shown as the firewall lists them; the panel leaves them alone.",
+    "empty": "None"
   },
   "conflict": "Two firewalls are active at once ({conflict}). Turn one of them off on the server before managing the firewall here.",
   "unsupportedReason": {
-    "firewalld_old": "firewalld {version} is too old"
+    "firewalld_old": "firewalld {version} is too old",
+    "nft_missing": "with ufw, port forwards need the nft command (package nftables), which is not installed",
+    "ufw_before_rules": "ufw's before.rules has lost its “# End required lines” marker, so the forwarding rules have no place to go"
   }
 }

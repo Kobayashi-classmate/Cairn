@@ -1,40 +1,38 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { I18nT, useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NDataTable,
-  NIcon,
-  NSpace,
-  NTag,
-  NText,
-  useMessage,
-  type DataTableColumns,
-} from 'naive-ui'
-import { AddOutline } from '@vicons/ionicons5'
-import { fetchTokens, revokeToken, type ApiToken } from '@/api/tokens'
+import { RouterLink } from 'vue-router'
+import { Plus } from '@lucide/vue'
+import { fetchTokens, revokeToken, type ApiToken, type CreatedToken } from '@/api/tokens'
+import Card from '@/components/common/Card.vue'
+import DataTable from '@/components/common/DataTable.vue'
+import RelativeTime from '@/components/common/RelativeTime.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { permissionLabel } from '@/auth/permissions'
-import { useConfirm } from '@/composables/useConfirm'
-import { useErrorToast } from '@/composables/useErrorToast'
-import { useNow } from '@/composables/useNow'
-import { errorMessage } from '@/i18n/errors'
-import { formatDateTime } from '@/i18n/format'
-import CreateTokenModal from '@/views/tokens/CreateTokenModal.vue'
+import { useClock } from '@/composables/useClock'
+import { formatDate, formatFullDateTime } from '@/i18n/format'
+import { confirmAction } from '@/composables/useConfirmDialog'
+import { notifySuccess } from '@/lib/notify'
+import CreateTokenSheet from '@/views/tokens/CreateTokenSheet.vue'
+import TokenCreatedDialog from '@/views/tokens/TokenCreatedDialog.vue'
 
+// Your API tokens: what each may do, from where, until when and when it was
+// last used. Creating one shows its secret once; revoking asks first.
 const { t } = useI18n()
-const message = useMessage()
-const confirm = useConfirm()
-const showError = useErrorToast()
-const now = useNow(60_000)
+const now = useClock()
+
+/** Permissions listed by name in a row; the rest are counted. */
+const SHOWN_PERMISSIONS = 2
 
 const tokens = ref<ApiToken[]>([])
 const loading = ref(false)
 const loadError = ref<unknown>(null)
-const busyId = ref<number | null>(null)
 const showCreate = ref(false)
+const created = ref<{ name: string; secret: string } | null>(null)
 
 async function load() {
   loading.value = true
@@ -50,152 +48,143 @@ async function load() {
 
 onMounted(load)
 
-function onCreated(token: ApiToken) {
-  tokens.value = [token, ...tokens.value]
+function onCreated(token: CreatedToken) {
+  tokens.value = [token.info, ...tokens.value.filter((item) => item.id !== token.info.id)]
+  created.value = { name: token.info.name, secret: token.token }
 }
 
-async function revoke(token: ApiToken) {
-  const ok = await confirm({
+function askRevoke(token: ApiToken) {
+  void confirmAction({
     title: t('tokens.confirmRevoke.title', { name: token.name }),
-    content: t('tokens.confirmRevoke.content'),
-    confirmText: t('tokens.revoke'),
-    danger: true,
-  })
-  if (!ok) return
-  busyId.value = token.id
-  try {
-    await revokeToken(token.id)
-    tokens.value = tokens.value.filter((item) => item.id !== token.id)
-    message.success(t('tokens.revoked', { name: token.name }))
-  } catch (err) {
-    showError(err)
-  } finally {
-    busyId.value = null
-  }
-}
-
-function tag(text: string, type: 'default' | 'error' | 'info' = 'default') {
-  return h(NTag, { size: 'small', bordered: false, type }, () => text)
-}
-
-const columns = computed<DataTableColumns<ApiToken>>(() => [
-  { key: 'name', title: t('common.field.name'), minWidth: 160 },
-  {
-    key: 'prefix',
-    title: t('tokens.column.prefix'),
-    width: 170,
-    render: (token) => h('code', { class: 'mono', dir: 'ltr' }, `${token.prefix}…`),
-  },
-  {
-    key: 'permissions',
-    title: t('common.field.permissions'),
-    minWidth: 220,
-    render: (token) =>
-      h(NSpace, { size: 4 }, () => token.permissions.map((p) => tag(permissionLabel(p), 'info'))),
-  },
-  {
-    key: 'allowedIps',
-    title: t('common.field.allowedIps'),
-    minWidth: 160,
-    render: (token) =>
-      token.allowedIps.length > 0
-        ? h('span', { class: 'mono', dir: 'ltr' }, token.allowedIps.join(', '))
-        : t('tokens.anyAddress'),
-  },
-  {
-    key: 'expiresAt',
-    title: t('tokens.column.expires'),
-    width: 190,
-    render: (token) => {
-      if (token.expiresAt === 0) return t('tokens.expiry.never')
-      const date = formatDateTime(token.expiresAt)
-      return token.expiresAt <= now.value
-        ? h(NSpace, { size: 4, align: 'center' }, () => [date, tag(t('tokens.expired'), 'error')])
-        : date
+    description: t('tokens.confirmRevoke.content'),
+    confirmLabel: t('tokens.revoke'),
+    destructive: true,
+    run: async () => {
+      await revokeToken(token.id)
+      tokens.value = tokens.value.filter((item) => item.id !== token.id)
+      notifySuccess(t('tokens.revoked', { name: token.name }))
     },
-  },
-  {
-    key: 'lastUsedAt',
-    title: t('tokens.column.lastUsed'),
-    width: 170,
-    render: (token) => (token.lastUsedAt > 0 ? formatDateTime(token.lastUsedAt) : t('tokens.neverUsed')),
-  },
-  {
-    key: 'createdAt',
-    title: t('tokens.column.created'),
-    width: 170,
-    render: (token) => formatDateTime(token.createdAt),
-  },
-  {
-    key: 'actions',
-    title: '',
-    width: 110,
-    render: (token) =>
-      h(
-        NButton,
-        {
-          size: 'small',
-          type: 'error',
-          ghost: true,
-          loading: busyId.value === token.id,
-          disabled: busyId.value !== null && busyId.value !== token.id,
-          onClick: () => void revoke(token),
-        },
-        () => t('tokens.revoke'),
-      ),
-  },
+  })
+}
+
+function expired(token: ApiToken): boolean {
+  return token.expiresAt > 0 && token.expiresAt <= now.value
+}
+
+const columns = computed<ColumnDef<ApiToken>[]>(() => [
+  { id: 'name', header: t('common.field.name'), accessorFn: (token) => token.name.toLowerCase(), meta: { class: 'min-w-[170px]' } },
+  { id: 'permissions', header: t('common.field.permissions'), enableSorting: false, meta: { class: 'min-w-[170px]' } },
+  { id: 'allowedIps', header: t('common.field.allowedIps'), enableSorting: false, meta: { class: 'min-w-[130px]' } },
+  { id: 'expires', header: t('tokens.column.expires'), accessorFn: (token) => token.expiresAt || Number.MAX_SAFE_INTEGER, meta: { class: 'w-[130px]' } },
+  { id: 'lastUsed', header: t('tokens.column.lastUsed'), accessorFn: (token) => token.lastUsedAt, meta: { class: 'w-[130px]' } },
+  { id: 'actions', header: '', enableSorting: false, meta: { class: 'w-[100px] text-end' } },
 ])
 </script>
 
 <template>
-  <NCard :title="t('tokens.title')" size="small">
-    <template #header-extra>
-      <NButton size="small" type="primary" @click="showCreate = true">
-        <template #icon>
-          <NIcon><AddOutline /></NIcon>
-        </template>
+  <Card :title="t('tokens.listTitle')" :level="3" flush>
+    <template #actions>
+      <Button size="sm" class="max-md:h-11" @click="showCreate = true">
+        <Plus aria-hidden="true" />
         {{ t('tokens.create.title') }}
-      </NButton>
+      </Button>
     </template>
-    <NAlert type="info" :show-icon="false" class="block">
-      <I18nT keypath="tokens.help.usage" tag="p" class="help">
+    <div class="flex flex-col gap-1 border-b px-4 py-3 text-detail text-muted-foreground md:px-[18px]">
+      <I18nT keypath="tokens.help.usage" tag="p" class="m-0">
         <template #header>
-          <code class="mono" dir="ltr">Authorization: Bearer &lt;token&gt;</code>
+          <code class="rounded-sm bg-muted px-1 font-mono text-[12.5px] text-foreground" dir="ltr">Authorization: Bearer &lt;token&gt;</code>
         </template>
       </I18nT>
-      <p class="help">{{ t('tokens.help.stepUp') }}</p>
-      <p class="help">{{ t('tokens.help.audit') }}</p>
-    </NAlert>
-    <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-    <NDataTable
-      :columns="columns"
+      <p class="m-0">{{ t('tokens.help.stepUp') }} {{ t('tokens.help.audit') }}</p>
+      <p class="m-0">
+        <RouterLink :to="{ name: 'settings-api' }" class="text-link underline-offset-2 hover:underline">
+          {{ t('tokens.help.reference') }}
+        </RouterLink>
+      </p>
+    </div>
+    <DataTable
+      flat
       :data="tokens"
+      :columns="columns"
+      :row-key="(token) => String(token.id)"
+      :label="t('tokens.title')"
       :loading="loading"
-      :row-key="(token: ApiToken) => token.id"
-      :scroll-x="1200"
-      size="small"
+      :error="loadError"
+      :empty-title="t('tokens.empty')"
+      :empty-text="t('tokens.emptyText')"
+      :min-width="760"
+      :skeleton-rows="2"
+      @retry="load"
     >
-      <template #empty>
-        <NText depth="3">{{ t('tokens.empty') }}</NText>
+      <template #cell-name="{ row }">
+        <span class="flex min-w-0 flex-col">
+          <span class="truncate font-medium" dir="auto">{{ row.name }}</span>
+          <span class="font-mono text-xs text-muted-foreground" dir="ltr">{{ row.prefix }}…</span>
+          <span class="text-xs text-muted-foreground" :title="formatFullDateTime(row.createdAt)">
+            {{ t('tokens.createdOn', { date: formatDate(row.createdAt) }) }}
+          </span>
+        </span>
       </template>
-    </NDataTable>
-  </NCard>
+      <template #cell-permissions="{ row }">
+        <span class="flex flex-wrap items-center gap-1">
+          <StatusPill v-for="permission in row.permissions.slice(0, SHOWN_PERMISSIONS)" :key="permission" tone="progress">
+            {{ permissionLabel(permission) }}
+          </StatusPill>
+          <Tooltip v-if="row.permissions.length > SHOWN_PERMISSIONS">
+            <TooltipTrigger as-child>
+              <button type="button" class="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                <StatusPill>{{ t('tokens.morePermissions', { count: row.permissions.length - SHOWN_PERMISSIONS }) }}</StatusPill>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent class="max-w-72">
+              {{ row.permissions.slice(SHOWN_PERMISSIONS).map(permissionLabel).join(', ') }}
+            </TooltipContent>
+          </Tooltip>
+        </span>
+      </template>
+      <template #cell-allowedIps="{ row }">
+        <span v-if="row.allowedIps.length > 0" class="flex flex-col font-mono text-[12.5px]" dir="ltr">
+          <span v-for="ip in row.allowedIps" :key="ip" class="whitespace-nowrap">{{ ip }}</span>
+        </span>
+        <span v-else class="text-muted-foreground">{{ t('tokens.anyAddress') }}</span>
+      </template>
+      <template #cell-expires="{ row }">
+        <span v-if="row.expiresAt === 0" class="text-muted-foreground">{{ t('tokens.expiry.never') }}</span>
+        <span v-else class="flex flex-col items-start gap-0.5">
+          <StatusPill v-if="expired(row)" tone="destructive">{{ t('tokens.expired') }}</StatusPill>
+          <time
+            :datetime="new Date(row.expiresAt * 1000).toISOString()"
+            :title="formatFullDateTime(row.expiresAt)"
+            :class="['whitespace-nowrap', expired(row) && 'text-xs text-muted-foreground']"
+          >
+            {{ formatDate(row.expiresAt) }}
+          </time>
+        </span>
+      </template>
+      <template #cell-lastUsed="{ row }">
+        <RelativeTime v-if="row.lastUsedAt > 0" :value="row.lastUsedAt" />
+        <span v-else class="text-muted-foreground">{{ t('tokens.neverUsed') }}</span>
+      </template>
+      <template #cell-actions="{ row }">
+        <Button
+          variant="outline"
+          size="sm"
+          class="text-destructive hover:text-destructive max-md:h-11"
+          :aria-label="t('tokens.revokeNamed', { name: row.name })"
+          @click="askRevoke(row)"
+        >
+          {{ t('tokens.revoke') }}
+        </Button>
+      </template>
+      <template #empty>
+        <Button @click="showCreate = true">
+          <Plus aria-hidden="true" />
+          {{ t('tokens.create.title') }}
+        </Button>
+      </template>
+    </DataTable>
+  </Card>
 
-  <CreateTokenModal v-model:show="showCreate" @created="onCreated" />
+  <CreateTokenSheet v-model:open="showCreate" @created="onCreated" />
+  <TokenCreatedDialog :token="created" @close="created = null" />
 </template>
-
-<style scoped>
-.block {
-  margin-block-end: 12px;
-}
-
-.help {
-  margin: 0 0 4px;
-}
-
-.mono,
-:deep(.mono) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-}
-</style>

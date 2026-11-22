@@ -1,7 +1,10 @@
 {
   "channels": {
     "title": "Notification channels",
-    "description": "Where the panel sends messages about security, accounts and the system."
+    "description": "Where the panel sends messages about security, accounts and the system.",
+    "empty": "No notification channels",
+    "emptyText": "Add an email address or a webhook to hear about sign-ins, failed backups and expiring certificates.",
+    "allEvents": "All events"
   },
   "type": {
     "email": "Email",
@@ -96,7 +99,7 @@
     }
   },
   "channel": {
-    "createTitle": "Add channel",
+    "createTitle": "New channel",
     "editTitle": "Edit channel",
     "enabled": "Enabled",
     "locale": "Message language",
@@ -105,14 +108,23 @@
     "confirmDelete": {
       "title": "Delete channel {name}?",
       "content": "No more messages will be sent through this channel."
-    }
+    },
+    "createSubmit": "Create channel",
+    "delete": "Delete channel",
+    "more": "More actions for {name}",
+    "enableNamed": "Send through {name}",
+    "enabledHint": "A turned-off channel keeps its settings but receives nothing.",
+    "levelAtLeast": "{level} and above",
+    "typeFixed": "The type of a saved channel cannot change."
   },
   "email": {
     "securityMode": {
       "starttls": "STARTTLS",
       "tls": "TLS (implicit)",
       "none": "None (unencrypted)"
-    }
+    },
+    "usernameHint": "Leave empty if the server does not ask for a sign-in.",
+    "toHint": "Press Enter after each address."
   },
   "webhook": {
     "payload": "Each event is sent as an HTTP POST request with a JSON body.",
@@ -121,7 +133,8 @@
   "test": {
     "send": "Send test",
     "sent": "A test message was sent to {name}.",
-    "failed": "The test message to {name} failed"
+    "failed": "The test message to {name} failed",
+    "savedHint": "Sends a test message with the saved settings."
   },
   "delivery": {
     "title": "Recent deliveries",
@@ -130,8 +143,9 @@
     "event": "Event",
     "level": "Level",
     "status": "Status",
-    "attempts": "Attempts",
-    "sent": "Sent at",
-    "lastError": "Last error"
+    "lastError": "Last error",
+    "description": "The last 50 messages the panel sent or tried to send.",
+    "empty": "Nothing has been sent yet",
+    "attemptCount": "{count} attempt | {count} attempts"
   }
 }

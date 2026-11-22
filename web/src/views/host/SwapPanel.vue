@@ -1,27 +1,36 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-// Swap: what the system has, the panel's swap file and swappiness.
-import { computed, h, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NAlert, NButton, NCard, NDataTable, NInputNumber, NProgress, NSlider, NTag, NText, useMessage, type DataTableColumns } from 'naive-ui'
+import { LoaderCircle, Trash2 } from '@lucide/vue'
 import { SWAP_MAX_MB, SWAP_MIN_MB, setSwap, setSwappiness, type HostView, type SwapDevice } from '@/api/host'
-import type { Job } from '@/api/jobs'
-import JobProgress from '@/components/JobProgress.vue'
-import { useConfirm } from '@/composables/useConfirm'
-import { useErrorToast } from '@/composables/useErrorToast'
-import { useJobRun } from '@/composables/useJobRun'
-import { formatBytes } from '@/i18n/format'
+import Card from '@/components/common/Card.vue'
+import DataTable from '@/components/common/DataTable.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import Notice from '@/components/common/Notice.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { confirmAction } from '@/composables/useConfirmDialog'
+import { formatBytes, formatPercent } from '@/i18n/format'
+import { launchJob } from '@/jobs/dock'
+import { notifyError, notifySuccess } from '@/lib/notify'
+import { TONE_DOT, usageTone } from '@/lib/tone'
+import { cn } from '@/lib/utils'
 
+// Swap: what the system has, the panel's swap file (a job) and swappiness.
 const props = defineProps<{ view: HostView; canManage: boolean }>()
 const emit = defineEmits<{ changed: [] }>()
 
+const MIB = 1024 * 1024
+
 const { t } = useI18n()
-const message = useMessage()
-const confirm = useConfirm()
-const showError = useErrorToast()
-const sizeMb = ref<number | null>(2048)
+const sizeMb = ref('2048')
 const swappiness = ref(60)
 const savingSwappiness = ref(false)
+/** A swap file job runs. */
+const working = ref(false)
 
 const swap = computed(() => props.view.swap)
 const managed = computed(() => swap.value.devices.find((device) => device.managed) ?? null)
@@ -32,176 +41,187 @@ watch(
   (value) => {
     swappiness.value = value.swappiness
     const file = value.devices.find((device) => device.managed)
-    if (file) sizeMb.value = Math.round(file.size / (1024 * 1024))
+    if (file) sizeMb.value = String(Math.round(file.size / MIB))
   },
   { immediate: true },
 )
 
-const { jobId, busy, run, finished, dismiss } = useJobRun((_job: Job) => emit('changed'))
+const size = computed(() => (/^\d{1,6}$/.test(sizeMb.value.trim()) ? Number(sizeMb.value.trim()) : null))
+const sizeValid = computed(() => size.value !== null && size.value >= SWAP_MIN_MB && size.value <= SWAP_MAX_MB)
+const sizeError = computed(() =>
+  sizeMb.value.trim() && !sizeValid.value ? t('host.swap.sizeInvalid', { min: SWAP_MIN_MB, max: SWAP_MAX_MB }) : null,
+)
+const sameSize = computed(() => !!managed.value && size.value === Math.round(managed.value.size / MIB))
 
-const sizeValid = computed(() => sizeMb.value !== null && sizeMb.value >= SWAP_MIN_MB && sizeMb.value <= SWAP_MAX_MB)
+async function runSwapJob(target: number, rethrow: boolean) {
+  working.value = true
+  try {
+    // Step-up protected: the client asks for the password and retries.
+    const job = await launchJob(() => setSwap(target), {
+      rethrow,
+      onFinished: () => {
+        working.value = false
+        emit('changed')
+      },
+    })
+    if (!job) working.value = false
+  } catch (err) {
+    working.value = false
+    throw err
+  }
+}
 
 function apply() {
-  if (!sizeValid.value || sizeMb.value === null) return
-  const size = sizeMb.value
-  // Step-up protected: the client asks for the password and retries.
-  void run(() => setSwap(size))
+  if (!sizeValid.value || size.value === null) return
+  void runSwapJob(size.value, false)
 }
 
-async function remove() {
-  const ok = await confirm({
+function remove() {
+  void confirmAction({
     title: t('host.swap.removeTitle'),
-    content: t('host.swap.removeText'),
-    confirmText: t('common.action.delete'),
-    danger: true,
+    description: t('host.swap.removeText'),
+    confirmLabel: t('host.swap.remove'),
+    destructive: true,
+    run: () => runSwapJob(0, true),
   })
-  if (ok) void run(() => setSwap(0))
 }
+
+const swappinessValid = computed(() => Number.isInteger(swappiness.value) && swappiness.value >= 0 && swappiness.value <= 100)
 
 async function saveSwappiness() {
+  if (!swappinessValid.value) return
   savingSwappiness.value = true
   try {
     await setSwappiness(swappiness.value)
-    message.success(t('host.general.saved'))
+    notifySuccess(t('host.general.saved'))
     emit('changed')
   } catch (err) {
-    showError(err)
+    notifyError(err)
   } finally {
     savingSwappiness.value = false
   }
 }
 
-const columns = computed<DataTableColumns<SwapDevice>>(() => [
-  {
-    key: 'path',
-    title: t('common.field.path'),
-    minWidth: 200,
-    render: (device) =>
-      h('span', { class: 'device' }, [
-        h('span', { class: 'mono' }, device.path),
-        device.managed ? h(NTag, { size: 'tiny', type: 'info', bordered: false }, () => t('host.swap.managed')) : null,
-      ]),
-  },
-  { key: 'kind', title: t('common.field.type'), width: 110, render: (device) => t(`host.swap.kind.${device.kind}`) },
-  { key: 'size', title: t('files.column.size'), width: 110, render: (device) => formatBytes(device.size) },
-  { key: 'used', title: t('host.swap.used'), width: 110, render: (device) => formatBytes(device.used) },
+const columns = computed<ColumnDef<SwapDevice>[]>(() => [
+  { id: 'path', header: t('common.field.path'), accessorFn: (device) => device.path, meta: { class: 'min-w-[200px]' } },
+  { id: 'kind', header: t('common.field.type'), accessorFn: (device) => device.kind, meta: { class: 'w-[120px]' } },
+  { id: 'size', header: t('common.field.size'), accessorFn: (device) => device.size, meta: { class: 'w-[120px] text-end' } },
+  { id: 'used', header: t('host.swap.used'), accessorFn: (device) => device.used, meta: { class: 'w-[120px] text-end' } },
 ])
 </script>
 
 <template>
-  <div class="cards">
-    <NCard size="small" :title="t('host.swap.title')">
-      <div class="usage">
-        <NText>{{ t('host.swap.usage', { used: formatBytes(swap.used), total: formatBytes(swap.total) }) }}</NText>
-        <NProgress type="line" :percentage="usedPercent" :show-indicator="false" :height="6" />
-      </div>
-      <NDataTable v-if="swap.devices.length > 0" :columns="columns" :data="swap.devices" :scroll-x="540" size="small" class="devices" />
-      <NText v-else depth="3" tag="p" class="hint">{{ t('host.swap.none') }}</NText>
-    </NCard>
-
-    <NCard size="small" :title="t('host.swap.fileTitle')">
-      <NAlert v-if="!swap.supported" type="warning" class="block">
-        {{ t(`host.swap.unsupported.${swap.reason || 'other'}`) }}
-      </NAlert>
-      <template v-else>
-        <NText depth="3" tag="p" class="hint">{{ managed ? t('host.swap.fileHas', { size: formatBytes(managed.size) }) : t('host.swap.fileNone') }}</NText>
-        <div class="inline">
-          <NInputNumber v-model:value="sizeMb" :min="SWAP_MIN_MB" :max="SWAP_MAX_MB" :step="512" :precision="0" :disabled="!canManage || busy">
-            <template #suffix>{{ t('host.swap.mib') }}</template>
-          </NInputNumber>
-          <NButton v-if="canManage" type="primary" :disabled="!sizeValid || busy" @click="apply">
-            {{ managed ? t('host.swap.resize') : t('host.swap.create') }}
-          </NButton>
-          <NButton v-if="canManage && managed" type="error" quaternary :disabled="busy" @click="remove">{{ t('host.swap.remove') }}</NButton>
+  <div class="grid items-start gap-4 lg:grid-cols-2">
+    <Card :title="t('host.swap.title')" class="lg:col-span-2" flush>
+      <div class="flex flex-col gap-2 px-4 py-4 md:px-[18px]">
+        <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+          <span class="font-medium tabular-nums">{{ t('host.swap.usage', { used: formatBytes(swap.used), total: formatBytes(swap.total) }) }}</span>
+          <span v-if="swap.total > 0" class="text-detail text-muted-foreground tabular-nums">{{ formatPercent(usedPercent, 0) }}</span>
         </div>
-      </template>
-      <div v-if="jobId" class="job">
-        <JobProgress :job-id="jobId" @finished="finished" />
-        <NButton size="small" quaternary :disabled="busy" @click="dismiss">{{ t('sites.create.close') }}</NButton>
-      </div>
-    </NCard>
-
-    <NCard size="small" :title="t('host.swap.swappiness')">
-      <NText depth="3" tag="p" class="hint">{{ t('host.swap.swappinessHint') }}</NText>
-      <div class="inline">
-        <NSlider v-model:value="swappiness" :min="0" :max="100" :step="1" :disabled="!canManage" class="slider" />
-        <NInputNumber v-model:value="swappiness" :min="0" :max="100" :precision="0" :disabled="!canManage" class="number" />
-        <NButton
-          v-if="canManage"
-          type="primary"
-          :loading="savingSwappiness"
-          :disabled="swappiness === swap.swappiness"
-          @click="saveSwappiness"
+        <div
+          role="progressbar"
+          :aria-label="t('host.swap.title')"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="Math.round(usedPercent)"
+          class="h-1.5 overflow-hidden rounded-full bg-track"
         >
-          {{ t('common.action.save') }}
-        </NButton>
+          <div :class="cn('h-full rounded-full', TONE_DOT[usageTone(usedPercent)])" :style="{ width: `${usedPercent}%` }" />
+        </div>
       </div>
-    </NCard>
+      <div class="border-t">
+        <DataTable
+          v-if="swap.devices.length > 0"
+          :data="swap.devices"
+          :columns="columns"
+          :row-key="(device) => device.path"
+          :label="t('host.swap.devices')"
+          :min-width="560"
+          flat
+        >
+          <template #cell-path="{ row }">
+            <span class="inline-flex flex-wrap items-center gap-2">
+              <span class="font-mono text-[12.5px]" dir="ltr">{{ row.path }}</span>
+              <StatusPill v-if="row.managed" tone="progress">{{ t('host.swap.managed') }}</StatusPill>
+            </span>
+          </template>
+          <template #cell-kind="{ row }">{{ t(`host.swap.kind.${row.kind}`) }}</template>
+          <template #cell-size="{ row }"><span class="tabular-nums">{{ formatBytes(row.size) }}</span></template>
+          <template #cell-used="{ row }"><span class="tabular-nums">{{ formatBytes(row.used) }}</span></template>
+        </DataTable>
+        <EmptyState v-else compact :title="t('host.swap.none')" />
+      </div>
+    </Card>
+
+    <Card :title="t('host.swap.fileTitle')" :description="managed ? t('host.swap.fileHas', { size: formatBytes(managed.size) }) : t('host.swap.fileNone')">
+      <Notice v-if="!swap.supported" tone="warning">{{ t(`host.swap.unsupported.${swap.reason || 'other'}`) }}</Notice>
+      <form v-else class="flex flex-col gap-1.5" novalidate @submit.prevent="apply">
+        <label for="swap-size" class="text-detail font-medium">{{ t('common.field.sizeMb') }}</label>
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="flex items-center gap-2">
+            <Input
+              id="swap-size"
+              v-model="sizeMb"
+              inputmode="numeric"
+              autocomplete="off"
+              class="w-32 font-mono"
+              aria-describedby="swap-size-hint"
+              :aria-invalid="sizeError ? true : undefined"
+              :disabled="!canManage || working"
+            />
+            <span class="text-detail text-muted-foreground">{{ t('host.swap.mib') }}</span>
+          </div>
+          <template v-if="canManage">
+            <Button type="submit" class="max-md:h-11" :disabled="!sizeValid || sameSize || working">
+              <LoaderCircle v-if="working" class="animate-spin" aria-hidden="true" />
+              {{ managed ? t('host.swap.resize') : t('host.swap.create') }}
+            </Button>
+            <Button
+              v-if="managed"
+              type="button"
+              variant="ghost"
+              class="text-destructive hover:bg-destructive-soft hover:text-destructive max-md:h-11"
+              :disabled="working"
+              @click="remove"
+            >
+              <Trash2 aria-hidden="true" />
+              {{ t('host.swap.remove') }}
+            </Button>
+          </template>
+        </div>
+        <p v-if="sizeError" class="m-0 text-xs font-medium text-destructive">{{ sizeError }}</p>
+        <p id="swap-size-hint" class="m-0 text-xs text-muted-foreground">{{ t('host.swap.sizeHint', { min: SWAP_MIN_MB, max: SWAP_MAX_MB }) }}</p>
+      </form>
+    </Card>
+
+    <Card :title="t('host.swap.swappiness')" :description="t('host.swap.swappinessHint')">
+      <form class="flex flex-wrap items-center gap-3" novalidate @submit.prevent="saveSwappiness">
+        <label for="swap-swappiness" class="sr-only">{{ t('host.swap.swappiness') }}</label>
+        <input
+          v-model.number="swappiness"
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          class="h-9 min-w-0 flex-[1_1_160px] accent-primary"
+          :aria-label="t('host.swap.swappiness')"
+          :disabled="!canManage || savingSwappiness"
+        />
+        <Input
+          id="swap-swappiness"
+          :model-value="swappiness"
+          type="number"
+          min="0"
+          max="100"
+          class="w-20 font-mono"
+          :disabled="!canManage || savingSwappiness"
+          @update:model-value="(value: string | number) => (swappiness = value === '' ? Number.NaN : Number(value))"
+        />
+        <Button v-if="canManage" type="submit" class="max-md:h-11" :disabled="!swappinessValid || swappiness === swap.swappiness || savingSwappiness">
+          <LoaderCircle v-if="savingSwappiness" class="animate-spin" aria-hidden="true" />
+          {{ t('host.swap.saveSwappiness') }}
+        </Button>
+      </form>
+    </Card>
   </div>
 </template>
-
-<style scoped>
-.cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 12px;
-}
-
-.usage {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-block-end: 12px;
-}
-
-.devices {
-  margin-block-start: 8px;
-}
-
-.hint {
-  margin: 0 0 10px;
-  font-size: 12px;
-}
-
-.inline {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.slider {
-  flex: 1 1 160px;
-}
-
-.number {
-  inline-size: 100px;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.job {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  margin-block-start: 12px;
-}
-
-.job > :first-child {
-  align-self: stretch;
-}
-
-:deep(.device) {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-:deep(.mono) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-}
-</style>

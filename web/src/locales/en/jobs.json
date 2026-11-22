@@ -108,6 +108,34 @@
       "sources_restore": "Restore the system sources"
     }
   },
+  "search": "Search tasks",
+  "older": "Load older tasks",
+  "status": {
+    "running": "{count} running",
+    "queued": "{count} waiting",
+    "idle": "Nothing running right now"
+  },
+  "filter": {
+    "state": "Filter by status",
+    "kind": "Filter by task",
+    "allStates": "All statuses",
+    "allKinds": "All tasks",
+    "active": "Queued or running",
+    "none": "No task matches these filters"
+  },
+  "drawer": {
+    "overview": "Overview",
+    "log": "Output",
+    "details": "Details",
+    "params": "Parameters",
+    "id": "Task ID",
+    "progress": "Progress",
+    "openLog": "View output",
+    "waitingLog": "No output yet.",
+    "following": "Following the output",
+    "unknown": "This task does not exist",
+    "unknownText": "It may have been removed, or it belongs to someone whose tasks you cannot see."
+  },
   "detail": {
     "title": "Task",
     "cancel": "Cancel task",
@@ -115,7 +143,6 @@
     "reconnecting": "Reconnecting…",
     "created": "Created",
     "finished": "Finished",
-    "log": "Output",
     "trimmed": "Earlier output was dropped to save memory; only the most recent part is shown.",
     "noLog": "This task produced no output."
   },

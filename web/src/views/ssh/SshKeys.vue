@@ -1,15 +1,21 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-// A user's authorized SSH keys: list, add and remove (step-up protected).
-import { computed, h, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NAlert, NButton, NDataTable, NEmpty, NInput, NSelect, NText, useMessage, type DataTableColumns } from 'naive-ui'
-import { isAbortError, isStepUpRequired } from '@/api/client'
-import { addSshKey, deleteSshKey, fetchSshKeys, type SshKey, type SshUser } from '@/api/ssh'
-import { useConfirm } from '@/composables/useConfirm'
-import { useErrorToast } from '@/composables/useErrorToast'
-import { errorMessage } from '@/i18n/errors'
+import { Plus, Trash2 } from '@lucide/vue'
+import { isAbortError } from '@/api/client'
+import { deleteSshKey, fetchSshKeys, type SshKey, type SshUser } from '@/api/ssh'
+import DataTable from '@/components/common/DataTable.vue'
+import Notice from '@/components/common/Notice.vue'
+import SelectField from '@/components/common/SelectField.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import { Button } from '@/components/ui/button'
+import { confirmAction } from '@/composables/useConfirmDialog'
+import { notifySuccess } from '@/lib/notify'
+import KeySheet from './KeySheet.vue'
 
+// A user's authorized SSH keys: pick the user, then list, add and remove
+// (step-up protected). Root's keys are read-only while root access is off.
 const props = defineProps<{
   users: SshUser[]
   canManage: boolean
@@ -18,20 +24,13 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ changed: [] }>()
 
-/** Public keys start with their type: ssh-ed25519, ecdsa-sha2-…, ssh-rsa, sk-… */
-const KEY_PATTERN = /^(?:\S+\s+)?(ssh-(ed25519|rsa|dss)|ecdsa-sha2-\S+|sk-\S+)\s+[A-Za-z0-9+/=]+(\s.*)?$/
-
 const { t } = useI18n()
-const message = useMessage()
-const confirm = useConfirm()
-const showError = useErrorToast()
-const user = ref<string | null>(null)
+const user = ref('')
 const keys = ref<SshKey[]>([])
 const loading = ref(false)
 const loadError = ref<unknown>(null)
-const newKey = ref('')
-const adding = ref(false)
-const addError = ref<unknown>(null)
+const search = ref('')
+const showAdd = ref(false)
 let controller: AbortController | null = null
 
 const userOptions = computed(() =>
@@ -46,7 +45,7 @@ watch(
   () => props.users,
   (list) => {
     if (user.value && list.some((entry) => entry.name === user.value)) return
-    user.value = (list.find((entry) => entry.keys > 0) ?? list[0])?.name ?? null
+    user.value = (list.find((entry) => entry.keys > 0) ?? list[0])?.name ?? ''
   },
   { immediate: true },
 )
@@ -70,169 +69,109 @@ async function load() {
   }
 }
 
-watch(user, () => {
-  newKey.value = ''
-  addError.value = null
+watch(
+  user,
+  () => {
+    keys.value = []
+    search.value = ''
+    void load()
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => controller?.abort())
+
+function changed() {
   void load()
-}, { immediate: true })
-
-const keyValid = computed(() => KEY_PATTERN.test(newKey.value.trim()))
-
-async function add() {
-  const name = user.value
-  if (!name || !keyValid.value) return
-  adding.value = true
-  addError.value = null
-  try {
-    // Step-up protected: the client asks for the password and retries.
-    await addSshKey(name, newKey.value.trim())
-    newKey.value = ''
-    message.success(t('ssh.keys.added'))
-    await load()
-    emit('changed')
-  } catch (err) {
-    if (!isStepUpRequired(err)) addError.value = err
-  } finally {
-    adding.value = false
-  }
+  emit('changed')
 }
 
-async function remove(key: SshKey) {
+function askDelete(key: SshKey) {
   const name = user.value
-  if (!name) return
-  const ok = await confirm({
-    title: t('ssh.keys.deleteTitle'),
-    content: t('ssh.keys.deleteText', { fingerprint: key.fingerprint, user: name }),
-    confirmText: t('common.action.delete'),
-    danger: true,
+  void confirmAction({
+    title: t('ssh.keys.deleteTitle', { user: name }),
+    description: t('ssh.keys.deleteText', { fingerprint: key.fingerprint, user: name }),
+    confirmLabel: t('ssh.keys.delete'),
+    destructive: true,
+    run: async () => {
+      // Step-up protected: the client asks for the password and retries.
+      await deleteSshKey(name, key.fingerprint)
+      notifySuccess(t('ssh.keys.deleted'))
+      changed()
+    },
   })
-  if (!ok) return
-  try {
-    await deleteSshKey(name, key.fingerprint)
-    await load()
-    emit('changed')
-  } catch (err) {
-    if (!isStepUpRequired(err)) showError(err)
-  }
 }
 
-const columns = computed<DataTableColumns<SshKey>>(() => [
-  { key: 'type', title: t('common.field.type'), width: 140, render: (key) => h('span', { class: 'mono' }, key.type) },
-  {
-    key: 'fingerprint',
-    title: t('ssh.keys.fingerprint'),
-    minWidth: 260,
-    render: (key) =>
-      h('div', { class: 'cell' }, [
-        h('span', { class: 'mono' }, key.fingerprint),
-        key.options ? h(NText, { depth: 3, class: 'cell__sub mono' }, () => key.options) : null,
-      ]),
-  },
-  { key: 'comment', title: t('ssh.keys.comment'), minWidth: 160, render: (key) => key.comment || '' },
-  {
-    key: 'actions',
-    title: '',
-    width: 90,
-    render: (key) =>
-      editable.value
-        ? h(NButton, { size: 'small', quaternary: true, type: 'error', onClick: () => void remove(key) }, () => t('common.action.delete'))
-        : null,
-  },
+const columns = computed<ColumnDef<SshKey>[]>(() => [
+  { id: 'type', header: t('common.field.type'), accessorFn: (key) => key.type, meta: { class: 'w-[150px]' } },
+  { id: 'fingerprint', header: t('ssh.keys.fingerprint'), accessorFn: (key) => key.fingerprint, meta: { class: 'min-w-[280px]' } },
+  { id: 'comment', header: t('ssh.keys.comment'), accessorFn: (key) => key.comment.toLowerCase(), meta: { class: 'min-w-[160px]' } },
+  { id: 'actions', header: '', enableSorting: false, meta: { class: 'w-[64px] text-end' } },
 ])
 </script>
 
 <template>
-  <div class="keys">
-    <div class="keys__head">
-      <NSelect v-model:value="user" :options="userOptions" filterable class="keys__user" :aria-label="t('common.field.user')" />
-      <NText v-if="selected?.root && !rootKeys" depth="3" class="hint">{{ t('ssh.keys.rootReadOnly') }}</NText>
-    </div>
-    <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-    <NEmpty v-else-if="!loading && keys.length === 0" :description="t('ssh.keys.empty')" class="empty" />
-    <NDataTable
-      v-else
-      :columns="columns"
+  <div class="flex flex-col gap-4">
+    <Notice v-if="selected?.root && !rootKeys" tone="info">{{ t('ssh.keys.rootReadOnly') }}</Notice>
+
+    <DataTable
+      v-model:search="search"
       :data="keys"
-      :row-key="(key: SshKey) => key.fingerprint"
-      :loading="loading"
-      :scroll-x="640"
-      size="small"
-    />
-    <div v-if="editable" class="add">
-      <NInput
-        v-model:value="newKey"
-        type="textarea"
-        :autosize="{ minRows: 2, maxRows: 5 }"
-        class="mono"
-        :placeholder="t('ssh.keys.placeholder')"
-        :status="newKey.trim() && !keyValid ? 'error' : undefined"
-        :input-props="{ spellcheck: false, autocomplete: 'off' }"
-      />
-      <NText v-if="newKey.trim() && !keyValid" type="error" class="hint">{{ t('errors.ssh.key_invalid') }}</NText>
-      <NAlert v-if="addError" type="error" class="block">{{ errorMessage(addError) }}</NAlert>
-      <div class="add__actions">
-        <NButton type="primary" :loading="adding" :disabled="!keyValid" @click="add">{{ t('ssh.keys.add') }}</NButton>
-      </div>
-    </div>
+      :columns="columns"
+      :row-key="(key) => key.fingerprint"
+      :label="t('ssh.keys.label', { user })"
+      :loading="loading && keys.length === 0"
+      :error="loadError"
+      :search-placeholder="t('ssh.keys.search')"
+      :search-text="(key) => [key.type, key.fingerprint, key.comment, key.options].join(' ')"
+      :empty-title="users.length === 0 ? t('ssh.keys.noUsers') : t('ssh.keys.empty', { user })"
+      :empty-text="users.length === 0 ? undefined : t('ssh.keys.emptyText')"
+      :min-width="680"
+      @retry="load"
+    >
+      <template #toolbar>
+        <div class="flex items-center gap-2">
+          <label for="ssh-keys-user" class="text-detail font-medium whitespace-nowrap">{{ t('common.field.user') }}</label>
+          <SelectField id="ssh-keys-user" v-model="user" :options="userOptions" :disabled="users.length === 0" class="w-56 max-md:h-11" />
+        </div>
+        <Button v-if="editable" class="max-md:h-11" @click="showAdd = true">
+          <Plus aria-hidden="true" />
+          {{ t('ssh.keys.add') }}
+        </Button>
+      </template>
+      <template #cell-type="{ row }">
+        <span class="font-mono text-[12.5px]">{{ row.type }}</span>
+      </template>
+      <template #cell-fingerprint="{ row }">
+        <span class="flex min-w-0 flex-col gap-0.5">
+          <span class="font-mono text-[12.5px] [overflow-wrap:anywhere]" dir="ltr">{{ row.fingerprint }}</span>
+          <span v-if="row.options" class="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]" dir="ltr">{{ row.options }}</span>
+        </span>
+      </template>
+      <template #cell-comment="{ row }">
+        <span class="[overflow-wrap:anywhere]" dir="auto">{{ row.comment }}</span>
+      </template>
+      <template #cell-actions="{ row }">
+        <div v-if="editable" class="flex justify-end">
+          <Button
+            variant="ghost"
+            size="icon"
+            class="text-destructive hover:bg-destructive-soft hover:text-destructive max-md:size-11"
+            :aria-label="t('ssh.keys.deleteOne', { fingerprint: row.fingerprint })"
+            :title="t('ssh.keys.delete')"
+            @click="askDelete(row)"
+          >
+            <Trash2 aria-hidden="true" />
+          </Button>
+        </div>
+      </template>
+      <template v-if="editable" #empty>
+        <Button @click="showAdd = true">
+          <Plus aria-hidden="true" />
+          {{ t('ssh.keys.add') }}
+        </Button>
+      </template>
+    </DataTable>
+
+    <KeySheet v-if="user" v-model:open="showAdd" :user="user" @added="changed" />
   </div>
 </template>
-
-<style scoped>
-.keys__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 12px;
-  margin-block-end: 12px;
-}
-
-.keys__user {
-  inline-size: 260px;
-}
-
-.hint {
-  font-size: 12px;
-}
-
-.block {
-  margin-block: 8px;
-}
-
-.empty {
-  padding-block: 24px;
-}
-
-.add {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-block-start: 12px;
-}
-
-.add__actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.mono :deep(textarea) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-}
-
-:deep(.cell) {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-:deep(.cell__sub) {
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-
-:deep(.mono) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-</style>

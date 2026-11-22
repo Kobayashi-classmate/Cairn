@@ -345,7 +345,7 @@ const jobErrorText = computed(() => {
         <template v-else>
           <p class="m-0 mb-3">{{ t('wizard.security.why') }}</p>
           <p class="m-0 mb-3 text-muted-foreground">{{ t('wizard.security.how') }}</p>
-          <div v-if="enrolling" class="legacy-ui">
+          <div v-if="enrolling">
             <TotpEnrollment @done="enrolling = false" @cancel="enrolling = false" />
           </div>
         </template>

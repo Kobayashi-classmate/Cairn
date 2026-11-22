@@ -58,3 +58,18 @@ export interface SystemOverview {
 export function fetchSystemOverview(signal?: AbortSignal): Promise<SystemOverview> {
   return api.get<SystemOverview>('/system/overview', { signal })
 }
+
+/** The server as the sidebar shows it (`GET /system/host`, `system.read`). */
+export interface HostSummary {
+  hostname: string
+  os: string
+  /**
+   * Source addresses of the default IPv4 and IPv6 routes, IPv4 first; empty
+   * without such routes. Behind NAT the public address is not known here.
+   */
+  addresses: string[]
+}
+
+export function fetchSystemHost(signal?: AbortSignal): Promise<HostSummary> {
+  return api.get<HostSummary>('/system/host', { signal })
+}

@@ -1,74 +1,66 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NDataTable,
-  NH2,
-  NInput,
-  NSelect,
-  NTag,
-  NText,
-  type DataTableColumns,
-} from 'naive-ui'
-import { isAbortError } from '@/api/client'
-import { fetchAudit, type AuditEntry } from '@/api/audit'
+import { useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
+import { FilterX, LoaderCircle, Search, X } from '@lucide/vue'
+import { isAbortError, isApiError } from '@/api/client'
+import { fetchAudit, fetchAuditEntry, type AuditEntry } from '@/api/audit'
 import { fetchDnsProviders } from '@/api/dns'
+import DataTable from '@/components/common/DataTable.vue'
+import PageHeader from '@/components/common/PageHeader.vue'
+import RelativeTime from '@/components/common/RelativeTime.vue'
+import SegmentedControl from '@/components/common/SegmentedControl.vue'
+import type { SegmentedOption } from '@/components/common/segmented'
+import SelectField from '@/components/common/SelectField.vue'
+import StatusDot from '@/components/common/StatusDot.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import type { SelectOption } from '@/components/common/types'
+import { Button } from '@/components/ui/button'
 import { certsAvailable } from '@/certs/useCertChoices'
-import { roleLabel } from '@/auth/permissions'
-import { localeNativeName } from '@/i18n'
-import { errorMessage, errorText } from '@/i18n/errors'
-import { formatBytes, formatDateTime } from '@/i18n/format'
-import { decorateParams, itemNames, jobKindLabel, labelVariant } from '@/jobs/labels'
-import { siteTypeLabel } from '@/sites/labels'
+import { useDrawerRoute } from '@/composables/useDrawerRoute'
+import { OPEN_QUERY, SECTION_QUERY } from '@/composables/usePageTab'
+import { formatNumber } from '@/i18n/format'
+import AuditEntrySheet from './audit/AuditEntrySheet.vue'
+import { AUDIT_CATEGORIES, actionDetails, describeAction, resultText, sourceText } from './audit/describe'
+import { filtersFrom, filtersQuery, rangeStart, type AuditFilters, type RangeFilter, type ResultFilter } from './audit/filters'
 
+// The audit trail ("list" skeleton): who did what, when, from where and how
+// it went, newest first. Filters live in the address and the server applies
+// them. "Load more" fetches older pages. A row opens its details in a
+// sheet (`?open=entry:<id>`).
 const PAGE_SIZE = 50
 const FILTER_DELAY_MS = 400
 
-const { t, te } = useI18n()
+const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const drawer = useDrawerRoute('entry')
 
 const entries = ref<AuditEntry[]>([])
 const nextBefore = ref<number | null>(null)
 const loading = ref(false)
+const loaded = ref(false)
 const loadError = ref<unknown>(null)
 
-const userFilter = ref('')
-const categoryFilter = ref<string | null>(null)
+/** The filters in effect (from the address). */
+const filters = computed(() => filtersFrom(route.query))
+/** What the server filters on; other address changes do not reload. */
+const serverKey = computed(() => Object.values(filters.value).join('\u0000'))
 
-// Action code prefixes the server filters on.
-const categories = [
-  'auth',
-  'users',
-  'settings',
-  'notify',
-  'update',
-  'software',
-  'site',
-  'stream',
-  'db',
-  'redis',
-  'file',
-  'files',
-  'terminal',
-  'cron',
-  'backup',
-  'firewall',
-  'ssh',
-  'host',
-  'cert',
-  'dns',
-  'job',
-  'module',
-  'setup',
-] as const
-const categoryOptions = computed(() =>
-  categories.map((c) => ({ value: `${c}.`, label: t(`audit.category.${c}`) })),
+/** The user filter as typed; applied after a short pause. */
+const userDraft = ref(filters.value.user)
+watch(
+  () => filters.value.user,
+  (user) => {
+    if (user !== userDraft.value.trim()) userDraft.value = user
+  },
 )
 
 let controller: AbortController | null = null
+/** The start of the time range when the list was (re)loaded; older pages keep it. */
+let since: number | undefined
 
 /** Loads the newest page (reset) or the next older one. */
 async function load(reset: boolean) {
@@ -76,19 +68,23 @@ async function load(reset: boolean) {
   const current = new AbortController()
   controller = current
   loading.value = true
+  if (reset) since = rangeStart(filters.value.range, Math.floor(Date.now() / 1000)) || undefined
   try {
     const page = await fetchAudit(
       {
         limit: PAGE_SIZE,
         before: reset ? undefined : (nextBefore.value ?? undefined),
-        user: userFilter.value.trim() || undefined,
-        action: categoryFilter.value ?? undefined,
+        user: filters.value.user || undefined,
+        action: filters.value.category ? `${filters.value.category}.` : undefined,
+        result: filters.value.result || undefined,
+        since,
       },
       current.signal,
     )
     entries.value = reset ? page.entries : [...entries.value, ...page.entries]
     nextBefore.value = page.nextBefore
     loadError.value = null
+    loaded.value = true
   } catch (err) {
     if (isAbortError(err)) return
     loadError.value = err
@@ -100,11 +96,12 @@ async function load(reset: boolean) {
   }
 }
 
-onMounted(() => load(true))
+onMounted(() => void load(true))
+watch(serverKey, () => void load(true))
+onBeforeUnmount(() => controller?.abort())
 
 /** DNS provider product names by id; entries show the id until (or unless) they are known. */
 const providerNames = ref<Record<string, string>>({})
-
 onMounted(async () => {
   if (!certsAvailable()) return
   try {
@@ -113,264 +110,231 @@ onMounted(async () => {
     // Provider ids remain readable on their own.
   }
 })
-onBeforeUnmount(() => controller?.abort())
+
+function setFilters(patch: Partial<AuditFilters>) {
+  const next = { ...filters.value, ...patch }
+  void router.replace({ query: filtersQuery(next, route.query) })
+}
 
 let filterTimer: ReturnType<typeof setTimeout> | undefined
-watch(userFilter, () => {
+watch(userDraft, (value) => {
   clearTimeout(filterTimer)
-  filterTimer = setTimeout(() => void load(true), FILTER_DELAY_MS)
+  filterTimer = setTimeout(() => {
+    if (value.trim() !== filters.value.user) setFilters({ user: value.trim() })
+  }, FILTER_DELAY_MS)
 })
-watch(categoryFilter, () => void load(true))
 onBeforeUnmount(() => clearTimeout(filterTimer))
 
-/** Parameters prepared for display: role and language codes become names. */
-function displayParams(entry: AuditEntry): Record<string, string | number | boolean> {
-  const params = { ...entry.params }
-  if (typeof params.role === 'string') params.role = roleLabel(params.role)
-  if (typeof params.locale === 'string') params.locale = localeNativeName(params.locale)
-  // Jobs are named by their translated type; failed cancels may only carry the id.
-  if (entry.action.startsWith('job.')) {
-    params.kind = typeof params.kind === 'string' ? jobKindLabel(params.kind) : String(params.id ?? '')
-  }
-  decorateParams(entry.action, params)
-  if (entry.action.startsWith('file.') && typeof params.size === 'number') params.size = formatBytes(params.size)
-  if (typeof params.module === 'string') {
-    const key = `modules.name.${params.module}`
-    params.module = te(key) ? t(key) : params.module
-  }
-  // Older install/remove entries only carry the catalog id, not the product name.
-  if (entry.action.startsWith('software.') && typeof params.name !== 'string') {
-    params.name = String(params.software ?? '')
-  }
-  // Certificates and DNS accounts are named; older entries only carry their id.
-  if (entry.action === 'cert.panel') {
-    const name = typeof params.name === 'string' ? params.name : ''
-    params.name = name || (params.cert ? String(params.cert) : t('certs.panel.selfSigned'))
-  } else if (entry.action.startsWith('cert.') && !params.name && params.cert) {
-    params.name = String(params.cert)
-  }
-  if (entry.action.startsWith('dns.')) {
-    if (!params.name && params.account) params.name = String(params.account)
-    if (typeof params.provider === 'string') params.provider = providerNames.value[params.provider] ?? params.provider
-  }
-  // Domain lists read as text.
-  const domains = (entry.params as Record<string, unknown>).domains
-  if (Array.isArray(domains)) params.domains = domains.join(', ')
-  // Install sets list their lines ("PHP 8.4, nginx 1.26").
-  const names = itemNames((entry.params as Record<string, unknown>).items)
-  if (names !== null) params.names = names
-  if (entry.action === 'setup.wizard' && typeof params.state === 'string') {
-    const key = `wizard.state.${params.state}`
-    params.state = te(key) ? t(key) : params.state
-  }
-  if (typeof params.downloadPolicy === 'string') {
-    const key = `software.policy.${params.downloadPolicy}.short`
-    params.downloadPolicy = te(key) ? t(key) : params.downloadPolicy
-  }
-  return params
+const rows = computed(() => entries.value)
+const canLoadMore = computed(() => nextBefore.value !== null)
+
+const anyFilter = computed(() => Object.values(filters.value).some((value) => value !== ''))
+
+function clearFilters() {
+  userDraft.value = ''
+  setFilters({ user: '', category: '', result: '', range: '' })
 }
 
-/** The audit.variant key that describes an entry better than its plain text, if any. */
-function variantKey(entry: AuditEntry): string | null {
-  const variant = labelVariant(entry.action, entry.params)
-  const key = variant ? `audit.variant.${entry.action}.${variant}` : ''
-  return key && te(key) ? key : null
-}
-
-/** Translated description of an action; unknown actions show their code. */
-function describe(entry: AuditEntry): string {
-  const plain = `audit.action.${entry.action}`
-  if (!te(plain)) return entry.action
-  const key = variantKey(entry) ?? plain
-  const params = displayParams(entry)
-  return typeof params.count === 'number' ? t(key, params, params.count) : t(key, params)
-}
-
-/** Extra attributes shown as tags next to the description. */
-function details(entry: AuditEntry): string[] {
-  const type = entry.params.type
-  if (entry.action.startsWith('notify.') && typeof type === 'string') {
-    const key = `notify.type.${type}`
-    return [te(key) ? t(key) : type]
-  }
-  if (entry.action === 'settings.cloud') {
-    const list: string[] = []
-    if (typeof entry.params.enabled === 'boolean') {
-      list.push(t(entry.params.enabled ? 'audit.detail.enabled' : 'audit.detail.disabled'))
-    }
-    if (typeof entry.params.channel === 'string') {
-      const key = `updates.channel.${entry.params.channel}`
-      list.push(t('audit.detail.channel', { channel: te(key) ? t(key) : entry.params.channel }))
-    }
-    return list
-  }
-  // Service actions the descriptions do not name yet are shown as they are.
-  if (entry.action === 'db.service' && typeof entry.params.action === 'string' && !variantKey(entry)) {
-    return [entry.params.action]
-  }
-  if (entry.action.startsWith('stream.')) {
-    const { protocol, port } = entry.params
-    return typeof protocol === 'string' && port !== undefined ? [`${protocol.toUpperCase()} ${port}`] : []
-  }
-  if (entry.action === 'site.restart' && entry.params.reason === 'health') {
-    return [t('audit.detail.healthRestart')]
-  }
-  if (entry.action.startsWith('site.')) {
-    const list: string[] = []
-    if (typeof entry.params.type === 'string') list.push(siteTypeLabel(entry.params.type))
-    if (entry.action === 'site.delete' && typeof entry.params.deleteFiles === 'boolean') {
-      list.push(t(entry.params.deleteFiles ? 'audit.detail.filesDeleted' : 'audit.detail.filesKept'))
-    }
-    return list
-  }
-  // The download source chosen for a runtime, as its candidate id.
-  if (entry.action === 'software.install' && typeof entry.params.source === 'string') {
-    return [t('audit.detail.source', { source: entry.params.source })]
-  }
-  if (entry.action !== 'users.update') return []
-  const list: string[] = []
-  if (typeof entry.params.role === 'string') {
-    list.push(t('audit.detail.role', { role: roleLabel(entry.params.role) }))
-  }
-  if (typeof entry.params.disabled === 'boolean') {
-    list.push(t(entry.params.disabled ? 'audit.detail.disabled' : 'audit.detail.enabled'))
-  }
-  return list
-}
-
-function sourceLabel(source: string): string {
-  const key = `audit.source.${source}`
-  return te(key) ? t(key) : source
-}
-
-const columns = computed<DataTableColumns<AuditEntry>>(() => [
-  {
-    key: 'ts',
-    title: t('audit.column.time'),
-    width: 180,
-    render: (entry) => formatDateTime(entry.ts),
-  },
-  {
-    key: 'username',
-    title: t('audit.column.user'),
-    width: 140,
-    render: (entry) =>
-      entry.username || h(NText, { depth: 3 }, () => t('audit.noUser')),
-  },
-  {
-    key: 'action',
-    title: t('audit.column.action'),
-    minWidth: 260,
-    render: (entry) =>
-      h('div', { class: 'action' }, [
-        h('span', { title: entry.action }, describe(entry)),
-        ...details(entry).map((text) =>
-          h(NTag, { size: 'small', bordered: false }, () => text),
-        ),
-      ]),
-  },
-  {
-    key: 'result',
-    title: t('audit.column.result'),
-    minWidth: 180,
-    render: (entry) =>
-      entry.result === 'ok'
-        ? h(NTag, { type: 'success', size: 'small', bordered: false }, () => t('audit.result.ok'))
-        : h(
-            NTag,
-            { type: 'error', size: 'small', bordered: false, title: entry.result },
-            () => errorText(entry.result) ?? entry.result,
-          ),
-  },
-  {
-    key: 'source',
-    title: t('audit.column.source'),
-    width: 120,
-    render: (entry) => sourceLabel(entry.source),
-  },
-  {
-    key: 'remote',
-    title: t('audit.column.remote'),
-    width: 150,
-    render: (entry) => h('span', { dir: 'ltr' }, entry.remote),
-  },
+const categoryOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('audit.filter.category') },
+  ...AUDIT_CATEGORIES.map((c) => ({ value: c, label: t(`audit.category.${c}`) })),
 ])
+const resultOptions = computed<SegmentedOption<ResultFilter | 'all'>[]>(() => [
+  { value: 'all', label: t('audit.filter.anyResult') },
+  { value: 'ok', label: t('audit.result.ok') },
+  { value: 'failed', label: t('audit.result.failed') },
+])
+const rangeOptions = computed<SelectOption[]>(() => [
+  { value: '', label: t('audit.filter.anyTime') },
+  { value: '24h', label: t('audit.filter.range.24h') },
+  { value: '7d', label: t('audit.filter.range.7d') },
+  { value: '30d', label: t('audit.filter.range.30d') },
+])
+
+const status = computed(() => {
+  if (!loaded.value) return ''
+  const shown = rows.value.length
+  return canLoadMore.value
+    ? t('audit.status.newest', { count: formatNumber(shown) }, shown)
+    : t('audit.status.all', { count: formatNumber(shown) }, shown)
+})
+
+const columns = computed<ColumnDef<AuditEntry>[]>(() => [
+  { id: 'time', header: t('audit.column.time'), enableSorting: false, meta: { class: 'w-[140px]' } },
+  { id: 'user', header: t('audit.column.user'), enableSorting: false, meta: { class: 'w-[140px]' } },
+  { id: 'action', header: t('audit.column.action'), enableSorting: false, meta: { class: 'min-w-[300px]' } },
+  { id: 'result', header: t('audit.column.result'), enableSorting: false, meta: { class: 'min-w-[170px] max-w-[260px]' } },
+  { id: 'source', header: t('audit.column.source'), enableSorting: false, meta: { class: 'w-[110px]' } },
+  { id: 'remote', header: t('audit.column.remote'), enableSorting: false, meta: { class: 'w-[150px]' } },
+])
+
+// The entry of the open sheet: from the loaded pages, or fetched on its own
+// (a link or a reload). The newest entry below id+1 is the entry itself.
+const fetchedEntry = ref<AuditEntry | null>(null)
+const entryError = ref<unknown>(null)
+const entryLoading = ref(false)
+const openId = computed(() => {
+  const value = drawer.id.value
+  return value !== null && /^\d+$/.test(value) ? Number(value) : null
+})
+const openEntry = computed(
+  () => entries.value.find((entry) => entry.id === openId.value) ?? (fetchedEntry.value?.id === openId.value ? fetchedEntry.value : null),
+)
+
+async function fetchEntry() {
+  const id = openId.value
+  if (id === null || entries.value.some((entry) => entry.id === id)) return
+  entryLoading.value = true
+  entryError.value = null
+  try {
+    fetchedEntry.value = await fetchAuditEntry(id)
+  } catch (err) {
+    if (isApiError(err) && err.status === 404) drawer.close()
+    else entryError.value = err
+  } finally {
+    entryLoading.value = false
+  }
+}
+
+watch([openId, loaded], () => {
+  // An address that names no entry closes the sheet.
+  if (drawer.id.value !== null && openId.value === null) drawer.close()
+  else if (loaded.value) void fetchEntry()
+})
+
+/** The log filtered by a user or category, with no sheet open. */
+function filterLocation(filter: { user?: string; category?: string }): RouteLocationRaw {
+  const query = filtersQuery({ ...filters.value, ...filter }, route.query)
+  delete query[OPEN_QUERY]
+  delete query[SECTION_QUERY]
+  return { query }
+}
+
+function openRow(entry: AuditEntry) {
+  drawer.open(String(entry.id))
+}
 </script>
 
 <template>
-  <div class="audit">
-    <NH2 class="audit__title">{{ t('audit.title') }}</NH2>
+  <div>
+    <PageHeader :title="t('audit.title')" :status="status" :status-loading="!loaded && !loadError" />
 
-    <div class="audit__filters">
-      <NInput
-        v-model:value="userFilter"
-        clearable
-        :placeholder="t('audit.filter.user')"
-        :input-props="{ 'aria-label': t('audit.filter.user'), autocapitalize: 'none', spellcheck: false }"
-        class="audit__filter"
-      />
-      <NSelect
-        v-model:value="categoryFilter"
-        clearable
-        :options="categoryOptions"
-        :placeholder="t('audit.filter.category')"
-        class="audit__filter"
-      />
+    <div class="flex min-w-0 flex-col overflow-hidden rounded-lg border bg-card">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-3">
+        <label
+          class="flex h-9 min-w-0 flex-[1_1_200px] items-center gap-2 rounded-md border border-input bg-card px-2.5 text-muted-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50 sm:max-w-64 max-md:h-11"
+        >
+          <Search class="size-4 shrink-0" aria-hidden="true" />
+          <input
+            v-model="userDraft"
+            type="search"
+            :aria-label="t('audit.filter.user')"
+            :placeholder="t('audit.filter.user')"
+            autocapitalize="none"
+            spellcheck="false"
+            class="h-full min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground md:text-sm [&::-webkit-search-cancel-button]:hidden"
+            @keydown.enter.prevent="setFilters({ user: userDraft.trim() })"
+          />
+          <button
+            v-if="userDraft"
+            type="button"
+            class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            :aria-label="t('audit.filter.clearUser')"
+            @click="userDraft = ''"
+          >
+            <X class="size-3.5" aria-hidden="true" />
+          </button>
+        </label>
+        <SelectField
+          :model-value="filters.category"
+          :options="categoryOptions"
+          :aria-label="t('audit.filter.categoryLabel')"
+          class="w-full sm:w-52 max-md:h-11"
+          @update:model-value="(value: string) => setFilters({ category: value })"
+        />
+        <SelectField
+          :model-value="filters.range"
+          :options="rangeOptions"
+          :aria-label="t('audit.filter.rangeLabel')"
+          class="w-full sm:w-44 max-md:h-11"
+          @update:model-value="(value: string) => setFilters({ range: value as RangeFilter })"
+        />
+        <SegmentedControl
+          :model-value="filters.result || 'all'"
+          :options="resultOptions"
+          :label="t('audit.filter.resultLabel')"
+          class="w-full sm:w-auto"
+          @update:model-value="(value) => setFilters({ result: value === 'all' ? '' : value })"
+        />
+        <Button v-if="anyFilter" variant="ghost" size="sm" class="max-md:h-11" @click="clearFilters">
+          <FilterX aria-hidden="true" />
+          {{ t('audit.filter.clear') }}
+        </Button>
+      </div>
+
+      <DataTable
+        flat
+        row-clickable
+        :data="rows"
+        :columns="columns"
+        :row-key="(entry) => String(entry.id)"
+        :label="t('audit.title')"
+        :loading="loading && !loaded"
+        :error="loadError"
+        :empty-title="anyFilter ? t('audit.empty.filtered') : t('audit.empty.title')"
+        :empty-text="anyFilter && canLoadMore ? t('audit.empty.loadMore') : undefined"
+        :min-width="1060"
+        :skeleton-rows="8"
+        @retry="load(entries.length === 0)"
+        @row-click="openRow"
+      >
+        <template #cell-time="{ row }"><RelativeTime :value="row.ts" /></template>
+        <template #cell-user="{ row }">
+          <span v-if="row.username" class="truncate" dir="ltr">{{ row.username }}</span>
+          <span v-else class="text-muted-foreground">{{ t('audit.noUser') }}</span>
+        </template>
+        <template #cell-action="{ row }">
+          <span class="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              class="rounded-sm text-start underline decoration-border underline-offset-[3px] outline-none [overflow-wrap:anywhere] hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+              :title="row.action"
+              @click="openRow(row)"
+            >
+              {{ describeAction(row, providerNames) }}
+            </button>
+            <StatusPill v-for="text in actionDetails(row)" :key="text">{{ text }}</StatusPill>
+          </span>
+        </template>
+        <template #cell-result="{ row }">
+          <StatusDot :tone="row.result === 'ok' ? 'success' : 'destructive'" :title="row.result === 'ok' ? undefined : row.result">
+            {{ resultText(row) }}
+          </StatusDot>
+        </template>
+        <template #cell-source="{ row }">{{ sourceText(row.source) }}</template>
+        <template #cell-remote="{ row }"><span class="font-mono text-[12.5px]" dir="ltr">{{ row.remote }}</span></template>
+        <template v-if="anyFilter" #empty>
+          <Button variant="outline" size="sm" @click="clearFilters">{{ t('audit.filter.clear') }}</Button>
+        </template>
+      </DataTable>
+
+      <div v-if="canLoadMore && loaded" class="flex justify-center border-t px-4 py-3">
+        <Button variant="outline" class="max-md:h-11" :disabled="loading" @click="load(false)">
+          <LoaderCircle v-if="loading" class="animate-spin" aria-hidden="true" />
+          {{ t('audit.loadOlder') }}
+        </Button>
+      </div>
     </div>
 
-    <NAlert v-if="loadError" type="error" class="audit__alert">{{ errorMessage(loadError) }}</NAlert>
-
-    <NCard size="small">
-      <NDataTable
-        :columns="columns"
-        :data="entries"
-        :loading="loading"
-        :row-key="(entry: AuditEntry) => entry.id"
-        :scroll-x="1100"
-        size="small"
-      />
-      <div v-if="nextBefore !== null" class="audit__more">
-        <NButton :loading="loading" @click="load(false)">{{ t('common.action.loadMore') }}</NButton>
-      </div>
-    </NCard>
+    <AuditEntrySheet
+      :open="drawer.id.value !== null"
+      :entry="openEntry"
+      :loading="entryLoading"
+      :error="entryError"
+      :provider-names="providerNames"
+      :filter-location="filterLocation"
+      @close="drawer.close()"
+      @retry="fetchEntry"
+    />
   </div>
 </template>
-
-<style scoped>
-.audit {
-  max-inline-size: 1400px;
-}
-
-.audit__title {
-  margin-block: 0 16px;
-}
-
-.audit__filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-block-end: 16px;
-}
-
-.audit__filter {
-  inline-size: 240px;
-  max-inline-size: 100%;
-}
-
-.audit__alert {
-  margin-block-end: 16px;
-}
-
-.audit__more {
-  display: flex;
-  justify-content: center;
-  margin-block-start: 12px;
-}
-
-:deep(.action) {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-</style>

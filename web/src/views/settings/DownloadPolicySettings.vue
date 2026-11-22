@@ -1,107 +1,61 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { NAlert, NButton, NCard, NRadio, NRadioGroup, NSpin, NText, useMessage } from 'naive-ui'
-import {
-  DOWNLOAD_POLICIES,
-  fetchSoftwareSettings,
-  saveSoftwareSettings,
-  type DownloadPolicy,
-} from '@/api/software'
-import { errorMessage } from '@/i18n/errors'
+import { fetchSoftwareSettings, type DownloadPolicy } from '@/api/software'
+import Card from '@/components/common/Card.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useSessionStore } from '@/stores/session'
+import SourcePolicySheet from '@/views/software/SourcePolicySheet.vue'
+import SettingRow from './SettingRow.vue'
+import SettingRows from './SettingRows.vue'
 
+// Where prebuilt runtimes are downloaded from (the panel-wide download
+// policy); changed in the same sheet as on the software page.
 const { t } = useI18n()
-const message = useMessage()
 const session = useSessionStore()
 
 const canManage = computed(() => session.can('software.manage'))
-const saved = ref<DownloadPolicy | null>(null)
 const policy = ref<DownloadPolicy | null>(null)
-const loading = ref(true)
-const saving = ref(false)
-const error = ref<unknown>(null)
+const loadError = ref<unknown>(null)
+const showSheet = ref(false)
 
-onMounted(async () => {
+async function load() {
+  loadError.value = null
   try {
-    saved.value = (await fetchSoftwareSettings()).downloadPolicy
-    policy.value = saved.value
+    policy.value = (await fetchSoftwareSettings()).downloadPolicy
   } catch (err) {
-    error.value = err
-  } finally {
-    loading.value = false
-  }
-})
-
-const changed = computed(() => policy.value !== null && policy.value !== saved.value)
-
-async function save() {
-  if (!policy.value) return
-  error.value = null
-  saving.value = true
-  try {
-    saved.value = (await saveSoftwareSettings({ downloadPolicy: policy.value })).downloadPolicy
-    policy.value = saved.value
-    message.success(t('settings.panel.saved'))
-  } catch (err) {
-    error.value = err
-  } finally {
-    saving.value = false
+    loadError.value = err
   }
 }
+
+onMounted(load)
+// The sheet saves on its own; read the policy again once it closes.
+watch(showSheet, (open) => {
+  if (!open) void load()
+})
 </script>
 
 <template>
-  <NCard :title="t('software.policy.title')" size="small">
-    <NText depth="3" tag="p" class="intro">{{ t('software.policy.intro') }}</NText>
-    <NAlert v-if="!canManage" type="info" class="block">{{ t('software.policy.readOnly') }}</NAlert>
-    <NAlert v-if="error" type="error" class="block">{{ errorMessage(error) }}</NAlert>
-    <NSpin :show="loading">
-      <NRadioGroup v-model:value="policy" :disabled="!canManage || saving" class="options">
-        <NRadio v-for="option in DOWNLOAD_POLICIES" :key="option" :value="option" class="option">
-          <div class="option__label">{{ t(`software.policy.${option}.short`) }}</div>
-          <NText depth="3" class="option__hint">{{ t(`software.policy.${option}.description`) }}</NText>
-        </NRadio>
-      </NRadioGroup>
-      <NButton
-        v-if="canManage"
-        type="primary"
-        :disabled="!changed"
-        :loading="saving"
-        class="save"
-        @click="save"
-      >
-        {{ t('common.action.save') }}
-      </NButton>
-    </NSpin>
-  </NCard>
+  <Card flush>
+    <ErrorState v-if="loadError" :error="loadError" compact @retry="load" />
+    <SettingRows v-else>
+      <SettingRow :title="t('software.policy.title')">
+        <template #description>
+          <Skeleton v-if="policy === null" class="mt-1 h-4 w-64 max-w-full" />
+          <template v-else>
+            <span class="font-medium text-foreground">{{ t(`software.policy.${policy}.short`) }}</span>
+            · {{ t(`software.policy.${policy}.description`) }}
+          </template>
+        </template>
+        <Button variant="outline" class="max-md:h-11" :disabled="policy === null" @click="showSheet = true">
+          {{ canManage ? t('settings.downloadPolicy.change') : t('settings.downloadPolicy.view') }}
+        </Button>
+      </SettingRow>
+    </SettingRows>
+  </Card>
+
+  <SourcePolicySheet v-model:open="showSheet" />
 </template>
-
-<style scoped>
-.intro {
-  margin-block: 0 12px;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.options {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.option__label {
-  font-weight: 500;
-}
-
-.option__hint {
-  font-size: 13px;
-}
-
-.save {
-  margin-block-start: 16px;
-}
-</style>

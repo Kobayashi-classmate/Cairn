@@ -70,5 +70,11 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   nftables, ufw and firewalld, with the same 60-second rollback as the
   other firewall changes. Forwarding to another host switches IPv4
   forwarding on while it is needed.
+- The firewall, SSH, host, jobs, users, audit, messages and settings pages
+  in the new layout. Firewall and SSH port changes show a banner with
+  their steps and the time left, and a firewall change can be rolled back
+  at once. Settings are grouped in a side menu with a new Appearance
+  page for the colour scheme and language. The sidebar shows the server's
+  address.
 - The audit log filters by result and time range, and the jobs list by
   status and kind, over the whole history rather than the loaded page.

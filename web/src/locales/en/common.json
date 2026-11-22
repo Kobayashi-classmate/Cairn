@@ -49,7 +49,13 @@
     "light": "Light",
     "dark": "Dark",
     "system": "System",
-    "saveFailed": "Could not save the colour scheme to your account."
+    "saveFailed": "Could not save the colour scheme to your account.",
+    "hint": {
+      "light": "Always light",
+      "dark": "Always dark",
+      "systemLight": "Follows the system, light right now",
+      "systemDark": "Follows the system, dark right now"
+    }
   },
   "field": {
     "username": "Username",
@@ -190,7 +196,10 @@
     "fingerprint": "Fingerprint",
     "closeAfterMinutes": "Close the old port after",
     "candidate": "Source",
-    "command": "Command"
+    "command": "Command",
+    "toAddress": "Target address",
+    "toPort": "Target port",
+    "forwards": "Port forwards"
   },
   "boot": {
     "failed": "Cannot load the panel",
@@ -328,6 +337,11 @@
   },
   "sheet": {
     "willDo": "Will do"
+  },
+  "pending": {
+    "stepDone": "done",
+    "stepCurrent": "in progress",
+    "stepNext": "not yet"
   },
   "drawer": {
     "sections": "Settings of {name}"

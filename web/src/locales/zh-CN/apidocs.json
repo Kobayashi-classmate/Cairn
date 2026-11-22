@@ -1,5 +1,4 @@
 {
-  "title": "API 参考",
   "description": "本面板提供的接口，读取自面板的 OpenAPI 描述。请使用 API 令牌调用。",
   "download": "下载 openapi.json",
   "filter": "按路径或摘要筛选",

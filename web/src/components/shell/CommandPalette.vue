@@ -3,7 +3,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter, type RouteLocationRaw } from 'vue-router'
-import { CornerDownLeft, UserRound } from '@lucide/vue'
+import { CornerDownLeft, Palette, UserRound } from '@lucide/vue'
 import {
   CommandDialog,
   CommandEmpty,
@@ -15,7 +15,7 @@ import {
 import type { NavItem } from '@/layouts/navigation'
 
 // "Search or jump" (Ctrl K / Cmd K): every menu entry, the messages page
-// included, plus account settings.
+// included, plus account settings and appearance.
 const props = defineProps<{ items: readonly NavItem[] }>()
 const open = defineModel<boolean>('open', { required: true })
 
@@ -43,7 +43,10 @@ const sections = computed<Section[]>(() => {
   result.push({
     key: 'account',
     heading: t('shell.palette.account'),
-    entries: [{ key: 'account', label: t('common.nav.account'), icon: UserRound, to: { name: 'settings-account' } }],
+    entries: [
+      { key: 'account', label: t('common.nav.account'), icon: UserRound, to: { name: 'settings-account' } },
+      { key: 'appearance', label: t('shell.palette.appearance'), icon: Palette, to: { name: 'settings-appearance' } },
+    ],
   })
   return result
 })

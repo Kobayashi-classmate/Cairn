@@ -1,24 +1,12 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, h, onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NDataTable,
-  NEllipsis,
-  NIcon,
-  NSpace,
-  NSwitch,
-  NTag,
-  NText,
-  useMessage,
-  type DataTableColumns,
-} from 'naive-ui'
-import { AddOutline, RefreshOutline } from '@vicons/ionicons5'
+import { LoaderCircle, Pencil, Plus, RotateCw, Send, Trash2 } from '@lucide/vue'
 import { isApiError } from '@/api/client'
 import {
+  EVENT_CATEGORIES,
+  LEVELS,
   deleteChannel,
   fetchChannels,
   fetchDeliveries,
@@ -26,29 +14,43 @@ import {
   updateChannel,
   type Channel,
   type Delivery,
-  type Level,
 } from '@/api/notify'
-import { useConfirm } from '@/composables/useConfirm'
-import { useErrorToast } from '@/composables/useErrorToast'
+import Card from '@/components/common/Card.vue'
+import DataTable from '@/components/common/DataTable.vue'
+import Notice from '@/components/common/Notice.vue'
+import RelativeTime from '@/components/common/RelativeTime.vue'
+import RowActions from '@/components/common/RowActions.vue'
+import StatusDot from '@/components/common/StatusDot.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import type { ColumnDef } from '@/components/common/dataTable'
+import type { RowAction } from '@/components/common/types'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { confirmAction } from '@/composables/useConfirmDialog'
 import { localeNativeName } from '@/i18n'
 import { errorMessage } from '@/i18n/errors'
-import { formatDateTime, formatNumber } from '@/i18n/format'
-import LevelTag from '@/components/LevelTag.vue'
-import ChannelModal from '@/views/notify/ChannelModal.vue'
+import { formatNumber } from '@/i18n/format'
+import type { Tone } from '@/lib/tone'
+import { notifyError, notifySuccess } from '@/lib/notify'
+import ChannelSheet from '@/views/notify/ChannelSheet.vue'
+import { categoryText, eventText, levelText, levelTone } from '@/views/notify/labels'
 
-const { t, te } = useI18n()
-const message = useMessage()
-const confirm = useConfirm()
-const showError = useErrorToast()
+// Where the panel sends its notifications: email and webhook channels with
+// the events each receives, a test message per channel, and the recent
+// deliveries with their errors.
+const { t } = useI18n()
 
 const channels = ref<Channel[]>([])
 const deliveries = ref<Delivery[]>([])
 const loadingChannels = ref(false)
 const loadingDeliveries = ref(false)
-const loadError = ref<unknown>(null)
-const busyId = ref<number | null>(null)
+const channelsError = ref<unknown>(null)
+const deliveriesError = ref<unknown>(null)
+/** Channels whose switch or test is on its way. */
+const busy = ref(new Set<number>())
+const testingId = ref<number | null>(null)
 
-const showModal = ref(false)
+const showSheet = ref(false)
 const editing = ref<Channel | null>(null)
 
 /** Last failed test message: translated error plus the server's technical reason. */
@@ -58,9 +60,9 @@ async function loadChannels() {
   loadingChannels.value = true
   try {
     channels.value = await fetchChannels()
-    loadError.value = null
+    channelsError.value = null
   } catch (err) {
-    loadError.value = err
+    channelsError.value = err
   } finally {
     loadingChannels.value = false
   }
@@ -70,8 +72,9 @@ async function loadDeliveries() {
   loadingDeliveries.value = true
   try {
     deliveries.value = await fetchDeliveries()
+    deliveriesError.value = null
   } catch (err) {
-    showError(err)
+    deliveriesError.value = err
   } finally {
     loadingDeliveries.value = false
   }
@@ -84,283 +87,257 @@ onMounted(() => {
 
 function replace(channel: Channel) {
   const exists = channels.value.some((c) => c.id === channel.id)
-  channels.value = exists
-    ? channels.value.map((c) => (c.id === channel.id ? channel : c))
-    : [...channels.value, channel]
+  channels.value = exists ? channels.value.map((c) => (c.id === channel.id ? channel : c)) : [...channels.value, channel]
+  if (editing.value?.id === channel.id) editing.value = channel
+}
+
+function setBusy(id: number, on: boolean) {
+  const next = new Set(busy.value)
+  if (on) next.add(id)
+  else next.delete(id)
+  busy.value = next
 }
 
 function openCreate() {
   editing.value = null
-  showModal.value = true
+  showSheet.value = true
 }
 
 function openEdit(channel: Channel) {
   editing.value = channel
-  showModal.value = true
+  showSheet.value = true
 }
 
 function onSaved(channel: Channel) {
   replace(channel)
-  message.success(t('notify.channel.saved', { name: channel.name }))
+  notifySuccess(t('notify.channel.saved', { name: channel.name }))
 }
 
 async function setEnabled(channel: Channel, enabled: boolean) {
-  busyId.value = channel.id
+  setBusy(channel.id, true)
   try {
     replace(await updateChannel(channel.id, { enabled }))
   } catch (err) {
-    showError(err)
+    notifyError(err)
   } finally {
-    busyId.value = null
+    setBusy(channel.id, false)
   }
 }
 
 async function sendTest(channel: Channel) {
-  busyId.value = channel.id
+  testingId.value = channel.id
   testFailure.value = null
   try {
     await testChannel(channel.id)
-    message.success(t('notify.test.sent', { name: channel.name }))
+    notifySuccess(t('notify.test.sent', { name: channel.name }))
   } catch (err) {
     if (isApiError(err) && err.code === 'notify.delivery_failed') {
       const reason = err.params.reason
       testFailure.value = { name: channel.name, error: err, reason: typeof reason === 'string' ? reason : '' }
+      // The failure is shown on the page, under the sheet if it is open.
+      if (showSheet.value) notifyError(err)
     } else {
-      showError(err)
+      notifyError(err)
     }
   } finally {
-    busyId.value = null
+    testingId.value = null
     void loadDeliveries()
   }
 }
 
-async function remove(channel: Channel) {
-  const ok = await confirm({
+function askDelete(channel: Channel) {
+  void confirmAction({
     title: t('notify.channel.confirmDelete.title', { name: channel.name }),
-    content: t('notify.channel.confirmDelete.content'),
-    confirmText: t('common.action.delete'),
-    danger: true,
+    description: t('notify.channel.confirmDelete.content'),
+    confirmLabel: t('notify.channel.delete'),
+    destructive: true,
+    run: async () => {
+      await deleteChannel(channel.id)
+      channels.value = channels.value.filter((c) => c.id !== channel.id)
+      notifySuccess(t('notify.channel.deleted', { name: channel.name }))
+    },
   })
-  if (!ok) return
-  busyId.value = channel.id
-  try {
-    await deleteChannel(channel.id)
-    channels.value = channels.value.filter((c) => c.id !== channel.id)
-    message.success(t('notify.channel.deleted', { name: channel.name }))
-  } catch (err) {
-    showError(err)
-  } finally {
-    busyId.value = null
-  }
 }
 
-function categoryLabel(prefix: string): string {
-  const key = `notify.category.${prefix.replace(/\.$/, '')}.label`
-  return te(key) ? t(key) : prefix
+function allEvents(channel: Channel): boolean {
+  return EVENT_CATEGORIES.every((prefix) => channel.events.includes(prefix))
 }
 
-function eventLabel(event: string): string {
-  const key = `notify.event.${event}`
-  return te(key) ? t(key) : event
+function channelTarget(channel: Channel): string {
+  return channel.type === 'email' ? channel.config.to.join(', ') : channel.config.url
 }
 
-function levelTag(level: Level) {
-  return h(LevelTag, { level })
+function actions(channel: Channel): RowAction[] {
+  return [
+    { key: 'edit', label: t('common.action.edit'), icon: Pencil, onSelect: () => openEdit(channel) },
+    { key: 'delete', label: t('notify.channel.delete'), icon: Trash2, destructive: true, onSelect: () => askDelete(channel) },
+  ]
 }
 
-const STATUS_TAG = { pending: 'default', sent: 'success', failed: 'error' } as const
+const STATUS_TONE: Record<Delivery['status'], Tone> = { pending: 'progress', sent: 'success', failed: 'destructive' }
 
-function smallTag(text: string, type: 'default' | 'success' | 'error' | 'info' = 'default') {
-  return h(NTag, { size: 'small', bordered: false, type }, () => text)
-}
-
-const channelColumns = computed<DataTableColumns<Channel>>(() => [
-  {
-    key: 'name',
-    title: t('common.field.name'),
-    minWidth: 180,
-    render: (c) =>
-      h('span', { class: 'name' }, [c.name, smallTag(t(`notify.type.${c.type}`), 'info')]),
-  },
-  {
-    key: 'events',
-    title: t('common.field.events'),
-    minWidth: 200,
-    render: (c) => h(NSpace, { size: 4 }, () => c.events.map((e) => smallTag(categoryLabel(e)))),
-  },
-  { key: 'minLevel', title: t('common.field.minLevel'), width: 130, render: (c) => levelTag(c.minLevel) },
-  {
-    key: 'locale',
-    title: t('notify.channel.locale'),
-    width: 120,
-    render: (c) => h('span', { lang: c.locale }, localeNativeName(c.locale)),
-  },
-  {
-    key: 'enabled',
-    title: t('notify.channel.enabled'),
-    width: 100,
-    render: (c) =>
-      h(NSwitch, {
-        value: c.enabled,
-        size: 'small',
-        loading: busyId.value === c.id,
-        disabled: busyId.value !== null && busyId.value !== c.id,
-        'onUpdate:value': (value: boolean) => void setEnabled(c, value),
-      }),
-  },
-  {
-    key: 'actions',
-    title: '',
-    width: 260,
-    render: (c) =>
-      h(NSpace, { size: 4, wrap: false }, () => [
-        h(
-          NButton,
-          {
-            size: 'small',
-            loading: busyId.value === c.id,
-            disabled: busyId.value !== null,
-            onClick: () => void sendTest(c),
-          },
-          () => t('notify.test.send'),
-        ),
-        h(NButton, { size: 'small', quaternary: true, onClick: () => openEdit(c) }, () =>
-          t('common.action.edit'),
-        ),
-        h(
-          NButton,
-          {
-            size: 'small',
-            quaternary: true,
-            type: 'error',
-            disabled: busyId.value !== null,
-            onClick: () => void remove(c),
-          },
-          () => t('common.action.delete'),
-        ),
-      ]),
-  },
+const channelColumns = computed<ColumnDef<Channel>[]>(() => [
+  { id: 'name', header: t('common.field.name'), accessorFn: (c) => c.name.toLowerCase(), meta: { class: 'min-w-[200px]' } },
+  { id: 'events', header: t('common.field.events'), enableSorting: false, meta: { class: 'min-w-[170px]' } },
+  { id: 'minLevel', header: t('common.field.minLevel'), accessorFn: (c) => LEVELS.indexOf(c.minLevel), meta: { class: 'w-[120px]' } },
+  { id: 'enabled', header: t('notify.channel.enabled'), enableSorting: false, meta: { class: 'w-[80px]' } },
+  { id: 'actions', header: '', enableSorting: false, meta: { class: 'w-[160px] text-end' } },
 ])
 
-const deliveryColumns = computed<DataTableColumns<Delivery>>(() => [
-  {
-    key: 'createdAt',
-    title: t('notify.delivery.created'),
-    width: 170,
-    render: (d) => formatDateTime(d.createdAt),
-  },
-  { key: 'channelName', title: t('notify.delivery.channel'), minWidth: 140 },
-  { key: 'event', title: t('notify.delivery.event'), minWidth: 160, render: (d) => eventLabel(d.event) },
-  { key: 'level', title: t('notify.delivery.level'), width: 110, render: (d) => levelTag(d.level) },
-  {
-    key: 'status',
-    title: t('notify.delivery.status'),
-    width: 110,
-    render: (d) => smallTag(t(`notify.status.${d.status}`), STATUS_TAG[d.status] ?? 'default'),
-  },
-  {
-    key: 'attempts',
-    title: t('notify.delivery.attempts'),
-    width: 90,
-    render: (d) => formatNumber(d.attempts),
-  },
-  {
-    key: 'sentAt',
-    title: t('notify.delivery.sent'),
-    width: 170,
-    render: (d) => (d.sentAt > 0 ? formatDateTime(d.sentAt) : '-'),
-  },
-  {
-    key: 'lastError',
-    title: t('notify.delivery.lastError'),
-    minWidth: 220,
-    render: (d) =>
-      d.lastError
-        ? h(NEllipsis, { class: 'mono', style: 'max-width: 100%' }, () => d.lastError)
-        : '',
-  },
+const deliveryColumns = computed<ColumnDef<Delivery>[]>(() => [
+  { id: 'createdAt', header: t('notify.delivery.created'), accessorFn: (d) => d.createdAt, meta: { class: 'w-[130px]' } },
+  { id: 'channel', header: t('notify.delivery.channel'), accessorFn: (d) => d.channelName.toLowerCase(), meta: { class: 'min-w-[120px]' } },
+  { id: 'event', header: t('notify.delivery.event'), accessorFn: (d) => eventText(d.event), meta: { class: 'min-w-[150px]' } },
+  { id: 'level', header: t('notify.delivery.level'), accessorFn: (d) => LEVELS.indexOf(d.level), meta: { class: 'w-[100px]' } },
+  { id: 'status', header: t('notify.delivery.status'), accessorFn: (d) => d.status, meta: { class: 'w-[140px]' } },
+  { id: 'lastError', header: t('notify.delivery.lastError'), enableSorting: false, meta: { class: 'min-w-[180px]' } },
 ])
 </script>
 
 <template>
-  <NCard :title="t('notify.channels.title')" size="small">
-    <template #header-extra>
-      <NButton size="small" type="primary" @click="openCreate">
-        <template #icon>
-          <NIcon><AddOutline /></NIcon>
-        </template>
+  <Notice v-if="testFailure" tone="destructive" dismissible @dismiss="testFailure = null">
+    {{ t('notify.test.failed', { name: testFailure.name }) }}: {{ errorMessage(testFailure.error) }}
+    <code v-if="testFailure.reason" class="mt-1 block font-mono text-xs font-normal [overflow-wrap:anywhere]" dir="ltr">
+      {{ testFailure.reason }}
+    </code>
+  </Notice>
+
+  <Card :title="t('notify.channels.title')" :description="t('notify.channels.description')" :level="3" flush>
+    <template #actions>
+      <Button size="sm" class="max-md:h-11" @click="openCreate">
+        <Plus aria-hidden="true" />
         {{ t('notify.channel.createTitle') }}
-      </NButton>
+      </Button>
     </template>
-    <NText depth="3" tag="p" class="intro">{{ t('notify.channels.description') }}</NText>
-    <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-    <NAlert
-      v-if="testFailure"
-      type="error"
-      closable
-      :title="t('notify.test.failed', { name: testFailure.name })"
-      class="block"
-      @close="testFailure = null"
-    >
-      <div>{{ errorMessage(testFailure.error) }}</div>
-      <code v-if="testFailure.reason" class="mono reason" dir="ltr">{{ testFailure.reason }}</code>
-    </NAlert>
-    <NDataTable
-      :columns="channelColumns"
+    <DataTable
+      flat
       :data="channels"
+      :columns="channelColumns"
+      :row-key="(c) => String(c.id)"
+      :label="t('notify.channels.title')"
       :loading="loadingChannels"
-      :row-key="(c: Channel) => c.id"
-      :scroll-x="1000"
-      size="small"
-    />
-  </NCard>
+      :error="channelsError"
+      :empty-title="t('notify.channels.empty')"
+      :empty-text="t('notify.channels.emptyText')"
+      :min-width="760"
+      :skeleton-rows="2"
+      :initial-sort="[{ id: 'name', desc: false }]"
+      @retry="loadChannels"
+    >
+      <template #cell-name="{ row }">
+        <span class="flex min-w-0 flex-col">
+          <span class="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              class="truncate rounded-sm text-start font-semibold underline decoration-border underline-offset-[3px] outline-none hover:decoration-current focus-visible:ring-2 focus-visible:ring-ring/50"
+              dir="auto"
+              @click="openEdit(row)"
+            >
+              {{ row.name }}
+            </button>
+            <StatusPill>{{ t(`notify.type.${row.type}`) }}</StatusPill>
+          </span>
+          <span class="truncate font-mono text-xs text-muted-foreground" dir="ltr" :title="channelTarget(row)">
+            {{ channelTarget(row) }}
+          </span>
+        </span>
+      </template>
+      <template #cell-events="{ row }">
+        <span v-if="allEvents(row)" class="text-muted-foreground">{{ t('notify.channels.allEvents') }}</span>
+        <span v-else class="flex flex-wrap gap-1">
+          <StatusPill v-for="prefix in row.events" :key="prefix">{{ categoryText(prefix) }}</StatusPill>
+        </span>
+      </template>
+      <template #cell-minLevel="{ row }">
+        <span class="flex flex-col items-start gap-0.5">
+          <StatusPill :tone="levelTone(row.minLevel)">{{ levelText(row.minLevel) }}</StatusPill>
+          <span class="text-xs text-muted-foreground" :title="t('notify.channel.locale')">
+            <span :lang="row.locale">{{ localeNativeName(row.locale) }}</span>
+          </span>
+        </span>
+      </template>
+      <template #cell-enabled="{ row }">
+        <Switch
+          :model-value="row.enabled"
+          :disabled="busy.has(row.id)"
+          :aria-label="t('notify.channel.enableNamed', { name: row.name })"
+          @update:model-value="(value: boolean) => setEnabled(row, value)"
+        />
+      </template>
+      <template #cell-actions="{ row }">
+        <div class="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            class="max-md:h-11"
+            :disabled="testingId !== null"
+            @click="sendTest(row)"
+          >
+            <LoaderCircle v-if="testingId === row.id" class="animate-spin" aria-hidden="true" />
+            <Send v-else aria-hidden="true" />
+            {{ t('notify.test.send') }}
+          </Button>
+          <RowActions :actions="actions(row)" :label="t('notify.channel.more', { name: row.name })" />
+        </div>
+      </template>
+      <template #empty>
+        <Button @click="openCreate">
+          <Plus aria-hidden="true" />
+          {{ t('notify.channel.createTitle') }}
+        </Button>
+      </template>
+    </DataTable>
+  </Card>
 
-  <NCard :title="t('notify.delivery.title')" size="small">
-    <template #header-extra>
-      <NButton size="small" quaternary :loading="loadingDeliveries" @click="loadDeliveries">
-        <template #icon>
-          <NIcon><RefreshOutline /></NIcon>
-        </template>
+  <Card :title="t('notify.delivery.title')" :description="t('notify.delivery.description')" :level="3" flush>
+    <template #actions>
+      <Button variant="outline" size="sm" class="max-md:h-11" :disabled="loadingDeliveries" @click="loadDeliveries">
+        <LoaderCircle v-if="loadingDeliveries" class="animate-spin" aria-hidden="true" />
+        <RotateCw v-else aria-hidden="true" />
         {{ t('common.action.refresh') }}
-      </NButton>
+      </Button>
     </template>
-    <NDataTable
-      :columns="deliveryColumns"
+    <DataTable
+      flat
       :data="deliveries"
+      :columns="deliveryColumns"
+      :row-key="(d) => String(d.id)"
+      :label="t('notify.delivery.title')"
       :loading="loadingDeliveries"
-      :row-key="(d: Delivery) => d.id"
-      :scroll-x="1200"
-      size="small"
-    />
-  </NCard>
+      :error="deliveriesError"
+      :empty-title="t('notify.delivery.empty')"
+      :min-width="820"
+      :skeleton-rows="3"
+      :initial-sort="[{ id: 'createdAt', desc: true }]"
+      @retry="loadDeliveries"
+    >
+      <template #cell-createdAt="{ row }"><RelativeTime :value="row.createdAt" /></template>
+      <template #cell-channel="{ row }"><span dir="auto">{{ row.channelName }}</span></template>
+      <template #cell-event="{ row }">{{ eventText(row.event) }}</template>
+      <template #cell-level="{ row }"><StatusPill :tone="levelTone(row.level)">{{ levelText(row.level) }}</StatusPill></template>
+      <template #cell-status="{ row }">
+        <span class="flex flex-col gap-0.5">
+          <StatusDot :tone="STATUS_TONE[row.status] ?? 'neutral'">{{ t(`notify.status.${row.status}`) }}</StatusDot>
+          <span class="text-xs text-muted-foreground">
+            <template v-if="row.sentAt > 0"><RelativeTime :value="row.sentAt" /> · </template>
+            {{ t('notify.delivery.attemptCount', { count: formatNumber(row.attempts) }, row.attempts) }}
+          </span>
+        </span>
+      </template>
+      <template #cell-lastError="{ row }">
+        <span v-if="row.lastError" class="line-clamp-2 font-mono text-xs [overflow-wrap:anywhere]" dir="ltr" :title="row.lastError">
+          {{ row.lastError }}
+        </span>
+        <span v-else class="text-muted-foreground">—</span>
+      </template>
+    </DataTable>
+  </Card>
 
-  <ChannelModal v-model:show="showModal" :channel="editing" @saved="onSaved" />
+  <ChannelSheet
+    v-model:open="showSheet"
+    :channel="editing"
+    :testing="testingId !== null && testingId === editing?.id"
+    @saved="onSaved"
+    @test="sendTest"
+  />
 </template>
-
-<style scoped>
-.intro {
-  margin-block: 0 12px;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.reason {
-  display: block;
-  margin-block-start: 6px;
-  overflow-wrap: anywhere;
-}
-
-.mono,
-:deep(.mono) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-}
-
-:deep(.name) {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-</style>

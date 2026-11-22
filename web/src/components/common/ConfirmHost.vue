@@ -106,6 +106,11 @@ async function confirm() {
           <AlertDialogDescription class="m-0 text-muted-foreground [overflow-wrap:anywhere]">
             {{ description }}
           </AlertDialogDescription>
+          <code
+            v-if="options.detail"
+            class="block rounded-md bg-muted px-3 py-2 font-mono text-[12.5px] [overflow-wrap:anywhere] select-all"
+            dir="ltr"
+          >{{ options.detail }}</code>
         </div>
 
         <label v-if="options.option" class="flex cursor-pointer items-start gap-2.5 text-detail">

@@ -135,19 +135,19 @@ const routes: RouteRecordRaw[] = [
         path: 'firewall',
         name: 'firewall',
         component: () => import('@/views/FirewallView.vue'),
-        meta: { titleKey: 'firewall.title', navKey: 'firewall', permission: 'firewall.read' },
+        meta: { titleKey: 'firewall.title', navKey: 'firewall', permission: 'firewall.read', newUi: true },
       },
       {
         path: 'ssh',
         name: 'ssh',
         component: () => import('@/views/SshView.vue'),
-        meta: { titleKey: 'ssh.title', navKey: 'ssh', permission: 'ssh.read' },
+        meta: { titleKey: 'ssh.title', navKey: 'ssh', permission: 'ssh.read', newUi: true },
       },
       {
         path: 'host',
         name: 'host',
         component: () => import('@/views/HostView.vue'),
-        meta: { titleKey: 'host.title', navKey: 'host', permission: 'host.read' },
+        meta: { titleKey: 'host.title', navKey: 'host', permission: 'host.read', newUi: true },
       },
       {
         path: 'software',
@@ -159,42 +159,55 @@ const routes: RouteRecordRaw[] = [
         path: 'jobs',
         name: 'jobs',
         component: () => import('@/views/JobsView.vue'),
-        meta: { titleKey: 'jobs.title', navKey: 'jobs' },
+        meta: { titleKey: 'jobs.title', navKey: 'jobs', newUi: true },
       },
       {
+        // Jobs have no page of their own: they open in a drawer of the jobs
+        // page. Old links keep working.
         path: 'jobs/:id',
         name: 'job',
-        component: () => import('@/views/jobs/JobDetailView.vue'),
-        meta: { titleKey: 'jobs.detail.title', navKey: 'jobs' },
+        redirect: (to) => ({ name: 'jobs', query: { open: `job:${String(to.params.id)}` } }),
       },
       {
         path: 'users',
         name: 'users',
         component: () => import('@/views/UsersView.vue'),
-        meta: { titleKey: 'users.title', navKey: 'users', permission: 'users.manage' },
+        meta: { titleKey: 'users.title', navKey: 'users', permission: 'users.manage', newUi: true },
       },
       {
         path: 'messages',
         name: 'messages',
         component: () => import('@/views/MessagesView.vue'),
-        meta: { titleKey: 'messages.title', navKey: 'messages' },
+        meta: { titleKey: 'messages.title', navKey: 'messages', newUi: true },
+        // Old links (?id=, from the banner of a critical message) open the message.
+        beforeEnter: (to) => {
+          const id = to.query.id
+          if (typeof id !== 'string' || id === '') return true
+          const { id: _id, ...rest } = to.query
+          return { name: 'messages', query: { ...rest, open: `message:${id}` } }
+        },
       },
       {
         path: 'audit',
         name: 'audit',
         component: () => import('@/views/AuditView.vue'),
-        meta: { titleKey: 'audit.title', navKey: 'audit', permission: 'audit.read' },
+        meta: { titleKey: 'audit.title', navKey: 'audit', permission: 'audit.read', newUi: true },
       },
       {
         path: 'settings',
         component: () => import('@/views/SettingsView.vue'),
-        meta: { titleKey: 'settings.title', navKey: 'settings' },
+        meta: { titleKey: 'settings.title', navKey: 'settings', newUi: true },
         children: [
           { path: '', name: 'settings', redirect: { name: 'settings-account' } },
           {
             path: 'account',
             name: 'settings-account',
             component: () => import('@/views/settings/AccountSettings.vue'),
+          },
+          {
+            path: 'appearance',
+            name: 'settings-appearance',
+            component: () => import('@/views/settings/AppearanceSettings.vue'),
           },
           {
             path: 'security',
@@ -221,6 +234,12 @@ const routes: RouteRecordRaw[] = [
             path: 'updates',
             name: 'settings-updates',
             component: () => import('@/views/settings/UpdateSettings.vue'),
+            meta: { permission: 'settings.read' },
+          },
+          {
+            path: 'cloud',
+            name: 'settings-cloud',
+            component: () => import('@/views/settings/CloudSettings.vue'),
             meta: { permission: 'settings.read' },
           },
           {

@@ -1,5 +1,4 @@
 {
-  "title": "模块",
   "intro": "面板的功能模块。可选模块可以关闭，关闭后其页面和 API 接口将不可用。",
   "core": "核心部分",
   "coreTooltip": "该模块属于核心部分，无法关闭。",
@@ -25,5 +24,26 @@
     "firewall": "防火墙",
     "ssh": "SSH",
     "host": "系统管理"
+  },
+  "description": {
+    "core": "登录、账号、会话和面板设置。",
+    "system": "概览页和服务器的实时用量。",
+    "software": "安装和管理 Web 服务器、语言运行时和数据库。",
+    "jobs": "跟进长时间操作的任务列表。",
+    "users": "面板账号及其角色。",
+    "auditlog": "通过面板做出的每一次改动的记录。",
+    "notifications": "电子邮件和 Webhook 通知。",
+    "cloud": "来自 Cairn 服务的官方消息和更新检查。",
+    "sites": "网站、反向代理、项目和四层代理。",
+    "certs": "TLS 证书，以及签发证书用的 DNS 账号。",
+    "databases": "MariaDB、MySQL、PostgreSQL 和 Redis 的数据库与用户。",
+    "files": "文件管理和回收站。",
+    "terminal": "在浏览器里打开服务器上的 Shell。",
+    "cron": "定时运行脚本、访问网址和备份。",
+    "backups": "备份方案、存储位置和恢复。",
+    "logs": "系统日志、网站日志和 SSH 登录记录。",
+    "firewall": "端口规则和地址规则。",
+    "ssh": "SSH 服务的设置和授权密钥。",
+    "host": "主机名、时间、交换空间、系统更新和软件源。"
   }
 }

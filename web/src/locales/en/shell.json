@@ -20,10 +20,12 @@
     "placeholder": "Search pages…",
     "empty": "No matching page.",
     "pages": "Pages",
-    "account": "Account"
+    "account": "Account",
+    "appearance": "Appearance"
   },
   "shortcut": {
     "mac": "⌘K",
     "other": "Ctrl K"
-  }
+  },
+  "copyAddress": "Copy address {address}"
 }

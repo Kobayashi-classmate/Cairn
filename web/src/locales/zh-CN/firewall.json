@@ -2,26 +2,29 @@
   "title": "防火墙",
   "tabs": {
     "rules": "端口规则",
-    "addresses": "地址"
+    "addresses": "地址规则",
+    "forwards": "端口转发",
+    "basic": "基础设置"
   },
   "state": {
     "enabled": "已开启",
-    "disabled": "已关闭"
+    "disabled": "已关闭",
+    "notLoaded": "已开启，规则未生效"
   },
-  "backend": "使用 {backend}",
-  "backendMissing": "（开启时会自动安装）",
+  "status": {
+    "noBackend": "没有可用的防火墙",
+    "clientIp": "你的地址"
+  },
+  "backendMissing": "开启时会自动安装",
   "noBackend": "此系统上没有可用的防火墙。",
-  "clientIp": "你的地址：{ip}",
   "blockPing": "禁止 ping",
-  "alwaysOpen": "SSH（{ssh}）和面板（{panel}）始终保持开放，避免把自己锁在外面。",
   "noSystemd": "只有运行 systemd 的系统才能管理防火墙。",
   "notLoaded": "防火墙已开启，但规则当前没有生效。",
   "reapply": "重新应用",
-  "rolledBack": "上一次修改（{time}）因未及时确认已被撤销。",
-  "foreignPending": "有一项修改正在等待确认，若不保留将在 {seconds} 秒后撤销。",
-  "keep": "保留此修改",
+  "rolledBack": "上一次修改（{time}）因未及时确认已被回滚。",
   "enableFirst": "请先开启防火墙再修改规则。",
   "anywhere": "任何地址",
+  "saved": "已保存。",
   "action": {
     "allow": "允许",
     "deny": "拒绝"
@@ -38,14 +41,69 @@
     "db": "{engine} 远程访问"
   },
   "confirm": {
-    "checking": "正在确认面板仍可访问…… {seconds} 秒",
-    "kept": "修改已生效。",
-    "rolledBack": "修改已撤销：面板未能及时确认。",
-    "explain": "保存后面板会检查自己是否仍能访问；若不能，修改会在一分钟内自动撤销。"
+    "kept": "修改已保存。",
+    "rolledBack": "修改已回滚：面板未能及时确认。",
+    "undone": "修改已回滚。",
+    "step": "通过新连接确认面板仍可访问，不能访问时在一分钟内撤销修改"
+  },
+  "pending": {
+    "step": {
+      "applied": "已应用",
+      "confirm": "用新连接确认",
+      "saved": "保存"
+    },
+    "checkingTitle": "正在确认修改",
+    "checkingText": "面板正在通过新连接确认自己仍可访问，不需要你操作。如果不能访问，修改会自动撤销。",
+    "countdown": "{seconds} 秒内未确认将自动回滚",
+    "rollBack": "立即回滚",
+    "abandonedTitle": "正在回滚修改",
+    "abandonedText": "正在撤销这项修改。即使服务器现在没有响应，时限一到也会自动撤销。",
+    "abandonedCountdown": "{seconds} 秒后回滚",
+    "foreignTitle": "有修改等待确认",
+    "foreignText": "{change}是在别处做的，如果不保留就会被回滚。",
+    "keep": "保留修改",
+    "keptTitle": "修改已保存",
+    "undo": "撤销",
+    "kind": {
+      "rule": {
+        "add": "新增的端口规则",
+        "update": "修改过的端口规则",
+        "delete": "删除的端口规则"
+      },
+      "address": {
+        "add": "新增的受信任或封禁地址",
+        "delete": "移除的地址"
+      },
+      "forward": {
+        "add": "新增的端口转发",
+        "update": "修改过的端口转发",
+        "delete": "删除的端口转发"
+      },
+      "ping": "ping 设置",
+      "enable": "开启防火墙",
+      "other": "一项防火墙修改"
+    }
+  },
+  "summary": {
+    "ruleAdd": "已添加规则：{rule}",
+    "ruleUpdate": "已修改规则：{rule}",
+    "ruleDelete": "已删除规则：{rule}",
+    "address": {
+      "allow": "已信任 {address}",
+      "deny": "已封禁 {address}",
+      "delete": "已移除 {address}"
+    },
+    "forwardAdd": "已添加转发：{forward}",
+    "forwardUpdate": "已修改转发：{forward}",
+    "forwardDelete": "已删除转发：{forward}",
+    "pingBlock": "已禁止 ping",
+    "pingAllow": "已允许 ping",
+    "enable": "已开启防火墙",
+    "undo": "已撤销：{summary}"
   },
   "enable": {
     "title": "开启防火墙？",
-    "text": "防火墙（{backend}）会拦截所有入站连接，下面的规则除外。SSH {ssh} 和面板 {panel} 保持开放。",
+    "text": "防火墙（{backend}）会拦截端口规则以外的所有入站连接。SSH {ssh} 和面板 {panel} 保持开放。",
     "submit": "开启"
   },
   "disable": {
@@ -54,39 +112,116 @@
     "submit": "关闭"
   },
   "rule": {
-    "createTitle": "添加规则",
+    "add": "添加规则",
+    "save": "保存规则",
+    "createTitle": "添加端口规则",
     "editTitle": "修改规则",
+    "sourcesTitle": "修改允许连接的来源",
     "intro": "除非有规则允许，入站连接都会被拒绝。",
     "owner": "来源",
     "protected": "始终允许，避免把自己锁在外面",
-    "editSources": "修改来源地址",
+    "edit": "修改 {ports} 的规则",
+    "editSources": "修改允许连接 {ports} 的来源",
+    "more": "{ports} 的更多操作",
     "managedNote": "此规则属于{owner}，这里只能修改允许连接的来源。",
     "portsHint": "端口如 80，或范围如 8000-8100，最多 {max} 个。每输入一个按回车。",
     "sourcesHint": "允许连接的地址或网段（如 10.0.0.0/8）；留空表示任何地址。",
     "denyHint": "拒绝规则必须填写来源：其余连接本来就会被拒绝。",
     "addMine": "添加我的地址（{ip}）",
-    "deleteTitle": "删除此规则？",
-    "deleteText": "此规则将不再允许连接 {ports}。"
+    "delete": "删除规则",
+    "deleteTitle": "删除 {ports} 的规则？",
+    "deleteText": "此规则将不再允许连接 {ports}。保存后几分钟内可以在本页撤销。",
+    "describe": "{action} {ports}（{protocol}）",
+    "steps": {
+      "allow": "允许 {protocol} 连接访问 {ports}，来源：{sources}",
+      "deny": "拒绝 {protocol} 连接访问 {ports}，来源：{sources}",
+      "anywhere": "任何地址"
+    },
+    "search": "搜索规则",
+    "empty": "没有端口规则"
   },
   "address": {
-    "createTitle": "添加地址",
+    "add": "添加地址",
+    "createTitle": "信任或封禁地址",
     "intro": "受信任的地址可以访问所有端口；被封禁的地址无法访问任何端口，包括 SSH。封禁优先于任何允许。",
     "hint": "IPv4 或 IPv6 地址，或网段，如 203.0.113.0/24。",
     "allow": "受信任",
     "allowHint": "可以连接所有端口。",
     "deny": "已封禁",
     "denyHint": "无法连接任何端口，包括 SSH。",
-    "empty": "没有受信任或被封禁的地址。",
-    "deleteTitle": "删除 {address}？",
+    "trust": "信任地址",
+    "block": "封禁地址",
+    "empty": "没有受信任或被封禁的地址",
+    "emptyText": "可以信任办公网络访问所有端口，或封禁行为异常的地址。",
+    "search": "搜索地址",
+    "more": "{address} 的更多操作",
+    "delete": "移除地址",
+    "deleteTitle": "移除 {address}？",
     "deleteAllowText": "该地址不再受信任，重新按端口规则处理。",
-    "deleteDenyText": "该地址将不再被封禁。"
+    "deleteDenyText": "该地址将不再被封禁。",
+    "steps": {
+      "allow": "允许 {address} 连接所有端口",
+      "deny": "拒绝来自 {address} 的所有连接，包括 SSH"
+    }
+  },
+  "forward": {
+    "add": "添加转发",
+    "save": "保存转发",
+    "createTitle": "转发端口",
+    "editTitle": "修改转发",
+    "intro": "连接到本服务器某个端口的流量，会转到本机或另一台 IPv4 主机的另一个端口。",
+    "port": "监听端口",
+    "portHint": "对外提供连接的端口（1–65535），不能是 SSH 或面板的端口。",
+    "target": "目标",
+    "thisHost": "本机",
+    "otherHost": "其他主机",
+    "thisHostPort": "本机端口 {port}",
+    "addressHint": "另一台主机的 IPv4 地址。",
+    "toPortHint": "必须与监听端口不同。",
+    "ipv6Note": "不支持转发到 IPv6 地址：开启 IPv6 转发后，本服务器将无法自动配置自己的 IPv6 地址。",
+    "describe": "{protocol} {port} → {target}",
+    "steps": {
+      "forward": "转发 {protocol} 端口 {port}，目标：{target}",
+      "accept": "让转发的连接通过防火墙，不需要另加端口规则",
+      "ipForward": "开启 IPv4 转发（目前未开启）",
+      "masquerade": "对转发的连接做地址伪装，让回复经由本服务器返回"
+    },
+    "edit": "修改端口 {port} 的转发",
+    "more": "端口 {port} 的更多操作",
+    "delete": "删除转发",
+    "deleteTitle": "删除端口 {port} 的转发？",
+    "deleteText": "转发 {forward} 将停止。保存后几分钟内可以在本页撤销。",
+    "search": "搜索转发",
+    "empty": "没有端口转发",
+    "emptyText": "可以把端口转发到本机的另一个端口，或另一台主机上的服务。",
+    "limit": "本服务器最多保留 {max} 条端口转发，删除一条后才能再添加。"
+  },
+  "basic": {
+    "title": "防火墙",
+    "state": "状态",
+    "backend": "后端",
+    "incoming": "入站连接",
+    "incomingValue": "没有规则允许的一律拒绝",
+    "alwaysOpen": "始终放行",
+    "alwaysOpenValue": "SSH {ssh} · 面板 {panel}",
+    "clientIp": "你的地址",
+    "ping": "Ping",
+    "pingHint": "不回应 ICMP 回显请求。修改后同样需要确认。",
+    "forwarding": "端口转发",
+    "ipForward": "IPv4 转发",
+    "on": "已开启",
+    "off": "未开启",
+    "ipForwardHint": "转发到其他主机时需要开启。面板会为这些转发开启它；最后一条删除后，如果当初是面板开启的，就会再关闭。"
   },
   "external": {
-    "title": "系统中的其他规则（{count}）",
-    "intro": "这些规则不是面板创建的，按防火墙列出的原样显示，面板不会改动它们。"
+    "title": "不是面板创建的规则（{count}）",
+    "intro": "按防火墙列出的原样显示，面板不会改动它们。",
+    "empty": "没有"
   },
   "conflict": "有两个防火墙同时处于活动状态（{conflict}）。请先在服务器上关闭其中一个，再在这里管理防火墙。",
   "unsupportedReason": {
-    "firewalld_old": "firewalld {version} 版本太旧"
+    "firewalld_old": "firewalld {version} 版本太旧",
+    "nft_missing": "使用 ufw 时，端口转发需要 nft 命令（nftables 软件包），但它没有安装",
+    "ufw_before_rules": "ufw 的 before.rules 缺少“# End required lines”标记，转发规则无处可放"
   }
 }

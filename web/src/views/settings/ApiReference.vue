@@ -2,37 +2,32 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NCollapse,
-  NCollapseItem,
-  NEmpty,
-  NH3,
-  NIcon,
-  NInput,
-  NSpin,
-  NTag,
-  NText,
-} from 'naive-ui'
-import { DownloadOutline, SearchOutline } from '@vicons/ionicons5'
+import { ChevronRight, Download, Search, SearchX, X } from '@lucide/vue'
 import { fetchOpenApi, type JsonSchema, type OpenApiDocument, type Operation } from '@/api/openapi'
+import Card from '@/components/common/Card.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 import { permissionLabel } from '@/auth/permissions'
-import { errorMessage } from '@/i18n/errors'
+import type { Tone } from '@/lib/tone'
 import { downloadText } from '@/utils/download'
 
+// The panel's HTTP API as its OpenAPI description lists it, grouped by tag
+// and filterable; each operation opens to show its permission, whether it
+// asks to re-authenticate, the request body and the responses.
 const { t } = useI18n()
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const
 type Method = (typeof METHODS)[number]
 
-const METHOD_TAG: Record<Method, 'info' | 'success' | 'warning' | 'error'> = {
-  get: 'info',
+const METHOD_TONE: Record<Method, Tone> = {
+  get: 'progress',
   post: 'success',
   put: 'warning',
   patch: 'warning',
-  delete: 'error',
+  delete: 'destructive',
 }
 
 interface OperationView {
@@ -48,19 +43,19 @@ interface TagGroup {
 }
 
 const doc = ref<OpenApiDocument | null>(null)
-const loading = ref(true)
 const error = ref<unknown>(null)
 const query = ref('')
 
-onMounted(async () => {
+async function load() {
+  error.value = null
   try {
     doc.value = await fetchOpenApi()
   } catch (err) {
     error.value = err
-  } finally {
-    loading.value = false
   }
-})
+}
+
+onMounted(load)
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -102,11 +97,14 @@ const filtered = computed<TagGroup[]>(() => {
         (op) =>
           op.path.toLowerCase().includes(needle) ||
           (op.operation.summary ?? '').toLowerCase().includes(needle) ||
-          op.method.includes(needle),
+          op.method.includes(needle) ||
+          (op.operation['x-cairn-permission'] ?? '').includes(needle),
       ),
     }))
     .filter((group) => group.operations.length > 0)
 })
+
+const total = computed(() => groups.value.reduce((sum, group) => sum + group.operations.length, 0))
 
 const SCHEMA_REF = '#/components/schemas/'
 const MAX_DEPTH = 24
@@ -127,11 +125,9 @@ function resolveSchema(value: unknown, trail: string[] = []): unknown {
     if (!target || trail.includes(name) || trail.length >= MAX_DEPTH) return value
     const { $ref: _ref, ...siblings } = value
     const resolved = resolveSchema(target, [...trail, name])
-    return isObject(resolved) ? { ...resolved, ...resolveSchema(siblings, trail) as object } : resolved
+    return isObject(resolved) ? { ...resolved, ...(resolveSchema(siblings, trail) as object) } : resolved
   }
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, resolveSchema(item, trail)]),
-  )
+  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, resolveSchema(item, trail)]))
 }
 
 function schemaText(schema: JsonSchema | undefined): string | null {
@@ -157,199 +153,101 @@ function download() {
 </script>
 
 <template>
-  <NCard :title="t('apidocs.title')" size="small">
-    <template #header-extra>
-      <NButton size="small" :disabled="!doc" @click="download">
-        <template #icon>
-          <NIcon><DownloadOutline /></NIcon>
-        </template>
-        {{ t('apidocs.download') }}
-      </NButton>
-    </template>
+  <p class="m-0 -mt-2 text-muted-foreground">{{ t('apidocs.description') }}</p>
 
-    <NText depth="3" tag="p" class="intro">{{ t('apidocs.description') }}</NText>
-    <NAlert v-if="error" type="error" class="block">{{ errorMessage(error) }}</NAlert>
-
-    <NSpin :show="loading">
-      <template v-if="doc">
-        <NInput
-          v-model:value="query"
-          clearable
+  <ErrorState v-if="error" :error="error" class="rounded-lg border bg-card" @retry="load" />
+  <div v-else-if="!doc" class="flex flex-col gap-3" role="status">
+    <span class="sr-only">{{ t('common.state.loading') }}</span>
+    <Skeleton class="h-9 w-80 max-w-full" />
+    <Skeleton class="h-40 w-full rounded-lg" />
+    <Skeleton class="h-40 w-full rounded-lg" />
+  </div>
+  <template v-else>
+    <div class="flex flex-wrap items-center gap-3">
+      <label
+        class="flex h-9 min-w-0 flex-[1_1_240px] items-center gap-2 rounded-md border border-input bg-card px-2.5 text-muted-foreground focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/50 sm:max-w-96 max-md:h-11"
+      >
+        <Search class="size-4 shrink-0" aria-hidden="true" />
+        <input
+          v-model="query"
+          type="search"
+          :aria-label="t('apidocs.filter')"
           :placeholder="t('apidocs.filter')"
-          :input-props="{ 'aria-label': t('apidocs.filter'), spellcheck: false }"
-          class="filter"
+          spellcheck="false"
+          class="h-full min-w-0 flex-1 bg-transparent text-base text-foreground outline-none placeholder:text-muted-foreground md:text-sm [&::-webkit-search-cancel-button]:hidden"
+        />
+        <button
+          v-if="query"
+          type="button"
+          class="inline-flex size-6 shrink-0 items-center justify-center rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+          :aria-label="t('common.table.clearSearch')"
+          @click="query = ''"
         >
-          <template #prefix>
-            <NIcon><SearchOutline /></NIcon>
-          </template>
-        </NInput>
+          <X class="size-3.5" aria-hidden="true" />
+        </button>
+      </label>
+      <span class="text-detail text-muted-foreground">{{ t('apidocs.operations', { count: total }, total) }}</span>
+      <Button variant="outline" class="ms-auto max-md:h-11" @click="download">
+        <Download aria-hidden="true" />
+        {{ t('apidocs.download') }}
+      </Button>
+    </div>
 
-        <NEmpty v-if="filtered.length === 0" :description="t('apidocs.empty')" class="block" />
+    <EmptyState v-if="filtered.length === 0" :icon="SearchX" :title="t('apidocs.empty')" class="rounded-lg border bg-card" />
 
-        <section v-for="group in filtered" :key="group.tag" class="group">
-          <NH3 class="group__title">
-            {{ group.tag || t('apidocs.untagged') }}
-            <NText depth="3" class="group__count">
-              {{ t('apidocs.operations', { count: group.operations.length }, group.operations.length) }}
-            </NText>
-          </NH3>
-          <NCollapse :accordion="false">
-            <NCollapseItem v-for="op in group.operations" :key="op.key" :name="op.key">
-              <template #header>
-                <span class="op">
-                  <NTag size="small" :type="METHOD_TAG[op.method]" :bordered="false" class="op__method">
-                    {{ op.method.toUpperCase() }}
-                  </NTag>
-                  <code class="op__path" dir="ltr">{{ op.path }}</code>
-                  <NText depth="3" class="op__summary">{{ op.operation.summary }}</NText>
-                </span>
-              </template>
-              <template #header-extra>
-                <span class="op__badges">
-                  <NTag
-                    v-if="op.operation['x-cairn-step-up']"
-                    size="small"
-                    type="warning"
-                    :bordered="false"
-                  >
-                    {{ t('apidocs.stepUp') }}
-                  </NTag>
-                  <NTag
-                    v-if="op.operation['x-cairn-permission']"
-                    size="small"
-                    :bordered="false"
-                    :title="op.operation['x-cairn-permission']"
-                  >
-                    {{ permissionLabel(op.operation['x-cairn-permission']) }}
-                  </NTag>
-                </span>
-              </template>
-
-              <div class="detail">
-                <p v-if="op.operation.description" class="detail__description">
-                  {{ op.operation.description }}
-                </p>
-                <div class="detail__section">
-                  <NText strong>{{ t('apidocs.requestBody') }}</NText>
-                  <pre v-if="requestSchema(op.operation)" class="schema" dir="ltr">{{
-                    requestSchema(op.operation)
-                  }}</pre>
-                  <NText v-else depth="3" tag="div">{{ t('apidocs.noBody') }}</NText>
-                </div>
-                <div class="detail__section">
-                  <NText strong>{{ t('apidocs.responses') }}</NText>
-                  <div v-for="response in responses(op.operation)" :key="response.status" class="response">
-                    <div class="response__head">
-                      <code dir="ltr">{{ response.status }}</code>
-                      <NText depth="3">{{ response.description }}</NText>
-                    </div>
-                    <pre v-if="response.schema" class="schema" dir="ltr">{{ response.schema }}</pre>
+    <Card v-for="group in filtered" :key="group.tag" :level="3" flush>
+      <template #title>
+        {{ group.tag || t('apidocs.untagged') }}
+        <span class="ms-1.5 text-xs font-normal text-muted-foreground">
+          {{ t('apidocs.operations', { count: group.operations.length }, group.operations.length) }}
+        </span>
+      </template>
+      <ul class="m-0 list-none divide-y p-0">
+        <li v-for="op in group.operations" :key="op.key">
+          <details class="group">
+            <summary
+              class="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 outline-none hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset md:px-[18px] [&::-webkit-details-marker]:hidden"
+            >
+              <ChevronRight class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+              <StatusPill :tone="METHOD_TONE[op.method]" class="min-w-14 justify-center font-mono">{{ op.method.toUpperCase() }}</StatusPill>
+              <code class="min-w-0 font-mono text-[12.5px] [overflow-wrap:anywhere]" dir="ltr">{{ op.path }}</code>
+              <span class="min-w-0 flex-1 text-detail text-muted-foreground">{{ op.operation.summary }}</span>
+              <span class="flex flex-wrap gap-1">
+                <StatusPill v-if="op.operation['x-cairn-step-up']" tone="warning">{{ t('apidocs.stepUp') }}</StatusPill>
+                <StatusPill v-if="op.operation['x-cairn-permission']" :title="op.operation['x-cairn-permission']">
+                  {{ permissionLabel(op.operation['x-cairn-permission']) }}
+                </StatusPill>
+              </span>
+            </summary>
+            <div class="flex flex-col gap-3 border-t bg-muted/40 px-4 py-3 md:px-[18px] md:ps-11">
+              <p v-if="op.operation.description" class="m-0">{{ op.operation.description }}</p>
+              <div class="flex flex-col gap-1.5">
+                <h4 class="m-0 text-detail font-semibold">{{ t('apidocs.requestBody') }}</h4>
+                <pre
+                  v-if="requestSchema(op.operation)"
+                  class="m-0 max-h-80 overflow-auto rounded-md border bg-card px-3 py-2 font-mono text-xs leading-relaxed"
+                  dir="ltr"
+                >{{ requestSchema(op.operation) }}</pre>
+                <p v-else class="m-0 text-detail text-muted-foreground">{{ t('apidocs.noBody') }}</p>
+              </div>
+              <div class="flex flex-col gap-1.5">
+                <h4 class="m-0 text-detail font-semibold">{{ t('apidocs.responses') }}</h4>
+                <div v-for="response in responses(op.operation)" :key="response.status" class="flex flex-col gap-1">
+                  <div class="flex flex-wrap items-baseline gap-2 text-detail">
+                    <code class="font-mono font-medium" dir="ltr">{{ response.status }}</code>
+                    <span class="text-muted-foreground">{{ response.description }}</span>
                   </div>
+                  <pre
+                    v-if="response.schema"
+                    class="m-0 max-h-80 overflow-auto rounded-md border bg-card px-3 py-2 font-mono text-xs leading-relaxed"
+                    dir="ltr"
+                  >{{ response.schema }}</pre>
                 </div>
               </div>
-            </NCollapseItem>
-          </NCollapse>
-        </section>
-      </template>
-    </NSpin>
-  </NCard>
+            </div>
+          </details>
+        </li>
+      </ul>
+    </Card>
+  </template>
 </template>
-
-<style scoped>
-.intro {
-  margin-block: 0 12px;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.filter {
-  max-inline-size: 360px;
-  margin-block-end: 16px;
-}
-
-.group {
-  margin-block-end: 20px;
-}
-
-.group__title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-block: 0 8px;
-}
-
-.group__count {
-  font-size: 13px;
-  font-weight: normal;
-}
-
-.op {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-inline-size: 0;
-}
-
-.op__method {
-  min-inline-size: 56px;
-  justify-content: center;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.op__path {
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
-.op__summary {
-  font-size: 13px;
-}
-
-.op__badges {
-  display: inline-flex;
-  gap: 4px;
-}
-
-.detail {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding-inline-start: 4px;
-}
-
-.detail__description {
-  margin: 0;
-}
-
-.detail__section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.response {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.response__head {
-  display: flex;
-  gap: 8px;
-}
-
-.schema {
-  max-block-size: 360px;
-  margin: 0;
-  padding: 8px 10px;
-  overflow: auto;
-  border-radius: 4px;
-  background: rgb(128 128 128 / 10%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-}
-</style>

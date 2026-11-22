@@ -1,5 +1,4 @@
 {
-  "title": "API reference",
   "description": "Operations this panel offers, read from its OpenAPI description. Call them with an API token.",
   "download": "Download openapi.json",
   "filter": "Filter by path or summary",

@@ -101,7 +101,9 @@
       "unit_name": "{field} must be a systemd unit name, such as nginx.service.",
       "journal_time": "{field} must be a time journalctl understands, such as “today”, “-1h” or “2026-11-16 10:00”.",
       "endpoint": "{field} must be a host name, with an optional port, without “https://” or a path.",
-      "port_spec": "Check {field}: each entry must be a port (1–65535) or a range such as 8000-8100."
+      "port_spec": "Check {field}: each entry must be a port (1–65535) or a range such as 8000-8100.",
+      "same_port": "{field} must differ from the listening port when the forward goes to this host.",
+      "forward_target": "{field} must be the IPv4 address of another host, not 127.x.x.x, 0.0.0.0, a multicast or the broadcast address."
     }
   },
   "locale": {
@@ -295,7 +297,9 @@
       "self_block": "Blocking {address} would block your own address, so you could no longer reach the panel.",
       "overlap": "{address} overlaps with {other}.",
       "apply_failed": "The firewall rules could not be applied: {detail}",
-      "unsupported": "The firewall cannot be managed on this system: {reasonText}."
+      "unsupported": "This is not possible with the firewall on this system: {reasonText}.",
+      "protected": "Port {port} is kept for SSH or the panel, which always stay reachable, so it cannot be used here.",
+      "forward_taken": "Another forward already listens on port {port}."
     },
     "ssh": {
       "config_invalid": "The SSH configuration is not valid: {output}",
@@ -460,17 +464,18 @@
     "pending": "Another firewall change is waiting for confirmation; try again in a minute.",
     "self_block": "This would block your own address, so you could no longer reach the panel.",
     "overlap": "This overlaps with another trusted or blocked entry.",
-    "protected": "This rule keeps SSH and the panel reachable and cannot be changed.",
+    "protected": "This would take a port away from SSH or the panel, which always stay reachable.",
     "managed": "This rule belongs to another feature; change it there.",
     "not_enabled": "The firewall is off; turn it on first.",
     "backend_missing": "The firewall tool is not installed.",
     "conflict": "Both ufw and firewalld are active. Turn one of them off on the server before managing the firewall here.",
     "apply_failed": "The firewall rules could not be applied.",
-    "not_found": "This rule or address does not exist (any more).",
-    "unsupported": "The firewall cannot be managed on this system.",
+    "not_found": "This rule, address or forward does not exist (any more).",
+    "unsupported": "This is not possible with the firewall on this system.",
     "deny_needs_source": "A deny rule needs at least one source address: everything not allowed is refused already.",
     "confirm_retry": "The change could not be confirmed yet.",
-    "no_pending": "There is no change waiting for confirmation (it was rolled back or has expired)."
+    "no_pending": "There is no change waiting for confirmation (it was rolled back or has expired).",
+    "forward_taken": "Another forward already listens on this port."
   },
   "ssh": {
     "not_installed": "The SSH server is not installed.",

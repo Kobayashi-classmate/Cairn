@@ -101,7 +101,9 @@
       "unit_name": "{field}必须是 systemd 单元名，例如 nginx.service。",
       "journal_time": "{field}必须是 journalctl 能识别的时间，例如“today”“-1h”或“2026-11-16 10:00”。",
       "endpoint": "{field}必须是主机名，可带端口，不能带“https://”或路径。",
-      "port_spec": "请检查{field}：每一项必须是端口（1–65535）或范围，如 8000-8100。"
+      "port_spec": "请检查{field}：每一项必须是端口（1–65535）或范围，如 8000-8100。",
+      "same_port": "转发到本机时，{field}必须与监听端口不同。",
+      "forward_target": "{field}必须是另一台主机的 IPv4 地址，不能是 127.x.x.x、0.0.0.0、组播地址或广播地址。"
     }
   },
   "locale": {
@@ -295,7 +297,9 @@
       "self_block": "封禁 {address} 会封禁你自己的地址，导致你无法再访问面板。",
       "overlap": "{address} 与 {other} 重叠。",
       "apply_failed": "无法应用防火墙规则：{detail}",
-      "unsupported": "此系统上无法管理防火墙：{reasonText}。"
+      "unsupported": "此系统上的防火墙不支持这项操作：{reasonText}。",
+      "protected": "端口 {port} 留给 SSH 或面板使用，它们必须始终可以访问，因此这里不能使用。",
+      "forward_taken": "已有转发在监听端口 {port}。"
     },
     "ssh": {
       "config_invalid": "SSH 配置无效：{output}",
@@ -460,17 +464,18 @@
     "pending": "另一项防火墙修改正在等待确认，请一分钟后再试。",
     "self_block": "这会封禁你自己的地址，导致你无法再访问面板。",
     "overlap": "与另一个受信任或被封禁的条目重叠。",
-    "protected": "此规则保证 SSH 和面板可以访问，不能修改。",
+    "protected": "这会占用 SSH 或面板的端口，而它们必须始终可以访问。",
     "managed": "此规则属于其他功能，请在那里修改。",
     "not_enabled": "防火墙已关闭，请先开启。",
     "backend_missing": "防火墙工具未安装。",
     "conflict": "ufw 和 firewalld 同时处于活动状态。请先在服务器上关闭其中一个，再在这里管理防火墙。",
     "apply_failed": "无法应用防火墙规则。",
-    "not_found": "此规则或地址不存在（或已被删除）。",
-    "unsupported": "此系统上无法管理防火墙。",
+    "not_found": "此规则、地址或转发不存在（或已被删除）。",
+    "unsupported": "此系统上的防火墙不支持这项操作。",
     "deny_needs_source": "拒绝规则至少需要一个来源地址：未被允许的连接本来就会被拒绝。",
     "confirm_retry": "暂时还无法确认此修改。",
-    "no_pending": "没有等待确认的修改（已被撤销或已过期）。"
+    "no_pending": "没有等待确认的修改（已被撤销或已过期）。",
+    "forward_taken": "已有转发在监听这个端口。"
   },
   "ssh": {
     "not_installed": "未安装 SSH 服务器。",

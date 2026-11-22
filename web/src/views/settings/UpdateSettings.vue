@@ -2,32 +2,29 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  NAlert,
-  NButton,
-  NCard,
-  NCollapse,
-  NCollapseItem,
-  NIcon,
-  NSpin,
-  NTag,
-  NText,
-} from 'naive-ui'
-import { CheckmarkCircleOutline, RefreshOutline } from '@vicons/ionicons5'
+import { RouterLink } from 'vue-router'
+import { Download, LoaderCircle, RefreshCw } from '@lucide/vue'
 import { isApiError, isStepUpRequired } from '@/api/client'
-import {
-  applyUpdate,
-  checkForUpdates,
-  fetchUpdateStatus,
-  type UpdateStatus,
-} from '@/api/updates'
+import { applyUpdate, checkForUpdates, fetchUpdateStatus, type UpdateStatus } from '@/api/updates'
+import Card from '@/components/common/Card.vue'
+import ErrorState from '@/components/common/ErrorState.vue'
+import KeyValueList from '@/components/common/KeyValueList.vue'
+import KeyValueRow from '@/components/common/KeyValueRow.vue'
+import Notice from '@/components/common/Notice.vue'
+import RelativeTime from '@/components/common/RelativeTime.vue'
+import StatusPill from '@/components/common/StatusPill.vue'
 import MarkdownText from '@/components/MarkdownText'
-import { useConfirm } from '@/composables/useConfirm'
+import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { confirmAction } from '@/composables/useConfirmDialog'
 import { pickLocalized } from '@/i18n'
 import { errorMessage } from '@/i18n/errors'
-import { formatDateTime } from '@/i18n/format'
+import { formatDate } from '@/i18n/format'
 import { useSessionStore } from '@/stores/session'
-import CloudSettings from './CloudSettings.vue'
+
+// Online update of the panel itself. Installing is not a regular job: the
+// panel restarts while it runs, so this page asks for progress until the
+// new version answers (and gives up after a few minutes of silence).
 
 /** How often to ask for progress while an update runs. */
 const POLL_INTERVAL_MS = 3000
@@ -35,7 +32,6 @@ const POLL_INTERVAL_MS = 3000
 const GIVE_UP_MS = 3 * 60_000
 
 const { t, te } = useI18n()
-const confirm = useConfirm()
 const session = useSessionStore()
 
 const canManage = computed(() => session.can('settings.manage'))
@@ -44,7 +40,6 @@ const status = ref<UpdateStatus | null>(null)
 const loadError = ref<unknown>(null)
 const actionError = ref<unknown>(null)
 const checking = ref(false)
-const applying = ref(false)
 /** A progress request failed while the job runs: the panel is most likely restarting. */
 const restarting = ref(false)
 const gaveUp = ref(false)
@@ -100,9 +95,9 @@ async function poll() {
 }
 
 async function load() {
+  loadError.value = null
   try {
     status.value = await fetchUpdateStatus()
-    loadError.value = null
     if (status.value.job.state === 'running') startPolling()
   } catch (err) {
     loadError.value = err
@@ -127,34 +122,31 @@ async function check() {
   }
 }
 
-async function install(version: string) {
-  const ok = await confirm({
+function askInstall(version: string) {
+  void confirmAction({
     title: t('updates.confirm.title', { version }),
-    content: t('updates.confirm.content'),
-    confirmText: t('updates.install', { version }),
+    description: t('updates.confirm.content'),
+    confirmLabel: t('updates.install', { version }),
+    run: async () => {
+      actionError.value = null
+      try {
+        const started = await applyUpdate(version)
+        target.value = version
+        if (status.value) status.value = { ...status.value, job: started }
+        startPolling()
+      } catch (err) {
+        // A declined re-authentication keeps the dialog open.
+        if (isStepUpRequired(err)) throw err
+        if (isApiError(err) && err.code === 'update.in_progress') {
+          // Someone else started it; follow that job instead.
+          target.value = version
+          startPolling()
+        }
+        // Shown on the page with its technical reason.
+        actionError.value = err
+      }
+    },
   })
-  if (!ok) return
-  actionError.value = null
-  applying.value = true
-  try {
-    const started = await applyUpdate(version)
-    target.value = version
-    if (status.value) status.value = { ...status.value, job: started }
-    startPolling()
-  } catch (err) {
-    if (isApiError(err) && err.code === 'update.in_progress') {
-      // Someone else started it; follow that job instead.
-      target.value = version
-      startPolling()
-    }
-    if (!isStepUpRequired(err)) actionError.value = err
-  } finally {
-    applying.value = false
-  }
-}
-
-function retryPolling() {
-  startPolling()
 }
 
 /** A technical `reason` parameter of an update error, shown as is. */
@@ -167,10 +159,12 @@ function reasonText(reason: string): string {
   return te(key) ? t(key) : t('updates.reason.unknown', { reason })
 }
 
+function channelText(channel: string): string {
+  return te(`updates.channel.${channel}`) ? t(`updates.channel.${channel}`) : channel
+}
+
 /** The running panel is newer than the code loaded in this tab. */
-const staleAssets = computed(
-  () => !!status.value && !!session.meta && session.meta.version !== status.value.current,
-)
+const staleAssets = computed(() => !!status.value && !!session.meta && session.meta.version !== status.value.current)
 
 /** Shown for an update started from this page, or when this tab still runs the old code. */
 const succeeded = computed(
@@ -187,213 +181,98 @@ function reload() {
 </script>
 
 <template>
-  <NCard :title="t('updates.title')" size="small">
-    <template #header-extra>
-      <NButton
-        v-if="canManage"
-        size="small"
-        :loading="checking"
-        :disabled="running || !status"
-        @click="check"
-      >
-        <template #icon>
-          <NIcon><RefreshOutline /></NIcon>
-        </template>
+  <Card :title="t('updates.title')" :description="t('updates.scope')" :level="3" flush>
+    <template v-if="canManage" #actions>
+      <Button variant="outline" size="sm" class="max-md:h-11" :disabled="checking || running || !status" @click="check">
+        <LoaderCircle v-if="checking" class="animate-spin" aria-hidden="true" />
+        <RefreshCw v-else aria-hidden="true" />
         {{ t('updates.check') }}
-      </NButton>
+      </Button>
     </template>
+    <ErrorState v-if="loadError" :error="loadError" compact @retry="load" />
+    <div v-else-if="!status" class="flex flex-col gap-2 px-4 py-4 md:px-[18px]" role="status">
+      <span class="sr-only">{{ t('common.state.loading') }}</span>
+      <Skeleton class="h-4 w-40" />
+      <Skeleton class="h-4 w-56" />
+      <Skeleton class="h-4 w-32" />
+    </div>
+    <KeyValueList v-else>
+      <KeyValueRow :label="t('updates.current')" mono>{{ status.current }}</KeyValueRow>
+      <KeyValueRow :label="t('common.field.channel')">
+        {{ channelText(status.channel) }}
+        <RouterLink :to="{ name: 'settings-cloud' }" class="text-detail text-link underline-offset-2 hover:underline">
+          {{ t('updates.changeChannel') }}
+        </RouterLink>
+      </KeyValueRow>
+      <KeyValueRow :label="t('updates.checkedAt')">
+        <RelativeTime v-if="status.checkedAt > 0" :value="status.checkedAt" />
+        <span v-else class="text-muted-foreground">{{ t('updates.never') }}</span>
+      </KeyValueRow>
+    </KeyValueList>
+  </Card>
 
-    <NText depth="3" tag="p" class="intro">{{ t('updates.scope') }}</NText>
-    <NAlert v-if="loadError" type="error" class="block">{{ errorMessage(loadError) }}</NAlert>
-    <NAlert v-if="actionError" type="error" class="block" closable @close="actionError = null">
-      <div>{{ errorMessage(actionError) }}</div>
-      <code v-if="errorReason(actionError)" class="mono" dir="ltr">{{ errorReason(actionError) }}</code>
-    </NAlert>
+  <Notice v-if="actionError" tone="destructive" dismissible @dismiss="actionError = null">
+    {{ errorMessage(actionError) }}
+    <code v-if="errorReason(actionError)" class="mt-1 block font-mono text-xs font-normal [overflow-wrap:anywhere]" dir="ltr">
+      {{ errorReason(actionError) }}
+    </code>
+  </Notice>
 
-    <NSpin :show="!status && !loadError">
-      <template v-if="status">
-        <dl class="facts">
-          <div>
-            <dt><NText depth="3">{{ t('updates.current') }}</NText></dt>
-            <dd dir="ltr">{{ status.current }}</dd>
-          </div>
-          <div>
-            <dt><NText depth="3">{{ t('common.field.channel') }}</NText></dt>
-            <dd>{{ te(`updates.channel.${status.channel}`) ? t(`updates.channel.${status.channel}`) : status.channel }}</dd>
-          </div>
-          <div>
-            <dt><NText depth="3">{{ t('updates.checkedAt') }}</NText></dt>
-            <dd>{{ status.checkedAt > 0 ? formatDateTime(status.checkedAt) : t('updates.never') }}</dd>
-          </div>
-        </dl>
-
-        <!-- Progress of an update started here or elsewhere. -->
-        <NAlert v-if="running" type="info" class="block" :show-icon="false">
-          <div class="progress">
-            <NSpin size="small" />
-            <span>
-              {{
-                restarting
-                  ? t('updates.job.restarting')
-                  : t('updates.job.running', { version: job?.version || target || '' })
-              }}
-            </span>
-          </div>
-        </NAlert>
-        <NAlert v-else-if="gaveUp" type="error" :title="t('updates.job.timeoutTitle')" class="block">
-          <p class="para">{{ t('updates.job.timeout') }}</p>
-          <NButton size="small" @click="retryPolling">{{ t('updates.job.checkAgain') }}</NButton>
-        </NAlert>
-        <NAlert
-          v-else-if="job?.state === 'failed'"
-          type="error"
-          :title="t('updates.job.failedTitle', { version: job.version })"
-          class="block"
-        >
-          <p class="para pre">{{ job.error }}</p>
-          <NCollapse v-if="job.log">
-            <NCollapseItem :title="t('updates.job.log')" name="log">
-              <pre class="log" dir="ltr">{{ job.log }}</pre>
-            </NCollapseItem>
-          </NCollapse>
-        </NAlert>
-        <NAlert
-          v-else-if="succeeded && job"
-          type="success"
-          :title="t('updates.job.succeeded', { version: job.version })"
-          class="block"
-        >
-          <template v-if="staleAssets">
-            <p class="para">{{ t('updates.job.reloadHint') }}</p>
-            <NButton size="small" type="primary" @click="reload">{{ t('updates.job.reload') }}</NButton>
-          </template>
-        </NAlert>
-
-        <!-- What the release server offers. -->
-        <div v-if="status.status === 'up_to_date'" class="state">
-          <NIcon :size="20" class="state__ok"><CheckmarkCircleOutline /></NIcon>
-          <span>{{ t('updates.upToDate') }}</span>
-        </div>
-        <NAlert v-else-if="status.status === 'unavailable'" type="warning" class="block">
-          {{ reasonText(status.reason) }}
-        </NAlert>
-        <div v-else-if="status.status === 'available' && status.latest" class="release">
-          <div class="release__head">
-            <NText strong class="release__title">
-              {{ t('updates.available', { version: status.latest.version }) }}
-            </NText>
-            <NTag v-if="status.latest.security" type="error" size="small">
-              {{ t('updates.securityRelease') }}
-            </NTag>
-            <NText depth="3">{{ formatDateTime(status.latest.publishedAt) }}</NText>
-          </div>
-          <MarkdownText
-            v-if="pickLocalized(status.latest.notes)"
-            :source="pickLocalized(status.latest.notes)"
-            class="release__notes"
-          />
-          <NButton
-            v-if="canManage"
-            type="primary"
-            :loading="applying"
-            :disabled="running"
-            @click="install(status.latest.version)"
-          >
-            {{ t('updates.install', { version: status.latest.version }) }}
-          </NButton>
-        </div>
+  <template v-if="status">
+    <!-- Progress of an update started here or elsewhere. -->
+    <div v-if="running" role="status" class="flex items-center gap-3 rounded-lg bg-primary-soft px-4 py-2.5 font-medium text-primary-soft-foreground">
+      <LoaderCircle class="size-4 shrink-0 animate-spin" aria-hidden="true" />
+      {{ restarting ? t('updates.job.restarting') : t('updates.job.running', { version: job?.version || target || '' }) }}
+    </div>
+    <Card v-else-if="gaveUp" :title="t('updates.job.timeoutTitle')" :level="3">
+      <p class="m-0 mb-3 text-muted-foreground">{{ t('updates.job.timeout') }}</p>
+      <Button variant="outline" size="sm" class="max-md:h-11" @click="startPolling">{{ t('updates.job.checkAgain') }}</Button>
+    </Card>
+    <Card v-else-if="job?.state === 'failed'" :level="3">
+      <template #title>
+        <span class="text-destructive">{{ t('updates.job.failedTitle', { version: job.version }) }}</span>
       </template>
-    </NSpin>
-  </NCard>
+      <p class="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{{ job.error }}</p>
+      <details v-if="job.log" class="group mt-3">
+        <summary class="cursor-pointer text-detail font-medium text-link">{{ t('updates.job.log') }}</summary>
+        <pre class="mt-2 max-h-80 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs leading-relaxed" dir="ltr">{{ job.log }}</pre>
+      </details>
+    </Card>
+    <Notice v-else-if="succeeded && job" tone="success">
+      {{ t('updates.job.succeeded', { version: job.version }) }}
+      <span v-if="staleAssets" class="block font-normal">{{ t('updates.job.reloadHint') }}</span>
+      <template v-if="staleAssets" #action>
+        <button type="button" class="underline underline-offset-2 hover:no-underline" @click="reload">{{ t('updates.job.reload') }}</button>
+      </template>
+    </Notice>
 
-  <CloudSettings @saved="load" />
+    <!-- What the release server offers. -->
+    <Notice v-if="status.status === 'up_to_date'" tone="success">{{ t('updates.upToDate') }}</Notice>
+    <Notice v-else-if="status.status === 'unavailable'" tone="warning">
+      {{ reasonText(status.reason) }}
+      <template v-if="status.reason === 'cloud_disabled'" #action>
+        <RouterLink :to="{ name: 'settings-cloud' }" class="whitespace-nowrap text-current underline underline-offset-2 hover:no-underline">
+          {{ t('updates.openCloud') }}
+        </RouterLink>
+      </template>
+    </Notice>
+    <Card v-else-if="status.status === 'available' && status.latest" :level="3">
+      <template #title>{{ t('updates.available', { version: status.latest.version }) }}</template>
+      <template #actions>
+        <StatusPill v-if="status.latest.security" tone="destructive">{{ t('updates.securityRelease') }}</StatusPill>
+        <span class="text-xs text-muted-foreground">{{ formatDate(status.latest.publishedAt) }}</span>
+      </template>
+      <div class="flex flex-col items-start gap-4">
+        <MarkdownText
+          v-if="pickLocalized(status.latest.notes)"
+          :source="pickLocalized(status.latest.notes)"
+          class="w-full [overflow-wrap:anywhere]"
+        />
+        <Button v-if="canManage" class="max-md:h-11" :disabled="running" @click="askInstall(status.latest.version)">
+          <Download aria-hidden="true" />
+          {{ t('updates.install', { version: status.latest.version }) }}
+        </Button>
+      </div>
+    </Card>
+  </template>
 </template>
-
-<style scoped>
-.intro {
-  margin-block: 0 12px;
-}
-
-.block {
-  margin-block-end: 12px;
-}
-
-.facts {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 12px 24px;
-  margin: 0 0 16px;
-}
-
-.facts dd {
-  margin: 2px 0 0;
-}
-
-.progress {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.para {
-  margin: 0 0 8px;
-}
-
-.pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.log {
-  max-block-size: 320px;
-  margin: 0;
-  padding: 8px 10px;
-  overflow: auto;
-  border-radius: 4px;
-  background: rgb(128 128 128 / 12%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre;
-}
-
-.mono {
-  display: block;
-  margin-block-start: 6px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
-.state {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.state__ok {
-  color: #18a058;
-}
-
-.release {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.release__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.release__title {
-  font-size: 16px;
-}
-
-.release__notes {
-  inline-size: 100%;
-}
-</style>

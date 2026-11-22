@@ -1,7 +1,10 @@
 {
   "channels": {
     "title": "通知渠道",
-    "description": "面板发送安全、账号和系统相关消息的目的地。"
+    "description": "面板发送安全、账号和系统相关消息的目的地。",
+    "empty": "还没有通知渠道",
+    "emptyText": "添加电子邮件或 Webhook，就能收到登录、备份失败、证书即将到期等通知。",
+    "allEvents": "全部事件"
   },
   "type": {
     "email": "电子邮件",
@@ -96,7 +99,7 @@
     }
   },
   "channel": {
-    "createTitle": "添加渠道",
+    "createTitle": "新建渠道",
     "editTitle": "编辑渠道",
     "enabled": "启用",
     "locale": "消息语言",
@@ -105,14 +108,23 @@
     "confirmDelete": {
       "title": "删除渠道 {name}？",
       "content": "删除后将不再通过此渠道发送消息。"
-    }
+    },
+    "createSubmit": "创建渠道",
+    "delete": "删除渠道",
+    "more": "{name} 的更多操作",
+    "enableNamed": "通过 {name} 发送",
+    "enabledHint": "停用的渠道会保留设置，但不会收到任何消息。",
+    "levelAtLeast": "{level}及以上",
+    "typeFixed": "已保存渠道的类型不能修改。"
   },
   "email": {
     "securityMode": {
       "starttls": "STARTTLS",
       "tls": "TLS（直接加密）",
       "none": "无（不加密）"
-    }
+    },
+    "usernameHint": "服务器不要求登录时留空。",
+    "toHint": "每输入一个地址后按回车。"
   },
   "webhook": {
     "payload": "每个事件都以 HTTP POST 请求发送，请求体为 JSON。",
@@ -121,7 +133,8 @@
   "test": {
     "send": "发送测试",
     "sent": "已向 {name} 发送测试消息。",
-    "failed": "向 {name} 发送测试消息失败"
+    "failed": "向 {name} 发送测试消息失败",
+    "savedHint": "按已保存的设置发送一条测试消息。"
   },
   "delivery": {
     "title": "最近的发送记录",
@@ -130,8 +143,9 @@
     "event": "事件",
     "level": "级别",
     "status": "状态",
-    "attempts": "尝试次数",
-    "sent": "发送时间",
-    "lastError": "最近错误"
+    "lastError": "最近错误",
+    "description": "面板最近发送或尝试发送的 50 条消息。",
+    "empty": "还没有发送过消息",
+    "attemptCount": "尝试 {count} 次"
   }
 }

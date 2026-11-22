@@ -1,8 +1,16 @@
 {
   "title": "SSH",
   "tabs": {
-    "keys": "Authorized keys",
-    "logins": "Login log"
+    "settings": "Settings",
+    "port": "Port",
+    "keys": "Keys",
+    "logins": "Sign-ins"
+  },
+  "header": {
+    "ports": "Port {ports} | Ports {ports}",
+    "passwordsOn": "Passwords allowed",
+    "passwordsOff": "Keys only",
+    "root": "Root: {value}"
   },
   "status": {
     "title": "Server",
@@ -17,9 +25,14 @@
     "noFirewall": "None"
   },
   "settings": {
-    "title": "Logging in",
+    "title": "Signing in",
+    "intro": "Saving reloads the SSH server. The settings apply to new sign-ins; open sessions stay open.",
     "passwords": "Allow passwords",
+    "passwordsHint": "Off: only keys work, which stops password guessing.",
     "root": "Root login",
+    "rootHint": "Whether root may sign in over SSH, and how.",
+    "save": "Save settings",
+    "discard": "Discard changes",
     "passwordsOffTitle": "Turn off password logins?",
     "passwordsOffText": "Only keys will work. Make sure you can log in with a key before you continue, or you may lock yourself out.",
     "passwordsOffSubmit": "Turn off passwords"
@@ -30,28 +43,64 @@
     "no": "Not allowed"
   },
   "port": {
-    "cardTitle": "Port",
+    "cardTitle": "Move SSH to another port",
     "intro": "Moving SSH keeps the old port open for a while, so you can check the new one first.",
+    "current": "SSH listens on port {ports}. | SSH listens on ports {ports}.",
+    "inProgress": "A move is in progress; finish or cancel it in the banner above.",
     "new": "New port",
     "closeAfter": "Close the old port after",
+    "closeAfterHint": "{min} to {max} minutes.",
+    "closeAfterInvalid": "Enter {min} to {max} minutes.",
+    "minutes": "minutes",
+    "samePort": "SSH already listens on port {port}.",
+    "steps": {
+      "listen": "Listen on port {port} as well; the old port keeps working",
+      "firewall": "Open port {port} in the firewall ({firewall})",
+      "selinux": "On systems with SELinux, allow SSH on the new port",
+      "check": "Check that SSH answers on port {port}",
+      "close": "Close port {old} after {minutes} minutes, or earlier when you close it"
+    },
     "submit": "Move SSH",
     "title": "Move SSH to port {port}?",
     "text": "SSH will listen on both the old and the new port. Log in on the new port to check it works (and open it in your cloud provider's security group). The old port closes automatically after {minutes} minutes, or when you close it.",
-    "pending": "SSH listens on port {old} and on the new port {port}. The old port closes in {time}.",
+    "pendingTitle": "Moving SSH to port {port}",
+    "pendingText": "SSH listens on port {old} and on the new port {port}. Log in on port {port} to check it works, and open it in your cloud provider's security group if there is one.",
+    "step": {
+      "listening": "Both ports listening",
+      "check": "Log in on port {port}",
+      "closed": "Port {old} closed"
+    },
+    "closesIn": "The old port closes in {time}",
+    "closing": "The old port is closing…",
     "finish": "Close the old port now",
-    "finishTitle": "Close the old port?",
-    "finishText": "Only the new port stays open. Make sure you have logged in on it.",
-    "cancel": "Keep the old port"
+    "finishTitle": "Close port {old} now?",
+    "finishText": "Only port {port} stays open. Make sure you have logged in on it.",
+    "cancel": "Cancel the move"
   },
   "keys": {
     "userOption": "{name} (no keys) | {name} (one key) | {name} ({count} keys)",
+    "label": "Authorized keys of {user}",
     "fingerprint": "Fingerprint",
     "comment": "Comment",
-    "empty": "This user has no authorized keys.",
+    "search": "Search keys",
+    "empty": "{user} has no authorized keys",
+    "emptyText": "Add a public key to let its owner sign in as this user without a password.",
+    "noUsers": "No user who can sign in was found",
     "placeholder": "ssh-ed25519 AAAA… you{'@'}laptop",
     "add": "Add key",
+    "addTitle": "Add a key for {user}",
+    "addIntro": "Paste one public key, as in the .pub file. Ed25519, ECDSA, FIDO and RSA keys of at least 2048 bits are accepted.",
+    "key": "Public key",
+    "keyHint": "One line starting with its type, such as ssh-ed25519.",
+    "steps": {
+      "add": "Append the key to {file}",
+      "mode": "Keep the file owned by the user, readable by them only"
+    },
     "added": "Key added.",
-    "deleteTitle": "Delete this key?",
+    "deleted": "Key removed.",
+    "delete": "Remove key",
+    "deleteOne": "Remove key {fingerprint}",
+    "deleteTitle": "Remove this key of {user}?",
     "deleteText": "The key {fingerprint} can no longer log in as {user}.",
     "rootReadOnly": "Root's keys cannot be changed while root access is turned off in the settings."
   },

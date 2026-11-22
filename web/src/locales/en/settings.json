@@ -1,55 +1,51 @@
 {
   "title": "Settings",
-  "tabs": {
-    "account": "Account",
-    "security": "Security",
-    "sessions": "Sessions",
-    "panel": "Panel",
-    "tokens": "API tokens",
-    "notifications": "Notifications",
-    "api": "API",
-    "updates": "Updates",
-    "modules": "Modules"
-  },
   "account": {
     "profile": "Profile",
-    "language": "Language",
-    "languageHint": "Applies immediately and is saved to your account.",
     "password": "Change password",
     "passwordHint": "After the change, all your other sessions are signed out.",
     "passwordSubmit": "Change password",
-    "passwordChanged": "Your password was changed. Your other sessions were signed out."
+    "passwordChanged": "Your password was changed. Your other sessions were signed out.",
+    "totp": "Two-step verification",
+    "manageTotp": "Manage",
+    "passwordRule": "At least {min} characters."
   },
   "security": {
-    "title": "Two-factor authentication",
-    "description": "Protect your account with a one-time code from an authenticator app in addition to your password.",
-    "enable": "Set up two-factor authentication",
+    "title": "Two-step verification",
+    "description": "Signing in also needs a one-time code from an authenticator app, so a stolen or guessed password is not enough.",
+    "enable": "Set up two-step verification",
     "disable": "Turn off",
     "regenerate": "Generate new recovery codes",
-    "enabled": "Two-factor authentication is on.",
-    "disabled": "Two-factor authentication is off.",
+    "enabled": "Two-step verification is on.",
+    "disabled": "Two-step verification is off.",
     "enroll": {
       "scan": "1. Scan this QR code with your authenticator app.",
       "qrLabel": "QR code for your authenticator app",
       "manual": "Cannot scan it? Enter this key in the app instead:",
       "enterCode": "2. Enter the 6-digit code the app shows.",
       "submit": "Turn on",
-      "restart": "Start again"
+      "restart": "Start again",
+      "copyKey": "Copy the key"
     },
     "confirmDisable": {
-      "title": "Turn off two-factor authentication?",
+      "title": "Turn off two-step verification?",
       "content": "Your account will be protected by your password alone."
     },
     "confirmRegenerate": {
       "title": "Generate new recovery codes?",
       "content": "Your current recovery codes will stop working."
-    }
+    },
+    "stateOn": "On",
+    "stateOff": "Off",
+    "recoveryTitle": "Recovery codes",
+    "recoveryHint": "One-time codes for signing in without your authenticator app. Generating new ones makes the old ones stop working."
   },
   "recoveryCodes": {
     "warningTitle": "Save your recovery codes now",
     "warning": "If you lose access to your authenticator app, each of these codes lets you sign in once. They are shown only this time.",
     "saved": "I have saved them",
-    "fileHeader": "Cairn recovery codes for {username} on {host}. Each code can be used once."
+    "fileHeader": "Cairn recovery codes for {username} on {host}. Each code can be used once.",
+    "listLabel": "Recovery codes"
   },
   "sessions": {
     "title": "Active sessions",
@@ -72,10 +68,48 @@
     }
   },
   "panel": {
-    "title": "Panel",
     "defaultLocale": "Default language",
     "defaultLocaleHint": "Used on the sign-in page and for users who have not chosen a language.",
     "readOnly": "Your role can view these settings but not change them.",
     "saved": "Settings saved."
+  },
+  "navLabel": "Settings categories",
+  "group": {
+    "personal": "Personal",
+    "panel": "Panel"
+  },
+  "nav": {
+    "account": "Account",
+    "appearance": "Appearance",
+    "security": "Security",
+    "sessions": "Sessions",
+    "tokens": "API tokens",
+    "api": "API reference",
+    "panel": "General",
+    "updates": "Updates",
+    "cloud": "Cloud service",
+    "modules": "Modules",
+    "notifications": "Notifications"
+  },
+  "appearance": {
+    "theme": "Colour scheme",
+    "themeHint": "Saved to your account, so it is the same on every computer you sign in from. The sign-in page follows the system.",
+    "language": "Interface language",
+    "languageHint": "Applies at once and is saved to your account. It only changes the panel for you.",
+    "defaultLanguageLink": "Default language for everyone"
+  },
+  "panelCert": {
+    "inUse": "Certificate in use",
+    "until": "valid until {date}",
+    "selfSignedTag": "Self-signed",
+    "choose": "Serve another certificate"
+  },
+  "downloadPolicy": {
+    "change": "Change",
+    "view": "View"
+  },
+  "cloud": {
+    "channelHint": "Which releases the panel offers to install.",
+    "discard": "Discard changes"
   }
 }

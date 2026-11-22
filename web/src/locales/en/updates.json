@@ -15,7 +15,7 @@
   },
   "reason": {
     "dev_build": "This is a development build, which cannot be updated online.",
-    "cloud_disabled": "Update checks are off because the cloud service is turned off below.",
+    "cloud_disabled": "Update checks are off because the cloud service is turned off.",
     "no_trusted_key": "No release signing key is configured yet, so updates cannot be verified.",
     "fetch_failed": "The release information could not be downloaded. Check the service address and the server's network connection.",
     "verification_failed": "The release information failed signature verification and was ignored.",
@@ -38,10 +38,11 @@
     "reload": "Reload page"
   },
   "cloud": {
-    "title": "Cloud service",
     "enabled": "Connect to the Cairn cloud service",
     "helpDownloadOnly": "The panel only downloads signed public data from this address, such as official messages and release information. It never uploads anything.",
     "helpDisable": "Turning it off also turns off official messages and update checks.",
     "helpMirror": "The address can point to a self-hosted mirror."
-  }
+  },
+  "changeChannel": "Change",
+  "openCloud": "Cloud service settings"
 }

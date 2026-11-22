@@ -1,28 +1,18 @@
 {
   "title": "设置",
-  "tabs": {
-    "account": "账号",
-    "security": "安全",
-    "sessions": "会话",
-    "panel": "面板",
-    "tokens": "API 令牌",
-    "notifications": "通知",
-    "api": "API",
-    "updates": "更新",
-    "modules": "模块"
-  },
   "account": {
     "profile": "个人信息",
-    "language": "语言",
-    "languageHint": "立即生效，并保存到你的账号。",
     "password": "修改密码",
     "passwordHint": "修改后，你的其他会话都会被退出登录。",
     "passwordSubmit": "修改密码",
-    "passwordChanged": "密码已修改，其他会话已退出登录。"
+    "passwordChanged": "密码已修改，其他会话已退出登录。",
+    "totp": "两步验证",
+    "manageTotp": "管理",
+    "passwordRule": "至少 {min} 个字符。"
   },
   "security": {
     "title": "两步验证",
-    "description": "除密码外，再使用身份验证器应用生成的一次性验证码保护你的账号。",
+    "description": "登录时还需要身份验证器应用生成的一次性验证码，密码被盗或被猜中也无法登录。",
     "enable": "设置两步验证",
     "disable": "关闭",
     "regenerate": "生成新的恢复码",
@@ -34,7 +24,8 @@
       "manual": "无法扫描？请在应用中手动输入以下密钥：",
       "enterCode": "2. 输入应用中显示的 6 位验证码。",
       "submit": "开启",
-      "restart": "重新开始"
+      "restart": "重新开始",
+      "copyKey": "复制密钥"
     },
     "confirmDisable": {
       "title": "关闭两步验证？",
@@ -43,13 +34,18 @@
     "confirmRegenerate": {
       "title": "生成新的恢复码？",
       "content": "现有的恢复码将全部失效。"
-    }
+    },
+    "stateOn": "已开启",
+    "stateOff": "未开启",
+    "recoveryTitle": "恢复码",
+    "recoveryHint": "无法使用身份验证器应用时，用来登录的一次性验证码。生成新的恢复码后，旧的全部失效。"
   },
   "recoveryCodes": {
     "warningTitle": "请立即保存恢复码",
     "warning": "如果无法使用身份验证器应用，每个恢复码可以用于登录一次。恢复码只显示这一次。",
     "saved": "我已保存",
-    "fileHeader": "{username} 在 {host} 上的 Cairn 恢复码。每个恢复码只能使用一次。"
+    "fileHeader": "{username} 在 {host} 上的 Cairn 恢复码。每个恢复码只能使用一次。",
+    "listLabel": "恢复码"
   },
   "sessions": {
     "title": "活动会话",
@@ -72,10 +68,48 @@
     }
   },
   "panel": {
-    "title": "面板",
     "defaultLocale": "默认语言",
     "defaultLocaleHint": "用于登录页面，以及尚未选择语言的用户。",
     "readOnly": "你的角色可以查看这些设置，但不能修改。",
     "saved": "设置已保存。"
+  },
+  "navLabel": "设置分类",
+  "group": {
+    "personal": "个人",
+    "panel": "面板"
+  },
+  "nav": {
+    "account": "账号",
+    "appearance": "外观",
+    "security": "安全",
+    "sessions": "会话",
+    "tokens": "API 令牌",
+    "api": "API 参考",
+    "panel": "常规",
+    "updates": "更新",
+    "cloud": "云服务",
+    "modules": "模块",
+    "notifications": "通知"
+  },
+  "appearance": {
+    "theme": "主题",
+    "themeHint": "保存在你的账号里，换一台电脑登录也一样。登录页跟随系统。",
+    "language": "界面语言",
+    "languageHint": "立即生效，并保存到你的账号，只影响你自己。",
+    "defaultLanguageLink": "所有人的默认语言"
+  },
+  "panelCert": {
+    "inUse": "当前证书",
+    "until": "有效期至 {date}",
+    "selfSignedTag": "自签名",
+    "choose": "改用其他证书"
+  },
+  "downloadPolicy": {
+    "change": "修改",
+    "view": "查看"
+  },
+  "cloud": {
+    "channelHint": "面板提供哪一类版本供安装。",
+    "discard": "放弃修改"
   }
 }

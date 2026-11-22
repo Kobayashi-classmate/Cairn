@@ -141,7 +141,7 @@ async function cancel() {
 
     <div class="flex flex-wrap items-center gap-2">
       <Button as-child variant="outline" size="sm" class="max-md:h-11">
-        <RouterLink :to="{ name: 'job', params: { id: entry.id } }">{{ t('common.dock.viewLog') }}</RouterLink>
+        <RouterLink :to="{ name: 'jobs', query: { open: `job:${entry.id}`, section: 'log' } }">{{ t('common.dock.viewLog') }}</RouterLink>
       </Button>
       <Button
         v-if="!final && current?.cancelable"
