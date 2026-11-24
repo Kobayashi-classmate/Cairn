@@ -225,7 +225,14 @@ printf '%s' "$r" | grep_q '"firewall.rollback_failed"' || { unlock; fail "a roll
 api "$base/api/v1/firewall" | json "d[\"pending\"][\"id\"] == \"$pending\" and d[\"pending\"][\"rollbackFailed\"][\"attempts\"] >= 1 and (d[\"lastRollback\"] or {}).get(\"id\") != \"$pending\"" |
 	grep_q True || { unlock; fail "the failed rollback is not on record: $(api "$base/api/v1/firewall")"; }
 rules | grep_q 8086 || { unlock; fail "rule 8086 is gone although its rollback failed"; }
-api "$base/api/v1/overview" | grep_q '"firewall.rollback_failed"' || { unlock; fail "the overview does not show the failed rollback"; }
+# The overview gives each module 8 seconds, and under emulation firewalld
+# takes about that long to tell its state: asked again while the firewall
+# is listed as not having answered.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+	ov=$(api "$base/api/v1/overview")
+	printf '%s' "$ov" | json '"firewall" in d["unavailable"]' | grep_q True || break
+done
+printf '%s' "$ov" | grep_q '"firewall.rollback_failed"' || { unlock; fail "the overview does not show the failed rollback: $ov"; }
 unlock
 # (Its own timer may have got there first once the files could be written.)
 api -X POST "$base/api/v1/firewall/rollback" -d "{\"id\":\"$pending\"}" | grep -E '^\{\}|"firewall.no_pending"' >/dev/null || fail "the second rollback: $(api "$base/api/v1/firewall")"
