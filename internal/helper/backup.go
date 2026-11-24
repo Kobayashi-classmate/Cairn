@@ -638,7 +638,7 @@ func (b *Backups) tarDirectory(ctx context.Context, t helperapi.BackupTarget, w 
 // read (not a pipe, which would hang, nor a hard link to a file the
 // panel could not read itself).
 func openBackup(root *os.Root, p string) (*os.File, error) {
-	f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := openNoLink(root, p)
 	if err != nil {
 		return nil, err
 	}

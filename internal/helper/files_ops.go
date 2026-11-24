@@ -98,8 +98,11 @@ func linked(fi fs.FileInfo) bool {
 // one level at a time (see walkTree): a directory swapped for a link
 // meanwhile, in the source or in the copy being made, is never followed.
 // It returns what it made at dname (nil when nothing), also when it fails
-// halfway: see unmake.
-func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, ddir *os.Root, dname string, uid, gid int, p string, log io.Writer) (fs.FileInfo, error) {
+// halfway: see unmake. top is the directory the copy made first (nil for
+// the entry a copy starts with): meeting it again among the entries to
+// copy means the destination lies inside the source, by a link perhaps,
+// and the copy would go on copying itself.
+func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, ddir *os.Root, dname string, uid, gid int, p string, top fs.FileInfo, log io.Writer) (fs.FileInfo, error) {
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -115,6 +118,9 @@ func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, 
 		made, _ := ddir.Lstat(dname)
 		return made, ddir.Lchown(dname, uid, gid)
 	case m.IsDir():
+		if tooDeep(p) {
+			return nil, errTooDeep
+		}
 		ssub, err := enterDir(sdir, sname, info)
 		if errors.Is(err, errSwapped) {
 			_, _ = fmt.Fprintf(log, "  skipped %s (it changed meanwhile)\n", p)
@@ -130,6 +136,9 @@ func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, 
 		made, err := ddir.Lstat(dname)
 		if err != nil {
 			return nil, err
+		}
+		if top == nil {
+			top = made
 		}
 		dsub, err := enterDir(ddir, dname, made)
 		if err != nil {
@@ -148,7 +157,10 @@ func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, 
 			if err != nil {
 				continue // gone meanwhile
 			}
-			if _, err := copyAt(ctx, ssub, n, ci, dsub, n, uid, gid, join(p, n), log); err != nil {
+			if os.SameFile(ci, top) {
+				return made, fileErr(helperapi.CodeFileIntoItself, map[string]any{"path": p})
+			}
+			if _, err := copyAt(ctx, ssub, n, ci, dsub, n, uid, gid, join(p, n), top, log); err != nil {
 				return made, err
 			}
 		}
@@ -335,7 +347,7 @@ func (f *Files) copyOp(ctx context.Context, c helperapi.Caller, req helperapi.Fi
 					settle(false)
 					return notFound(err, p)
 				}
-				made, err := copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, log)
+				made, err := copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, nil, log)
 				if err != nil {
 					if rerr := unmake(dest, name, made); rerr != nil {
 						_, _ = fmt.Fprintf(log, "! %s: the unfinished copy is left there: %v\n", dst, rerr)
@@ -446,7 +458,7 @@ func (f *Files) moveOp(ctx context.Context, c helperapi.Caller, req helperapi.Fi
 			case errors.Is(err, syscall.EXDEV):
 				// Another file system: copy, then remove.
 				var made fs.FileInfo
-				if made, err = copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, log); err != nil {
+				if made, err = copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, nil, log); err != nil {
 					if rerr := unmake(dest, name, made); rerr != nil {
 						_, _ = fmt.Fprintf(log, "! %s: the unfinished copy is left there: %v\n", dst, rerr)
 					}
@@ -979,9 +991,11 @@ func (f *Files) placeOp(_ context.Context, _ helperapi.Caller, req helperapi.Fil
 		}
 	}
 	step("place", req.Dir)
+	moved := false
 	err = errors.Join(in.Chown(uid, gid), in.Chmod(defaultFileMod))
 	if err == nil {
 		err = renameAt(uploads, srcName, dir, req.Name, !req.Overwrite)
+		moved = err == nil
 	}
 	if errors.Is(err, syscall.EXDEV) {
 		_, _ = fmt.Fprintln(log, "the upload is on another file system: copying")
@@ -1004,6 +1018,13 @@ func (f *Files) placeOp(_ context.Context, _ helperapi.Caller, req helperapi.Fil
 	fi, err := dir.Lstat(req.Name)
 	if err != nil {
 		return nil, err
+	}
+	// The upload moved by its name, and the panel's directory is not
+	// root's: what arrived must be the file that was opened and checked,
+	// not something that took its name since.
+	if opened, serr := in.Stat(); moved && (serr != nil || !os.SameFile(opened, fi)) {
+		_ = dir.Remove(req.Name)
+		return nil, missing
 	}
 	_, _ = fmt.Fprintf(log, "placed %s (%d bytes)\n", p, fi.Size())
 	return entryOf(dir, req.Name, p, fi, newNames()), nil

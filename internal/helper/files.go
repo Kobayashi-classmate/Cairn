@@ -721,9 +721,10 @@ func (f *Files) read(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 	return helperapi.FileContent{Entry: describe(req.Path, fi, newNames()), Content: string(data), ETag: etagOf(fi)}, nil
 }
 
-// readRegular reads a small regular file through root: not through a link
-// at its end, not a pipe or device (opened non-blocking, so that a pipe
-// cannot hang the request), at most limit bytes.
+// readRegular reads a small regular file through root: not a pipe or
+// device (opened non-blocking, so that a pipe cannot hang the request), at
+// most limit bytes. A link at its end is followed where it stays inside
+// root, as a root does whatever the flags say; nothing leaves root.
 func readRegular(root *os.Root, p string, limit int64) ([]byte, error) {
 	file, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -837,7 +838,15 @@ func (f *Files) write(_ context.Context, _ helperapi.Caller, req helperapi.FileW
 		return helperapi.FileSaved{}, err
 	}
 	step("write", req.Path)
-	if err := dir.Rename(tmp, name); err != nil {
+	if req.ETag == "" {
+		// A new file: one that appeared since the look is not replaced.
+		if err := renameAt(dir, tmp, dir, name, true); err != nil {
+			if errors.Is(err, fs.ErrExist) {
+				return helperapi.FileSaved{}, fileErr(helperapi.CodeFileExists, map[string]any{"path": req.Path})
+			}
+			return helperapi.FileSaved{}, err
+		}
+	} else if err := dir.Rename(tmp, name); err != nil {
 		return helperapi.FileSaved{}, err
 	}
 	ok = true

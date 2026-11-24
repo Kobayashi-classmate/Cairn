@@ -33,6 +33,43 @@ import (
 // errSwapped reports an entry that is no longer what was looked at.
 var errSwapped = errors.New("the entry changed meanwhile")
 
+// maxTreeDepth is how deep a tree is walked or copied. A path the kernel
+// takes ends long before that, but directories can be nested further one
+// level at a time, and a walk holds a descriptor and a path for every
+// level it is in: without an end, the owner of a tree decides how much of
+// both the helper spends on it.
+const maxTreeDepth = 1024
+
+// errTooDeep reports a tree nested deeper than maxTreeDepth.
+var errTooDeep = errors.New("the directories are nested too deep")
+
+// tooDeep reports whether the path p (relative, "/" between its names)
+// is at the depth where a walk stops.
+func tooDeep(p string) bool { return strings.Count(p, "/") >= maxTreeDepth }
+
+// openNoLink opens p of root itself for reading, never what a link in
+// its last component leads to and never waiting on a pipe. A root follows
+// such a link whatever the flags say, so the entry is looked at first and
+// what was opened is compared with it.
+func openNoLink(root *os.Root, p string) (*os.File, error) {
+	info, err := root.Lstat(p)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, &fs.PathError{Op: "open", Path: p, Err: syscall.ELOOP}
+	}
+	f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	if fi, err := f.Stat(); err != nil || !os.SameFile(info, fi) {
+		_ = f.Close()
+		return nil, &fs.PathError{Op: "open", Path: p, Err: syscall.ELOOP}
+	}
+	return f, nil
+}
+
 // enterHook runs just before a directory is entered (tests swap the
 // directory for a link there).
 var enterHook func(dir *os.Root, name string)
@@ -261,6 +298,12 @@ func walkAt(ctx context.Context, e walkEntry, lenient bool, fn func(walkEntry) e
 	}
 	if err != nil || !e.Info.IsDir() {
 		return err
+	}
+	if tooDeep(e.Rel) {
+		if lenient {
+			return nil
+		}
+		return errTooDeep
 	}
 	sub, err := enterDir(e.Dir, e.Name, e.Info)
 	if errors.Is(err, errSwapped) || err != nil && lenient {

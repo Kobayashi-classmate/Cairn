@@ -449,9 +449,10 @@ func space(d *os.File) int64 {
 	return free - reserve
 }
 
-// openDirFD opens the directory p of root for statfs, once: never a link
-// in its last component, never blocking (a pipe swapped in fails at once,
-// O_DIRECTORY, instead of hanging the open).
+// openDirFD opens the directory p of root for statfs, once: never
+// blocking (a pipe swapped in fails at once, O_DIRECTORY, instead of
+// hanging the open). A link is followed where it stays inside root, as a
+// root does whatever the flags say.
 func openDirFD(root *os.Root, p string) (*os.File, error) {
 	return root.OpenFile(rel(p), os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 }

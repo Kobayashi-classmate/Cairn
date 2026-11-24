@@ -512,7 +512,7 @@ func (d *DBs) openDump(engine, name string) (io.ReadCloser, error) {
 	// The directory belongs to the panel: never a link, a FIFO (opened
 	// without blocking) or a hard link to a file of someone else's.
 	p := path.Join(dbBackupsDir, engine, name)
-	f, err := root.OpenFile(p, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	f, err := openNoLink(root, p)
 	if err != nil {
 		return nil, dbErr(helperapi.CodeDBDumpNotFound, map[string]any{"file": name})
 	}
