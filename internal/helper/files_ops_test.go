@@ -219,6 +219,83 @@ func TestTrashRestoreParentsAndPurge(t *testing.T) {
 	}
 }
 
+func trashNames(e *filesEnv) []string {
+	names, _ := filepath.Glob(filepath.Join(e.f.Root, "/srv/www/.cairn-trash/*"))
+	return names
+}
+
+func TestTransfersCannotReplaceTheTrash(t *testing.T) {
+	e := newFilesEnv(t)
+	e.put("/srv/www/shop/app/junk.txt", "junk")
+	if op, _, log := e.run(helperapi.ActionFileDelete, helperapi.FileDeleteRequest{Root: "sites", Paths: []string{"shop/app/junk.txt"}}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("delete: %+v\n%s", op, log)
+	}
+	before := trashNames(e)
+	// A directory named like the trash, with an entry's description made
+	// up in it, copied or moved to the top of the root.
+	e.put("/srv/www/shop/app/fake/.cairn-trash/0123456789abcdef.json", `{"path":"shop/app/x","type":"file"}`)
+	for _, action := range []string{helperapi.ActionFileCopy, helperapi.ActionFileMove} {
+		op, _, log := e.run(action, helperapi.FileTransferRequest{Root: "sites", Paths: []string{"shop/app/fake/.cairn-trash"}, Dest: "", Overwrite: true})
+		if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeFileProtected {
+			t.Errorf("%s over the trash: %+v\n%s", action, op, log)
+		}
+		if after := trashNames(e); strings.Join(after, " ") != strings.Join(before, " ") {
+			t.Errorf("%s over the trash: it held %v, now %v", action, before, after)
+		}
+	}
+	// Nor does an entry's description put anything into the trash (or, in
+	// the system root, over a top-level directory) by being restored.
+	e.put("/srv/www/.cairn-trash/fedcba9876543210/1111111111111111.json", `{"path":"etc/passwd","type":"file"}`)
+	e.put("/srv/www/.cairn-trash/fedcba9876543210.json", `{"path":".cairn-trash/1111111111111111.json","type":"file"}`)
+	if op, _, log := e.run(helperapi.ActionTrashRestore, helperapi.TrashRequest{Root: "sites", IDs: []string{"fedcba9876543210"}}); op.State != helperapi.OpFailed ||
+		op.Error.Code != helperapi.CodeFileProtected || e.exists("/srv/www/.cairn-trash/1111111111111111.json") {
+		t.Errorf("restoring into the trash: %+v\n%s", op, log)
+	}
+}
+
+func TestReplacedDirectoryGoesToTheTrash(t *testing.T) {
+	e := newFilesEnv(t)
+	e.put("/srv/www/shop/app/site/keep.txt", "old only")
+	e.put("/srv/www/shop/app/new/site/index.php", "new")
+	e.put("/srv/www/shop/app/new/a.txt", "new a")
+	e.put("/srv/www/shop/app/a.txt", "old a")
+	op, res, log := e.run(helperapi.ActionFileCopy, helperapi.FileTransferRequest{Root: "sites", Paths: []string{"shop/app/new/site", "shop/app/new/a.txt"},
+		Dest: "shop/app", Overwrite: true})
+	if op.State != helperapi.OpSucceeded || res.Done != 2 || e.read("/srv/www/shop/app/site/index.php") != "new" || e.exists("/srv/www/shop/app/site/keep.txt") {
+		t.Fatalf("copy over a directory: %+v %+v\n%s", op, res, log)
+	}
+	// What the directory held is not lost for good; a file is replaced as
+	// ever, and nothing is left lying around.
+	trash, _ := call[helperapi.TrashList](t, e.r, helperapi.ActionTrashList, helperapi.FileRootRef{Root: "sites"})
+	if len(trash.Entries) != 1 || trash.Entries[0].Path != "shop/app/site" || trash.Entries[0].Type != helperapi.FileTypeDir || trash.Entries[0].User != "admin" {
+		t.Fatalf("the replaced directory belongs in the trash: %+v", trash.Entries)
+	}
+	if left, _ := filepath.Glob(filepath.Join(e.f.Root, "/srv/www/shop/app/.cairn-old-*")); e.read("/srv/www/shop/app/a.txt") != "new a" || len(left) != 0 {
+		t.Fatalf("a replaced file: %q, left %v", e.read("/srv/www/shop/app/a.txt"), left)
+	}
+	// From there it comes back, replacing in turn.
+	if op, _, log := e.run(helperapi.ActionTrashRestore, helperapi.TrashRequest{Root: "sites", IDs: []string{trash.Entries[0].ID}}); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeFileExists {
+		t.Fatalf("restore over an entry without overwrite: %+v\n%s", op, log)
+	}
+	if op, _, log := e.run(helperapi.ActionTrashRestore, helperapi.TrashRequest{Root: "sites", IDs: []string{trash.Entries[0].ID}, Overwrite: true}); op.State != helperapi.OpSucceeded ||
+		e.read("/srv/www/shop/app/site/keep.txt") != "old only" || e.exists("/srv/www/shop/app/site/index.php") {
+		t.Fatalf("restore with overwrite: %+v\n%s", op, log)
+	}
+	trash, _ = call[helperapi.TrashList](t, e.r, helperapi.ActionTrashList, helperapi.FileRootRef{Root: "sites"})
+	if len(trash.Entries) != 1 || trash.Entries[0].Path != "shop/app/site" {
+		t.Fatalf("the directory replaced by the restore: %+v", trash.Entries)
+	}
+	// Moving over a directory keeps it the same way.
+	e.put("/srv/www/shop/app/new/site/moved.txt", "moved")
+	if op, _, log := e.run(helperapi.ActionFileMove, helperapi.FileTransferRequest{Root: "sites", Paths: []string{"shop/app/new/site"}, Dest: "shop/app", Overwrite: true}); op.State != helperapi.OpSucceeded ||
+		e.read("/srv/www/shop/app/site/moved.txt") != "moved" || e.exists("/srv/www/shop/app/new/site") {
+		t.Fatalf("move over a directory: %+v\n%s", op, log)
+	}
+	if trash, _ = call[helperapi.TrashList](t, e.r, helperapi.ActionTrashList, helperapi.FileRootRef{Root: "sites"}); len(trash.Entries) != 2 {
+		t.Fatalf("the directory replaced by the move: %+v", trash.Entries)
+	}
+}
+
 func TestMakeRoomPutsBackOnFailure(t *testing.T) {
 	e := newFilesEnv(t)
 	e.put("/srv/www/shop/app/a.txt", "old")
@@ -227,10 +304,18 @@ func TestMakeRoomPutsBackOnFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
-	if _, err := makeRoom(root, "shop/app/a.txt", false); errCode(err) != helperapi.CodeFileExists {
+	app, err := root.dir("shop/app", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = app.Close() }()
+	bin := &trashBin{root: root, user: "admin"}
+	defer bin.close()
+	var log strings.Builder
+	if _, err := makeRoom(app, "a.txt", "shop/app/a.txt", false, bin, &log); errCode(err) != helperapi.CodeFileExists {
 		t.Fatalf("without overwrite: %v", err)
 	}
-	settle, err := makeRoom(root, "shop/app/a.txt", true)
+	settle, err := makeRoom(app, "a.txt", "shop/app/a.txt", true, bin, &log)
 	if err != nil || e.exists("/srv/www/shop/app/a.txt") {
 		t.Fatalf("make room: %v", err)
 	}
@@ -238,10 +323,23 @@ func TestMakeRoomPutsBackOnFailure(t *testing.T) {
 	if e.read("/srv/www/shop/app/a.txt") != "old" {
 		t.Fatal("a failed copy or move loses the entry it was to replace")
 	}
-	settle, _ = makeRoom(root, "shop/app/a.txt", true)
+	settle, _ = makeRoom(app, "a.txt", "shop/app/a.txt", true, bin, &log)
 	e.put("/srv/www/shop/app/a.txt", "new")
 	settle(true)
 	if left, _ := filepath.Glob(filepath.Join(e.f.Root, "/srv/www/shop/app/.cairn-old-*")); e.read("/srv/www/shop/app/a.txt") != "new" || len(left) != 0 {
 		t.Fatalf("settled: %v", left)
+	}
+	// A directory waits in the trash, and comes back from there.
+	e.put("/srv/www/shop/app/d/keep.txt", "kept")
+	settle, err = makeRoom(app, "d", "shop/app/d", true, bin, &log)
+	if err != nil || e.exists("/srv/www/shop/app/d") || len(trashNames(e)) != 2 {
+		t.Fatalf("make room for a directory: %v, trash %v", err, trashNames(e))
+	}
+	settle(false)
+	if e.read("/srv/www/shop/app/d/keep.txt") != "kept" || len(trashNames(e)) != 0 {
+		t.Fatalf("a failed copy or move loses the directory it was to replace: trash %v", trashNames(e))
+	}
+	if log.Len() != 0 {
+		t.Fatalf("nothing went wrong: %s", log.String())
 	}
 }

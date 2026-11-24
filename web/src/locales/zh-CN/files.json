@@ -92,7 +92,7 @@
     "sameDir": "这些条目已经在此文件夹中。",
     "stepCopy": "把 {count} 个条目复制到 {to}",
     "stepMove": "把 {count} 个条目从 {from} 移动到 {to}",
-    "stepOverwrite": "替换那里的同名条目"
+    "stepOverwrite": "替换那里的同名条目；被替换的文件夹会移到回收站"
   },
   "chmod": {
     "title": "{name} 的权限",

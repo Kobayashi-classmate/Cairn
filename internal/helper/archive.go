@@ -95,7 +95,8 @@ func decompress(kind string, r io.Reader) (io.Reader, func(), error) {
 type extractor struct {
 	ctx      context.Context
 	rootID   string
-	src      *os.Root // the request's root, where the archive is
+	src      *os.Root // the archive's directory, opened once
+	archive  string   // the archive's path in the request's root
 	root     *os.Root // the destination's own root
 	dest     string   // the destination in the request's root (names, protected paths)
 	uid, gid int
@@ -308,15 +309,17 @@ func (x *extractor) source(p string) (*os.File, error) {
 		return nil, err
 	}
 	defer done()
-	in, err := dir.OpenFile(base, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	// The file itself, not what a link put in its place leads to (see
+	// openEntry).
+	info, err := dir.Lstat(base)
 	if err != nil {
 		return nil, err
 	}
-	if fi, err := in.Stat(); err != nil || !fi.Mode().IsRegular() {
-		_ = in.Close()
+	if !info.Mode().IsRegular() {
 		return nil, fs.ErrNotExist
 	}
-	return in, nil
+	in, _, err := openEntry(dir, base, info)
+	return in, err
 }
 
 // climbs reports whether a link target has ".." after a name: such a
@@ -398,32 +401,25 @@ func spaceAt(root *os.Root, p string) int64 {
 	return spaceOf(d)
 }
 
-// openDest opens a destination directory as a root of its own and its
-// descriptor for statfs, both checked to be the same directory, and
-// returns its owner.
-func openDest(root *os.Root, p string) (*os.Root, *os.File, int, int, error) {
-	fd, err := openDirFD(root, p)
+// openDest opens a destination directory of a request's root, once, as a
+// root of its own (a link to it is followed where the file manager
+// follows one: see fileRoot), with its descriptor for statfs and its
+// owner.
+func openDest(root *fileRoot, p string) (*os.Root, *os.File, int, int, error) {
+	droot, err := root.dir(p, true)
 	if err != nil {
-		if errors.Is(err, syscall.ENOTDIR) || errors.Is(err, syscall.ELOOP) {
-			return nil, nil, 0, 0, fileErr(helperapi.CodeFileNotDir, map[string]any{"path": p})
-		}
-		return nil, nil, 0, 0, notFound(err, p)
+		return nil, nil, 0, 0, err
+	}
+	fd, err := droot.OpenFile(".", os.O_RDONLY|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		_ = droot.Close()
+		return nil, nil, 0, 0, err
 	}
 	info, err := fd.Stat()
 	if err != nil {
+		_ = droot.Close()
 		_ = fd.Close()
 		return nil, nil, 0, 0, err
-	}
-	droot, err := root.OpenRoot(rel(p))
-	if err == nil {
-		if got, serr := droot.Stat("."); serr != nil || !os.SameFile(info, got) {
-			_ = droot.Close()
-			err = fileErr(helperapi.CodeFileIsLink, map[string]any{"path": p})
-		}
-	}
-	if err != nil {
-		_ = fd.Close()
-		return nil, nil, 0, 0, notFound(err, p)
 	}
 	uid, gid := fileOwner(info)
 	return droot, fd, uid, gid, nil
@@ -447,18 +443,25 @@ func (f *Files) extractOp(ctx context.Context, _ helperapi.Caller, req helperapi
 		return nil, err
 	}
 	defer func() { _ = droot.Close(); _ = dfd.Close() }()
-	x := &extractor{ctx: ctx, rootID: req.Root, src: root, root: droot, dest: req.Dest, uid: uid, gid: gid, overwrite: req.Overwrite, b: &batch{log: log},
-		budget: spaceOf(dfd), files: map[string]bool{}}
+	// The archive's directory is opened once, too: the archive (and its
+	// other volumes) is read from it by name.
+	adir, aname, adone, err := root.parent(req.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer adone()
+	x := &extractor{ctx: ctx, rootID: req.Root, src: adir, archive: req.Path, root: droot, dest: req.Dest, uid: uid, gid: gid, overwrite: req.Overwrite,
+		b: &batch{log: log}, budget: spaceOf(dfd), files: map[string]bool{}}
 	_, _ = fmt.Fprintf(log, "extracting %s into /%s (%s)\n", req.Path, req.Dest, kind)
 	switch kind {
 	case "unar":
 		err = f.unarExtract(ctx, req, x, dfd, log)
 	case "zip":
-		err = x.zip(req.Path)
+		err = x.zip(aname)
 	case "gz", "zst", "xz", "bz2":
-		err = x.single(req.Path, kind)
+		err = x.single(aname, kind)
 	default:
-		err = x.tar(req.Path, kind)
+		err = x.tar(aname, kind)
 	}
 	if err != nil {
 		var he *helperapi.Error
@@ -471,8 +474,11 @@ func (f *Files) extractOp(ctx context.Context, _ helperapi.Caller, req helperapi
 	return x.b.result()
 }
 
-func (x *extractor) openArchive(p string) (*os.File, fs.FileInfo, error) {
-	file, fi, err := noFollow(x.src, p)
+// openArchive opens the archive, or another volume of it, by its name in
+// the archive's directory.
+func (x *extractor) openArchive(name string) (*os.File, fs.FileInfo, error) {
+	p := join(parentOf(x.archive), name)
+	file, fi, err := noFollow(x.src, name, p)
 	if err == nil && !fi.Mode().IsRegular() {
 		_ = file.Close()
 		err = fileErr(helperapi.CodeFileBadArchive, map[string]any{"path": p})
@@ -480,8 +486,8 @@ func (x *extractor) openArchive(p string) (*os.File, fs.FileInfo, error) {
 	return file, fi, err
 }
 
-func (x *extractor) zip(p string) error {
-	file, fi, err := x.openArchive(p)
+func (x *extractor) zip(name string) error {
+	file, fi, err := x.openArchive(name)
 	if err != nil {
 		return err
 	}
@@ -521,8 +527,8 @@ func (x *extractor) zip(p string) error {
 	return nil
 }
 
-func (x *extractor) tar(p, kind string) error {
-	file, _, err := x.openArchive(p)
+func (x *extractor) tar(name, kind string) error {
+	file, _, err := x.openArchive(name)
 	if err != nil {
 		return err
 	}
@@ -581,8 +587,8 @@ func (x *extractor) tarFrom(r io.Reader) error {
 }
 
 // single unpacks a compressed single file next to its archive's name.
-func (x *extractor) single(p, kind string) error {
-	file, _, err := x.openArchive(p)
+func (x *extractor) single(base, kind string) error {
+	file, _, err := x.openArchive(base)
 	if err != nil {
 		return err
 	}
@@ -592,7 +598,6 @@ func (x *extractor) single(p, kind string) error {
 		return err
 	}
 	defer done()
-	base := path.Base(p)
 	name := base[:len(base)-len(path.Ext(base))]
 	if name == "" {
 		name = "unpacked"
@@ -656,22 +661,17 @@ func unpackErr(reason string, params map[string]any) error {
 	return fileErr(helperapi.CodeFileUnpackFailed, params)
 }
 
-// volumes lists the archive's name and, for the first part of a
-// multi-volume RAR (x.part1.rar), the other parts next to it.
-func volumes(root *os.Root, p string) []string {
-	base := path.Base(p)
+// volumes lists the archive's name (base, in the open directory dir) and,
+// for the first part of a multi-volume RAR (x.part1.rar), the other parts
+// next to it.
+func volumes(dir *os.Root, base string) []string {
 	lower := strings.ToLower(base)
 	i := strings.LastIndex(lower, ".part")
 	if i < 0 || !strings.HasSuffix(lower, ".rar") || strings.Trim(lower[i+5:len(lower)-4], "0") != "1" {
 		return []string{base}
 	}
 	prefix := lower[:i+5]
-	dir, err := root.Open(rel(parentOf(p)))
-	if err != nil {
-		return []string{base}
-	}
-	defer func() { _ = dir.Close() }()
-	names, _ := dir.Readdirnames(-1)
+	names, _ := dirNames(dir)
 	out := []string{base}
 	for _, n := range names {
 		l := strings.ToLower(n)
@@ -753,9 +753,9 @@ func (f *Files) unarExtract(ctx context.Context, req helperapi.FileExtractReques
 
 	// The archive and its other volumes, copied in.
 	avail := spaceOf(sfd)
-	names := volumes(x.src, req.Path)
+	names := volumes(x.src, path.Base(req.Path))
 	for _, n := range names {
-		in, fi, err := x.openArchive(join(parentOf(req.Path), n))
+		in, fi, err := x.openArchive(n)
 		if err != nil {
 			if n == names[0] {
 				return err
@@ -899,15 +899,24 @@ func (f *Files) compressOp(ctx context.Context, _ helperapi.Caller, req helperap
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	uid, gid, err := ownerOfDir(root, req.Dir)
+	// The directory is opened once: its owner, every name archived, the
+	// archive being written and its final name are all taken from that
+	// open directory, whatever its path leads to meanwhile.
+	dir, err := root.dir(req.Dir, false)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := root.Lstat(out); err == nil {
-		return nil, fileErr(helperapi.CodeFileExists, map[string]any{"path": out})
+	defer func() { _ = dir.Close() }()
+	uid, gid, err := dirOwner(dir)
+	if err != nil {
+		return nil, err
 	}
-	tmp := join(req.Dir, randomName(".cairn-archive-"))
-	file, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	exists := fileErr(helperapi.CodeFileExists, map[string]any{"path": out})
+	if _, err := dir.Lstat(req.Name); err == nil {
+		return nil, exists
+	}
+	tmp := randomName(".cairn-archive-")
+	file, err := dir.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -915,7 +924,7 @@ func (f *Files) compressOp(ctx context.Context, _ helperapi.Caller, req helperap
 	defer func() {
 		if !ok {
 			_ = file.Close()
-			_ = root.Remove(tmp)
+			_ = dir.Remove(tmp)
 		}
 	}()
 	var add func(name string, fi fs.FileInfo, target string, r io.Reader) error
@@ -993,10 +1002,10 @@ func (f *Files) compressOp(ctx context.Context, _ helperapi.Caller, req helperap
 		// A link named here is archived as the link, not the tree it
 		// points to; the tree is walked one level at a time (see
 		// walkTree).
-		err := walkTree(ctx, root, start, func(e walkEntry) error {
-			name := strings.TrimPrefix(e.Path, req.Dir+"/")
-			if req.Dir == "" {
-				name = e.Path
+		err := walkNamed(ctx, dir, n, start, false, func(e walkEntry) error {
+			name := n
+			if e.Rel != "" {
+				name = join(n, e.Rel)
 			}
 			info := e.Info
 			count++
@@ -1047,16 +1056,20 @@ func (f *Files) compressOp(ctx context.Context, _ helperapi.Caller, req helperap
 	if err := file.Close(); err != nil {
 		return nil, err
 	}
-	if err := root.Rename(tmp, out); err != nil {
+	// Never over an entry made there since the look.
+	if err := renameAt(dir, tmp, dir, req.Name, true); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return nil, exists
+		}
 		return nil, err
 	}
 	ok = true
-	fi, err := root.Lstat(out)
+	fi, err := dir.Lstat(req.Name)
 	if err != nil {
 		return nil, err
 	}
 	_, _ = fmt.Fprintf(log, "%s: %d entries, %d bytes\n", out, count, fi.Size())
-	return entryOf(root, out, fi, newNames()), nil
+	return entryOf(dir, req.Name, out, fi, newNames()), nil
 }
 
 // copyN copies exactly n bytes of r to w: a file that grew since its size

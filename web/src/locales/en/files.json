@@ -92,7 +92,7 @@
     "sameDir": "The entries are already in this folder.",
     "stepCopy": "Copy {count} entry into {to} | Copy {count} entries into {to}",
     "stepMove": "Move {count} entry from {from} to {to} | Move {count} entries from {from} to {to}",
-    "stepOverwrite": "Replace entries of the same name there"
+    "stepOverwrite": "Replace entries of the same name there; a folder that is replaced goes to the trash"
   },
   "chmod": {
     "title": "Permissions of {name}",

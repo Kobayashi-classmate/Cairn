@@ -119,3 +119,7 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   the distribution itself maintains it. One that is installed already
   stays on the Software page, marked "End of life", and can still be
   started, configured, used by sites and uninstalled.
+- The file manager and directory backups never follow a site's links into
+  another site or into the system, also when a link appears while a task
+  runs. A folder replaced by a copy, a move or a restore from the trash
+  goes to the trash rather than being deleted.

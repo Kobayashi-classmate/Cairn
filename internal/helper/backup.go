@@ -436,7 +436,7 @@ func (b *Backups) tarSite(ctx context.Context, code string, w io.Writer, log io.
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	if fi, err := root.Lstat(code); err != nil || !fi.IsDir() {
+	if fi, err := root.top.Lstat(code); err != nil || !fi.IsDir() {
 		return backupErr(helperapi.CodeFileNotFound, map[string]any{"site": code})
 	}
 	tw := tar.NewWriter(w)
@@ -448,7 +448,7 @@ func (b *Backups) tarSite(ctx context.Context, code string, w io.Writer, log io.
 			return err
 		}
 	}
-	if err := tarTree(ctx, root, code, tw, func(rel string) bool { return rel == "tmp" }, log); err != nil {
+	if err := tarTree(ctx, root.top, code, tw, func(rel string) bool { return rel == "tmp" }, log); err != nil {
 		return err
 	}
 	return tw.Close()
@@ -460,13 +460,12 @@ func (b *Backups) tarDirectory(ctx context.Context, t helperapi.BackupTarget, w 
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	if fi, err := root.Stat(rel(t.Path)); err != nil || !fi.IsDir() {
-		return backupErr(helperapi.CodeFileNotFound, map[string]any{"path": t.Path})
-	}
-	// The directory (a link to one inside the root, too) is walked through
-	// a root of its own: what is swapped above it meanwhile changes
-	// nothing.
-	dir, err := root.OpenRoot(rel(t.Path))
+	// The directory is opened once and walked through a root of its own:
+	// what is swapped above it meanwhile changes nothing. A link on the
+	// way to it, or in its place, is followed only where the file manager
+	// follows one (see fileRoot): a site's owner cannot have another
+	// site's directory backed up as their own.
+	dir, err := root.dir(t.Path, true)
 	if err != nil {
 		return backupErr(helperapi.CodeFileNotFound, map[string]any{"path": t.Path})
 	}
@@ -927,7 +926,7 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 		return nil, err
 	}
 	defer func() { _ = droot.Close(); _ = dfd.Close() }()
-	x := &extractor{ctx: ctx, rootID: req.Dest.Root, src: dest, root: droot, dest: req.Dest.Path, uid: duid, gid: dgid, overwrite: req.Overwrite,
+	x := &extractor{ctx: ctx, rootID: req.Dest.Root, root: droot, dest: req.Dest.Path, uid: duid, gid: dgid, overwrite: req.Overwrite,
 		b: &batch{log: log}, budget: spaceOf(dfd), files: map[string]bool{}}
 	if err := x.tarFrom(r); err != nil {
 		var he *helperapi.Error

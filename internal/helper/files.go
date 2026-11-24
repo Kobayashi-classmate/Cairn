@@ -165,17 +165,47 @@ func (f *Files) roots() helperapi.FileRoots {
 	return out
 }
 
+// fileRoot is a request's root. A path of a request is resolved in it
+// once, into an open directory (a root of its own) and a name in it, and
+// everything after that goes through the open directory: what is swapped
+// along the path meanwhile changes nothing (see fdwalk.go).
+//
+// Links on the way are followed where they stay inside the root. Sites
+// are apart from each other besides: an entry of the directory that holds
+// them (the sites root itself; srv/www in the system root) is never
+// followed as a link, and a path into one is resolved in that entry's own
+// root, so that a link a site's owner made leads to their own site or
+// nowhere: not to another site, and not to the rest of the system.
+type fileRoot struct {
+	id  string
+	top *os.Root
+	// apart: the entries of the directory sites ("" is the root itself)
+	// are kept apart.
+	apart bool
+	sites string
+}
+
+func (r *fileRoot) Close() error { return r.top.Close() }
+
 // openRoot opens a root for a request; an unknown id is refused.
-func (f *Files) openRoot(id string) (*os.Root, error) {
+func (f *Files) openRoot(id string) (*fileRoot, error) {
 	unavailable := fileErr(helperapi.CodeFileRootUnavailable, map[string]any{"root": id})
+	out := &fileRoot{id: id}
 	switch id {
 	case helperapi.RootSystem:
 		if !f.access().FullDisk {
 			return nil, unavailable
 		}
+		out.apart, out.sites = true, strings.TrimPrefix(sitesDir, "/")
 	case helperapi.RootSites:
+		out.apart = true
 	case helperapi.RootBackups:
-		return f.backupsRoot()
+		r, err := f.backupsRoot()
+		if err != nil {
+			return nil, err
+		}
+		out.top = r
+		return out, nil
 	default:
 		return nil, unavailable
 	}
@@ -183,7 +213,188 @@ func (f *Files) openRoot(id string) (*os.Root, error) {
 	if err != nil {
 		return nil, unavailable
 	}
-	return r, nil
+	out.top = r
+	return out, nil
+}
+
+// scope returns the root p is resolved in and p's path in it: for a path
+// into a site that site's own root, the request's root otherwise. single
+// reports a path that names an entry of the directory holding the sites,
+// which is never followed as a link. done closes what was opened.
+func (r *fileRoot) scope(p string) (base *os.Root, rest string, single bool, done func(), err error) {
+	none := func() {}
+	inner := p
+	if r.sites != "" {
+		var below bool
+		if inner, below = strings.CutPrefix(p, r.sites+"/"); !below {
+			return r.top, p, false, none, nil
+		}
+	}
+	if !r.apart || inner == "" {
+		return r.top, p, false, none, nil
+	}
+	holder, closeHolder := r.top, none
+	if r.sites != "" {
+		// The way to the sites is the system's own.
+		if holder, err = r.top.OpenRoot(r.sites); err != nil {
+			return nil, "", false, nil, notFound(err, p)
+		}
+		closeHolder = func() { _ = holder.Close() }
+	}
+	site, tail, deeper := strings.Cut(inner, "/")
+	if !deeper {
+		return holder, site, true, closeHolder, nil
+	}
+	sub, err := subDir(holder, site)
+	if err != nil {
+		closeHolder()
+		return nil, "", false, nil, notFound(err, p)
+	}
+	return sub, tail, false, func() { _ = sub.Close(); closeHolder() }, nil
+}
+
+// dir opens the directory p as a root of its own. With follow, p itself
+// may be a link to a directory (where links are followed at all: see
+// fileRoot); without, it must be a directory, as wherever something is
+// put into it.
+func (r *fileRoot) dir(p string, follow bool) (*os.Root, error) {
+	base, rest, single, done, err := r.scope(p)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	notDir := fileErr(helperapi.CodeFileNotDir, map[string]any{"path": p})
+	if rest == "" {
+		return base.OpenRoot(".")
+	}
+	if follow && !single {
+		d, err := base.OpenRoot(rest)
+		if err != nil {
+			if fi, serr := base.Stat(rest); serr == nil && !fi.IsDir() {
+				return nil, notDir
+			}
+			return nil, notFound(err, p)
+		}
+		return d, nil
+	}
+	parent := base
+	if above := parentOf(rest); above != "" {
+		if parent, err = base.OpenRoot(above); err != nil {
+			return nil, notFound(err, p)
+		}
+		defer func() { _ = parent.Close() }()
+	}
+	d, err := subDir(parent, path.Base(rest))
+	if errors.Is(err, syscall.ENOTDIR) {
+		return nil, notDir
+	}
+	if err != nil {
+		return nil, notFound(err, p)
+	}
+	return d, nil
+}
+
+// parent opens the directory that holds p and returns p's name in it
+// ("." for the root itself). done closes what was opened.
+func (r *fileRoot) parent(p string) (dir *os.Root, name string, done func(), err error) {
+	if p == "" {
+		return r.top, ".", func() {}, nil
+	}
+	d, err := r.dir(parentOf(p), true)
+	if err != nil {
+		if he, ok := helperapi.AsError(err); ok && (he.Code == helperapi.CodeFileNotFound || he.Code == helperapi.CodeFileNotDir) {
+			err = fileErr(helperapi.CodeFileNotFound, map[string]any{"path": p})
+		}
+		return nil, "", nil, err
+	}
+	return d, path.Base(p), func() { _ = d.Close() }, nil
+}
+
+// open opens the file p for reading: itself, or what a link at p leads to
+// (where links are followed at all: see fileRoot). It never blocks, so
+// that a pipe someone put there cannot hang the request.
+func (r *fileRoot) open(p string) (*os.File, error) {
+	base, rest, single, done, err := r.scope(p)
+	if err != nil {
+		return nil, err
+	}
+	defer done()
+	if !single {
+		return base.OpenFile(rel(rest), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	}
+	// A root follows a link whatever the flags say: the entry is looked
+	// at first, and what was opened must be what was looked at.
+	isLink := fileErr(helperapi.CodeFileIsLink, map[string]any{"path": p})
+	info, err := base.Lstat(rest)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&fs.ModeSymlink != 0 {
+		return nil, isLink
+	}
+	file, _, err := openEntry(base, rest, info)
+	if errors.Is(err, errSwapped) {
+		return nil, isLink
+	}
+	return file, err
+}
+
+// mkdirs opens the directory p, made first with its missing parents as
+// file.mkdir would make them: each new directory belongs to the owner of
+// the one it is made in. No link on the way is followed.
+func (r *fileRoot) mkdirs(p string) (*os.Root, error) {
+	cur, err := r.top.OpenRoot(".")
+	if err != nil || p == "" {
+		return cur, err
+	}
+	walked := ""
+	for _, c := range strings.Split(p, "/") {
+		walked = join(walked, c)
+		next, err := subDir(cur, c)
+		if errors.Is(err, fs.ErrNotExist) {
+			if err = cur.Mkdir(c, defaultDirMod); err == nil {
+				next, err = adoptDir(cur, c, walked)
+			}
+		}
+		_ = cur.Close()
+		if errors.Is(err, syscall.ENOTDIR) {
+			return nil, fileErr(helperapi.CodeFileNotDir, map[string]any{"path": walked})
+		}
+		if err != nil {
+			return nil, notFound(err, walked)
+		}
+		cur = next
+	}
+	return cur, nil
+}
+
+// trash opens the root's trash, made first when create is set
+// (fs.ErrNotExist when there is none): the directory itself, never a link
+// put in its place.
+func (r *fileRoot) trash(create bool) (*os.Root, error) {
+	name := trashOf(r.id)
+	if create {
+		if err := r.top.MkdirAll(name, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	parent := r.top
+	if above := parentOf(name); above != "" {
+		p, err := r.top.OpenRoot(above)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = p.Close() }()
+		parent = p
+	}
+	t, err := subDir(parent, path.Base(name))
+	if err != nil {
+		return nil, err
+	}
+	if create {
+		_ = t.Chmod(".", 0o700)
+	}
+	return t, nil
 }
 
 // backupsRoot opens (making it first) the backups root, owned by the
@@ -353,8 +564,9 @@ func typeOf(m fs.FileMode) string {
 	return helperapi.FileTypeOther
 }
 
-func entryOf(root *os.Root, p string, fi fs.FileInfo, n *names) helperapi.FileEntry {
-	e := helperapi.FileEntry{Name: fi.Name(), Path: p, Type: typeOf(fi.Mode()), Size: fi.Size(), Mode: unixMode(fi.Mode()),
+// describe is the entry p (in the request's root) that fi was found to be.
+func describe(p string, fi fs.FileInfo, n *names) helperapi.FileEntry {
+	e := helperapi.FileEntry{Name: path.Base(p), Path: p, Type: typeOf(fi.Mode()), Size: fi.Size(), Mode: unixMode(fi.Mode()),
 		ModTime: fi.ModTime().Unix()}
 	if p == "" {
 		e.Name = ""
@@ -362,8 +574,15 @@ func entryOf(root *os.Root, p string, fi fs.FileInfo, n *names) helperapi.FileEn
 	if uid, gid := fileOwner(fi); uid >= 0 {
 		e.Owner, e.Group = n.user(uid), n.group(gid)
 	}
+	return e
+}
+
+// entryOf is describe for the entry name of the open directory dir: a
+// link comes with its target.
+func entryOf(dir *os.Root, name, p string, fi fs.FileInfo, n *names) helperapi.FileEntry {
+	e := describe(p, fi, n)
 	if e.Type == helperapi.FileTypeLink {
-		e.Target, _ = root.Readlink(rel(p))
+		e.Target, _ = dir.Readlink(name)
 	}
 	return e
 }
@@ -375,23 +594,25 @@ func (f *Files) list(_ context.Context, _ helperapi.Caller, req helperapi.FileLi
 	}
 	defer func() { _ = root.Close() }()
 	n := newNames()
-	fi, err := root.Stat(rel(req.Path))
+	// The directory is opened once; its entries are looked at through it.
+	dir, err := root.dir(req.Path, true)
+	if err != nil {
+		return helperapi.FileList{}, err
+	}
+	defer func() { _ = dir.Close() }()
+	fi, err := dir.Stat(".")
 	if err != nil {
 		return helperapi.FileList{}, notFound(err, req.Path)
 	}
-	if !fi.IsDir() {
-		return helperapi.FileList{}, fileErr(helperapi.CodeFileNotDir, map[string]any{"path": req.Path})
-	}
-	out := helperapi.FileList{Dir: entryOf(root, req.Path, fi, n), Entries: []helperapi.FileEntry{}}
-	d, err := root.Open(rel(req.Path))
+	out := helperapi.FileList{Dir: describe(req.Path, fi, n), Entries: []helperapi.FileEntry{}}
+	d, err := dir.Open(".")
 	if err != nil {
 		return out, notFound(err, req.Path)
 	}
 	defer func() { _ = d.Close() }()
 	for {
-		batch, err := d.ReadDir(512)
-		for _, de := range batch {
-			name := de.Name()
+		batch, err := d.Readdirnames(512)
+		for _, name := range batch {
 			p := join(req.Path, name)
 			if (!req.Hidden && strings.HasPrefix(name, ".")) || (req.Path == "" && name == trashName) || p == systemTrash {
 				continue
@@ -400,11 +621,11 @@ func (f *Files) list(_ context.Context, _ helperapi.Caller, req helperapi.FileLi
 				out.Truncated = true
 				break
 			}
-			info, err := de.Info()
+			info, err := dir.Lstat(name)
 			if err != nil {
 				continue
 			}
-			out.Entries = append(out.Entries, entryOf(root, p, info, n))
+			out.Entries = append(out.Entries, entryOf(dir, name, p, info, n))
 		}
 		if err != nil || len(batch) == 0 || out.Truncated {
 			break
@@ -429,11 +650,16 @@ func (f *Files) stat(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 		return helperapi.FileEntry{}, err
 	}
 	defer func() { _ = root.Close() }()
-	fi, err := root.Lstat(rel(req.Path))
+	dir, name, done, err := root.parent(req.Path)
+	if err != nil {
+		return helperapi.FileEntry{}, err
+	}
+	defer done()
+	fi, err := dir.Lstat(name)
 	if err != nil {
 		return helperapi.FileEntry{}, notFound(err, req.Path)
 	}
-	return entryOf(root, req.Path, fi, newNames()), nil
+	return entryOf(dir, name, req.Path, fi, newNames()), nil
 }
 
 // etagOf identifies a version of a file. Saves replace the file, so the
@@ -468,7 +694,7 @@ func (f *Files) read(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 	defer func() { _ = root.Close() }()
 	// Non-blocking, so that a pipe someone put there cannot hang it; only
 	// regular files are read (checked below).
-	file, err := root.OpenFile(rel(req.Path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	file, err := root.open(req.Path)
 	if err != nil {
 		return helperapi.FileContent{}, notFound(err, req.Path)
 	}
@@ -492,9 +718,7 @@ func (f *Files) read(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 	if looksBinary(data) {
 		return helperapi.FileContent{}, fileErr(helperapi.CodeFileBinary, map[string]any{"path": req.Path})
 	}
-	e := entryOf(root, req.Path, fi, newNames())
-	e.Name = path.Base("/" + req.Path)
-	return helperapi.FileContent{Entry: e, Content: string(data), ETag: etagOf(fi)}, nil
+	return helperapi.FileContent{Entry: describe(req.Path, fi, newNames()), Content: string(data), ETag: etagOf(fi)}, nil
 }
 
 // readRegular reads a small regular file through root: not through a link
@@ -526,26 +750,23 @@ func randomName(prefix string) string {
 	return prefix + hex.EncodeToString(b)
 }
 
-// ownerOfDir is who new entries of a directory belong to.
-func ownerOfDir(root *os.Root, dir string) (int, int, error) {
-	fi, err := root.Lstat(rel(dir))
+// adoptDir gives the directory name, just made in the open directory d
+// (p, its path), to d's owner, and opens it: the directory itself, by its
+// one name, not whatever a path to it names by now.
+func adoptDir(d *os.Root, name, p string) (*os.Root, error) {
+	uid, gid, err := dirOwner(d)
 	if err != nil {
-		return 0, 0, notFound(err, dir)
+		return nil, err
 	}
-	if !fi.IsDir() {
-		return 0, 0, fileErr(helperapi.CodeFileNotDir, map[string]any{"path": dir})
-	}
-	uid, gid := fileOwner(fi)
-	return uid, gid, nil
-}
-
-// adopt gives a new entry to its directory's owner.
-func adopt(root *os.Root, p string) error {
-	uid, gid, err := ownerOfDir(root, parentOf(p))
+	sub, err := subDir(d, name)
 	if err != nil {
-		return err
+		return nil, fileErr(helperapi.CodeFileIsLink, map[string]any{"path": p})
 	}
-	return root.Lchown(p, uid, gid)
+	if err := sub.Lchown(".", uid, gid); err != nil {
+		_ = sub.Close()
+		return nil, err
+	}
+	return sub, nil
 }
 
 func (f *Files) write(_ context.Context, _ helperapi.Caller, req helperapi.FileWriteRequest) (helperapi.FileSaved, error) {
@@ -557,13 +778,20 @@ func (f *Files) write(_ context.Context, _ helperapi.Caller, req helperapi.FileW
 		return helperapi.FileSaved{}, err
 	}
 	defer func() { _ = root.Close() }()
-	dir := parentOf(req.Path)
-	uid, gid, err := ownerOfDir(root, dir)
+	// The directory is opened once: the look at the file, the temporary
+	// file and the rename over it all happen in it, by single names.
+	dir, err := root.dir(parentOf(req.Path), false)
+	if err != nil {
+		return helperapi.FileSaved{}, err
+	}
+	defer func() { _ = dir.Close() }()
+	name := path.Base(req.Path)
+	uid, gid, err := dirOwner(dir)
 	if err != nil {
 		return helperapi.FileSaved{}, err
 	}
 	mode := fs.FileMode(defaultFileMod)
-	fi, err := root.Lstat(req.Path)
+	fi, err := dir.Lstat(name)
 	switch {
 	case err == nil && fi.Mode()&fs.ModeSymlink != 0:
 		return helperapi.FileSaved{}, fileErr(helperapi.CodeFileIsLink, map[string]any{"path": req.Path})
@@ -581,8 +809,8 @@ func (f *Files) write(_ context.Context, _ helperapi.Caller, req helperapi.FileW
 	case req.ETag != "":
 		return helperapi.FileSaved{}, fileErr(helperapi.CodeFileChanged, map[string]any{"path": req.Path})
 	}
-	tmp := join(dir, randomName(".cairn-save-"))
-	out, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	tmp := randomName(".cairn-save-")
+	out, err := dir.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return helperapi.FileSaved{}, err
 	}
@@ -590,7 +818,7 @@ func (f *Files) write(_ context.Context, _ helperapi.Caller, req helperapi.FileW
 	defer func() {
 		if !ok {
 			_ = out.Close()
-			_ = root.Remove(tmp)
+			_ = dir.Remove(tmp)
 		}
 	}()
 	if _, err := io.WriteString(out, req.Content); err != nil {
@@ -608,15 +836,16 @@ func (f *Files) write(_ context.Context, _ helperapi.Caller, req helperapi.FileW
 	if err := out.Close(); err != nil {
 		return helperapi.FileSaved{}, err
 	}
-	if err := root.Rename(tmp, req.Path); err != nil {
+	step("write", req.Path)
+	if err := dir.Rename(tmp, name); err != nil {
 		return helperapi.FileSaved{}, err
 	}
 	ok = true
-	fi, err = root.Lstat(req.Path)
+	fi, err = dir.Lstat(name)
 	if err != nil {
 		return helperapi.FileSaved{}, err
 	}
-	return helperapi.FileSaved{Entry: entryOf(root, req.Path, fi, newNames()), ETag: etagOf(fi)}, nil
+	return helperapi.FileSaved{Entry: entryOf(dir, name, req.Path, fi, newNames()), ETag: etagOf(fi)}, nil
 }
 
 // open answers with the file itself, for downloads and previews.
@@ -627,7 +856,7 @@ func (f *Files) open(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 	}
 	defer func() { _ = root.Close() }()
 	// Non-blocking, so that a pipe someone put there cannot hang it.
-	file, err := root.OpenFile(rel(req.Path), os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	file, err := root.open(req.Path)
 	if err != nil {
 		return helperapi.FileEntry{}, nil, notFound(err, req.Path)
 	}
@@ -640,9 +869,7 @@ func (f *Files) open(_ context.Context, _ helperapi.Caller, req helperapi.FileRe
 		return helperapi.FileEntry{}, nil, fileErr(helperapi.CodeFileNotFound, map[string]any{"path": req.Path})
 	}
 	_ = syscall.SetNonblock(int(file.Fd()), false)
-	e := entryOf(root, req.Path, fi, newNames())
-	e.Name = path.Base("/" + req.Path)
-	return e, file, nil
+	return describe(req.Path, fi, newNames()), file, nil
 }
 
 func (f *Files) create(req helperapi.FileNewRequest, dir bool) (helperapi.FileEntry, error) {
@@ -655,16 +882,22 @@ func (f *Files) create(req helperapi.FileNewRequest, dir bool) (helperapi.FileEn
 		return helperapi.FileEntry{}, err
 	}
 	defer func() { _ = root.Close() }()
-	if _, _, err := ownerOfDir(root, req.Dir); err != nil {
+	// The directory is opened once; the new entry is made in it and given
+	// to its owner itself (an open file, a directory entered by its name).
+	d, err := root.dir(req.Dir, false)
+	if err != nil {
 		return helperapi.FileEntry{}, err
 	}
+	defer func() { _ = d.Close() }()
+	uid, gid, err := dirOwner(d)
+	if err != nil {
+		return helperapi.FileEntry{}, err
+	}
+	var file *os.File
 	if dir {
-		err = root.Mkdir(p, defaultDirMod)
+		err = d.Mkdir(req.Name, defaultDirMod)
 	} else {
-		var file *os.File
-		if file, err = root.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, defaultFileMod); err == nil {
-			err = file.Close()
-		}
+		file, err = d.OpenFile(req.Name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, defaultFileMod)
 	}
 	if errors.Is(err, fs.ErrExist) {
 		return helperapi.FileEntry{}, fileErr(helperapi.CodeFileExists, map[string]any{"path": p})
@@ -672,14 +905,23 @@ func (f *Files) create(req helperapi.FileNewRequest, dir bool) (helperapi.FileEn
 	if err != nil {
 		return helperapi.FileEntry{}, notFound(err, p)
 	}
-	if err := adopt(root, p); err != nil {
-		return helperapi.FileEntry{}, err
+	step("create", p)
+	if dir {
+		var sub *os.Root
+		if sub, err = adoptDir(d, req.Name, p); err == nil {
+			err = sub.Close()
+		}
+	} else {
+		err = errors.Join(file.Chown(uid, gid), file.Close())
 	}
-	fi, err := root.Lstat(p)
 	if err != nil {
 		return helperapi.FileEntry{}, err
 	}
-	return entryOf(root, p, fi, newNames()), nil
+	fi, err := d.Lstat(req.Name)
+	if err != nil {
+		return helperapi.FileEntry{}, err
+	}
+	return entryOf(d, req.Name, p, fi, newNames()), nil
 }
 
 func (f *Files) mkdir(_ context.Context, _ helperapi.Caller, req helperapi.FileNewRequest) (helperapi.FileEntry, error) {
@@ -700,20 +942,32 @@ func (f *Files) rename(_ context.Context, _ helperapi.Caller, req helperapi.File
 		return helperapi.FileEntry{}, err
 	}
 	defer func() { _ = root.Close() }()
-	if _, err := root.Lstat(req.Path); err != nil {
-		return helperapi.FileEntry{}, notFound(err, req.Path)
-	}
-	if _, err := root.Lstat(to); err == nil {
-		return helperapi.FileEntry{}, fileErr(helperapi.CodeFileExists, map[string]any{"path": to})
-	}
-	if err := root.Rename(req.Path, to); err != nil {
-		return helperapi.FileEntry{}, notFound(err, req.Path)
-	}
-	fi, err := root.Lstat(to)
+	// Both names are names in the one directory, opened once.
+	dir, name, done, err := root.parent(req.Path)
 	if err != nil {
 		return helperapi.FileEntry{}, err
 	}
-	return entryOf(root, to, fi, newNames()), nil
+	defer done()
+	if _, err := dir.Lstat(name); err != nil {
+		return helperapi.FileEntry{}, notFound(err, req.Path)
+	}
+	exists := fileErr(helperapi.CodeFileExists, map[string]any{"path": to})
+	if _, err := dir.Lstat(req.Name); err == nil {
+		return helperapi.FileEntry{}, exists
+	}
+	step("rename", req.Path)
+	// Never over an entry made there since the look.
+	if err := renameAt(dir, name, dir, req.Name, true); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return helperapi.FileEntry{}, exists
+		}
+		return helperapi.FileEntry{}, notFound(err, req.Path)
+	}
+	fi, err := dir.Lstat(req.Name)
+	if err != nil {
+		return helperapi.FileEntry{}, err
+	}
+	return entryOf(dir, req.Name, to, fi, newNames()), nil
 }
 
 // search walks below a directory (links are not followed) for names or
@@ -743,39 +997,43 @@ func (f *Files) search(ctx context.Context, _ helperapi.Caller, req helperapi.Fi
 		}
 		return nil
 	}
-	err = fs.WalkDir(root.FS(), rel(req.Path), func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil //nolint:nilerr // unreadable entries are skipped
-		}
-		if ctx.Err() != nil {
-			out.Truncated = true
-			return stop
-		}
+	// The directory is opened once and walked one level at a time (see
+	// walkTree); what cannot be read is skipped. A file is searched by
+	// itself, by its name in its directory.
+	name := "."
+	dir, err := root.dir(req.Path, true)
+	done := func() { _ = dir.Close() }
+	if errCode, ok := helperapi.AsError(err); ok && errCode.Code == helperapi.CodeFileNotDir {
+		dir, name, done, err = root.parent(req.Path)
+	}
+	if err != nil {
+		return out, err
+	}
+	defer done()
+	err = walkNamed(ctx, dir, name, req.Path, true, func(e walkEntry) error {
 		if visited++; visited > 200000 {
 			out.Truncated = true
 			return stop
 		}
-		rp := strings.TrimPrefix(p, "./")
-		if rp == "." {
-			rp = ""
-		}
-		if d.IsDir() && (rp == trashName || rp == systemTrash) {
+		rp, mode := e.Path, e.Info.Mode()
+		if mode.IsDir() && (rp == trashName || rp == systemTrash) {
 			return fs.SkipDir
 		}
-		if rp != "" && strings.Contains(fold(d.Name()), q) {
-			if err := add(helperapi.FileMatch{Path: rp, Type: typeOf(d.Type())}); err != nil {
+		if rp != "" && strings.Contains(fold(path.Base(rp)), q) {
+			if err := add(helperapi.FileMatch{Path: rp, Type: typeOf(mode)}); err != nil {
 				return err
 			}
 		}
-		if !req.Content || !d.Type().IsRegular() {
+		if !req.Content || !mode.IsRegular() || e.Info.Size() > helperapi.FileSearchBytes {
 			return nil
 		}
-		info, err := d.Info()
-		if err != nil || info.Size() > helperapi.FileSearchBytes {
+		file, _, err := e.open()
+		if err != nil {
 			return nil //nolint:nilerr // skipped
 		}
-		data, err := readRegular(root, p, helperapi.FileSearchBytes)
-		if err != nil || looksBinary(data) {
+		data, err := io.ReadAll(io.LimitReader(file, helperapi.FileSearchBytes+1))
+		_ = file.Close()
+		if err != nil || len(data) > helperapi.FileSearchBytes || looksBinary(data) {
 			return nil //nolint:nilerr // skipped
 		}
 		for i, line := range strings.Split(string(data), "\n") {
@@ -791,6 +1049,10 @@ func (f *Files) search(ctx context.Context, _ helperapi.Caller, req helperapi.Fi
 		}
 		return nil
 	})
+	if err != nil && ctx.Err() != nil {
+		out.Truncated = true
+		return out, nil
+	}
 	if err != nil && !errors.Is(err, stop) {
 		return out, notFound(err, req.Path)
 	}

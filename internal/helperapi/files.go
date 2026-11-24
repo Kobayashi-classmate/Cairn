@@ -290,7 +290,10 @@ func (r FileRenameRequest) Validate() error {
 	return nil
 }
 
-// FileTransferRequest copies or moves entries into a directory.
+// FileTransferRequest copies or moves entries into a directory. With
+// Overwrite, an entry of the same name there is replaced: a directory by
+// going to the trash (file.cross_device when the trash is on another file
+// system), anything else for good.
 type FileTransferRequest struct {
 	Root      string   `json:"root"`
 	Paths     []string `json:"paths"`
@@ -494,7 +497,8 @@ type TrashList struct {
 
 var trashID = regexp.MustCompile(`^[0-9a-f]{16}$`)
 
-// TrashRequest restores trash entries.
+// TrashRequest restores trash entries; Overwrite replaces what is in
+// their place as a FileTransferRequest does.
 type TrashRequest struct {
 	Root      string   `json:"root"`
 	IDs       []string `json:"ids"`

@@ -180,6 +180,63 @@ func TestBackupRunUploadAndRestore(t *testing.T) {
 	b.Files.Log.Info("done")
 }
 
+// A directory target, and a restore's destination, inside one site never
+// reach into another site through a link the site's owner made.
+func TestDirectoryBackupsStayInTheirSite(t *testing.T) {
+	e, _, _ := newBackupEnv(t)
+	e.put("/srv/www/bar/app/config.php", "DB_PASSWORD=bar-secret")
+	e.put("/srv/www/bar/app/uploads/keep.txt", "bar")
+	e.put("/srv/www/foo/app/index.php", "foo")
+	e.put("/srv/www/foo/app/storage/own.txt", "foo's own")
+	if err := os.Symlink("../../bar/app", filepath.Join(e.f.Root, "/srv/www/foo/app/data")); err != nil {
+		t.Fatal(err)
+	}
+	// A link that stays inside the site is the site's own business.
+	if err := os.Symlink("storage", filepath.Join(e.f.Root, "/srv/www/foo/app/current")); err != nil {
+		t.Fatal(err)
+	}
+	plan := helperapi.BackupPlan{ID: "p4123456789abcde", Retention: helperapi.DefaultRetention,
+		Targets: []helperapi.BackupTarget{{Kind: "directory", Root: "sites", Path: "foo/app/data"}, {Kind: "directory", Root: "sites", Path: "foo/app/current"}}}
+	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionBackupPlanApply, plan); err != nil {
+		t.Fatal(err)
+	}
+	// The target behind the link fails; the other one is backed up.
+	op, _, log := e.run(helperapi.ActionBackupRun, helperapi.PlanRef{Plan: plan.ID})
+	l, err := call[helperapi.BackupList](t, e.r, helperapi.ActionBackupList, helperapi.PlanRef{Plan: plan.ID})
+	if op.State != helperapi.OpFailed || err != nil || len(l.Files) != 1 || l.Files[0].Target != "dir-sites-foo-app-current" {
+		t.Fatalf("backup through a link to another site: %+v %+v %v\n%s", op, l.Files, err, log)
+	}
+	own := l.Files[0].Name
+	for _, dir := range []string{"check", "foo/restored"} {
+		if err := os.MkdirAll(filepath.Join(e.f.Root, "/srv/www", dir), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if op, _, log := e.run(helperapi.ActionBackupRestore, helperapi.BackupRestoreRequest{Plan: plan.ID, Name: own,
+		Dest: helperapi.FileRef{Root: "sites", Path: "check"}}); op.State != helperapi.OpSucceeded || e.read("/srv/www/check/own.txt") != "foo's own" {
+		t.Fatalf("restore of the site's own directory: %+v\n%s", op, log)
+	}
+	// Restoring into the site, through its own link too.
+	if err := os.Symlink("../restored", filepath.Join(e.f.Root, "/srv/www/foo/app/back")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(e.f.Root, "/srv/www/foo/restored/into"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if op, _, log := e.run(helperapi.ActionBackupRestore, helperapi.BackupRestoreRequest{Plan: plan.ID, Name: own,
+		Dest: helperapi.FileRef{Root: "sites", Path: "foo/app/back/into"}}); op.State != helperapi.OpSucceeded || e.read("/srv/www/foo/restored/into/own.txt") != "foo's own" {
+		t.Fatalf("restore through a link inside the site: %+v\n%s", op, log)
+	}
+	// Restoring into the other site through the link is refused.
+	if op, _, log := e.run(helperapi.ActionBackupRestore, helperapi.BackupRestoreRequest{Plan: plan.ID, Name: own,
+		Dest: helperapi.FileRef{Root: "sites", Path: "foo/app/data/uploads"}}); op.State != helperapi.OpFailed || e.exists("/srv/www/bar/app/uploads/own.txt") {
+		t.Fatalf("restore through a link to another site: %+v\n%s", op, log)
+	}
+	if entries, _ := os.ReadDir(filepath.Join(e.f.Root, "/srv/www/bar/app/uploads")); len(entries) != 1 {
+		t.Fatalf("the other site's directory now holds %v", entries)
+	}
+}
+
 func TestEncryptedBackups(t *testing.T) {
 	e, _, _ := newBackupEnv(t)
 	e.put("/srv/www/shop/app/secret.txt", "top secret")

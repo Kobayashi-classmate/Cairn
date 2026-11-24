@@ -380,12 +380,17 @@ func TestVolumes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = root.Close() }()
-	got := volumes(root, "shop/app/x.part1.rar")
+	app, err := root.dir("shop/app", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = app.Close() }()
+	got := volumes(app, "x.part1.rar")
 	slices.Sort(got)
 	if strings.Join(got, " ") != "x.part1.rar x.part10.rar x.part2.rar" {
 		t.Fatalf("volumes: %v", got)
 	}
-	if got := volumes(root, "shop/app/z.rar"); len(got) != 1 || got[0] != "z.rar" {
+	if got := volumes(app, "z.rar"); len(got) != 1 || got[0] != "z.rar" {
 		t.Fatalf("single: %v", got)
 	}
 }

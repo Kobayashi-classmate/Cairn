@@ -103,13 +103,18 @@ func TestWalksDoNotFollowSwappedDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = sites.Close() }()
+	app, err := sites.dir("shop/app", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = app.Close() }()
 	if root {
 		if op, _, log := e.run(helperapi.ActionFileChown, helperapi.FileChownRequest{Root: "sites", Paths: []string{"shop/app/tree"}, User: "nobody", Recursive: true}); op.State != helperapi.OpSucceeded || !swapped() {
 			t.Fatalf("chown: %+v\n%s", op, log)
 		}
 		untouched("chown")
 		undo()
-		if err := chownTree(context.Background(), sites, "shop/app/tree", 1234, 1234, io.Discard); err != nil || !swapped() {
+		if err := chownTree(context.Background(), app, "tree", "shop/app/tree", 1234, 1234, io.Discard); err != nil || !swapped() {
 			t.Fatalf("chownTree: %v", err)
 		}
 		untouched("chownTree")
@@ -142,7 +147,7 @@ func TestWalksDoNotFollowSwappedDirs(t *testing.T) {
 
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	if err := tarTree(context.Background(), sites, "shop/app/tree", tw, nil, io.Discard); err != nil || !swapped() {
+	if err := tarTree(context.Background(), app, "tree", tw, nil, io.Discard); err != nil || !swapped() {
 		t.Fatalf("tarTree: %v", err)
 	}
 	_ = tw.Close()
@@ -171,4 +176,49 @@ func TestWalksDoNotFollowSwappedDirs(t *testing.T) {
 		t.Fatal("extract: the entry before the swap")
 	}
 	undo2()
+}
+
+// renameAt takes plain names only: the system call resolves anything more
+// from the open directory on, past the roots' guard.
+func TestRenameAtTakesPlainNamesOnly(t *testing.T) {
+	base := t.TempDir()
+	for _, d := range []string{"site/in", "other"} {
+		if err := os.MkdirAll(filepath.Join(base, d), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"site/a", "other/secret"} {
+		if err := os.WriteFile(filepath.Join(base, f), []byte(f), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	site, err := os.OpenRoot(filepath.Join(base, "site"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = site.Close() }()
+	for _, c := range [][2]string{
+		{"../other/secret", "stolen"}, {"a", "../other/planted"}, {"a", "in/b"}, {"in/../a", "b"},
+		{"a", ""}, {"", "b"}, {"a", "."}, {"..", "b"},
+	} {
+		if err := renameAt(site, c[0], site, c[1], true); err == nil {
+			t.Errorf("renameAt(%q, %q) went through", c[0], c[1])
+		}
+	}
+	if _, err := os.Stat(filepath.Join(base, "other/secret")); err != nil {
+		t.Errorf("the file outside the directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(base, "other/planted")); err == nil {
+		t.Error("a file was moved outside the directory")
+	}
+	// Plain names still move, and an entry in the way is kept.
+	if err := renameAt(site, "a", site, "b", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(base, "site/c"), []byte("c"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := renameAt(site, "b", site, "c", true); err == nil {
+		t.Error("renameAt with keep replaced an entry")
+	}
 }
