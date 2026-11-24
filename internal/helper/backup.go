@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
@@ -44,6 +45,15 @@ type Backups struct {
 	Files *Files
 	DBs   *DBs
 	Log   *slog.Logger
+	// clock is what time it is (time.Now when nil; tests set it).
+	clock func() time.Time
+}
+
+func (b *Backups) now() time.Time {
+	if b.clock != nil {
+		return b.clock()
+	}
+	return time.Now()
 }
 
 // newStore connects to a bucket. Tests replace it.
@@ -185,6 +195,141 @@ func parseBackupName(name string) (string, time.Time, bool) {
 	return name[:i], at, true
 }
 
+// legacyKey is the key a directory's backups had before Key wrote every
+// byte of the path apart: "/" and "." both became "-", nothing else
+// changed (so that a path with a space, say, made names no action took).
+func legacyKey(t helperapi.BackupTarget) string {
+	if t.Kind != helperapi.BackupDirectory {
+		return t.Key()
+	}
+	key := t.Root
+	if t.Path != "" {
+		key += "-" + t.Path
+	}
+	return "dir-" + strings.NewReplacer("/", "-", ".", "-").Replace(key)
+}
+
+// renamedKeys maps the old keys of the plan's directory targets to their
+// keys now, where the two differ. An old key that more than one target
+// had, or that is a target's key now, maps to nothing: whose backups those
+// are cannot be told, and they stay as they are.
+func renamedKeys(p helperapi.BackupPlan) map[string]string {
+	current := map[string]bool{}
+	for _, t := range p.Targets {
+		current[t.Key()] = true
+	}
+	out, ambiguous := map[string]string{}, map[string]bool{}
+	for _, t := range p.Targets {
+		old := legacyKey(t)
+		if old == t.Key() || current[old] {
+			continue
+		}
+		if prev, ok := out[old]; ok && prev != t.Key() {
+			ambiguous[old] = true
+		}
+		out[old] = t.Key()
+	}
+	for k := range ambiguous {
+		delete(out, k)
+	}
+	return out
+}
+
+// currentKey is a key as it is now (see renamedKeys).
+func currentKey(renamed map[string]string, key string) string {
+	if now, ok := renamed[key]; ok {
+		return now
+	}
+	return key
+}
+
+// currentName is a backup's name with its key as it is now.
+func currentName(renamed map[string]string, name string) string {
+	key, _, ok := parseBackupName(name)
+	if !ok {
+		return name
+	}
+	return currentKey(renamed, key) + name[len(key):]
+}
+
+// formerName is the name a backup, named as now, had before its key
+// changed; false when its key did not change.
+func formerName(renamed map[string]string, name string) (string, bool) {
+	key, _, ok := parseBackupName(name)
+	if !ok {
+		return "", false
+	}
+	for old, now := range renamed {
+		if now == key {
+			return old + name[len(key):], true
+		}
+	}
+	return "", false
+}
+
+// namesOf lists the names a backup may have: its name as now, then the
+// one it had before its key changed. The bucket keeps the old names of
+// what it holds; the local copies are renamed (see renameOld).
+func namesOf(p helperapi.BackupPlan, name string) []string {
+	out := []string{name}
+	if old, ok := formerName(renamedKeys(p), name); ok {
+		out = append(out, old)
+	}
+	return out
+}
+
+// renameOld gives the local backups whose key changed their names of now:
+// they are then listed, pruned, restored and downloaded like the others.
+// One that cannot be renamed keeps its name and is still pruned with its
+// target's backups.
+func renameOld(dir *os.Root, renamed map[string]string, log io.Writer) {
+	if len(renamed) == 0 {
+		return
+	}
+	for _, n := range backupNames(dir) {
+		to := currentName(renamed, n)
+		if to == n || !helperapi.ValidBackupName(to) {
+			continue
+		}
+		if err := renameAt(dir, n, dir, to, true); err != nil {
+			_, _ = fmt.Fprintf(log, "! %s keeps its name: %v\n", n, err)
+		}
+	}
+}
+
+// backupNames lists the backups in a plan's directory: the names that read
+// as a backup's (whatever characters an older version put in them), not
+// the hidden ones being written.
+func backupNames(dir *os.Root) []string {
+	names, _ := dirNames(dir)
+	var out []string
+	for _, n := range names {
+		if _, _, ok := parseBackupName(n); ok && !strings.HasPrefix(n, ".") {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// planDir opens a plan's directory of the panel's data directory root,
+// one level at a time: the directories themselves, never a link the panel
+// put in their place. Everything after goes by single names in it.
+func planDir(root *os.Root, plan string) (*os.Root, error) {
+	dir, err := root.OpenRoot(".")
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range strings.Split(localDir(plan), "/") {
+		next, err := subDir(dir, c)
+		_ = dir.Close()
+		if err != nil {
+			return nil, err
+		}
+		dir = next
+	}
+	return dir, nil
+}
+
 // Running -------------------------------------------------------------------
 
 // lockPlan keeps two runs of a plan apart, across processes (the timer
@@ -218,7 +363,7 @@ func (b *Backups) Run(ctx context.Context, id string, log io.Writer) (helperapi.
 		return helperapi.BackupRun{}, err
 	}
 	defer unlock()
-	now := time.Now()
+	now := b.now()
 	run := helperapi.BackupRun{Started: now.Unix()}
 	root, uid, gid, err := b.panelRoot()
 	if err != nil {
@@ -228,6 +373,12 @@ func (b *Backups) Run(ctx context.Context, id string, log io.Writer) (helperapi.
 	if err := ownedDirs(root, localDir(id), uid, gid); err != nil {
 		return run, err
 	}
+	dir, err := planDir(root, id)
+	if err != nil {
+		return run, err
+	}
+	defer func() { _ = dir.Close() }()
+	renameOld(dir, renamedKeys(p), log)
 	var store objectStore
 	if p.Storage != nil {
 		if store, err = newStore(*p.Storage); err != nil {
@@ -262,11 +413,11 @@ func (b *Backups) Run(ctx context.Context, id string, log io.Writer) (helperapi.
 		}
 		_, _ = fmt.Fprintf(log, "%s: copied to %s\n", name, p.Storage.Bucket)
 		if !p.KeepLocal {
-			_ = root.Remove(localDir(id) + "/" + name)
+			_ = dir.Remove(name)
 		}
 	}
-	run.Deleted = b.prune(ctx, p, root, store, log)
-	run.Finished, run.OK = time.Now().Unix(), failure == nil
+	run.Deleted = b.prune(ctx, p, dir, store, now, run.Files, log)
+	run.Finished, run.OK = b.now().Unix(), failure == nil
 	if failure != nil {
 		run.Error = asError(failure)
 	}
@@ -547,19 +698,32 @@ func keep(times []time.Time, r helperapi.Retention) map[int]bool {
 	return kept
 }
 
-// doomed lists the names retention drops.
-func doomed(names []string, r helperapi.Retention) []string {
+// futureSlack is how far past now a backup's time may be before it counts
+// as named by a clock that was ahead.
+const futureSlack = time.Hour
+
+// doomed lists the names retention drops, grouped by target (their key as
+// it is now: see renamedKeys). Names dated past now (and futureSlack) are
+// left out and listed apart: a clock that was ahead named them, and as the
+// newest they would push out every backup made since it was put right.
+func doomed(names []string, r helperapi.Retention, now time.Time, renamed map[string]string) (out, future []string) {
 	type item struct {
 		name string
 		at   time.Time
 	}
 	groups := map[string][]item{}
 	for _, n := range names {
-		if key, at, ok := parseBackupName(n); ok {
-			groups[key] = append(groups[key], item{n, at})
+		key, at, ok := parseBackupName(n)
+		if !ok {
+			continue
 		}
+		if at.After(now.Add(futureSlack)) {
+			future = append(future, n)
+			continue
+		}
+		key = currentKey(renamed, key)
+		groups[key] = append(groups[key], item{n, at})
 	}
-	var out []string
 	for _, items := range groups {
 		sort.Slice(items, func(i, j int) bool { return items[i].at.After(items[j].at) })
 		times := make([]time.Time, len(items))
@@ -574,34 +738,36 @@ func doomed(names []string, r helperapi.Retention) []string {
 		}
 	}
 	sort.Strings(out)
-	return out
+	sort.Strings(future)
+	return out, future
 }
 
-func (b *Backups) localNames(root *os.Root, plan string) []string {
-	d, err := root.Open(localDir(plan))
-	if err != nil {
-		return nil
-	}
-	defer func() { _ = d.Close() }()
-	names, _ := d.Readdirnames(-1)
-	var out []string
-	for _, n := range names {
-		if helperapi.ValidBackupName(n) {
-			out = append(out, n)
-		}
-	}
-	return out
-}
-
-// prune applies the retention here and in the bucket.
-func (b *Backups) prune(ctx context.Context, p helperapi.BackupPlan, root *os.Root, st objectStore, log io.Writer) int {
+// prune applies the retention here (dir, the plan's directory) and in the
+// bucket, as of now. The backups this run made (fresh) are never removed by
+// it, whatever their names say.
+func (b *Backups) prune(ctx context.Context, p helperapi.BackupPlan, dir *os.Root, st objectStore, now time.Time, fresh []string,
+	log io.Writer) int {
+	renamed := renamedKeys(p)
 	n := 0
-	for _, name := range doomed(b.localNames(root, p.ID), p.Retention) {
-		if root.Remove(localDir(p.ID)+"/"+name) == nil {
-			_, _ = fmt.Fprintf(log, "removed %s (retention)\n", name)
+	apply := func(names []string, where string, remove func(string) error) {
+		gone, future := doomed(names, p.Retention, now, renamed)
+		for _, name := range future {
+			_, _ = fmt.Fprintf(log, "! %s%s is dated after now (was the clock ahead?): retention leaves it alone\n", name, where)
+		}
+		for _, name := range gone {
+			if slices.Contains(fresh, name) {
+				_, _ = fmt.Fprintf(log, "! %s%s was made by this run: kept\n", name, where)
+				continue
+			}
+			if err := remove(name); err != nil {
+				_, _ = fmt.Fprintf(log, "! removing %s%s: %v\n", name, where, err)
+				continue
+			}
+			_, _ = fmt.Fprintf(log, "removed %s%s (retention)\n", name, where)
 			n++
 		}
 	}
+	apply(backupNames(dir), "", dir.Remove)
 	if st == nil {
 		return n
 	}
@@ -614,12 +780,7 @@ func (b *Backups) prune(ctx context.Context, p helperapi.BackupPlan, root *os.Ro
 	for _, o := range objs {
 		names = append(names, o.name)
 	}
-	for _, name := range doomed(names, p.Retention) {
-		if st.remove(ctx, p.ID+"/"+name) == nil {
-			_, _ = fmt.Fprintf(log, "removed %s from %s (retention)\n", name, p.Storage.Bucket)
-			n++
-		}
-	}
+	apply(names, " from "+p.Storage.Bucket, func(name string) error { return st.remove(ctx, p.ID+"/"+name) })
 	return n
 }
 
@@ -662,6 +823,7 @@ func (b *Backups) list(ctx context.Context, _ helperapi.Caller, req helperapi.Pl
 	if err != nil {
 		return helperapi.BackupList{}, err
 	}
+	renamed := renamedKeys(p)
 	out := helperapi.BackupList{Files: []helperapi.BackupFile{}}
 	byName := map[string]*helperapi.BackupFile{}
 	add := func(name string, size int64, local bool) {
@@ -681,10 +843,16 @@ func (b *Backups) list(ctx context.Context, _ helperapi.Caller, req helperapi.Pl
 		}
 	}
 	if root, _, _, err := b.panelRoot(); err == nil {
-		for _, n := range b.localNames(root, p.ID) {
-			if fi, err := root.Lstat(localDir(p.ID) + "/" + n); err == nil && fi.Mode().IsRegular() {
-				add(n, fi.Size(), true)
+		if dir, err := planDir(root, p.ID); err == nil {
+			// What is listed is what the other actions take: the names of
+			// now (see renameOld).
+			renameOld(dir, renamed, io.Discard)
+			for _, n := range backupNames(dir) {
+				if fi, err := dir.Lstat(n); err == nil && fi.Mode().IsRegular() && helperapi.ValidBackupName(n) {
+					add(n, fi.Size(), true)
+				}
 			}
+			_ = dir.Close()
 		}
 		_ = root.Close()
 	}
@@ -697,8 +865,10 @@ func (b *Backups) list(ctx context.Context, _ helperapi.Caller, req helperapi.Pl
 		if err != nil {
 			out.RemoteError = &helperapi.Error{Code: helperapi.CodeBackupStorage, Params: map[string]any{"detail": err.Error()}}
 		}
+		// The bucket keeps the old names: each is listed as now, and found
+		// by either (see namesOf).
 		for _, o := range objs {
-			add(o.name, o.size, false)
+			add(currentName(renamed, o.name), o.size, false)
 		}
 	}
 	for _, f := range byName {
@@ -723,6 +893,13 @@ func (b *Backups) deleteOp(ctx context.Context, _ helperapi.Caller, req helperap
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
+	dir, err := planDir(root, p.ID)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	if dir != nil {
+		defer func() { _ = dir.Close() }()
+	}
 	var st objectStore
 	if req.Remote && p.Storage != nil {
 		if st, err = newStore(*p.Storage); err != nil {
@@ -731,12 +908,16 @@ func (b *Backups) deleteOp(ctx context.Context, _ helperapi.Caller, req helperap
 	}
 	bt := &batch{log: log}
 	for _, n := range req.Names {
-		lerr := root.Remove(localDir(p.ID) + "/" + n)
-		rerr := fs.ErrNotExist
-		if st != nil {
-			rerr = st.remove(ctx, p.ID+"/"+n)
+		found := false
+		for _, name := range namesOf(p, n) {
+			if dir != nil && dir.Remove(name) == nil {
+				found = true
+			}
+			if st != nil && st.remove(ctx, p.ID+"/"+name) == nil {
+				found = true
+			}
 		}
-		if errors.Is(lerr, fs.ErrNotExist) && rerr != nil {
+		if !found {
 			bt.failed(n, backupErr(helperapi.CodeBackupNotFound, map[string]any{"name": n}))
 			continue
 		}
@@ -757,17 +938,26 @@ func (b *Backups) presign(ctx context.Context, _ helperapi.Caller, req helperapi
 	if err != nil {
 		return helperapi.PresignResponse{}, backupErr(helperapi.CodeBackupStorage, map[string]any{"detail": err.Error()})
 	}
-	u, err := st.presign(ctx, p.ID+"/"+req.Names[0], presignTTL)
+	// The copy under its old name, when only that one is there.
+	name := req.Names[0]
+	if names := namesOf(p, name); len(names) > 1 {
+		if _, err := st.stat(ctx, p.ID+"/"+name); err != nil {
+			if _, err := st.stat(ctx, p.ID+"/"+names[1]); err == nil {
+				name = names[1]
+			}
+		}
+	}
+	u, err := st.presign(ctx, p.ID+"/"+name, presignTTL)
 	if err != nil {
 		return helperapi.PresignResponse{}, backupErr(helperapi.CodeBackupStorage, map[string]any{"detail": err.Error()})
 	}
-	return helperapi.PresignResponse{URL: u, Expires: time.Now().Add(presignTTL).Unix()}, nil
+	return helperapi.PresignResponse{URL: u, Expires: b.now().Add(presignTTL).Unix()}, nil
 }
 
-// fetchLocal brings a remote copy into the panel's directory unless it is
-// there already.
-func (b *Backups) fetchLocal(ctx context.Context, p helperapi.BackupPlan, root *os.Root, name string, uid, gid int, log io.Writer) error {
-	if fi, err := root.Lstat(localDir(p.ID) + "/" + name); err == nil && fi.Mode().IsRegular() {
+// fetchLocal brings a remote copy into the plan's directory dir unless it
+// is there already.
+func (b *Backups) fetchLocal(ctx context.Context, p helperapi.BackupPlan, dir *os.Root, name string, uid, gid int, log io.Writer) error {
+	if fi, err := dir.Lstat(name); err == nil && fi.Mode().IsRegular() {
 		return nil
 	}
 	if p.Storage == nil {
@@ -777,21 +967,23 @@ func (b *Backups) fetchLocal(ctx context.Context, p helperapi.BackupPlan, root *
 	if err != nil {
 		return backupErr(helperapi.CodeBackupStorage, map[string]any{"detail": err.Error()})
 	}
-	in, err := st.get(ctx, p.ID+"/"+name)
+	var in io.ReadCloser
+	for _, n := range namesOf(p, name) {
+		if in, err = st.get(ctx, p.ID+"/"+n); err == nil {
+			break
+		}
+	}
 	if err != nil {
 		return backupErr(helperapi.CodeBackupNotFound, map[string]any{"name": name, "detail": err.Error()})
 	}
 	defer func() { _ = in.Close() }()
-	if err := ownedDirs(root, localDir(p.ID), uid, gid); err != nil {
-		return err
-	}
 	// The directory is the panel's: whatever it put at the temporary name
 	// (a hard link to another file, say) is removed, never written into.
-	tmp := localDir(p.ID) + "/.partial-" + name
-	if err := root.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	tmp := ".partial-" + name
+	if err := dir.Remove(tmp); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	out, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
+	out, err := dir.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
 	}
@@ -803,11 +995,20 @@ func (b *Backups) fetchLocal(ctx context.Context, p helperapi.BackupPlan, root *
 		err = cerr
 	}
 	if err != nil {
-		_ = root.Remove(tmp)
+		_ = dir.Remove(tmp)
 		return backupErr(helperapi.CodeBackupStorage, map[string]any{"detail": err.Error()})
 	}
 	_, _ = fmt.Fprintf(log, "fetched %s (%d bytes)\n", name, n)
-	return root.Rename(tmp, localDir(p.ID)+"/"+name)
+	return renameAt(dir, tmp, dir, name, false)
+}
+
+// ownedPlanDir opens the plan's directory of root, made first for the
+// panel (uid:gid) where missing.
+func ownedPlanDir(root *os.Root, plan string, uid, gid int) (*os.Root, error) {
+	if err := ownedDirs(root, localDir(plan), uid, gid); err != nil {
+		return nil, err
+	}
+	return planDir(root, plan)
 }
 
 func (b *Backups) fetchOp(ctx context.Context, _ helperapi.Caller, req helperapi.BackupFilesRequest, log io.Writer) (any, error) {
@@ -820,9 +1021,15 @@ func (b *Backups) fetchOp(ctx context.Context, _ helperapi.Caller, req helperapi
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
+	dir, err := ownedPlanDir(root, p.ID, uid, gid)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	renameOld(dir, renamedKeys(p), log)
 	bt := &batch{log: log}
 	for _, n := range req.Names {
-		if err := b.fetchLocal(ctx, p, root, n, uid, gid, log); err != nil {
+		if err := b.fetchLocal(ctx, p, dir, n, uid, gid, log); err != nil {
 			bt.failed(n, err)
 			continue
 		}
@@ -836,6 +1043,75 @@ func (b *Backups) fetchOp(ctx context.Context, _ helperapi.Caller, req helperapi
 // dbOfBackup reads the engine and database out of a database backup's
 // target key: db-mysql-<name> or db-postgresql-<line>-<name>.
 func dbOfBackup(key string) (string, string, bool) { return helperapi.DatabaseOfBackup(key) }
+
+// backupStream reads the backup f (named name) from its start: decrypted
+// with identity when it is encrypted, decompressed. done releases what it
+// holds.
+func backupStream(f *os.File, name, identity string) (io.Reader, func(), error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, nil, err
+	}
+	var r io.Reader = f
+	if base, ok := strings.CutSuffix(name, ".age"); ok {
+		if identity == "" {
+			return nil, nil, backupErr(helperapi.CodeBackupIdentity, nil)
+		}
+		id, err := age.ParseX25519Identity(identity)
+		if err != nil {
+			return nil, nil, backupErr(helperapi.CodeBackupBadIdentity, nil)
+		}
+		if r, err = age.Decrypt(f, id); err != nil {
+			return nil, nil, backupErr(helperapi.CodeBackupBadIdentity, nil)
+		}
+		name = base
+	}
+	if strings.HasSuffix(name, ".zst") {
+		zr, err := zstd.NewReader(r)
+		if err != nil {
+			return nil, nil, err
+		}
+		return zr, zr.Close, nil
+	}
+	return r, func() {}, nil
+}
+
+// checkTar reads a tar stream to its end (every entry's content too): it
+// is whole, every byte of it reads (decrypts, decompresses) as it should,
+// and its files fit in budget bytes (errNoSpace otherwise, as soon as they
+// do not: a compressed bomb is not read to its end).
+func checkTar(ctx context.Context, r io.Reader, budget int64) error {
+	tr := tar.NewReader(r)
+	for n := 0; ; n++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if n >= extractEntries {
+			return fileErr(helperapi.CodeFileTooLarge, map[string]any{"entries": extractEntries})
+		}
+		m, err := io.Copy(io.Discard, io.LimitReader(tr, max(budget, 0)+1))
+		if err != nil {
+			return err
+		}
+		if budget -= m; budget < 0 {
+			return errNoSpace
+		}
+	}
+}
+
+func badArchive(err error) error {
+	var he *helperapi.Error
+	if !errors.As(err, &he) {
+		err = fileErr(helperapi.CodeFileBadArchive, map[string]any{"detail": tailString(err.Error(), 200)})
+	}
+	return err
+}
 
 func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helperapi.BackupRestoreRequest, log io.Writer) (any, error) {
 	p, err := b.plan(req.Plan)
@@ -856,45 +1132,32 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 		return nil, err
 	}
 	defer func() { _ = root.Close() }()
-	local := localDir(p.ID) + "/" + req.Name
-	if _, err := root.Lstat(local); err != nil {
+	dir, err := ownedPlanDir(root, p.ID, uid, gid)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = dir.Close() }()
+	renameOld(dir, renamedKeys(p), log)
+	if _, err := dir.Lstat(req.Name); err != nil {
 		// Fetched for this restore only: the plan keeps no local copies.
-		if err := b.fetchLocal(ctx, p, root, req.Name, uid, gid, log); err != nil {
+		if err := b.fetchLocal(ctx, p, dir, req.Name, uid, gid, log); err != nil {
 			return nil, err
 		}
-		defer func() { _ = root.Remove(local) }()
+		defer func() { _ = dir.Remove(req.Name) }()
 	}
-	f, err := openBackup(root, local)
+	f, err := openBackup(dir, req.Name)
 	if err != nil {
 		return nil, backupErr(helperapi.CodeBackupNotFound, map[string]any{"name": req.Name})
 	}
 	defer func() { _ = f.Close() }()
-	var r io.Reader = f
-	name := req.Name
-	if base, ok := strings.CutSuffix(name, ".age"); ok {
-		if req.Identity == "" {
-			return nil, backupErr(helperapi.CodeBackupIdentity, nil)
-		}
-		id, err := age.ParseX25519Identity(req.Identity)
-		if err != nil {
-			return nil, backupErr(helperapi.CodeBackupBadIdentity, nil)
-		}
-		if r, err = age.Decrypt(f, id); err != nil {
-			return nil, backupErr(helperapi.CodeBackupBadIdentity, nil)
-		}
-		name = base
-	}
-	if strings.HasSuffix(name, ".zst") {
-		zr, err := zstd.NewReader(r)
+	if engine, database, ok := dbOfBackup(key); ok {
+		r, done, err := backupStream(f, req.Name, req.Identity)
 		if err != nil {
 			return nil, err
 		}
-		defer zr.Close()
-		r, name = zr, strings.TrimSuffix(name, ".zst")
-	}
-	if engine, database, ok := dbOfBackup(key); ok {
+		defer done()
 		ext := ".sql"
-		if strings.HasSuffix(name, ".dump") {
+		if strings.HasSuffix(strings.TrimSuffix(req.Name, ".age"), ".dump") {
 			ext = ".dump"
 		}
 		// The same budget as other extractions: a compressed bomb must not
@@ -926,17 +1189,126 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 		return nil, err
 	}
 	defer func() { _ = droot.Close(); _ = dfd.Close() }()
-	x := &extractor{ctx: ctx, rootID: req.Dest.Root, root: droot, dest: req.Dest.Path, uid: duid, gid: dgid, overwrite: req.Overwrite,
-		b: &batch{log: log}, budget: spaceOf(dfd), files: map[string]bool{}}
-	if err := x.tarFrom(r); err != nil {
-		var he *helperapi.Error
-		if !errors.As(err, &he) {
-			err = fileErr(helperapi.CodeFileBadArchive, map[string]any{"detail": tailString(err.Error(), 200)})
-		}
+	budget := spaceOf(dfd)
+	// The whole backup is read once before anything is written: a damaged
+	// or cut one, or one too big for the space there is, fails with the
+	// destination as it was.
+	r, done, err := backupStream(f, req.Name, req.Identity)
+	if err != nil {
 		return nil, err
+	}
+	err = checkTar(ctx, r, budget)
+	done()
+	if err != nil {
+		return nil, badArchive(err)
+	}
+	_, _ = fmt.Fprintf(log, "%s reads whole\n", req.Name)
+	if r, done, err = backupStream(f, req.Name, req.Identity); err != nil {
+		return nil, err
+	}
+	defer done()
+	x := &extractor{ctx: ctx, rootID: req.Dest.Root, root: droot, dest: req.Dest.Path, uid: duid, gid: dgid, overwrite: req.Overwrite,
+		b: &batch{log: log}, budget: budget, files: map[string]bool{}, setgid: true, owner: b.restoreOwners(p, key, req.Dest)}
+	if err := x.tarFrom(r); err != nil {
+		return nil, badArchive(err)
 	}
 	_, _ = fmt.Fprintf(log, "%d entries restored into /%s, %d skipped\n", x.b.res.Done, req.Dest.Path, len(x.b.res.Failed))
 	return helperapi.BackupRestoreResult{Done: x.b.res.Done}, nil
+}
+
+// siteOf finds the site whose directory ref is in, and ref's path in that
+// directory; false when it is in none.
+func siteOf(ref helperapi.FileRef) (code, within string, ok bool) {
+	p := ref.Path
+	switch ref.Root {
+	case helperapi.RootSites:
+	case helperapi.RootSystem:
+		if p, ok = strings.CutPrefix(p, strings.TrimPrefix(sitesDir, "/")+"/"); !ok {
+			return "", "", false
+		}
+	default:
+		return "", "", false
+	}
+	code, within, _ = strings.Cut(p, "/")
+	return code, within, helperapi.ValidSiteCode(code)
+}
+
+// sourceSite is the site the plan's backups of key were made from (a
+// site's own, or a directory in one); "" when none.
+func sourceSite(p helperapi.BackupPlan, key string) string {
+	for _, t := range p.Targets {
+		if t.Key() != key && legacyKey(t) != key {
+			continue
+		}
+		switch t.Kind {
+		case helperapi.BackupSite:
+			return t.Site
+		case helperapi.BackupDirectory:
+			if code, _, ok := siteOf(helperapi.FileRef{Root: t.Root, Path: t.Path}); ok {
+				return code
+			}
+		}
+	}
+	if code, ok := strings.CutPrefix(key, "site-"); ok && helperapi.ValidSiteCode(code) {
+		return code
+	}
+	return ""
+}
+
+// siteOwners gives what a restore puts into a site's directory to that
+// site's users: what belonged to the runner of the site the backup was
+// made from goes to this site's runner, everything else to its owner,
+// both in the site's group. The site's settings (.cairn/ at the top of its
+// directory) stay root's, like the directory itself.
+type siteOwners struct {
+	owner, runner, gid int
+	// within is the destination's path in the site's directory.
+	within string
+	// srcRunner names the runner of the site the backup was made from
+	// ("" when not known), and srcRunnerUID is its uid here (-1 when
+	// there is no such user).
+	srcRunner    string
+	srcRunnerUID int
+}
+
+func (s siteOwners) of(p string, h *tar.Header) (int, int) {
+	if full := join(s.within, p); full == ".cairn" || strings.HasPrefix(full, ".cairn/") {
+		return 0, 0
+	}
+	if h != nil && s.srcRunner != "" {
+		// The name the archive kept tells the runner on any machine; its
+		// uid only on this one (an archive made without the name).
+		if h.Uname != "" && h.Uname == s.srcRunner || h.Uname == "" && s.srcRunnerUID >= 0 && h.Uid == s.srcRunnerUID {
+			return s.runner, s.gid
+		}
+	}
+	return s.owner, s.gid
+}
+
+// restoreOwners picks the owners of what a restore of the plan's backup of
+// key writes into dest: the users of the site dest is in (see
+// siteOwners), or nil (the destination's owner) when it is in no site.
+func (b *Backups) restoreOwners(p helperapi.BackupPlan, key string, dest helperapi.FileRef) func(string, *tar.Header) (int, int) {
+	code, within, ok := siteOf(dest)
+	if !ok {
+		return nil
+	}
+	ouid, gid, err := lookupUser(ownerOf(code))
+	if err != nil {
+		return nil
+	}
+	ruid, rgid, err := lookupUser(runnerOf(code))
+	if err != nil || rgid != gid {
+		return nil
+	}
+	s := siteOwners{owner: ouid, runner: ruid, gid: gid, within: within, srcRunnerUID: -1}
+	if src := sourceSite(p, key); src != "" {
+		s.srcRunner = runnerOf(src)
+		if uid, _, err := lookupUser(s.srcRunner); err == nil {
+			s.srcRunnerUID = uid
+		}
+	}
+	return s.of
 }
 
 func (b *Backups) testStorage(ctx context.Context, _ helperapi.Caller, req helperapi.StorageTestRequest) (helperapi.Empty, error) {

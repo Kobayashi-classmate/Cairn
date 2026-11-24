@@ -3,6 +3,8 @@
 package helperapi
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net"
 	"regexp"
 	"strconv"
@@ -140,7 +142,13 @@ func (t BackupTarget) Validate() error {
 	return nil
 }
 
-// Key names a target in backup file names.
+// Key names a target in backup file names. A directory's path may hold any
+// byte but "/" and NUL, so it is written in the characters a backup name
+// allows, and so that two paths never share a key: letters, digits and "_"
+// stand for themselves, "/" becomes "-", and every other byte becomes "."
+// and its value in two lowercase hex digits. A key too long for a file name
+// is cut, and ends with ".h" and the start of the SHA-256 of the whole key
+// instead ("h" is no hex digit: no key that was not cut ends that way).
 func (t BackupTarget) Key() string {
 	switch t.Kind {
 	case BackupSite:
@@ -148,12 +156,46 @@ func (t BackupTarget) Key() string {
 	case BackupDatabase:
 		return "db-" + t.Engine + "-" + t.Database
 	}
-	key := t.Root
+	var b strings.Builder
+	b.WriteString("dir-" + t.Root)
 	if t.Path != "" {
-		key += "-" + t.Path
+		b.WriteByte('-')
 	}
-	return "dir-" + strings.NewReplacer("/", "-", ".", "-").Replace(key)
+	for i := 0; i < len(t.Path); i++ {
+		switch c := t.Path[i]; {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '_':
+			b.WriteByte(c)
+		case c == '/':
+			b.WriteByte('-')
+		default:
+			b.WriteByte('.')
+			b.WriteString(hex.EncodeToString([]byte{c}))
+		}
+	}
+	key := b.String()
+	if len(key) <= dirKeyMax {
+		return key
+	}
+	sum := sha256.Sum256([]byte(key))
+	cut := dirKeyMax - 2 - dirKeyHash
+	// Never in the middle of a ".xx": a cut "." before ".h" would make "..".
+	if key[cut-1] == '.' {
+		cut--
+	} else if key[cut-2] == '.' {
+		cut -= 2
+	}
+	return key[:cut] + ".h" + hex.EncodeToString(sum[:])[:dirKeyHash]
 }
+
+const (
+	// dirKeyMax keeps the longest name of a backup (see
+	// longestBackupSuffix) well inside a backup name's 200 bytes.
+	dirKeyMax  = 150
+	dirKeyHash = 12
+	// longestBackupSuffix is what follows the key in the longest backup
+	// name: the time, then an encrypted tar or SQL dump.
+	longestBackupSuffix = "_00000000-000000.tar.zst.age"
+)
 
 // Retention keeps the newest Last backups of each target and the newest
 // of each of the last Daily days, Weekly weeks and Monthly months.
@@ -192,6 +234,11 @@ func (p BackupPlan) Validate() error {
 	for _, t := range p.Targets {
 		if err := t.Validate(); err != nil {
 			return err
+		}
+		// Every backup of the target must have a name the plan's actions
+		// accept: one that cannot be listed cannot be pruned or restored.
+		if !ValidBackupName(t.Key() + longestBackupSuffix) {
+			return invalid("targets", "backup_name")
 		}
 		if seen[t.Key()] {
 			return invalid("targets", "duplicate")

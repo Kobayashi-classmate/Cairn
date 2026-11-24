@@ -17,7 +17,13 @@ export function targetLabel(target: BackupTarget): string {
   }
 }
 
-/** The key the server names a target's backup files with (see BackupTarget.Key on the server). */
+/**
+ * The key the server names a target's backup files with (see BackupTarget.Key
+ * on the server): letters, digits and "_" of a folder's path stand for
+ * themselves, "/" becomes "-", any other byte "." and two hex digits. The
+ * server shortens a very long key (with a hash of it); this one is not
+ * shortened, which still tells any two targets apart.
+ */
 export function targetKey(target: BackupTarget): string {
   switch (target.kind) {
     case 'site':
@@ -25,8 +31,15 @@ export function targetKey(target: BackupTarget): string {
     case 'database':
       return `db-${target.engine}-${target.database}`
     case 'directory': {
-      const key = target.path ? `${target.root}-${target.path}` : (target.root ?? '')
-      return `dir-${key.replace(/[/.]/g, '-')}`
+      let key = `dir-${target.root ?? ''}`
+      if (target.path) key += '-'
+      for (const byte of new TextEncoder().encode(target.path ?? '')) {
+        const c = String.fromCharCode(byte)
+        if (/^[A-Za-z0-9_]$/.test(c)) key += c
+        else if (c === '/') key += '-'
+        else key += `.${byte.toString(16).padStart(2, '0')}`
+      }
+      return key
     }
   }
 }

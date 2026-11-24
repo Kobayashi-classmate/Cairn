@@ -108,6 +108,22 @@ type extractor struct {
 	// files are the regular files this extraction wrote (paths below the
 	// destination): the only ones a hard link entry may name.
 	files map[string]bool
+	// owner, when set, picks who an entry (p below the destination, from
+	// the tar header h, nil for a directory made on the way) belongs to,
+	// instead of uid:gid. Restores set it; extracting an archive does not.
+	owner func(p string, h *tar.Header) (uid, gid int)
+	// head is the tar entry being written.
+	head *tar.Header
+	// setgid keeps the setgid bit of directories (restores).
+	setgid bool
+}
+
+// whose is who the entry p (from the tar header h) belongs to.
+func (x *extractor) whose(p string, h *tar.Header) (int, int) {
+	if x.owner != nil {
+		return x.owner(p, h)
+	}
+	return x.uid, x.gid
 }
 
 var errNoSpace = fileErr(helperapi.CodeFileNoSpace, nil)
@@ -131,10 +147,11 @@ func (x *extractor) target(name string) string {
 	return name
 }
 
-// enter enters the directory name of dir, made for the destination's
-// owner when missing; anything else in its place (a link) is refused,
+// enter enters the directory name of dir (p below the destination; h its
+// tar header, nil for one on the way to an entry), made for its owner (see
+// whose) when missing; anything else in its place (a link) is refused,
 // never followed.
-func (x *extractor) enter(dir *os.Root, name, p string) (*os.Root, bool, error) {
+func (x *extractor) enter(dir *os.Root, name, p string, h *tar.Header) (*os.Root, bool, error) {
 	made := false
 	info, err := dir.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -159,7 +176,8 @@ func (x *extractor) enter(dir *os.Root, name, p string) (*os.Root, bool, error) 
 		return nil, false, err
 	}
 	if made {
-		if err := sub.Lchown(".", x.uid, x.gid); err != nil {
+		uid, gid := x.whose(p, h)
+		if err := sub.Lchown(".", uid, gid); err != nil {
 			_ = sub.Close()
 			return nil, false, err
 		}
@@ -182,7 +200,7 @@ func (x *extractor) parent(p string) (*os.Root, string, func(), error) {
 	if d := parentOf(p); d != "" {
 		for _, c := range strings.Split(d, "/") {
 			walked = join(walked, c)
-			sub, _, err := x.enter(dir, c, walked)
+			sub, _, err := x.enter(dir, c, walked, nil)
 			if err != nil {
 				done()
 				return nil, "", nil, err
@@ -204,27 +222,45 @@ func (x *extractor) count() error {
 	return nil
 }
 
-// free makes room for the entry name of dir (p below the destination);
-// false when it is skipped.
-func (x *extractor) free(dir *os.Root, name, p string) (bool, error) {
+// room looks at what is at the entry name of dir (p below the
+// destination): there reports something to be replaced, ok false an entry
+// that is skipped (reported already).
+func (x *extractor) room(dir *os.Root, name, p string) (there, ok bool, err error) {
 	fi, err := dir.Lstat(name)
 	if errors.Is(err, fs.ErrNotExist) {
-		return true, nil
+		return false, true, nil
 	}
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
 	full := join(x.dest, p)
 	if !x.overwrite {
 		x.b.failed(full, fileErr(helperapi.CodeFileExists, map[string]any{"path": full}))
-		return false, nil
+		return true, false, nil
 	}
 	if fi.IsDir() {
 		x.b.failed(full, fileErr(helperapi.CodeFileIsDir, map[string]any{"path": full}))
-		return false, nil
+		return true, false, nil
 	}
 	delete(x.files, p)
-	return true, dir.Remove(name)
+	return true, true, nil
+}
+
+// place renames tmp, just made in dir, to the entry name (p below the
+// destination): over what is there when there, never over anything that
+// appeared meanwhile otherwise. false (reported) when it could not.
+func (x *extractor) place(dir *os.Root, tmp, name, p string, there bool) bool {
+	err := renameAt(dir, tmp, dir, name, !there)
+	if err == nil {
+		return true
+	}
+	_ = dir.Remove(tmp)
+	full := join(x.dest, p)
+	if errors.Is(err, fs.ErrExist) {
+		err = fileErr(helperapi.CodeFileExists, map[string]any{"path": full})
+	}
+	x.b.failed(full, err)
+	return false
 }
 
 func (x *extractor) dir(name string, mode fs.FileMode) error {
@@ -239,15 +275,26 @@ func (x *extractor) dir(name string, mode fs.FileMode) error {
 		return nil
 	}
 	defer done()
-	sub, made, err := x.enter(dir, base, p)
+	sub, made, err := x.enter(dir, base, p, x.head)
 	if err != nil {
 		x.b.failed(name, err)
 		return nil
 	}
 	defer func() { _ = sub.Close() }()
-	// A directory that was there keeps its mode unless overwriting.
+	// A directory that was there keeps its mode (and, unless a restore
+	// says whose it is, its owner) unless overwriting.
 	if made || x.overwrite {
-		_ = sub.Chmod(".", mode.Perm()|0o700)
+		if !made && x.owner != nil {
+			uid, gid := x.whose(p, x.head)
+			if err := sub.Lchown(".", uid, gid); err != nil {
+				return err
+			}
+		}
+		keep := fs.FileMode(0)
+		if x.setgid {
+			keep = mode & fs.ModeSetgid
+		}
+		_ = sub.Chmod(".", mode.Perm()|0o700|keep)
 	}
 	return nil
 }
@@ -264,12 +311,15 @@ func (x *extractor) file(name string, mode fs.FileMode, r io.Reader) error {
 		return nil
 	}
 	defer done()
-	ok, err := x.free(dir, base, p)
+	there, ok, err := x.room(dir, base, p)
 	if err != nil || !ok {
 		return err
 	}
-	// O_EXCL: a new file, never one (or a link) put there meanwhile.
-	out, err := dir.OpenFile(base, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// Written under a name of its own, then renamed into place: a file it
+	// replaces stays as it was until the new one is whole. O_EXCL: a new
+	// file, never one (or a link) put there meanwhile.
+	tmp := randomName(".cairn-unpack-")
+	out, err := dir.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		x.b.failed(name, err)
 		return nil
@@ -280,18 +330,26 @@ func (x *extractor) file(name string, mode fs.FileMode, r io.Reader) error {
 		err = errNoSpace
 	}
 	if err == nil {
-		err = out.Chown(x.uid, x.gid)
+		uid, gid := x.whose(p, x.head)
+		err = out.Chown(uid, gid)
 	}
 	if err == nil {
 		// Setuid and setgid never come along.
 		err = out.Chmod(mode.Perm())
 	}
+	if err == nil && there {
+		// On disk before it takes the place of the file that was there.
+		err = out.Sync()
+	}
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
-		_ = dir.Remove(base)
+		_ = dir.Remove(tmp)
 		return err
+	}
+	if !x.place(dir, tmp, base, p, there) {
+		return nil
 	}
 	x.files[p] = true
 	x.b.res.Done++
@@ -359,16 +417,24 @@ func (x *extractor) symlink(name, target string) error {
 		return nil
 	}
 	defer done()
-	ok, err := x.free(dir, base, p)
+	there, ok, err := x.room(dir, base, p)
 	if err != nil || !ok {
 		return err
 	}
-	if err := dir.Symlink(target, base); err != nil {
+	tmp := randomName(".cairn-unpack-")
+	if err := dir.Symlink(target, tmp); err != nil {
 		x.b.failed(name, err)
 		return nil
 	}
-	x.b.res.Done++
-	return dir.Lchown(base, x.uid, x.gid)
+	uid, gid := x.whose(p, x.head)
+	if err := dir.Lchown(tmp, uid, gid); err != nil {
+		_ = dir.Remove(tmp)
+		return err
+	}
+	if x.place(dir, tmp, base, p, there) {
+		x.b.res.Done++
+	}
+	return nil
 }
 
 // space is what an extraction may write into the file system of the open
@@ -556,6 +622,10 @@ func (x *extractor) tarFrom(r io.Reader) error {
 			return err
 		}
 		mode := fs.FileMode(h.Mode).Perm() //nolint:gosec // G115: tar modes fit.
+		if h.Mode&0o2000 != 0 {
+			mode |= fs.ModeSetgid // kept on directories of restores only
+		}
+		x.head = h
 		switch h.Typeflag {
 		case tar.TypeDir:
 			err = x.dir(h.Name, mode)

@@ -123,3 +123,9 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   another site or into the system, also when a link appears while a task
   runs. A folder replaced by a copy, a move or a restore from the trash
   goes to the trash rather than being deleted.
+- Restoring a backup checks the whole backup before it writes anything,
+  and replaces each file only once its new content is complete. A restore
+  into a site's folder gives the files to that site's owner and runtime
+  user. Folders with spaces, dots, dashes or non-ASCII characters in their
+  path can be backed up like any other, and retention never deletes the
+  backup a run has just made.

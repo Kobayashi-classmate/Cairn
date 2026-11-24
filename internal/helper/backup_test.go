@@ -288,7 +288,7 @@ func TestRetention(t *testing.T) {
 	}
 	// Two backups on the newest day: only one counts for that day.
 	names = append(names, backupName(helperapi.BackupTarget{Kind: "site", Site: "shop"}, day(0).Add(-time.Hour), ".tar.zst", false))
-	gone := doomed(names, helperapi.Retention{Last: 1, Daily: 7, Weekly: 4, Monthly: 6})
+	gone, _ := doomed(names, helperapi.Retention{Last: 1, Daily: 7, Weekly: 4, Monthly: 6}, day(0), nil)
 	kept := len(names) - len(gone)
 	// 7 days, then the newest of up to 4 weeks and 6 months; buckets
 	// overlap with the days, so between 7 and 17 remain.
@@ -298,7 +298,7 @@ func TestRetention(t *testing.T) {
 	if slicesContain(gone, names[0]) || !slicesContain(gone, names[len(names)-1]) {
 		t.Fatal("the newest backup must stay; the second one that day goes")
 	}
-	if g := doomed(names[:5], helperapi.Retention{Last: 3}); len(g) != 2 {
+	if g, _ := doomed(names[:5], helperapi.Retention{Last: 3}, day(0), nil); len(g) != 2 {
 		t.Fatalf("last 3 of 5: %v", g)
 	}
 	if key, at, ok := parseBackupName("db-postgresql-17-shop_20261116-030000.dump.age"); !ok || key != "db-postgresql-17-shop" || at.Hour() != 3 {
