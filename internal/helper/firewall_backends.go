@@ -554,8 +554,11 @@ func (d *firewalldBackend) active(ctx context.Context) bool {
 	return err == nil && strings.TrimSpace(out) == "running"
 }
 
+// loaded asks for the policy itself: the question fails as well when
+// firewalld does not run, so its state is not asked first. firewall-cmd
+// is slow to start, and the status asks several things of it.
 func (d *firewalldBackend) loaded(ctx context.Context) bool {
-	if !d.active(ctx) {
+	if !d.installed() {
 		return false
 	}
 	_, err := queryCommand(ctx, firewallCmd, "--info-policy=cairn")

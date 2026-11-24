@@ -1217,8 +1217,18 @@ func (f *Firewall) Status(ctx context.Context) helperapi.FirewallStatus {
 	st.Installed = b.installed()
 	st.Enabled = f.active(ctx, &cfg, sys)
 	if st.Installed && st.Enabled {
+		// Two questions to the backend's own tool, which may take a second
+		// each to answer (firewall-cmd): asked side by side, since the
+		// overview waits for this status with a time limit.
+		var ext []string
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			ext = b.external(ctx)
+		}()
 		st.Loaded = b.loaded(ctx)
-		if ext := b.external(ctx); ext != nil {
+		<-done
+		if ext != nil {
 			st.External = ext
 		}
 	}
