@@ -456,7 +456,8 @@
     "fetch_failed": "下载失败。",
     "too_many_favorites": "收藏数量已达上限。",
     "fetch_not_allowed": "服务器不会从此地址下载：它指向服务器自身或内部网络。只允许公网地址。",
-    "unpack_failed": "无法准备解压该压缩包。"
+    "unpack_failed": "无法准备解压该压缩包。",
+    "systemd_required": "解压 7z 和 RAR 压缩包需要 systemd，但本服务器没有运行 systemd。"
   },
   "access": {
     "locked": "服务器配置不允许 root 访问。"

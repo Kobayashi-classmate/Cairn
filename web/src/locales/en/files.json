@@ -253,7 +253,6 @@
     "text": "Outside the site directories, files are opened, searched and downloaded after you confirm your password."
   },
   "unpackReason": {
-    "systemd": "extracting 7z and RAR archives needs systemd, which this server does not run",
     "account": "the {user} account that the panel's package creates is missing; reinstall the package",
     "scratch": "its working directory could not be prepared",
     "copy": "the archive could not be copied into its working directory"

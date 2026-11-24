@@ -55,8 +55,11 @@ const (
 	CodeFileToolMissing     = "file.tool_missing"
 	CodeFileNoSpace         = "file.no_space"
 	// CodeFileUnpackFailed: a 7z/RAR archive could not be prepared for
-	// unar (params: reason = systemd | account | scratch | copy).
-	CodeFileUnpackFailed   = "file.unpack_failed"
+	// unar (params: reason = account | scratch | copy).
+	CodeFileUnpackFailed = "file.unpack_failed"
+	// CodeFileSystemd: 7z and RAR archives are unpacked in a transient
+	// systemd unit, and this system does not run systemd.
+	CodeFileSystemd        = "file.systemd_required"
 	CodeFileUserUnknown    = "file.user_unknown"
 	CodeFileIntoItself     = "file.into_itself" // a directory copied or moved into itself
 	CodeAccessLocked       = "access.locked"    // the server's configuration forbids it

@@ -456,7 +456,8 @@
     "fetch_failed": "The download failed.",
     "too_many_favorites": "You already have the most favorites allowed.",
     "fetch_not_allowed": "The server does not download from this address: it is the server itself or in the internal network. Only public addresses are allowed.",
-    "unpack_failed": "The archive could not be prepared for extraction."
+    "unpack_failed": "The archive could not be prepared for extraction.",
+    "systemd_required": "Extracting 7z and RAR archives needs systemd, which this server does not run."
   },
   "access": {
     "locked": "The server's configuration does not allow root access."

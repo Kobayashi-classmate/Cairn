@@ -698,7 +698,8 @@ func (f *Files) unarExtract(ctx context.Context, req helperapi.FileExtractReques
 		return fileErr(helperapi.CodeFileToolMissing, map[string]any{"tool": "unar"})
 	}
 	if !systemdRunning() {
-		return unpackErr("systemd", nil)
+		_, _ = fmt.Fprintln(log, "Extracting 7z and RAR archives needs systemd (unar runs in a transient unit), and this system does not run it.")
+		return fileErr(helperapi.CodeFileSystemd, nil)
 	}
 	uuid, ugid, err := lookupUser(unpackUser)
 	if err != nil || uuid <= 0 || ugid <= 0 {
@@ -814,6 +815,14 @@ func (f *Files) unarExtract(ctx context.Context, req helperapi.FileExtractReques
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		// The unit's own output is in the log already; how the run ended
+		// is not, and when systemd-run could not run at all nothing is.
+		var ee *execx.ExitError
+		if errors.As(err, &ee) {
+			_, _ = fmt.Fprintf(log, "unar's unit ended with exit status %d.\n", ee.ExitCode)
+		} else {
+			_, _ = fmt.Fprintf(log, "unar's unit could not run: %s\n", tailString(err.Error(), 400))
 		}
 		return fileErr(helperapi.CodeFileBadArchive, map[string]any{"path": req.Path, "detail": errDetail(err)})
 	}

@@ -276,9 +276,9 @@ func TestUnarInItsOwnUnitAndBudget(t *testing.T) {
 	// No systemd, no account: a clear refusal, not a bad archive.
 	fill = false
 	systemdRunning = func() bool { return false }
-	if op, _, _ := e.run(helperapi.ActionFileExtract, helperapi.FileExtractRequest{Root: "sites", Path: "shop/app/locked/a.rar", Dest: "shop/app", Overwrite: true}); op.State != helperapi.OpFailed ||
-		op.Error.Code != helperapi.CodeFileUnpackFailed || op.Error.Params["reason"] != "systemd" {
-		t.Fatalf("without systemd: %+v", op.Error)
+	if op, _, log := e.run(helperapi.ActionFileExtract, helperapi.FileExtractRequest{Root: "sites", Path: "shop/app/locked/a.rar", Dest: "shop/app", Overwrite: true}); op.State != helperapi.OpFailed ||
+		op.Error.Code != helperapi.CodeFileSystemd || !strings.Contains(log, "needs systemd") {
+		t.Fatalf("without systemd: %+v\n%s", op.Error, log)
 	}
 	systemdRunning = func() bool { return true }
 	lookupUser = func(string) (int, int, error) { return 0, 0, os.ErrNotExist }
@@ -318,6 +318,55 @@ func TestUnarSpaceWatchDoesNotHangOnAPipe(t *testing.T) {
 			_ = f.Close()
 		}
 		t.Fatal("the extraction hangs on a pipe at the destination")
+	}
+}
+
+func TestUnarFailureInTheJobLog(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("changes owners")
+	}
+	e := unarEnv(t, func(context.Context, []string, []string) error { return nil })
+	e.put("/srv/www/shop/app/a.rar", "Rar!")
+	req := helperapi.FileExtractRequest{Root: "sites", Path: "shop/app/a.rar", Dest: "shop/app", Overwrite: true}
+	for _, c := range []struct {
+		name    string
+		stderr  string
+		err     error
+		wantLog string
+	}{
+		// The unit's output reaches the log as it is written (execx's
+		// Output); the log also says how the run ended.
+		{"unit failed", "Failed to start transient service unit: denied\n",
+			&execx.ExitError{Name: "systemd-run", ExitCode: 1, Stderr: "Failed to start transient service unit: denied"}, "exit status 1"},
+		// systemd-run itself could not run: nothing was written, the
+		// reason is in the log all the same.
+		{"not started", "", errors.New("exec: \"systemd-run\": executable file not found in $PATH"), "executable file not found"},
+	} {
+		dbRun = func(_ context.Context, cmd execx.Cmd) (execx.Result, error) {
+			if cmd.Name != "systemd-run" {
+				return execx.Result{}, nil
+			}
+			if c.stderr != "" && cmd.Output != nil {
+				_, _ = io.WriteString(cmd.Output, c.stderr)
+			}
+			return execx.Result{}, c.err
+		}
+		op, _, log := e.run(helperapi.ActionFileExtract, req)
+		if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeFileBadArchive || !strings.Contains(log, c.wantLog) ||
+			(c.stderr != "" && !strings.Contains(log, strings.TrimSpace(c.stderr))) {
+			t.Fatalf("%s: %+v\n%s", c.name, op.Error, log)
+		}
+	}
+	// unar that works afterwards still extracts.
+	dbRun = func(_ context.Context, cmd execx.Cmd) (execx.Result, error) {
+		if cmd.Name != "systemd-run" {
+			return execx.Result{}, nil
+		}
+		out := cmd.Args[len(cmd.Args)-2] // unar ... -o OUT ARCHIVE
+		return execx.Result{}, os.WriteFile(filepath.Join(out, "ok.txt"), []byte("ok"), 0o600)
+	}
+	if op, _, log := e.run(helperapi.ActionFileExtract, req); op.State != helperapi.OpSucceeded || e.read("/srv/www/shop/app/ok.txt") != "ok" {
+		t.Fatalf("extract after the failures: %+v\n%s", op, log)
 	}
 }
 
