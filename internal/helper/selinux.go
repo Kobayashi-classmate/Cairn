@@ -34,8 +34,11 @@ import (
 //     forwarding to another machine's 3306 must not take this machine's
 //     3306 away from MariaDB.
 //   - A port nginx listens on (a stream's own port) needs http_port_t. A
-//     port without a type of its own gets it; one that belongs to another
-//     service is refused.
+//     port without a type of its own gets it. One the policy reserves for
+//     another service is taken over while the proxy exists, since nginx
+//     listening on it keeps that service off it anyway, and gets its type
+//     back when the proxy goes. One the administrator gave to a service
+//     with a rule of their own is refused.
 //   - A port nginx only connects to (an app's port, a proxy's or a
 //     stream's upstream port) keeps its type. Without a type of its own it
 //     gets http_port_t, which takes nothing from anyone; with one (3306 is
@@ -190,7 +193,9 @@ func (st *Sites) seFilter(ctx context.Context, lines []string) []string {
 				continue
 			}
 		case len(f) >= 7 && f[0] == "port" && f[1] == "-m":
-			if !ports[f[5]+"/"+f[6]] {
+			// Taking over a port of the policy's for nginx to listen on
+			// makes the local rule; any other modify needs one.
+			if !ports[f[5]+"/"+f[6]] && f[3] != sePortType {
 				continue
 			}
 		}
@@ -290,17 +295,24 @@ func (st *Sites) sePortTypes(ctx context.Context) (sePortTypes, error) {
 
 func portKey(p sePort) string { return p.Proto + "/" + strconv.Itoa(p.Port) }
 
-// seRefuse refuses the ports an owner asks for that SELinux reserves for
-// another service: nginx cannot listen on them without taking them from
-// that service. A local rule with a generic type is refused for connecting
-// too, since allowing it would open a whole range.
+// seRefuse refuses the ports an owner asks for that this machine's
+// administrator gave to another service with a rule of their own (sshd
+// moved to 2222): nginx cannot listen on such a port without taking it
+// from that service. A port the policy alone reserves (9002 is keylime's,
+// installed or not) is another matter: nginx listening on it keeps every
+// other service off it anyway, so it is taken over while the proxy exists
+// (seApplyPorts). A local rule with a generic type is refused for
+// connecting too, since allowing it would open a whole range.
 func seRefuse(types sePortTypes, ports []sePort) error {
 	for _, p := range ports {
-		t := types.effective(portKey(p))
+		k := portKey(p)
+		t := types.effective(k)
 		switch {
 		case t == "" || t == sePortType:
 		case p.Bind:
-			return siteErr(helperapi.CodeStreamSELinuxPort, map[string]any{"port": p.Port, "protocol": p.Proto, "type": t})
+			if _, local := types.local[k]; local {
+				return siteErr(helperapi.CodeStreamSELinuxPort, map[string]any{"port": p.Port, "protocol": p.Proto, "type": t})
+			}
 		case p.Proto == helperapi.StreamTCP && (slices.Contains(genericPortTypes, t) || !seTypeName.MatchString(t)):
 			return siteErr(helperapi.CodeSiteSELinux, map[string]any{
 				"detail": fmt.Sprintf("port %s/%d has the local type %s, which nginx is not allowed to connect to", p.Proto, p.Port, t)})
@@ -394,6 +406,12 @@ func (st *Sites) seApplyPorts(ctx context.Context, log io.Writer, s seState, typ
 		case t == "":
 			lines = append(lines, fmt.Sprintf("port -a -t %s -p %s %d", sePortType, p.Proto, p.Port))
 			kept = append(kept, sePort{Proto: p.Proto, Port: p.Port})
+		case p.Bind && types.local[k] == "":
+			// The policy's type for a port nginx listens on: a local rule
+			// overrides it while the proxy exists, and deleting that rule
+			// brings the policy's type back (Modified, no Orig).
+			lines = append(lines, fmt.Sprintf("port -m -t %s -p %s %d", sePortType, p.Proto, p.Port))
+			kept = append(kept, sePort{Proto: p.Proto, Port: p.Port, Modified: true})
 		case p.Bind || slices.Contains(genericPortTypes, t) || !seTypeName.MatchString(t):
 			// Accepted when its owner was set (seRefuse); the type changed
 			// since. It is not taken over.

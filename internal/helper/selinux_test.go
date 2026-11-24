@@ -316,20 +316,35 @@ func TestSELinuxUpstreamKeepsItsType(t *testing.T) {
 func TestSELinuxListenPortTaken(t *testing.T) {
 	st, f := newSESites(t)
 	ctx := context.Background()
+	// A port the administrator gave to another service by a rule of their
+	// own is not nginx's to listen on.
 	f.ports["ssh_port_t tcp 2222"] = true
-	for _, spec := range []helperapi.StreamSpec{
-		{Protocol: "tcp", Port: 3306, Upstreams: []string{"10.0.0.2:3306"}},
-		{Protocol: "tcp", Port: 2222, Upstreams: []string{"10.0.0.2:22"}},
-		{Protocol: "udp", Port: 53, Upstreams: []string{"10.0.0.2:53"}},
-	} {
-		err := st.seSetPorts(ctx, io.Discard, "stream:x", streamPorts(spec))
-		var he *helperapi.Error
-		if !errors.As(err, &he) || he.Code != helperapi.CodeStreamSELinuxPort || he.Params["port"] != spec.Port {
-			t.Fatalf("%d: %v", spec.Port, err)
-		}
+	spec := helperapi.StreamSpec{Protocol: "tcp", Port: 2222, Upstreams: []string{"10.0.0.2:22"}}
+	err := st.seSetPorts(ctx, io.Discard, "stream:x", streamPorts(spec))
+	var he *helperapi.Error
+	if !errors.As(err, &he) || he.Code != helperapi.CodeStreamSELinuxPort || he.Params["port"] != spec.Port {
+		t.Fatalf("%d: %v", spec.Port, err)
 	}
 	if len(f.imports) != 0 || f.module != "" || len(st.seLoad().Ports) != 0 {
 		t.Fatalf("changed: %v %q", f.imports, f.module)
+	}
+	// A port the policy alone reserves for another service (MariaDB's
+	// 3306, a DNS server's 53) is taken over while nginx listens on it,
+	// and gets the policy's type back when the proxy goes.
+	for _, spec := range []helperapi.StreamSpec{
+		{Protocol: "tcp", Port: 3306, Upstreams: []string{"10.0.0.2:3306"}},
+		{Protocol: "udp", Port: 53, Upstreams: []string{"10.0.0.2:53"}},
+	} {
+		key := "http_port_t " + spec.Protocol + " " + strconv.Itoa(spec.Port)
+		if err := st.seSetPorts(ctx, io.Discard, "stream:y", streamPorts(spec)); err != nil || !f.ports[key] {
+			t.Fatalf("listening on %d: %v %v", spec.Port, err, f.ports)
+		}
+		if err := st.seSetPorts(ctx, io.Discard, "stream:y", nil); err != nil || f.ports[key] || len(f.ports) != 1 {
+			t.Fatalf("released %d: %v %v", spec.Port, err, f.ports)
+		}
+	}
+	if f.module != "" {
+		t.Fatalf("a connect module for ports nginx listens on: %q", f.module)
 	}
 	// A port of the policy's http_port_t and a port without a type are fine.
 	for _, p := range []int{8443, 9100} {

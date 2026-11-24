@@ -268,7 +268,7 @@
       "port_taken": "Port {port} is already used by {owner}.",
       "local_upstream": "{upstream} is on this server itself: forwarding to it would make it reachable from the network, which needs the permission to change the firewall.",
       "upstream_name": "{upstream} is not an IP address written the usual way. Only accounts that may change the firewall can name upstreams by host name, since a name could point to this server.",
-      "selinux_port": "SELinux reserves {protocol} port {port} for another service (type {type}); nginx may not listen on it. Choose another port."
+      "selinux_port": "A local SELinux rule on this server gives {protocol} port {port} to another service (type {type}); nginx may not listen on it. Choose another port."
     },
     "db": {
       "config_unsafe": "{path} is a link, a special file or has a second name, or a folder on its path is a link. Nothing was changed.",
@@ -412,7 +412,7 @@
     "local_upstream": "An upstream on this server itself (a loopback address) needs the permission to change the firewall: the proxy would make it reachable from the network.",
     "port_listening": "Port {port} is already in use: another program on this server listens on it.",
     "upstream_name": "Without the permission to change the firewall, upstreams must be IP addresses written the usual way: a host name could point to this server.",
-    "selinux_port": "SELinux reserves this port for another service; nginx may not listen on it. Choose another port."
+    "selinux_port": "A local SELinux rule on this server gives this port to another service; nginx may not listen on it. Choose another port."
   },
   "owner": {
     "site": "the app site {name}",
