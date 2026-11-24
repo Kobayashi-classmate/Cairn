@@ -47,9 +47,13 @@ const (
 	CodeDBSystemd       = "db.systemd_required"  // restarting the service needs systemd
 	CodeDBPasswordNeed  = "db.password_required" // a new user (or host entry) needs a password
 	CodeDBRestartFailed = "db.restart_failed"
-	CodeRedisNeedsPass  = "redis.password_required" // remote access needs a password
-	CodeRedisCommand    = "redis.command_failed"
-	CodeRedisNoKey      = "redis.key_not_found"
+	// CodeDBConfigUnsafe: a configuration file of the server is a link,
+	// a pipe or another special file, has a second name, or a directory
+	// on its path is a link (params: path, reason); nothing was changed.
+	CodeDBConfigUnsafe = "db.config_unsafe"
+	CodeRedisNeedsPass = "redis.password_required" // remote access needs a password
+	CodeRedisCommand   = "redis.command_failed"
+	CodeRedisNoKey     = "redis.key_not_found"
 )
 
 // Database engine kinds.

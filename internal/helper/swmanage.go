@@ -436,22 +436,14 @@ func textOK(b []byte) bool { return utf8.Valid(b) && !bytes.ContainsRune(b, 0) }
 
 // readConfigFile reads a configuration file for showing or editing.
 func (s *Software) readConfigFile(p string) ([]byte, os.FileInfo, error) {
-	info, err := os.Stat(s.path(p))
-	if errors.Is(err, fs.ErrNotExist) {
+	data, info, err := readConfFile(s.Root, p, helperapi.ConfigMax)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return nil, nil, pkgErr(helperapi.CodePkgConfigMissing, map[string]any{"path": p})
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, nil, pkgErr(helperapi.CodePkgConfigNotText, map[string]any{"path": p})
-	}
-	if info.Size() > helperapi.ConfigMax {
+	case errors.Is(err, errConfTooLarge):
 		return nil, nil, pkgErr(helperapi.CodePkgConfigTooLarge, map[string]any{"path": p, "max": helperapi.ConfigMax})
-	}
-	data, err := os.ReadFile(s.path(p)) //nolint:gosec // G304: a catalog path of an installed line.
-	if err != nil {
-		return nil, nil, err
+	case err != nil:
+		return nil, nil, confPkgErr(err)
 	}
 	if !textOK(data) {
 		return nil, nil, pkgErr(helperapi.CodePkgConfigNotText, map[string]any{"path": p})
@@ -529,59 +521,19 @@ func (s *Software) keepVersion(dir string, data []byte) error {
 	return nil
 }
 
-// replaceFile writes data over an existing file atomically, keeping its
-// mode, owner and SELinux label.
-func replaceFile(p string, data []byte) error {
-	// A distribution may link the file elsewhere: replace the target and
-	// keep the link.
-	p, err := filepath.EvalSymlinks(p)
-	if err != nil {
-		return err
+// confPkgErr turns the refusal of a configuration path into its error
+// code; other errors pass unchanged.
+func confPkgErr(err error) error {
+	if ue, ok := asConfUnsafe(err); ok {
+		return pkgErr(helperapi.CodePkgConfigUnsafe, map[string]any{"path": ue.Path, "reason": ue.Reason})
 	}
-	info, err := os.Stat(p)
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(p), ".cairn-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // no-op after the rename
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), info.Mode().Perm()); err != nil {
-		return err
-	}
-	if st, ok := info.Sys().(*syscall.Stat_t); ok {
-		if err := os.Lchown(tmp.Name(), int(st.Uid), int(st.Gid)); err != nil {
-			return err
-		}
-	}
-	label := make([]byte, 256)
-	relabel := false
-	if n, err := syscall.Getxattr(p, selinuxXattr, label); err == nil && n > 0 {
-		// Where the label cannot be copied, the policy's own one is set
-		// once the file is in place.
-		relabel = syscall.Setxattr(tmp.Name(), selinuxXattr, label[:n], 0) != nil
-	}
-	if err := os.Rename(tmp.Name(), p); err != nil {
-		return err
-	}
-	if relabel {
-		if _, err := queryCommand(context.Background(), "restorecon", p); err != nil {
-			return fmt.Errorf("restoring the SELinux label of %s: %w", p, err)
-		}
-	}
-	return nil
+	return err
+}
+
+// replaceFile writes data over the existing configuration file p
+// (beneath root) atomically, keeping its mode, owner and SELinux label.
+func replaceFile(root, p string, data []byte) error {
+	return confPkgErr(writeConfFile(root, p, data, confWrite{}))
 }
 
 func (s *Software) configWrite(ctx context.Context, _ helperapi.Caller, req helperapi.ConfigWriteRequest, log io.Writer) (any, error) {
@@ -616,15 +568,24 @@ func (s *Software) configWrite(ctx context.Context, _ helperapi.Caller, req help
 		return nil, err
 	}
 	_, _ = fmt.Fprintf(log, "Kept the current %s as a version; writing the new one.\n", cf.Path)
-	full := s.path(cf.Path)
-	if err := replaceFile(full, next); err != nil {
+	// Whether the service runs before the save decides whether it must
+	// run again should the new file fail it.
+	wasActive := cf.Service != "" && systemdRunning() && unitActive(ctx, cf.Service) == "active"
+	if err := replaceFile(s.Root, cf.Path, next); err != nil {
 		return nil, err
 	}
 	res.Changed = true
-	restore := func() {
-		if err := replaceFile(full, cur); err != nil {
+	restore := func() error {
+		err := replaceFile(s.Root, cf.Path, cur)
+		if err != nil {
 			s.Log.Error("restoring a configuration file failed", "path", cf.Path, "err", err)
+			_, _ = fmt.Fprintf(log, "Putting the previous %s back failed: %v\n", cf.Path, err)
 		}
+		return err
+	}
+	restoreFailed := func(err error, output string) error {
+		return pkgErr(helperapi.CodePkgConfigRestoreFailed, map[string]any{"path": cf.Path, "service": cf.Service,
+			"output": tailString(strings.TrimSpace(output+"\n"+err.Error()), 1200)})
 	}
 	if len(cf.Check) > 0 {
 		argv := slices.Clone(cf.Check)
@@ -636,7 +597,9 @@ func (s *Software) configWrite(ctx context.Context, _ helperapi.Caller, req help
 		}
 		_, _ = io.WriteString(log, tailLines(out, 20))
 		if err != nil || checkFailed.MatchString(out) {
-			restore()
+			if rerr := restore(); rerr != nil {
+				return nil, restoreFailed(rerr, out)
+			}
 			_, _ = fmt.Fprintf(log, "The check failed; the previous file was put back. Nothing was changed.\n")
 			return nil, pkgErr(helperapi.CodePkgConfigInvalid, map[string]any{"check": filepath.Base(cf.Check[0]), "output": tailString(strings.TrimSpace(out), 1200)})
 		}
@@ -646,14 +609,50 @@ func (s *Software) configWrite(ctx context.Context, _ helperapi.Caller, req help
 	if err != nil {
 		// The journal says why before the service comes back.
 		why := journalTail(ctx, cf.Service, started)
-		restore()
-		_, _ = s.applyConfig(ctx, io.Discard, o, cf)
+		if rerr := restore(); rerr != nil {
+			return nil, restoreFailed(rerr, why)
+		}
 		_, _ = fmt.Fprintf(log, "%s failed with the new file; the previous file was put back.\n%s\n", cf.Service, why)
+		if !wasActive {
+			// Without systemd, or a service that was not running: as it
+			// was, reloaded with the previous file where it runs.
+			_, _ = s.applyConfig(ctx, io.Discard, o, cf)
+			return nil, pkgErr(helperapi.CodePkgConfigApplyFailed, map[string]any{"service": cf.Service, "output": why})
+		}
+		back := time.Now()
+		if err := s.serviceBack(ctx, log, o, cf); err != nil {
+			_, _ = fmt.Fprintf(log, "%s did not start again with the previous file: %v\n", cf.Service, err)
+			return nil, pkgErr(helperapi.CodePkgConfigNotRunning, map[string]any{"service": cf.Service,
+				"output": tailString(strings.TrimSpace(why+"\n"+journalTail(ctx, cf.Service, back)), 1200)})
+		}
 		return nil, pkgErr(helperapi.CodePkgConfigApplyFailed, map[string]any{"service": cf.Service, "output": why})
 	}
 	res.Applied = applied
 	s.Log.Info("configuration file saved", "software", sw.ID, "line", o.Line, "config", cf.ID, "applied", applied)
 	return res, nil
+}
+
+// serviceBack brings a service that ran before a failed save back with
+// the previous file. One still running reloads or restarts as the file
+// asks; one the new file stopped is started explicitly, since applying a
+// file leaves a stopped service alone and not every unit restarts itself
+// (Redis on EL, MariaDB after a configuration error).
+func (s *Software) serviceBack(ctx context.Context, log io.Writer, o catalog.Offer, cf catalog.ConfigFile) error {
+	if waitActive(ctx, cf.Service) {
+		if _, err := s.applyConfig(ctx, log, o, cf); err == nil || unitActive(ctx, cf.Service) == "active" {
+			return nil
+		}
+	}
+	_, _ = fmt.Fprintf(log, "Starting %s with the previous file.\n", cf.Service)
+	// A unit that failed too often in a row refuses to start until told.
+	_ = runCommand(ctx, log, "systemctl", "reset-failed", cf.Service)
+	if err := runCommand(ctx, log, "systemctl", "start", cf.Service); err != nil {
+		return err
+	}
+	if !waitActive(ctx, cf.Service) {
+		return fmt.Errorf("%s did not start", cf.Service)
+	}
+	return nil
 }
 
 // applyConfig reloads or restarts the service that reads the file; a

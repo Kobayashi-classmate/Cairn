@@ -579,21 +579,27 @@ func (d *DBs) restore(ctx context.Context, _ helperapi.Caller, req helperapi.DBR
 }
 
 // writeConfig writes a configuration file of a database server, keeping
-// the owner and mode of the file it replaces (new files: root, 0644).
+// the owner, mode and SELinux label of the file it replaces (new files:
+// root, 0644). Its directory may belong to the server's account: see
+// writeConfFile.
 func (d *DBs) writeConfig(p string, data []byte) error {
-	full := d.path(p)
-	mode, uid, gid := os.FileMode(0o644), -1, -1
-	if fi, err := os.Lstat(full); err == nil {
-		mode = fi.Mode().Perm()
-		uid, gid = fileOwner(fi)
+	return confDBErr(writeConfFile(d.Root, p, data, confWrite{Create: true, Mode: 0o644, MkdirAll: true}))
+}
+
+// readConfig reads a configuration file of a database server; see
+// readConfFile.
+func (d *DBs) readConfig(p string) ([]byte, error) {
+	data, _, err := readConfFile(d.Root, p, confReadMax)
+	return data, confDBErr(err)
+}
+
+// confDBErr turns the refusal of a configuration path into its error
+// code; other errors pass unchanged.
+func confDBErr(err error) error {
+	if ue, ok := asConfUnsafe(err); ok {
+		return dbErr(helperapi.CodeDBConfigUnsafe, map[string]any{"path": ue.Path, "reason": ue.Reason})
 	}
-	if err := writeFileMode(full, data, mode); err != nil {
-		return err
-	}
-	if uid >= 0 {
-		return os.Lchown(full, uid, gid)
-	}
-	return nil
+	return err
 }
 
 // tempFile creates a root-only file for secrets passed to a client.

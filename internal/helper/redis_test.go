@@ -371,3 +371,27 @@ func TestRedisSnapshot(t *testing.T) {
 		t.Fatalf("snapshot elsewhere: %+v", op)
 	}
 }
+
+// The redis account owns /etc/redis: its configuration file replaced with
+// a link is neither read (the password the helper logs in with comes
+// from it) nor rewritten.
+func TestRedisRefusesLinkedConfig(t *testing.T) {
+	e, f := newRedisEnv(t)
+	v := newConfTarget(t)
+	conf := filepath.Join(e.d.Root, "/etc/redis/redis.conf")
+	if err := os.Remove(conf); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(v.path, conf); err != nil {
+		t.Fatal(err)
+	}
+	e.f.systemd = true
+	f.oldBind = true
+	if op, log := e.run(helperapi.ActionDBRemote, helperapi.DBRemoteRequest{Engine: "redis", Enabled: false}); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBConfigUnsafe {
+		t.Fatalf("remote through a linked redis.conf: %+v\n%s", op, log)
+	}
+	v.untouched(t)
+	if e.f.ran("systemctl restart redis-server") {
+		t.Fatal("restarted")
+	}
+}

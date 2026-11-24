@@ -8,14 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
@@ -225,9 +224,13 @@ func redisWord(v string) string {
 func (d *DBs) redisConf(e dbEngine) (redisConf, error) {
 	file, dataDir := redisFiles(e)
 	conf := redisConf{file: file, dataDir: dataDir, port: 6379}
-	data, err := os.ReadFile(d.path(file)) //nolint:gosec // G304: the instance's own file.
-	if err != nil {
+	// The directory belongs to the server's account: see readConfFile.
+	data, err := d.readConfig(file)
+	if errors.Is(err, fs.ErrNotExist) {
 		return conf, dbErr(helperapi.CodeDBEngineMissing, map[string]any{"engine": e.id})
+	}
+	if err != nil {
+		return conf, err
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		key, val, _ := strings.Cut(strings.TrimSpace(line), " ")
@@ -470,7 +473,7 @@ func (d *DBs) redisRemote(ctx context.Context, log io.Writer, e dbEngine, enable
 	if enabled {
 		bind = "0.0.0.0"
 	}
-	data, err := os.ReadFile(d.path(conf.file)) //nolint:gosec // G304: the instance's own file.
+	data, err := d.readConfig(conf.file)
 	if err != nil {
 		return err
 	}
@@ -756,14 +759,14 @@ func (d *DBs) redisDump(ctx context.Context, log io.Writer, e dbEngine) (helpera
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	src := d.path(path.Join(conf.dataDir, name))
-	fi, err := os.Lstat(src)
-	if err != nil || !fi.Mode().IsRegular() {
+	// The data directory belongs to the server's account: the snapshot is
+	// opened as a configuration file is (see openConfFile).
+	f, _, err := openConfFile(d.Root, path.Join(conf.dataDir, name))
+	if errors.Is(err, fs.ErrNotExist) {
 		return helperapi.DumpInfo{}, dbErr(helperapi.CodeRedisCommand, map[string]any{"detail": "snapshot file missing"})
 	}
-	f, err := os.OpenFile(src, os.O_RDONLY|syscall.O_NOFOLLOW, 0) //nolint:gosec // G304: the package's data directory, checked above.
 	if err != nil {
-		return helperapi.DumpInfo{}, err
+		return helperapi.DumpInfo{}, confDBErr(err)
 	}
 	defer func() { _ = f.Close() }()
 	return d.writeDump(e.id, "", ".rdb", false, func(w io.Writer) error {

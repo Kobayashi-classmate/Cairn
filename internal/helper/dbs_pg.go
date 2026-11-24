@@ -9,8 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
-	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -173,7 +173,8 @@ SELECT 'u', rolname FROM pg_roles WHERE rolcanlogin ORDER BY 2;`))
 		return err
 	}
 	info.Running = true
-	_, _, hba := d.pgHba(c)
+	// Status shows what can be read; a refused file shows no hosts.
+	_, _, hba, _ := d.pgHba(c)
 	for _, r := range rows {
 		switch {
 		case r[0] == "v" && len(r) > 1:
@@ -195,11 +196,16 @@ SELECT 'u', rolname FROM pg_roles WHERE rolcanlogin ORDER BY 2;`))
 }
 
 // pgHba reads pg_hba.conf around the managed block, and the hosts of
-// every user in it.
-func (d *DBs) pgHba(c pgClusterInfo) (string, string, map[string][]string) {
-	data, _ := os.ReadFile(d.path(c.etc("pg_hba.conf"))) //nolint:gosec // G304: the cluster's own file.
+// every user in it; a missing file is empty. The cluster's directory
+// belongs to postgres: see readConfFile.
+func (d *DBs) pgHba(c pgClusterInfo) (string, string, map[string][]string, error) {
+	data, err := d.readConfig(c.etc("pg_hba.conf"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		before, after, hosts := parseHba("")
+		return before, after, hosts, err
+	}
 	before, after, hosts := parseHba(string(data))
-	return before, after, hosts
+	return before, after, hosts, nil
 }
 
 func parseHba(content string) (string, string, map[string][]string) {
@@ -275,7 +281,10 @@ func renderHba(before, after string, hosts map[string][]string) string {
 // pgSetHosts makes the managed block list hosts for user (nil: none)
 // and reloads the server when it changed.
 func (d *DBs) pgSetHosts(ctx context.Context, log io.Writer, e dbEngine, c pgClusterInfo, user string, hosts []string) error {
-	before, after, all := d.pgHba(c)
+	before, after, all, err := d.pgHba(c)
+	if err != nil {
+		return err
+	}
 	var remote []string
 	for _, h := range hosts {
 		if h != "localhost" && !slices.Contains(remote, h) {
@@ -293,7 +302,7 @@ func (d *DBs) pgSetHosts(ctx context.Context, log io.Writer, e dbEngine, c pgClu
 		return err
 	}
 	_, _ = fmt.Fprintf(log, "updated %s\n", c.etc("pg_hba.conf"))
-	_, err := d.psql(ctx, log, e, c, "postgres", pgQuery("SELECT pg_reload_conf();"))
+	_, err = d.psql(ctx, log, e, c, "postgres", pgQuery("SELECT pg_reload_conf();"))
 	return err
 }
 
@@ -540,16 +549,31 @@ func (d *DBs) pgRemote(ctx context.Context, log io.Writer, e dbEngine, enabled b
 	}
 	conf := fmt.Sprintf("# %s\nlisten_addresses = '%s'\n", dbManagedNote, listen)
 	dir := c.etc("conf.d")
-	if _, err := os.Stat(d.path(dir)); err != nil {
-		if err := os.MkdirAll(d.path(dir), 0o755); err != nil { //nolint:gosec // G301: postgres reads it.
-			return err
-		}
-		if uid, gid, err := lookupUser("postgres"); err == nil {
-			_ = os.Lchown(d.path(dir), uid, gid)
-		}
+	if err := d.pgConfDir(dir); err != nil {
+		return err
 	}
 	return d.reconfigure(ctx, log, e, path.Join(dir, "99-cairn.conf"), []byte(conf),
 		func() error { return d.pgCtl(ctx, log, c, helperapi.ServiceRestart) })
+}
+
+// pgConfDir makes sure the cluster's conf.d is a directory of its own
+// (never a link to one elsewhere), making it for postgres when missing.
+func (d *DBs) pgConfDir(dir string) error {
+	f, err := openConfDir(d.Root, dir, false)
+	if err == nil {
+		return f.Close()
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		return confDBErr(err)
+	}
+	if f, err = openConfDir(d.Root, dir, true); err != nil {
+		return confDBErr(err)
+	}
+	defer func() { _ = f.Close() }()
+	if uid, gid, err := lookupUser("postgres"); err == nil {
+		return f.Chown(uid, gid)
+	}
+	return nil
 }
 
 // pgCtl starts, stops or restarts a cluster (through systemd when it

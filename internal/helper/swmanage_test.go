@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -163,19 +165,109 @@ func isCode(err error, code string) bool {
 	return ok && he.Code == code
 }
 
-func TestConfigFileRestartFailureRestores(t *testing.T) {
+// unitSim gives one unit of the fake system a state that follows the
+// systemctl verbs sent to it; onRestart and onStart decide where it ends.
+type unitSim struct {
+	mu        sync.Mutex
+	name      string
+	state     string
+	onRestart func() (string, error)
+	onStart   func() string
+	verbs     []string
+}
+
+func (u *unitSim) use(t *testing.T) {
+	t.Helper()
+	innerRun, innerQuery := runCommand, queryCommand
+	t.Cleanup(func() { runCommand, queryCommand = innerRun, innerQuery })
+	runCommand = func(ctx context.Context, log io.Writer, name string, args ...string) error {
+		if name == "systemctl" && len(args) == 2 && args[1] == u.name {
+			u.mu.Lock()
+			defer u.mu.Unlock()
+			u.verbs = append(u.verbs, args[0])
+			switch args[0] {
+			case "restart":
+				st, err := u.onRestart()
+				u.state = st
+				return err
+			case "start":
+				u.state = u.onStart()
+				if u.state != "active" {
+					return errors.New("exit status 1")
+				}
+				return nil
+			case "reset-failed":
+				if u.state == "failed" {
+					u.state = "inactive"
+				}
+				return nil
+			}
+		}
+		return innerRun(ctx, log, name, args...)
+	}
+	queryCommand = func(ctx context.Context, name string, args ...string) (string, error) {
+		if name == "systemctl" && len(args) == 2 && args[0] == "is-active" && args[1] == u.name {
+			u.mu.Lock()
+			defer u.mu.Unlock()
+			return u.state, nil
+		}
+		return innerQuery(ctx, name, args...)
+	}
+}
+
+func (u *unitSim) sent() []string {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return slices.Clone(u.verbs)
+}
+
+// redisRestartEnv is a running redis-server whose unit does not restart
+// by itself (as on EL): it fails with any file but the original one, and
+// starts with that one only while startOK.
+func redisRestartEnv(t *testing.T) (*Ops, *Registry, string, *unitSim, *bool) {
+	t.Helper()
 	f := &fakeSystem{systemd: true, isActive: "active", installed: map[string]string{"redis-server": "5:8.0.2-3"},
-		failPrefix: "systemctl restart redis-server", journal: "Bad directive or wrong number of arguments"}
+		journal: "Bad directive or wrong number of arguments"}
 	s, o, r := lineSoftware(t, f)
 	conf := filepath.Join(s.Root, "etc/redis/redis.conf")
 	writeTestFile(t, conf, "port 6379\n")
-	checks := fakeCheck(t, func([]string) (string, error) { return "", nil })
+	fakeCheck(t, func([]string) (string, error) { return "", nil })
+	good := func() bool { b, _ := os.ReadFile(conf); return string(b) == "port 6379\n" }
+	startOK := true
+	u := &unitSim{name: "redis-server", state: "active",
+		onRestart: func() (string, error) {
+			if good() {
+				return "active", nil
+			}
+			return "failed", errors.New("exit status 1")
+		},
+		onStart: func() string {
+			if good() && startOK {
+				return "active"
+			}
+			return "failed"
+		}}
+	u.use(t)
+	return o, r, conf, u, &startOK
+}
+
+func saveRedisConf(t *testing.T, o *Ops, r *Registry, content string) (helperapi.Op, string) {
+	t.Helper()
 	cur, err := call[helperapi.ConfigFile](t, r, helperapi.ActionPkgConfigRead, helperapi.ConfigRequest{Software: "redis", Line: "8.0", Config: "redis.conf"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, log := runLineOp(t, o, r, helperapi.ActionPkgConfigWrite, helperapi.ConfigWriteRequest{
-		Software: "redis", Line: "8.0", Config: "redis.conf", Content: "port nope\n", Base: cur.SHA256})
+	return runLineOp(t, o, r, helperapi.ActionPkgConfigWrite, helperapi.ConfigWriteRequest{
+		Software: "redis", Line: "8.0", Config: "redis.conf", Content: content, Base: cur.SHA256})
+}
+
+func TestConfigFileRestartFailureRestores(t *testing.T) {
+	o, r, conf, u, _ := redisRestartEnv(t)
+	checks := fakeCheck(t, func([]string) (string, error) { return "", nil })
+	op, log := saveRedisConf(t, o, r, "port nope\n")
+	if len(*checks) != 0 {
+		t.Fatal("redis.conf has no check")
+	}
 	if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodePkgConfigApplyFailed || op.Error.Params["service"] != "redis-server" ||
 		!strings.Contains(op.Error.Params["output"].(string), "Bad directive") {
 		t.Fatalf("apply: %+v\n%s", op.Error, log)
@@ -183,8 +275,71 @@ func TestConfigFileRestartFailureRestores(t *testing.T) {
 	if data, _ := os.ReadFile(conf); string(data) != "port 6379\n" {
 		t.Fatalf("not restored: %q", data)
 	}
-	if len(*checks) != 0 {
-		t.Fatal("redis.conf has no check")
+	// The service ran before the save, so it runs again with the
+	// previous file: nothing else would start it.
+	if u.state != "active" || !slices.Equal(u.sent(), []string{"restart", "reset-failed", "start"}) {
+		t.Fatalf("service after the rollback: %q, verbs %v\n%s", u.state, u.sent(), log)
+	}
+}
+
+func TestConfigFileRestoredButServiceDown(t *testing.T) {
+	o, r, conf, u, startOK := redisRestartEnv(t)
+	*startOK = false
+	op, log := saveRedisConf(t, o, r, "port nope\n")
+	if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodePkgConfigNotRunning || op.Error.Params["service"] != "redis-server" {
+		t.Fatalf("apply: %+v\n%s", op.Error, log)
+	}
+	if data, _ := os.ReadFile(conf); string(data) != "port 6379\n" {
+		t.Fatalf("not restored: %q", data)
+	}
+	if u.state == "active" || !slices.Contains(u.sent(), "start") {
+		t.Fatalf("service: %q, verbs %v", u.state, u.sent())
+	}
+}
+
+func TestConfigFileServiceStoppedStaysStopped(t *testing.T) {
+	o, r, conf, u, _ := redisRestartEnv(t)
+	u.state = "inactive"
+	// A service that is not running reads the file when it starts; the
+	// save does not start it.
+	op, log := saveRedisConf(t, o, r, "port 6380\n")
+	if op.State != helperapi.OpSucceeded || len(u.sent()) != 0 {
+		t.Fatalf("save: %+v verbs %v\n%s", op.Error, u.sent(), log)
+	}
+	if data, _ := os.ReadFile(conf); string(data) != "port 6380\n" {
+		t.Fatalf("content: %q", data)
+	}
+}
+
+// The service account owns /etc/redis and replaces its configuration
+// file with a link to a root-only file: the panel neither shows nor
+// replaces that file.
+func TestConfigFileRefusesPlantedLink(t *testing.T) {
+	f := &fakeSystem{systemd: true, isActive: "active", installed: map[string]string{"redis-server": "5:8.0.2-3"}}
+	s, o, r := lineSoftware(t, f)
+	fakeCheck(t, func([]string) (string, error) { return "", nil })
+	if err := os.Rename(serviceDir(t, s.Root), filepath.Join(s.Root, "etc/redis")); err != nil {
+		t.Fatal(err)
+	}
+	v := newConfTarget(t)
+	conf := filepath.Join(s.Root, "etc/redis/redis.conf")
+	if err := os.Symlink(v.path, conf); err != nil {
+		t.Fatal(err)
+	}
+	ref := helperapi.ConfigRequest{Software: "redis", Line: "8.0", Config: "redis.conf"}
+	got, err := call[helperapi.ConfigFile](t, r, helperapi.ActionPkgConfigRead, ref)
+	if !isCode(err, helperapi.CodePkgConfigUnsafe) || strings.Contains(got.Content, "secret") {
+		t.Fatalf("read through the link: %q %v", got.Content, err)
+	}
+	// Even with the right base (the web process may know the content).
+	op, log := runLineOp(t, o, r, helperapi.ActionPkgConfigWrite, helperapi.ConfigWriteRequest{
+		Software: "redis", Line: "8.0", Config: "redis.conf", Content: "* * * * * root id\n", Base: sha256Hex([]byte(v.content))})
+	if op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodePkgConfigUnsafe || op.Error.Params["reason"] != confLink {
+		t.Fatalf("write through the link: %+v\n%s", op.Error, log)
+	}
+	v.untouched(t)
+	if fi, err := os.Lstat(conf); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("the link: %v %v", fi, err)
 	}
 }
 

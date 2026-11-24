@@ -33,6 +33,18 @@ const (
 	CodePkgConfigApplyFailed = "pkg.config_apply_failed"
 	CodePkgConfigVersion     = "pkg.config_version_unknown"
 	CodePkgConfigNotText     = "pkg.config_not_text"
+	// CodePkgConfigUnsafe: the file is a link, a pipe or another special
+	// file, has a second name, or a directory on its path is a link
+	// (params: path, reason); nothing was read or written.
+	CodePkgConfigUnsafe = "pkg.config_unsafe"
+	// CodePkgConfigRestoreFailed: the service failed with the new file
+	// and putting the previous one back failed too (params: path,
+	// service, output).
+	CodePkgConfigRestoreFailed = "pkg.config_restore_failed"
+	// CodePkgConfigNotRunning: the service failed with the new file, the
+	// previous file was put back, but the service, running before the
+	// save, did not start again (params: service, output).
+	CodePkgConfigNotRunning = "pkg.config_restore_not_running"
 	// CodePkgRemoveTakes: removing the line would remove other installed
 	// packages with it (params: packages, by).
 	CodePkgRemoveTakes = "pkg.remove_takes"

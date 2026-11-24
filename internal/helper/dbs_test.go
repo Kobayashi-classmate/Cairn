@@ -928,3 +928,91 @@ func TestOpenDumpRefusesSpecialFiles(t *testing.T) {
 		}
 	}
 }
+
+// The postgres account owns /etc/postgresql/<v>/main: a pg_hba.conf
+// replaced with a link, or a conf.d replaced with a link to another
+// directory, leads the helper nowhere else.
+func TestPostgreSQLRefusesLinkedConfig(t *testing.T) {
+	e := newPGEnv(t)
+	e.reply = func(c dbCall) (string, error) {
+		switch {
+		case c.name == "/usr/bin/pg_lsclusters":
+			return pgClusters, nil
+		case strings.HasPrefix(c.stdin, "SELECT 'd', datname"):
+			return "d\tpostgres\tpostgres\nd\tshop\tshop\n", nil
+		}
+		return "", nil
+	}
+	main := filepath.Join(e.d.Root, "/etc/postgresql/17/main")
+	v := newConfTarget(t)
+	hba := filepath.Join(main, "pg_hba.conf")
+	if err := os.Remove(hba); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(v.path, hba); err != nil {
+		t.Fatal(err)
+	}
+	req := helperapi.DBUserRequest{Engine: "postgresql-17", Name: "report", Password: "S3cret-pass", Hosts: []string{"localhost", "%"},
+		Grants: []helperapi.DBGrant{{Database: "shop", Level: helperapi.GrantAll}}}
+	if op, log := e.run(helperapi.ActionDBUserSet, req); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBConfigUnsafe {
+		t.Fatalf("hosts through a linked pg_hba.conf: %+v\n%s", op, log)
+	}
+	v.untouched(t)
+	if fi, err := os.Lstat(hba); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("pg_hba.conf replaced: %v %v", fi, err)
+	}
+	// The status still answers, without hosts from the file.
+	if s := e.status(); len(s.Engines) == 0 {
+		t.Fatalf("status %+v", s)
+	}
+
+	// conf.d swapped for a link: the cluster's directory is postgres's,
+	// so the link is not one only root can have made.
+	if os.Geteuid() != 0 {
+		return
+	}
+	if err := os.Chown(main, serviceUID, serviceUID); err != nil {
+		t.Fatal(err)
+	}
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(main, "conf.d")); err != nil {
+		t.Fatal(err)
+	}
+	if op, log := e.run(helperapi.ActionDBRemote, helperapi.DBRemoteRequest{Engine: "postgresql-17", Enabled: true}); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBConfigUnsafe {
+		t.Fatalf("remote through a linked conf.d: %+v\n%s", op, log)
+	}
+	if ents, _ := os.ReadDir(elsewhere); len(ents) != 0 {
+		t.Fatalf("written in the linked directory: %v", ents)
+	}
+}
+
+// The configuration files the helper writes for a database server keep
+// their mode and owner; a new one is root's, 0644.
+func TestDBWriteConfigKeepsModeAndOwner(t *testing.T) {
+	e := newPGEnv(t)
+	p := "/etc/postgresql/17/main/pg_hba.conf"
+	full := filepath.Join(e.d.Root, p)
+	if err := os.Chmod(full, 0o640); err != nil { //nolint:gosec // G302: not the temporary file's 0600, to see the mode kept
+		t.Fatal(err)
+	}
+	want := os.Getuid()
+	if want == 0 {
+		want = serviceUID
+		if err := os.Chown(full, want, want); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.d.writeConfig(p, []byte("local all postgres peer\n")); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Lstat(full)
+	if err != nil || fi.Mode().Perm() != 0o640 || !fi.Mode().IsRegular() || int(fi.Sys().(*syscall.Stat_t).Uid) != want {
+		t.Fatalf("after the write: %v %v", fi, err)
+	}
+	if err := e.d.writeConfig("/etc/mysql/conf.d/99-cairn.cnf", []byte("[mysqld]\n")); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(filepath.Join(e.d.Root, "/etc/mysql/conf.d/99-cairn.cnf")); err != nil || fi.Mode().Perm() != 0o644 {
+		t.Fatalf("new file: %v %v", fi, err)
+	}
+}

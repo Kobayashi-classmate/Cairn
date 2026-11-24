@@ -4,8 +4,10 @@ package helper
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"os"
 	"path"
@@ -397,9 +399,9 @@ func (d *DBs) mysqlRemote(ctx context.Context, log io.Writer, e dbEngine, enable
 // reconfigure writes a configuration file and restarts the server; when
 // the server does not come back, the previous file returns.
 func (d *DBs) reconfigure(ctx context.Context, log io.Writer, e dbEngine, p string, data []byte, restart func() error) error {
-	old, readErr := os.ReadFile(d.path(p))                          //nolint:gosec // G304: fixed configuration paths.
-	if err := os.MkdirAll(path.Dir(d.path(p)), 0o755); err != nil { //nolint:gosec // G301: the server's configuration directories are world-readable.
-		return err
+	old, readErr := d.readConfig(p)
+	if readErr != nil && !errors.Is(readErr, fs.ErrNotExist) {
+		return readErr
 	}
 	if err := d.writeConfig(p, data); err != nil {
 		return err
@@ -409,10 +411,15 @@ func (d *DBs) reconfigure(ctx context.Context, log io.Writer, e dbEngine, p stri
 	if err == nil {
 		return nil
 	}
+	var back error
 	if readErr == nil {
-		_ = d.writeConfig(p, old)
+		back = d.writeConfig(p, old)
 	} else {
-		_ = os.Remove(d.path(p))
+		back = removeConfFile(d.Root, p)
+	}
+	if back != nil {
+		_, _ = fmt.Fprintf(log, "restart failed; restoring %s failed too: %v\n", p, back)
+		return dbErr(helperapi.CodeDBRestartFailed, map[string]any{"engine": e.id, "detail": errDetail(err) + "; restoring " + p + ": " + back.Error()})
 	}
 	_, _ = fmt.Fprintf(log, "restart failed; %s restored\n", p)
 	_ = restart()
