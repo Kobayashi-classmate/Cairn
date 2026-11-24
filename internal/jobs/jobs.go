@@ -303,6 +303,9 @@ func (m *Manager) finish(j *Job, err error) {
 	}
 	j.mu.Lock()
 	j.rec.State, j.rec.Error, j.rec.Cancelable, j.rec.FinishedAt = state, info, false, m.now().Unix()
+	// The job stays in the live set until run returns; a cancel arriving
+	// in between must be refused, not accepted for a job that is over.
+	j.cancelable = false
 	rec := j.rec
 	j.mu.Unlock()
 	code, params := "", "{}"
