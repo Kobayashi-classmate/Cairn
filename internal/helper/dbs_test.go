@@ -843,7 +843,7 @@ func TestPostgreSQLRestoreInUnit(t *testing.T) {
 	c := e.calls[len(e.calls)-1]
 	line := c.line()
 	for _, want := range []string{"systemd-run --quiet --wait --pipe --collect --unit=cairn-run-", "--property=DynamicUser=yes",
-		"--setenv=PGCONNECT_TIMEOUT=10", `-- /bin/sh -c export PGPASSFILE="$CREDENTIALS_DIRECTORY/pgpass"; exec "$@" sh /usr/lib/postgresql/17/bin/pg_restore`,
+		"--setenv=PGCONNECT_TIMEOUT=10", `-- /bin/sh -c export PGPASSFILE="$$CREDENTIALS_DIRECTORY/pgpass"; exec "$$@" sh /usr/lib/postgresql/17/bin/pg_restore`,
 		"-h 127.0.0.1 -p 5432 -U shop -d shop"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("restore call lacks %q:\n%s", want, line)

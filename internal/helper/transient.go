@@ -53,6 +53,16 @@ var (
 var unitBase = []string{"NoNewPrivileges=yes", "PrivateTmp=yes", "PrivateDevices=yes", "ProtectSystem=strict",
 	"ProtectKernelTunables=yes", "ProtectKernelModules=yes", "ProtectControlGroups=yes", "RestrictSUIDSGID=yes"}
 
+// unitWord writes one word of a unit's command line so that it reaches the
+// command as it is. systemd replaces a variable in braces inside a word of
+// a service's command line, and a word that is a variable's name after a
+// dollar sign, by the unit's environment (systemd.service(5), "Command
+// lines"); two dollar signs stand for one. The words come from users: an
+// archive's name may hold such a reference. Specifiers (a percent sign)
+// need nothing: systemd escapes them itself in a command line it is given
+// over the bus.
+func unitWord(s string) string { return strings.ReplaceAll(s, "$", "$$") }
+
 // runInUnit runs u and returns the command's result; the exit status is
 // the command's (systemd-run --wait passes it on).
 func runInUnit(ctx context.Context, u unitRun) (execx.Result, error) {
@@ -119,10 +129,12 @@ func runInUnit(ctx context.Context, u unitRun) (execx.Result, error) {
 			fmt.Fprintf(&script, "export %s=\"$CREDENTIALS_DIRECTORY/%s\"; ", v, n)
 		}
 		script.WriteString(`exec "$@"`)
-		args = append(args, "/bin/sh", "-c", script.String(), "sh")
+		args = append(args, "/bin/sh", "-c", unitWord(script.String()), "sh")
 	}
-	args = append(args, u.Cmd.Name)
-	args = append(args, u.Cmd.Args...)
+	args = append(args, unitWord(u.Cmd.Name))
+	for _, a := range u.Cmd.Args {
+		args = append(args, unitWord(a))
+	}
 	res, err := dbRun(ctx, execx.Cmd{Name: "systemd-run", Args: args, Stdin: u.Cmd.Stdin, Stdout: u.Cmd.Stdout, Output: u.Cmd.Output,
 		Timeout: timeout, MaxOutput: u.Cmd.MaxOutput})
 	if err != nil {
