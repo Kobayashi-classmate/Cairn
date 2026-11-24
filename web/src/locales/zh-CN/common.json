@@ -200,7 +200,7 @@
     "toAddress": "目标地址",
     "toPort": "目标端口",
     "forwards": "端口转发",
-    "allowSymlinks": "提供指向其他所有者文件的链接"
+    "allowSymlinks": "提供网站自身用户之间的链接"
   },
   "boot": {
     "failed": "无法加载面板",

@@ -398,8 +398,8 @@ func (st *Sites) unitActive(ctx context.Context, unit string) bool {
 }
 
 // ensureUsers creates the site's group and two users, and lets nginx read
-// the site's files.
-func (st *Sites) ensureUsers(ctx context.Context, log io.Writer, code string) error {
+// the site's files when it serves them (see nginxAccess).
+func (st *Sites) ensureUsers(ctx context.Context, log io.Writer, code string, serveFiles bool) error {
 	owner, runner, dir := ownerOf(code), runnerOf(code), siteDirOf(code)
 	if _, err := lookupGroup(owner); err != nil {
 		if err := runCommand(ctx, log, "groupadd", "--system", owner); err != nil {
@@ -425,12 +425,51 @@ func (st *Sites) ensureUsers(ctx context.Context, log io.Writer, code string) er
 			return err
 		}
 	}
-	if st.NginxUser != "" {
-		if err := runCommand(ctx, log, "usermod", "--append", "--groups", owner, st.NginxUser); err != nil {
-			return err
+	_, err = st.nginxAccess(ctx, log, code, serveFiles)
+	return err
+}
+
+// servesFiles reports whether nginx reads the files of a site of this type
+// (a proxy or an app is reached over the network only).
+func servesFiles(t string) bool { return t == helperapi.SiteStatic || t == helperapi.SitePHP }
+
+// groupHasMember reports whether user is a supplementary member of group
+// in the system's group file (replaceable in tests).
+var groupHasMember = func(root, group, user string) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(root, "/etc/group")) //nolint:gosec // G304: the system's group file.
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) == 4 && f[0] == group {
+			return contains(strings.Split(f[3], ","), user), nil
 		}
 	}
-	return nil
+	return false, nil
+}
+
+// nginxAccess puts nginx into the site's group when it serves the site's
+// files, and takes it out otherwise. The group is what lets one nginx user
+// read every site: a site nginx only proxies to keeps its files (an app's
+// configuration and secrets) out of its reach. It reports whether the
+// membership changed: nginx's workers keep the groups they started with
+// until a reload starts new ones.
+func (st *Sites) nginxAccess(ctx context.Context, log io.Writer, code string, serveFiles bool) (bool, error) {
+	if st.NginxUser == "" {
+		return false, nil
+	}
+	member, err := groupHasMember(st.Root, ownerOf(code), st.NginxUser)
+	if err != nil {
+		return false, err
+	}
+	switch {
+	case serveFiles && !member:
+		return true, runCommand(ctx, log, "usermod", "--append", "--groups", ownerOf(code), st.NginxUser)
+	case !serveFiles && member:
+		return true, runCommand(ctx, log, "gpasswd", "--delete", st.NginxUser, ownerOf(code))
+	}
+	return false, nil
 }
 
 // ensureDirs lays out the site directory:
@@ -595,14 +634,11 @@ var siteTemplate = template.Must(template.New("site").Funcs(template.FuncMap{"jo
 {{- else}}
     root {{.WebRoot}};
     index {{join .Index " "}};
-{{- if .AllowSymlinks}}
-    # The site's links may point at files of other owners (allowSymlinks).
-    disable_symlinks off;
-{{- else}}
-    # nginx is in every site's group: a link one site's code plants must
-    # not make it serve another site's files.
-    disable_symlinks if_not_owner from=$document_root;
-{{- end}}
+    # nginx is in the group of every site it serves files of: a link one
+    # site plants must not make it serve another site's files. Links are
+    # checked below {{.AppDir}} (in root's directory, so the owner cannot
+    # replace it), the web root itself included.
+    disable_symlinks if_not_owner from={{.AppDir}};
 
     # Hidden files (.git, .env) are never served.
     location ~ /\.(?!well-known/) {
@@ -694,6 +730,11 @@ php_admin_value[sys_temp_dir] = {{.SiteDir}}/tmp
 php_admin_value[session.save_path] = {{.SiteDir}}/tmp
 php_admin_value[session.gc_probability] = 1
 php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec
+; Every site of this PHP line shares the master's opcache: a cached script
+; is used only if this pool's user may read the file, and no site may list,
+; reset or invalidate the shared cache. Never set opcache.file_cache here.
+php_admin_flag[opcache.validate_permission] = on
+php_admin_value[opcache.restrict_api] = /nonexistent/
 `))
 
 const globalNginx = `# ` + siteManaged + `
@@ -759,7 +800,7 @@ func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM) ([]byte, []by
 		"Managed": siteManaged, "Code": spec.Code, "Type": spec.Type, "Domains": spec.Domains, "LogDir": nginxLogDir,
 		"Enabled": spec.Enabled, "WebRoot": path.Join(dir, "app", spec.Root), "Index": index, "Rewrite": spec.Rewrite,
 		"RewriteBody": "", "Socket": "", "Proxy": nil, "TLS": spec.TLS, "HTTP2On": st.http2Directive(),
-		"CertDir": nginxCertDir, "ACMELocation": indent(acmeLocation), "AllowSymlinks": spec.AllowSymlinks,
+		"CertDir": nginxCertDir, "ACMELocation": indent(acmeLocation), "AppDir": path.Join(dir, "app"),
 	}
 	switch spec.Type {
 	case helperapi.SiteProxy:
@@ -866,11 +907,16 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		return nil, err
 	}
 	_, _ = fmt.Fprintf(log, "Applying site %s (%s): %s\n", spec.Code, spec.Type, strings.Join(spec.Domains, " "))
-	if err := st.ensureUsers(ctx, log, spec.Code); err != nil {
+	if err := st.ensureUsers(ctx, log, spec.Code, servesFiles(spec.Type)); err != nil {
 		return nil, err
 	}
 	if err := st.ensureDirs(log, spec); err != nil {
 		return nil, err
+	}
+	if spec.AllowSymlinks && servesFiles(spec.Type) {
+		if err := st.alignLinks(ctx, log, spec.Code); err != nil {
+			return nil, err
+		}
 	}
 	// SELinux: the directories' types and the ports nginx connects to.
 	if err := st.seSite(ctx, log, spec); err != nil {

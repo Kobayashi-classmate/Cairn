@@ -200,7 +200,7 @@
     "toAddress": "Target address",
     "toPort": "Target port",
     "forwards": "Port forwards",
-    "allowSymlinks": "Serving links to files of other owners"
+    "allowSymlinks": "Serving links between the site's own users"
   },
   "boot": {
     "failed": "Cannot load the panel",

@@ -95,9 +95,13 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - Fetching a file from a URL refuses addresses on the server, the local
   network and cloud metadata services; backup storages, URL tasks and ACME
   servers refuse cloud metadata addresses.
-- Web servers do not follow a site's links to files of other owners, so
-  one site cannot serve another's files; a switch allows such links for a
-  site that needs them (Laravel's public/storage, for example).
+- Sites are kept apart: web servers do not follow a site's links to files
+  of other owners, so one site cannot serve another's files, and sites on
+  the same PHP version cannot read each other's scripts through the shared
+  OPcache. The web server cannot read the files of reverse proxy and app
+  sites at all. A switch serves the links between a site's own owner and
+  runtime user (Laravel's public/storage, for example): the panel hands
+  each such link to the right one whenever the site is saved.
 - Installing the package by hand prints how to get the one-time setup link
   (`sudo cairn setup-link`) rather than the link itself, which would stay
   in the package manager's logs. The online installer prints the link.

@@ -298,9 +298,9 @@
   "dirs": {
     "location": "Location",
     "settings": "Web root and writable directories",
-    "allowSymlinks": "Serve links to files of other owners",
-    "allowSymlinksHint": "By default nginx serves a symbolic link only when the link and the file it points to have the same owner. Turn this on when the project's links cross owners, such as Laravel's public/storage.",
-    "allowSymlinksRisk": "With this on, a link in this site can serve any file nginx may read, such as another site's files and the passwords in its configuration."
+    "allowSymlinks": "Serve links between the site's own users",
+    "allowSymlinksHint": "nginx serves a symbolic link only when the link and the file it points to have the same owner. With this on, each time the site is saved the panel gives a link in the site's directory that points to a file of the site's owner or runtime user the owner of that file, so that links such as Laravel's public/storage are served. Links to other sites' or system files are always refused.",
+    "allowSymlinksRisk": "A link made after the site was saved is served once the site is saved again."
   },
   "drawer": {
     "runner": "runs as {runner}"

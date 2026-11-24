@@ -298,9 +298,9 @@
   "dirs": {
     "location": "位置",
     "settings": "网站根目录与可写目录",
-    "allowSymlinks": "允许链接到其他所有者的文件",
-    "allowSymlinksHint": "默认情况下，只有当符号链接与其指向的文件属于同一所有者时，nginx 才会提供它。如果项目中的链接跨越了所有者（例如 Laravel 的 public/storage），请开启此项。",
-    "allowSymlinksRisk": "开启后，此网站中的链接可以提供 nginx 能读取的任何文件，例如另一个网站的文件及其配置中的密码。"
+    "allowSymlinks": "提供网站自身用户之间的链接",
+    "allowSymlinksHint": "只有当符号链接与其指向的文件属于同一所有者时，nginx 才会提供它。开启后，每次保存网站时，面板会把网站目录中指向网站所有者或运行用户文件的链接改为该文件的所有者，使 Laravel 的 public/storage 这类链接可以访问。指向其他网站或系统文件的链接始终被拒绝。",
+    "allowSymlinksRisk": "保存网站之后新建的链接，要再保存一次网站才能访问。"
   },
   "drawer": {
     "runner": "运行用户 {runner}"

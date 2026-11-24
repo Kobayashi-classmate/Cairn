@@ -155,6 +155,9 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// Existing sites get what this version writes into their configuration
+	// (after an upgrade), before any request can change them.
+	e.sites.StartRefresh(ctx, ops, log)
 
 	srv := &helper.Server{
 		Registry: reg,

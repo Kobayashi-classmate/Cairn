@@ -80,7 +80,7 @@ const isWritable = (path: string) => path !== '' && isRelativePath(path)
           :hint="t('sites.dirs.allowSymlinksHint')"
           :disabled="disabled"
         />
-        <Notice v-if="form.allowSymlinks" tone="warning">{{ t('sites.dirs.allowSymlinksRisk') }}</Notice>
+        <Notice v-if="form.allowSymlinks" tone="info">{{ t('sites.dirs.allowSymlinksRisk') }}</Notice>
       </template>
       <FormField
         v-if="hasWritable(site.type)"

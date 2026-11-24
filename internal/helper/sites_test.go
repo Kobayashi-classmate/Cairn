@@ -69,7 +69,23 @@ func newSiteEnv(t *testing.T) *siteEnv {
 		return gid, nil
 	}
 	processAlive = func(string) (int, bool) { return 0, false }
-	t.Cleanup(func() { lookupUser, lookupGroup, processAlive = oldUser, oldGroup, oldAlive })
+	// nginx is in a group from its usermod until its gpasswd --delete.
+	oldMember := groupHasMember
+	groupHasMember = func(_, group, user string) (bool, error) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		in := false
+		for _, c := range f.cmds {
+			switch c {
+			case "usermod --append --groups " + group + " " + user:
+				in = true
+			case "gpasswd --delete " + user + " " + group:
+				in = false
+			}
+		}
+		return in, nil
+	}
+	t.Cleanup(func() { lookupUser, lookupGroup, processAlive, groupHasMember = oldUser, oldGroup, oldAlive, oldMember })
 	return &siteEnv{t: t, f: f, st: st, o: o, r: r}
 }
 
@@ -114,6 +130,7 @@ func TestSiteApplyPHPSite(t *testing.T) {
 		"try_files $uri $uri/ /index.php?$args;",
 		"fastcgi_pass unix:/run/php/cairn-blog.sock;",
 		"access_log /var/log/nginx/cairn/blog.access.log cairn_json;",
+		"disable_symlinks if_not_owner from=/srv/www/blog/app;",
 	} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("nginx conf lacks %q:\n%s", want, conf)
@@ -124,7 +141,9 @@ func TestSiteApplyPHPSite(t *testing.T) {
 	}
 	pool := e.read("/etc/php/8.4/fpm/pool.d/cairn-blog.conf")
 	for _, want := range []string{"[cairn-blog]", "user = cw-blog-run", "group = cw-blog", "listen.owner = www-data",
-		"php_admin_value[open_basedir] = /srv/www/blog/", "listen = /run/php/cairn-blog.sock"} {
+		"php_admin_value[open_basedir] = /srv/www/blog/", "listen = /run/php/cairn-blog.sock",
+		// The line's sites share one opcache.
+		"php_admin_flag[opcache.validate_permission] = on", "php_admin_value[opcache.restrict_api] = /nonexistent/"} {
 		if !strings.Contains(pool, want) {
 			t.Errorf("pool lacks %q:\n%s", want, pool)
 		}
@@ -381,7 +400,10 @@ func TestSiteSymlinksAndForeignUsers(t *testing.T) {
 			t.Fatalf("%s: %+v\n%s", spec.Code, op.Error, log)
 		}
 		conf := e.read(siteConfPath(spec.Code))
-		if has := strings.Contains(conf, "disable_symlinks if_not_owner from=$document_root;"); has != (spec.Type != helperapi.SiteProxy) {
+		// Checked from below app/: a web root that is itself a link to
+		// another site's directory is refused too.
+		want := "disable_symlinks if_not_owner from=/srv/www/" + spec.Code + "/app;"
+		if has := strings.Contains(conf, want); has != (spec.Type != helperapi.SiteProxy) || strings.Contains(conf, "$document_root") {
 			t.Errorf("%s: disable_symlinks %v:\n%s", spec.Code, has, conf)
 		}
 	}
@@ -408,12 +430,14 @@ func TestSiteSymlinksAndForeignUsers(t *testing.T) {
 		t.Fatal("the site was set up with a foreign user")
 	}
 
-	// The site may let its links cross owners.
-	files := helperapi.SiteSpec{Code: "files", Type: helperapi.SiteStatic, Domains: []string{"files.example.com"}, AllowSymlinks: true, Enabled: true}
+	// A site whose links cross its own users still has nginx check every
+	// link's owner: its links never reach another site's files.
+	files := helperapi.SiteSpec{Code: "files", Type: helperapi.SiteStatic, Domains: []string{"files.example.com"}, Root: "public", AllowSymlinks: true, Enabled: true}
 	if op, log := e.run(helperapi.ActionSiteApply, files); op.State != helperapi.OpSucceeded {
 		t.Fatalf("allow symlinks: %+v\n%s", op.Error, log)
 	}
-	if conf := e.read(siteConfPath("files")); !strings.Contains(conf, "disable_symlinks off;") || strings.Contains(conf, "if_not_owner") {
+	if conf := e.read(siteConfPath("files")); strings.Contains(conf, "disable_symlinks off") ||
+		!strings.Contains(conf, "disable_symlinks if_not_owner from=/srv/www/files/app;") {
 		t.Fatalf("allow symlinks:\n%s", conf)
 	}
 }

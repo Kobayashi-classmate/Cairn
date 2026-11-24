@@ -101,6 +101,57 @@ done
 [ ! -e $app/hacked.php ] && [ "$(stat -c %U $app/uploads/u.txt)" = cw-php-test-run ] || fail "writes"
 step "PHP site php.test: runs as cw-php-test-run, writes uploads/ only, open_basedir holds, WordPress rule routes /hello/world"
 
+# A second PHP site on the same line (one FPM master, one opcache), laid
+# out like Laravel: web root public/, public/storage linking into the
+# runner's storage, links allowed between the site's own users.
+lara_spec="{\"type\":\"php\",\"domains\":[\"lara.test\"],\"php\":\"$php\",\"root\":\"public\",\"writable\":[\"storage/app/public\"],\"allowSymlinks\":true}"
+follow POST /api/v1/sites "$lara_spec"
+lara=/srv/www/lara-test/app
+runuser -u cw-lara-test -- mkdir $lara/public
+runuser -u cw-lara-test -- tee $lara/config.php >/dev/null <<'PHP'
+<?php define('LARA_DB_PASSWORD', 'lara-secret-value');
+PHP
+runuser -u cw-lara-test -- tee $lara/public/index.php >/dev/null <<'PHP'
+<?php require __DIR__ . '/../config.php'; echo "lara-ok\n";
+PHP
+# opcache leaves out files changed in the last 2 seconds.
+touch -d '1 hour ago' $lara/config.php
+runuser -u cw-php-test -- tee $app/probe.php >/dev/null <<'PHP'
+<?php
+@include '/srv/www/lara-test/app/config.php';
+echo defined('LARA_DB_PASSWORD') ? "included " . LARA_DB_PASSWORD . "\n" : "blocked\n";
+echo is_array(@opcache_get_status()) ? "status read\n" : "status refused\n";
+PHP
+for _ in 1 2 3; do
+	get lara.test / | grep_q -x lara-ok || fail "lara.test: $(get lara.test /)"
+	out=$(get php.test /probe.php)
+	printf '%s' "$out" | grep_q -x blocked || fail "a site read another site's script from the shared opcache: $out"
+done
+printf '%s' "$out" | grep_q -x "status refused" || fail "a site may use the opcache API: $out"
+step "same PHP line: php.test cannot include lara.test's cached config or use the opcache API"
+
+# Links: the site's own public/storage is served once the site is saved;
+# a link to another site's files never is, nor a web root that is a link.
+echo avatar-marker | runuser -u cw-lara-test-run -- tee $lara/storage/app/public/avatar.txt >/dev/null
+runuser -u cw-lara-test -- ln -s $lara/storage/app/public $lara/public/storage
+follow PUT /api/v1/sites/lara-test "$lara_spec"
+[ "$(stat -c %U $lara/public/storage)" = cw-lara-test-run ] || fail "public/storage not aligned: $(stat -c %U $lara/public/storage)"
+get lara.test /storage/avatar.txt | grep_q -x avatar-marker || fail "public/storage: $(code lara.test /storage/avatar.txt)"
+runuser -u cw-lara-test-run -- ln -s /srv/www/php-test/app/index.php $lara/storage/app/public/leak.txt
+runuser -u cw-lara-test -- ln -s /srv/www/php-test/app/uploads/u.txt $lara/public/leak2.txt
+ln -s /srv/www/php-test/app/uploads/u.txt $lara/public/leak3.txt
+follow PUT /api/v1/sites/lara-test "$lara_spec"
+for p in /storage/leak.txt /leak2.txt /leak3.txt; do
+	case "$(code lara.test $p)" in 403 | 404) ;; *) fail "lara.test$p serves another site's file: $(get lara.test $p)" ;; esac
+done
+mv $lara/public $lara/public.real
+runuser -u cw-lara-test -- ln -s /srv/www/php-test/app $lara/public
+case "$(code lara.test /uploads/u.txt)" in 403 | 404) ;; *) fail "a web root linked to another site serves it: $(get lara.test /uploads/u.txt)" ;; esac
+rm $lara/public && mv $lara/public.real $lara/public
+get lara.test /storage/avatar.txt | grep_q -x avatar-marker || fail "public/storage after the checks"
+grep_q 'disable_symlinks if_not_owner from=/srv/www/lara-test/app;' /etc/nginx/cairn/sites/lara-test.conf || fail "lara-test.conf"
+step "lara.test: own public/storage served after saving; links to php.test's files and a linked web root refused"
+
 # Reverse proxy with WebSocket upgrades.
 mkdir -p /tmp/upstream && echo "upstream marker" >/tmp/upstream/index.html
 (cd /tmp/upstream && python3 -m http.server 8081 --bind 127.0.0.1 >/tmp/upstream.log 2>&1 &)

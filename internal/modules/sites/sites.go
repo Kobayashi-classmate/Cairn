@@ -128,8 +128,9 @@ type siteRequest struct {
 	// TLS serves the site over HTTPS with a certificate (certs module); the
 	// helper checks that it covers every domain.
 	TLS *helperapi.SiteTLS `json:"tls,omitempty"`
-	// AllowSymlinks lets nginx follow the site's links to files of other
-	// owners (static and PHP sites; e.g. Laravel's public/storage).
+	// AllowSymlinks lets nginx serve the site's links between its own
+	// owner and runner (static and PHP sites; e.g. Laravel's
+	// public/storage): the helper aligns their owners on each apply.
 	AllowSymlinks bool `json:"allowSymlinks,omitempty"`
 }
 

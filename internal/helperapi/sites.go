@@ -98,12 +98,14 @@ type SiteSpec struct {
 	App *AppSpec `json:"app,omitempty"`
 	// TLS serves the site over HTTPS with a stored certificate.
 	TLS *SiteTLS `json:"tls,omitempty"`
-	// AllowSymlinks lets the site's links point at files of other owners
-	// (static and PHP sites). By default nginx serves a link only when the
-	// link and the file it points at have the same owner, so that one
-	// site's code cannot link another site's files into its web root; a
-	// project whose links cross owners (Laravel's public/storage made by
-	// root or pointing into directories the runner created) needs this.
+	// AllowSymlinks lets the site's links cross its own two users (static
+	// and PHP sites). nginx serves a link only when the link and the file
+	// it points at have the same owner, so that one site's code cannot link
+	// another site's files into its web root. With this on, each apply
+	// gives the site's links (of root, the owner or the runner) that lead
+	// to a file of the owner or the runner that file's owner, which serves
+	// Laravel's public/storage made by root or pointing into directories
+	// the runner created; links to anything else stay refused.
 	AllowSymlinks bool `json:"allowSymlinks,omitempty"`
 	// Enabled false keeps the site configured but answers 503.
 	Enabled bool `json:"enabled"`
