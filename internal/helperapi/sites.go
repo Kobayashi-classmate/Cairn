@@ -562,6 +562,9 @@ const (
 	CodeStreamModuleMissing = "stream.module_missing" // nginx's stream module is not installed
 	CodeStreamPortTaken     = "stream.port_taken"
 	CodeStreamNotFound      = "stream.not_found"
+	// CodeStreamSELinuxPort: SELinux reserves the port for another
+	// service (its type is given), so nginx may not listen on it.
+	CodeStreamSELinuxPort = "stream.selinux_port"
 )
 
 // Stream protocols.

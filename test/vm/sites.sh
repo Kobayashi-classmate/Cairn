@@ -201,8 +201,35 @@ follow PUT /api/v1/databases/redis/config '{"generatePassword":true}'
 follow PUT /api/v1/databases/redis/remote '{"enabled":true}'
 ss -ltn | grep_q '0.0.0.0:6379' || fail "Redis not listening on every address"
 follow PUT /api/v1/databases/redis/remote '{"enabled":false}'
-follow DELETE "/api/v1/databases/mysql/dbs/vmdb?dropOwner=true"
 step "MariaDB: database, user, remote access on and off, dump, restart; $redis_sw: password, remote access on and off"
+
+# Upstream ports keep their types: a stream to 3306 and a proxy to a port of
+# another service (8000 is soundd_port_t on EL) must not take the ports
+# from the services of this machine; nginx reaches them through the
+# cairn_connect policy module.
+if [ "$selinux" = yes ]; then
+	local_before=$(semanage port -l -C | sort)
+	mkdir -p /root/px-root && echo px-ok >/root/px-root/index.html
+	setsid python3 -m http.server 8000 --bind 127.0.0.1 --directory /root/px-root >/dev/null 2>&1 &
+	pxpid=$!
+	follow POST /api/v1/streams '{"protocol":"tcp","port":4407,"upstreams":["127.0.0.1:3306"]}'
+	follow POST /api/v1/sites '{"type":"proxy","domains":["px.test"],"proxy":{"url":"http://127.0.0.1:8000/"}}'
+	[ "$(port_type tcp 3306)" = mysqld_port_t ] || fail "3306 type: $(semanage port -l | grep -w 3306)"
+	[ "$(port_type tcp 8000)" = soundd_port_t ] || fail "8000 type: $(semanage port -l | grep -w 8000)"
+	[ "$(port_type tcp 4407)" = http_port_t ] || fail "stream port 4407 type: $(port_type tcp 4407)"
+	semodule -l | grep_q '^cairn_connect' || fail "no cairn_connect module"
+	[ "$(mariadb -ufar -pfar-password-1 -h 127.0.0.1 -P 4407 vmdb -N -e 'SELECT 1')" = 1 ] || fail "MariaDB through the stream"
+	[ "$(curl -s -H 'Host: px.test' http://127.0.0.1/)" = px-ok ] || fail "proxy to 8000: $(curl -s -H 'Host: px.test' http://127.0.0.1/ | head -3)"
+	systemctl restart mariadb || fail "mariadb restart with the stream in place"
+	follow DELETE /api/v1/streams/tcp-4407
+	follow DELETE "/api/v1/sites/px-test?deleteFiles=true"
+	kill "$pxpid" 2>/dev/null || true
+	[ "$(semanage port -l -C | sort)" = "$local_before" ] || fail "local port rules changed: $(semanage port -l -C)"
+	! semodule -l | grep_q '^cairn_connect' || fail "cairn_connect module kept"
+	systemctl restart mariadb || fail "mariadb restart after the stream"
+	step "SELinux: stream to 3306 and proxy to 8000 work, 3306 stays mysqld_port_t and 8000 soundd_port_t, MariaDB restarts; removed without a trace"
+fi
+follow DELETE "/api/v1/databases/mysql/dbs/vmdb?dropOwner=true"
 
 if [ "$selinux" = yes ]; then
 	d=$(denials)

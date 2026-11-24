@@ -16,7 +16,8 @@ import (
 )
 
 // StartRefresh takes the web lock and, in the background, brings every
-// applied site's files to what this version writes (see Refresh). It is
+// applied site's files to what this version writes (see Refresh), after
+// repairing the SELinux port labels of an earlier version (seMigrate). It is
 // called once when the helper starts, before it serves requests, so that
 // the lock is free and site changes queue behind the refresh.
 func (st *Sites) StartRefresh(ctx context.Context, o *Ops, logger *slog.Logger) {
@@ -27,6 +28,7 @@ func (st *Sites) StartRefresh(ctx context.Context, o *Ops, logger *slog.Logger) 
 	}
 	go func() {
 		defer release()
+		st.seMigrate(ctx, logger)
 		st.Refresh(ctx, logger)
 	}()
 }
