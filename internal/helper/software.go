@@ -266,7 +266,7 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 	var unreachable []string // hosts whose indexes apt could not fetch
 	if s.Manager == "apt" {
 		var upd strings.Builder
-		if err := runCommand(ctx, io.MultiWriter(log, &limitedBuilder{b: &upd, max: 1 << 20}), "apt-get", "update"); err != nil {
+		if err := runPackageManager(ctx, io.MultiWriter(log, &limitedBuilder{b: &upd, max: 1 << 20}), "apt-get", "update"); err != nil {
 			for _, i := range live {
 				out[i].err = err
 			}
@@ -439,10 +439,10 @@ func (s *Software) pkgInstall(ctx context.Context, log io.Writer, args []string)
 		return nil
 	}
 	if s.Manager == "apt" {
-		return runCommand(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends",
+		return runPackageManager(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends",
 			"-o", "Dpkg::Options::=--force-confold"}, args...)...)
 	}
-	return runCommand(ctx, log, "dnf", append([]string{"install", "-y"}, args...)...)
+	return runPackageManager(ctx, log, "dnf", append([]string{"install", "-y"}, args...)...)
 }
 
 // missing returns the packages of pkgs that are not installed.
@@ -527,9 +527,9 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 	}
 	_, _ = fmt.Fprintf(log, "Removing %s %s; configuration and data are kept.\n", sw.Name, o.Line)
 	if s.Manager == "apt" {
-		err = runCommand(ctx, log, "apt-get", append([]string{"remove", "-y"}, present...)...)
+		err = runPackageManager(ctx, log, "apt-get", append([]string{"remove", "-y"}, present...)...)
 	} else {
-		err = runCommand(ctx, log, "dnf", append([]string{"remove", "-y"}, present...)...)
+		err = runPackageManager(ctx, log, "dnf", append([]string{"remove", "-y"}, present...)...)
 	}
 	if err != nil {
 		return nil, err
@@ -781,7 +781,7 @@ func (s *Software) enableStream(ctx context.Context, log io.Writer, stream strin
 			return pkgErr(helperapi.CodePkgStreamConflict, map[string]any{"module": module, "enabled": f[1], "wanted": want})
 		}
 	}
-	return runCommand(ctx, log, "dnf", "module", "enable", "-y", stream)
+	return runPackageManager(ctx, log, "dnf", "module", "enable", "-y", stream)
 }
 
 // ensureRepo adds a vendor repository (and the ones it requires) unless it
@@ -830,7 +830,7 @@ func (s *Software) ensureRepo(ctx context.Context, log io.Writer, id, line strin
 		if s.installed(ctx, []string{r.DNF.ReleasePackage})[r.DNF.ReleasePackage] != "" {
 			return nil
 		}
-		return runCommand(ctx, log, "dnf", "install", "-y", r.DNF.ReleasePackage)
+		return runPackageManager(ctx, log, "dnf", "install", "-y", r.DNF.ReleasePackage)
 	case s.Manager == "dnf" && r.DNF != nil:
 		d := r.DNF
 		keyPath := s.path("/etc/pki/rpm-gpg/RPM-GPG-KEY-" + name)
@@ -842,7 +842,7 @@ func (s *Software) ensureRepo(ctx context.Context, log io.Writer, id, line strin
 		if err := writeIfChanged(log, s.path("/etc/yum.repos.d/"+name+".repo"), repo); err != nil {
 			return err
 		}
-		return runCommand(ctx, log, "dnf", "makecache", "--assumeyes", "--repo", name)
+		return runPackageManager(ctx, log, "dnf", "makecache", "--assumeyes", "--repo", name)
 	}
 	return pkgErr(helperapi.CodePkgNotAvailable, map[string]any{"repo": id})
 }

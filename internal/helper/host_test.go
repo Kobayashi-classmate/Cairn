@@ -129,6 +129,7 @@ func TestSwitchSystemSource(t *testing.T) {
 	failUpdate := false
 	oldRun := runCommand
 	t.Cleanup(func() { runCommand = oldRun })
+	stubPackageManager(t)
 	runCommand = func(_ context.Context, log io.Writer, name string, args ...string) error {
 		updates = append(updates, name+" "+strings.Join(args, " "))
 		if failUpdate {
@@ -210,6 +211,7 @@ func TestSwitchMirrorFileSource(t *testing.T) {
 	h := &Host{StateDir: t.TempDir(), Software: s, Root: root}
 	oldRun := runCommand
 	t.Cleanup(func() { runCommand = oldRun })
+	stubPackageManager(t)
 	runCommand = func(context.Context, io.Writer, string, ...string) error { return nil }
 
 	slots := h.probeSystemSources(context.Background())

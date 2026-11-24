@@ -42,6 +42,13 @@ func main() {
 		}
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "run-pkg" {
+		if err := runPkg(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "cairn pkg:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "firewall" {
 		if err := runFirewall(os.Args[2:], log); err != nil {
 			fmt.Fprintln(os.Stderr, "cairn firewall:", err)
@@ -86,6 +93,22 @@ func runUpdate(args []string, log *slog.Logger) error {
 		return errors.New("run-update must run as root with --file")
 	}
 	return helper.RunUpdate(*dir, *file, *version, *previous, log)
+}
+
+// runPkg is the body of cairn-pkg.service, the transient unit the package
+// manager runs in:
+//
+//	cairn-helper run-pkg <job>   (the command the helper left as that job)
+//
+// It runs outside cairn-helper.service because that unit's sandbox, which
+// the package manager and every maintainer script would inherit, hides the
+// kernel modules; and so that a restart of the helper does not end a
+// transaction half-way.
+func runPkg(args []string) error {
+	if os.Geteuid() != 0 || len(args) != 1 {
+		return errors.New("usage (as root): cairn-helper run-pkg <job>")
+	}
+	return helper.RunPkgUnit(args[0])
 }
 
 func run(cfgPath, account string, log *slog.Logger) error {
@@ -146,7 +169,9 @@ func run(cfgPath, account string, log *slog.Logger) error {
 		ConfigPath: cfgPath, StateDir: stateDir, Version: buildinfo.Version,
 		Format: format, Arch: runtime.GOARCH, Executable: exe, Log: log, Ops: ops,
 	}
-	ops.Busy = map[string]func() bool{helper.LockPkg: updater.Running}
+	// Both hold the package manager outside this process: the panel's own
+	// update, and a transaction an earlier helper process left running.
+	ops.Busy = map[string]func() bool{helper.LockPkg: func() bool { return updater.Running() || helper.PkgUnitBusy() }}
 	helper.RegisterUpdate(reg, updater)
 
 	l, err := helper.Listen(cfg.Paths.HelperSocket, gid)

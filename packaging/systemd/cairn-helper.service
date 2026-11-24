@@ -15,6 +15,13 @@ RestartSec=2
 # No PrivateTmp: the file manager works in the helper, and with the whole
 # disk opened it must show the real /tmp and /var/tmp. The helper's own temp
 # files use random names (os.CreateTemp), which is safe in a shared /tmp.
+#
+# Everything the helper starts inherits the protections below, which is why
+# the package manager is not started here: with /usr/lib/modules hidden a
+# kernel package cannot be unpacked, and a maintainer script that rebuilds
+# the initramfs leaves one without modules. Every apt-get or dnf run that
+# changes something gets a transient unit of its own without them,
+# cairn-pkg.service ("cairn-helper run-pkg").
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
 ProtectClock=yes

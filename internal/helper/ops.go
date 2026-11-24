@@ -41,7 +41,8 @@ type Ops struct {
 	Log *slog.Logger
 	// Busy reports lock holders outside this process; a queued operation
 	// waits while Busy[name]() is true (the online update holds "pkg" while
-	// its detached unit runs).
+	// its detached unit runs, and so does a package manager transaction
+	// that an earlier helper process started).
 	Busy map[string]func() bool
 
 	locks locks.Set
@@ -305,10 +306,15 @@ func (o *Ops) Cancel(id string) (helperapi.Op, error) {
 // Held reports whether a lock is currently held by an operation.
 func (o *Ops) Held(name string) bool { return o.locks.Held(name) }
 
-// TryLock takes name if it is free (used by work that is not an operation,
-// such as the online update while it prepares). The returned function
-// releases it.
-func (o *Ops) TryLock(name string) (func(), bool) { return o.locks.TryAcquire([]string{name}) }
+// TryLock takes name if it is free, in this process and outside it (used by
+// work that is not an operation, such as the online update while it
+// prepares). The returned function releases it.
+func (o *Ops) TryLock(name string) (func(), bool) {
+	if busy := o.Busy[name]; busy != nil && busy() {
+		return nil, false
+	}
+	return o.locks.TryAcquire([]string{name})
+}
 
 func (o *Ops) records() []helperapi.Op {
 	entries, err := os.ReadDir(o.Dir)

@@ -51,6 +51,7 @@ func (f *fakeSystem) use(t *testing.T) {
 	t.Helper()
 	oldRun, oldQuery, oldSystemd := runCommand, queryCommand, systemdRunning
 	t.Cleanup(func() { runCommand, queryCommand, systemdRunning = oldRun, oldQuery, oldSystemd })
+	stubPackageManager(t)
 	if f.installed == nil {
 		f.installed = map[string]string{}
 	}

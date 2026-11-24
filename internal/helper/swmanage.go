@@ -312,9 +312,9 @@ func (s *Software) extApply(ctx context.Context, _ helperapi.Caller, req helpera
 			}
 			_, _ = fmt.Fprintf(log, "Removing %s from PHP %s.\n", strings.Join(present, ", "), o.Line)
 			if s.Manager == "apt" {
-				err = runCommand(ctx, log, "apt-get", append([]string{"remove", "-y"}, present...)...)
+				err = runPackageManager(ctx, log, "apt-get", append([]string{"remove", "-y"}, present...)...)
 			} else {
-				err = runCommand(ctx, log, "dnf", append([]string{"remove", "-y", "--noautoremove"}, present...)...)
+				err = runPackageManager(ctx, log, "dnf", append([]string{"remove", "-y", "--noautoremove"}, present...)...)
 			}
 			if err != nil {
 				return nil, err
@@ -325,9 +325,9 @@ func (s *Software) extApply(ctx context.Context, _ helperapi.Caller, req helpera
 	if len(add) > 0 {
 		_, _ = fmt.Fprintf(log, "Installing %s for PHP %s.\n", strings.Join(add, ", "), o.Line)
 		if s.Manager == "apt" {
-			err = runCommand(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends"}, add...)...)
+			err = runPackageManager(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends"}, add...)...)
 		} else {
-			err = runCommand(ctx, log, "dnf", append([]string{"install", "-y"}, add...)...)
+			err = runPackageManager(ctx, log, "dnf", append([]string{"install", "-y"}, add...)...)
 		}
 		if err != nil {
 			return nil, err

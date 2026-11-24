@@ -630,11 +630,11 @@ func (h *Host) pendingUpdates(ctx context.Context, cached bool) ([]helperapi.Pac
 func (h *Host) checkUpdates(ctx context.Context, _ helperapi.Caller, _ helperapi.Empty, log io.Writer) (any, error) {
 	switch h.manager() {
 	case "apt":
-		if err := runCommand(ctx, log, "apt-get", "update"); err != nil {
+		if err := runPackageManager(ctx, log, "apt-get", "update"); err != nil {
 			return nil, err
 		}
 	case "dnf":
-		if err := runCommand(ctx, log, "dnf", "makecache", "--assumeyes"); err != nil {
+		if err := runPackageManager(ctx, log, "dnf", "makecache", "--assumeyes"); err != nil {
 			return nil, err
 		}
 	default:
@@ -681,7 +681,7 @@ func (h *Host) installUpdates(ctx context.Context, _ helperapi.Caller, q helpera
 			break
 		}
 		args := append([]string{"install", "-y", "--only-upgrade", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold"}, names...)
-		if err := runCommand(ctx, log, "apt-get", args...); err != nil {
+		if err := runPackageManager(ctx, log, "apt-get", args...); err != nil {
 			return nil, err
 		}
 	case "dnf":
@@ -689,7 +689,7 @@ func (h *Host) installUpdates(ctx context.Context, _ helperapi.Caller, q helpera
 		if q.SecurityOnly {
 			args = append(args, "--security")
 		}
-		if err := runCommand(ctx, log, "dnf", args...); err != nil {
+		if err := runPackageManager(ctx, log, "dnf", args...); err != nil {
 			return nil, err
 		}
 	default:

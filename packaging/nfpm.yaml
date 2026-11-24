@@ -52,6 +52,12 @@ contents:
     dst: /usr/lib/systemd/system/cairn-forward.service
     file_info:
       mode: 0644
+  - src: packaging/needrestart/cairn.conf
+    dst: /etc/needrestart/conf.d/cairn.conf
+    type: config
+    packager: deb
+    file_info:
+      mode: 0644
   - src: LICENSE
     dst: /usr/share/doc/cairn/copyright
     packager: deb

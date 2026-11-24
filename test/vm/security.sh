@@ -214,7 +214,24 @@ run_job PUT /api/v1/host/swap '{"sizeMb":0}' "swap off"
 [ ! -e /swapfile ] && ! grep_q swapfile /etc/fstab || fail "swap file left"
 step "host: host name, time zone, a 256 MiB swap file (0600, in fstab) and swappiness; swap removed"
 
+# The package manager runs in a unit of its own (cairn-pkg.service), not in
+# the helper's sandbox, which hides the kernel modules: there a kernel
+# package cannot be installed and a rebuilt initramfs has no modules. An apt
+# hook tells what apt-get itself sees (Debian, Ubuntu).
+probe=/root/pkg-probe
+: >/root/pkg-mark
+if [ "$family" = debian ]; then
+	cat >/etc/apt/apt.conf.d/99cairn-vm-probe <<EOF
+APT::Update::Pre-Invoke { "if touch /usr/lib/modules/.cairn-vm-probe; then echo visible; else echo hidden; fi >$probe 2>&1; rm -f /usr/lib/modules/.cairn-vm-probe"; };
+EOF
+fi
 run_job POST /api/v1/host/updates/check '' "updates check"
+if [ "$family" = debian ]; then
+	rm -f /etc/apt/apt.conf.d/99cairn-vm-probe
+	[ "$(cat "$probe" 2>/dev/null)" = visible ] || fail "apt-get ran where /usr/lib/modules is hidden: $(cat "$probe" 2>&1)"
+fi
+[ -n "$(find /var/lib/cairn-helper/pkg -name '*.result.json' -newer /root/pkg-mark 2>/dev/null)" ] ||
+	fail "the package manager did not run in a unit of its own"
 api "$base/api/v1/host" | json 'd["updates"]["checkedAt"] > 0' | grep_q True || fail "no update list"
 n=$(api "$base/api/v1/host" | json 'len(d["updates"]["packages"])')
 run_job PUT /api/v1/host/updates/auto '{"enabled":true}' "auto updates"

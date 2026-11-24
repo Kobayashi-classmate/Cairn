@@ -109,13 +109,13 @@ func (h *Host) refreshIndexes(ctx context.Context, log io.Writer) error {
 	w := io.MultiWriter(log, &limitedBuilder{b: &out, max: 64 << 10})
 	var err error
 	if h.manager() == "apt" {
-		err = runCommand(ctx, w, "apt-get", "update")
+		err = runPackageManager(ctx, w, "apt-get", "update")
 		// apt-get update succeeds with W: lines when a source fails.
 		if err == nil && (strings.Contains(out.String(), "\nE: ") || strings.Contains(out.String(), "\nW: Failed to fetch")) {
 			err = errors.New("apt-get update could not read every source")
 		}
 	} else {
-		err = runCommand(ctx, w, "dnf", "makecache", "--assumeyes", "--refresh")
+		err = runPackageManager(ctx, w, "dnf", "makecache", "--assumeyes", "--refresh")
 	}
 	if err != nil {
 		return hostErr(helperapi.CodeSysSrcUpdateFailed, map[string]any{"detail": tailString(strings.TrimSpace(out.String()), 600)})
