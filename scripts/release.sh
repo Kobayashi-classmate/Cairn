@@ -29,7 +29,7 @@ set -eu
 cd "$(git rev-parse --show-toplevel)"
 : "${VERSION:?set VERSION, for example 0.2.0}"
 : "${CAIRN_RELEASE_KEY:?set CAIRN_RELEASE_KEY to the release signing key file}"
-GO_IMAGE=${GO_IMAGE:-golang:1.27.3}
+GO_IMAGE=${GO_IMAGE:-golang:1.27.4}
 GOPROXY=${GOPROXY:-https://goproxy.cn,https://proxy.golang.org,direct}
 ASSETS_URL=${ASSETS_URL:-https://github.com/Kobayashi-classmate/Cairn/releases/download/v$VERSION}
 

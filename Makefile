@@ -3,7 +3,7 @@
 # Every build step runs inside a throwaway container, so nothing has to be
 # installed on the host besides Docker.
 
-GO_IMAGE   ?= golang:1.27.3
+GO_IMAGE   ?= golang:1.27.4
 NODE_IMAGE ?= node:24-trixie-slim
 NFPM_IMAGE ?= goreleaser/nfpm:v2.49.0
 LINT_IMAGE ?= golangci/golangci-lint:v2.15.0
