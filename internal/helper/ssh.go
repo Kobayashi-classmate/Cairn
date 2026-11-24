@@ -436,6 +436,23 @@ func (s *SSH) apply(ctx context.Context, log io.Writer, st sshState, opened []in
 			return err
 		}
 	}
+	if portsChanged && s.Firewall != nil {
+		// The firewall keeps open what an SSH server listens on as well as
+		// what its configuration says, and when the rules were made above
+		// sshd still held the ports that are going. Now that it has
+		// reloaded and let go of them, the rules are made once more, or
+		// those ports would stay open until the next change.
+		want := after.listenPorts()
+		for i := 0; i < 20; i++ {
+			if !slices.ContainsFunc(sshListeners(s.Root), func(p int) bool { return !slices.Contains(want, p) }) {
+				break
+			}
+			time.Sleep(sshProbePause)
+		}
+		if err := s.Firewall.Refresh(ctx, log); err != nil {
+			_, _ = fmt.Fprintf(log, "Warning: the firewall could not be brought up to date with the SSH ports: %v\n", err)
+		}
+	}
 	return nil
 }
 

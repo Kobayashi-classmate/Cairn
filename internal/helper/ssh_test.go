@@ -395,6 +395,30 @@ func TestSSHPortAndFirewall(t *testing.T) {
 	if st := s.Status(ctx); len(st.Ports) != 1 || st.Ports[0] != 22 || st.Pending != nil {
 		t.Fatalf("ssh after the failure: %+v", st)
 	}
+
+	// The firewall keeps open what sshd listens on, and when its rules are
+	// made for a port that goes, sshd has not reloaded yet and still holds
+	// it. Once it has, the rules are made again and the port is closed.
+	if _, err := s.addPort(ctx, helperapi.Caller{}, helperapi.SSHPortRequest{Port: 2222, CloseAfterMinutes: 30}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if r := ufw.last(); strings.Join(r.Rules[0].Ports, ",") != "22,2222" {
+		t.Fatalf("firewall with the second port: %+v", r.Rules)
+	}
+	applied, detect := len(ufw.applied), sshDetect
+	sshDetect = func(ctx context.Context, root string) sshEndpoints {
+		e := detect(ctx, root)
+		if len(ufw.applied) == applied { // not reloaded yet
+			e.Ports = addPorts(e.Ports, 2222)
+		}
+		return e
+	}
+	if _, err := s.cancelPort(ctx, helperapi.Caller{}, helperapi.Empty{}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if r := ufw.last(); strings.Join(r.Rules[0].Ports, ",") != "22" {
+		t.Fatalf("firewall after the port was given up: %+v", r.Rules)
+	}
 }
 
 func TestSSHKeysFileIsReadSafely(t *testing.T) {
