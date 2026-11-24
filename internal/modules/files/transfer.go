@@ -183,6 +183,11 @@ func (m *Module) createUpload(w http.ResponseWriter, r *http.Request) error {
 	if err := checkRoot(r, target.Root); err != nil {
 		return err
 	}
+	// Asked when the upload begins only: its parts may take longer than the
+	// verification lasts, and they belong to the account that began it.
+	if err := stepUpFor(r, target.Root); err != nil {
+		return err
+	}
 	root, err := m.dataRoot()
 	if err != nil {
 		return err
@@ -452,6 +457,9 @@ func (m *Module) fetch(w http.ResponseWriter, r *http.Request) error {
 		return badRequest(err)
 	}
 	if err := checkRoot(r, req.Root); err != nil {
+		return err
+	}
+	if err := stepUpFor(r, req.Root); err != nil {
 		return err
 	}
 	who := modutil.ActorOf(r)

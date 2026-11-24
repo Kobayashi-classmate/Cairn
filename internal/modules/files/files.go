@@ -52,14 +52,24 @@ func checkRoot(r *http.Request, root string) error {
 	return api.ErrForbidden
 }
 
-// stepUpFor requires a recent second verification to take data out of a
-// root but the sites (reading a file's content, searching inside files,
-// downloading), as the dumps and backups need on their own pages. API
-// tokens cannot step up, so they read those roots' names only.
+// stepUpFor requires a recent second verification for anything but listing
+// on a root other than the sites. Taking data out (reading a file's content,
+// searching inside files, downloading) needs it as the dumps and backups do
+// on their own pages. Every change needs it too: on the system root a write
+// is a write as root, on the backups root it can destroy every backup, and
+// a copy or move from either into a site would hand out the content a read
+// guards. API tokens cannot step up, so they see those roots' names only.
+// Callers check the root (checkRoot) first, so that those who may not use
+// it at all are refused outright rather than asked to verify.
 func stepUpFor(r *http.Request, root string) error {
 	if root == helperapi.RootSites {
 		return nil
 	}
+	return elevated(r)
+}
+
+// elevated requires the caller's second verification to be still valid.
+func elevated(r *http.Request) error {
 	if p, ok := api.PrincipalFrom(r.Context()); !ok || p.ElevatedUntil <= time.Now().Unix() {
 		return api.ErrStepUpRequired
 	}
@@ -325,6 +335,9 @@ func audited[Req interface{ Validate() error }](m *Module, action, kind string, 
 		if err := checkRoot(r, rootOf(p)); err != nil {
 			return err
 		}
+		if err := stepUpFor(r, rootOf(p)); err != nil {
+			return err
+		}
 		var resp helperapi.FileEntry
 		if err := m.call(r, action, req, &resp); err != nil {
 			return err
@@ -344,6 +357,9 @@ func (m *Module) save(w http.ResponseWriter, r *http.Request) error {
 		return badRequest(err)
 	}
 	if err := checkRoot(r, req.Root); err != nil {
+		return err
+	}
+	if err := stepUpFor(r, req.Root); err != nil {
 		return err
 	}
 	var resp helperapi.FileSaved
@@ -503,11 +519,18 @@ func (m *Module) op(kind, action string, decode func(*http.Request) (decoded, er
 		if err != nil {
 			return err
 		}
-		if err := checkRoot(r, rootOf(d.params)); err != nil {
+		root := rootOf(d.params)
+		if err := checkRoot(r, root); err != nil {
 			return err
 		}
-		if p, ok := api.PrincipalFrom(r.Context()); d.stepUp && (!ok || p.ElevatedUntil <= time.Now().Unix()) {
-			return api.ErrStepUpRequired
+		// Some requests need the verification on the sites root as well.
+		if d.stepUp {
+			err = elevated(r)
+		} else {
+			err = stepUpFor(r, root)
+		}
+		if err != nil {
+			return err
 		}
 		job, err := m.startOp(r, kind, action, d.req, d.params)
 		if err != nil {

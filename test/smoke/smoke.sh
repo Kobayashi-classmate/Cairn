@@ -135,7 +135,9 @@ api "$base/api/v1/jobs/$job/log" | grep_q -E '\$ (apt-get update|dnf makecache)'
 step "menu from the enabled modules; catalog resolved; package index refresh ran as a helper operation"
 
 # Something in the backups root, made through the helper, for the purge
-# below to keep.
+# below to keep. Changes outside the sites root take a recent step-up, and
+# the package index refresh above may have outlasted the last one.
+api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$newpw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 api -X POST "$base/api/v1/files/touch" -d '{"root":"backups","dir":"","name":"note.txt"}' | grep_q '"name":"note.txt"' || fail "file in the backups root"
 step "file made in the backups root through the helper"
 

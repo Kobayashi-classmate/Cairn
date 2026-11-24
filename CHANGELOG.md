@@ -82,8 +82,9 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   page, and on tablets and phones; the old component library is gone.
 - Roles keep root-level work for administrators: editing the configuration
   files of services, the backup directory and the whole disk in the file
-  manager (where reading, downloading and changing backup plans also asks
-  for the password again), terminals and shell tasks as users other than
+  manager (where reading, downloading and every change ask for the
+  password again, as changing backup plans does, so API tokens only list
+  names there), terminals and shell tasks as users other than
   site owners and the logs of such tasks, and layer-4 proxies to the
   server itself or to host names. Read-only accounts do not see app
   environment values, task scripts or Redis values.

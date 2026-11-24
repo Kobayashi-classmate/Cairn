@@ -374,6 +374,125 @@ func TestTerminalModule(t *testing.T) {
 	}
 }
 
+// Every change on the backups and system roots takes a second verification,
+// as reading there does: on the system root a write is root, and a copy or
+// move into a site would carry out what a read guards. One verification
+// covers them all while it lasts; the sites root asks for none.
+func TestFilesChangesOutsideSitesNeedStepUp(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	e.opsSucceed(helperapi.ActionFileCopy, helperapi.ActionFileMove, helperapi.ActionFileDelete, helperapi.ActionFileChmod,
+		helperapi.ActionFileCompress, helperapi.ActionFileExtract, helperapi.ActionTrashRestore, helperapi.ActionFilePlace)
+	src := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "remote file") }))
+	defer src.Close()
+	e.files.HTTP = src.Client()
+
+	type change struct {
+		method, path string
+		body         map[string]any
+		action       string
+		status       int
+	}
+	changes := func(root, dir string) []change {
+		return []change{
+			{"PUT", "/api/v1/files/content", map[string]any{"root": root, "path": dir + "/x.conf", "content": "y\n"}, helperapi.ActionFileWrite, 200},
+			{"POST", "/api/v1/files/mkdir", map[string]any{"root": root, "dir": dir, "name": "x.d"}, helperapi.ActionFileMkdir, 200},
+			{"POST", "/api/v1/files/touch", map[string]any{"root": root, "dir": dir, "name": "x"}, helperapi.ActionFileTouch, 200},
+			{"POST", "/api/v1/files/rename", map[string]any{"root": root, "path": dir + "/a", "name": "b"}, helperapi.ActionFileRename, 200},
+			{"POST", "/api/v1/files/copy", map[string]any{"root": root, "paths": []string{dir + "/a"}, "dest": dir + "/b"}, helperapi.ActionFileCopy, 202},
+			{"POST", "/api/v1/files/move", map[string]any{"root": root, "paths": []string{dir + "/a"}, "dest": dir + "/b"}, helperapi.ActionFileMove, 202},
+			{"POST", "/api/v1/files/delete", map[string]any{"root": root, "paths": []string{dir + "/a"}}, helperapi.ActionFileDelete, 202},
+			{"POST", "/api/v1/files/chmod", map[string]any{"root": root, "paths": []string{dir + "/a"}, "mode": 420}, helperapi.ActionFileChmod, 202},
+			{"POST", "/api/v1/files/compress", map[string]any{"root": root, "dir": dir, "names": []string{"a"}, "format": "zip", "name": "a.zip"},
+				helperapi.ActionFileCompress, 202},
+			{"POST", "/api/v1/files/extract", map[string]any{"root": root, "path": dir + "/a.zip", "dest": dir}, helperapi.ActionFileExtract, 202},
+			{"POST", "/api/v1/files/trash/restore", map[string]any{"root": root, "ids": []string{"0123456789abcdef"}}, helperapi.ActionTrashRestore, 202},
+			{"POST", "/api/v1/files/fetch", map[string]any{"root": root, "dir": dir, "url": src.URL + "/readme.txt"}, "", 202},
+		}
+	}
+	upload := func(c *client, token, root, dir string) int {
+		headers := map[string]string{"Upload-Length": "1", "Upload-Metadata": "root " + b64(root) + ",dir " + b64(dir) + ",filename " + b64("x")}
+		if token == "" {
+			status, _ := c.tus("POST", "/api/v1/files/uploads", nil, headers)
+			return status
+		}
+		tc := e.client()
+		tc.hc.Jar = nil
+		headers["Authorization"] = "Bearer " + token
+		status, _ := tc.tus("POST", "/api/v1/files/uploads", nil, headers)
+		return status
+	}
+
+	// Signed in, not verified: refused before the helper hears of it. That
+	// includes copying from the system root into a site.
+	cross := change{"POST", "/api/v1/files/copy", map[string]any{"root": "system", "paths": []string{"etc/shadow"}, "dest": "srv/www/shop"},
+		helperapi.ActionFileCopy, 202}
+	for _, root := range []string{"system", "backups"} {
+		for _, c := range append(changes(root, "etc"), cross) {
+			before := len(e.helper.callsOf())
+			admin.expect(admin.do(c.method, c.path, c.body), 403, "auth.step_up_required")
+			if calls := e.helper.callsOf()[before:]; len(calls) != 0 {
+				t.Fatalf("%s %s on %s reached the helper: %v", c.method, c.path, root, calls)
+			}
+		}
+		if status := upload(admin, "", root, "etc"); status != 403 {
+			t.Fatalf("unverified upload into %s: %d", root, status)
+		}
+	}
+
+	// The sites root is as before: no verification, also for a copy or a
+	// move within it. (The upload goes first: it makes the uploads
+	// directory, whose free space a fetch checks.)
+	if status := upload(admin, "", "sites", "shop/app"); status != 201 {
+		t.Fatalf("upload into sites: %d", status)
+	}
+	for _, c := range changes("sites", "shop/app") {
+		r := admin.expect(admin.do(c.method, c.path, c.body), c.status, "")
+		if c.status == 202 {
+			admin.runJob(r)
+		}
+	}
+
+	// API tokens cannot verify, so they lose these changes; they still list.
+	admin.elevate("")
+	tok := admin.expect(admin.do("POST", "/api/v1/me/tokens", map[string]any{"name": "files", "expiresInDays": 1,
+		"permissions": []string{"files.read", "files.manage", "files.admin"}}), 201, "").body["token"].(string)
+	for _, root := range []string{"system", "backups"} {
+		for _, c := range append(changes(root, "etc"), cross) {
+			if r := e.bearer(tok, c.method, c.path, c.body); r.status != 403 || r.code() != "auth.step_up_required" {
+				t.Fatalf("token %s %s on %s: %d %s", c.method, c.path, root, r.status, r.raw)
+			}
+		}
+		if status := upload(nil, tok, root, "etc"); status != 403 {
+			t.Fatalf("token upload into %s: %d", root, status)
+		}
+		if r := e.bearer(tok, "GET", "/api/v1/files/list?root="+root, nil); r.status != 200 {
+			t.Fatalf("token list of %s: %d %s", root, r.status, r.raw)
+		}
+	}
+	if r := e.bearer(tok, "PUT", "/api/v1/files/content", map[string]any{"root": "sites", "path": "shop/x", "content": "y"}); r.status != 200 {
+		t.Fatalf("token save in sites: %d %s", r.status, r.raw)
+	}
+
+	// Verified once: every change goes through while it lasts.
+	for _, root := range []string{"system", "backups"} {
+		for _, c := range append(changes(root, "etc"), cross) {
+			r := admin.expect(admin.do(c.method, c.path, c.body), c.status, "")
+			if c.status == 202 {
+				admin.runJob(r)
+			}
+			if c.action != "" {
+				if q := sentAs[map[string]any](t, e, c.action); q["root"] != c.body["root"] {
+					t.Fatalf("%s sent %v", c.action, q)
+				}
+			}
+		}
+		if status := upload(admin, "", root, "etc"); status != 201 {
+			t.Fatalf("verified upload into %s: %d", root, status)
+		}
+	}
+}
+
 func TestFavoritesLimit(t *testing.T) {
 	e := newEnv(t)
 	admin := e.setupAdmin("admin")

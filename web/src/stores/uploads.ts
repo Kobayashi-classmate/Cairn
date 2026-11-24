@@ -17,6 +17,7 @@ import {
   reportUnauthorized,
 } from '@/api/client'
 import { followJobLog } from '@/api/jobs'
+import { ensureElevated } from '@/auth/stepUp'
 import { isFinalState } from '@/jobs/labels'
 import { onAccountReset } from './accountReset'
 
@@ -120,6 +121,10 @@ export const useUploadsStore = defineStore('uploads', () => {
     if (!entry || !job) return
     entry.state = 'uploading'
     try {
+      // Roots other than the sites take a recent re-authentication, which
+      // the upload client cannot ask for and retry by itself.
+      if (entry.root !== 'sites') await ensureElevated()
+      if (stateOf(entry) === 'canceled') return
       const jobId = await transfer(entry, job)
       if (!jobId) throw new ApiError(0, ClientErrorCode.badResponse)
       entry.jobId = jobId
