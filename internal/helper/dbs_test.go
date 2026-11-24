@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -434,6 +435,83 @@ func TestPostgreSQLStatus(t *testing.T) {
 	// psql runs as postgres with the cluster's own client.
 	if c := e.calls[len(e.calls)-1]; !strings.HasPrefix(c.line(), "runuser -u postgres -- /usr/lib/postgresql/17/bin/psql") || !strings.Contains(c.line(), "-p 5432 -d postgres") {
 		t.Fatalf("psql call %s", c.line())
+	}
+}
+
+// Every session the helper opens as the postgres role pins its search path
+// at connection time, whichever database it connects to: a database user
+// may own objects in a public schema there.
+func TestPostgreSQLAdminSessionsPinSearchPath(t *testing.T) {
+	e := newPGEnv(t)
+	e.reply = func(c dbCall) (string, error) {
+		switch {
+		case c.name == "/usr/bin/pg_lsclusters":
+			return pgClusters, nil
+		case strings.HasPrefix(c.stdin, "SELECT 'r' FROM pg_roles"):
+			return "r\n", nil
+		case strings.HasPrefix(c.stdin, "SELECT 'd', datname"):
+			return "d\tpostgres\tpostgres\nd\tshop\tadmin\nd\tstats\tpostgres\n", nil
+		case strings.Contains(c.stdin, "FROM pg_database WHERE datname = 'shop'"):
+			return "d\n", nil
+		case strings.Contains(c.stdin, "aclexplode"):
+			return "g\tstats\n", nil
+		case strings.Contains(c.line(), "pg_dump"):
+			return "PGDMP-data", nil
+		case strings.HasPrefix(c.stdin, "SELECT 'v'"):
+			return "v\t14.24\nl\tlocalhost\n", nil
+		}
+		return "", nil
+	}
+	_ = e.status()
+	steps := []struct {
+		action string
+		req    any
+	}{
+		{helperapi.ActionDBCreate, helperapi.DBCreateRequest{Engine: "postgresql-17", Name: "blog", Owner: "blog_user"}},
+		{helperapi.ActionDBUserSet, helperapi.DBUserRequest{Engine: "postgresql-17", Name: "report", Password: "S3cret-pass", Hosts: []string{"localhost", "10.0.0.5"},
+			Grants: []helperapi.DBGrant{{Database: "shop", Level: helperapi.GrantAll}}}},
+		{helperapi.ActionDBUserDrop, helperapi.DBRef{Engine: "postgresql-17", Name: "report"}},
+		{helperapi.ActionDBDrop, helperapi.DBRef{Engine: "postgresql-17", Name: "shop"}},
+		{helperapi.ActionDBDump, helperapi.DBDumpRequest{Engine: "postgresql-17", Name: "shop"}},
+	}
+	for _, s := range steps {
+		if op, log := e.run(s.action, s.req); op.State != helperapi.OpSucceeded {
+			t.Fatalf("%s: %+v\n%s", s.action, op, log)
+		}
+	}
+	const pinned = "PGOPTIONS=-c search_path=pg_catalog,pg_temp"
+	dbs := map[string]bool{}
+	dumps := 0
+	for _, c := range e.calls {
+		if c.name != "runuser" || !slices.Equal(c.args[:3], []string{"-u", "postgres", "--"}) {
+			continue
+		}
+		if !slices.Contains(c.env, pinned) {
+			t.Errorf("superuser session without a pinned search path: %s (env %v)", c.line(), c.env)
+		}
+		for i, a := range c.args {
+			if a == "-d" {
+				dbs[c.args[i+1]] = true
+			}
+		}
+		if strings.HasSuffix(c.args[3], "/pg_dump") {
+			dumps++
+		}
+	}
+	// The postgres database, the new database, the user's databases (grants,
+	// reassigning) and a dump were all reached.
+	for _, db := range []string{"postgres", "blog", "shop", "stats"} {
+		if !dbs[db] {
+			t.Errorf("no superuser session on %s: %v", db, dbs)
+		}
+	}
+	if dumps != 1 {
+		t.Errorf("%d pg_dump runs", dumps)
+	}
+	// The grantee lookup matches pg_catalog's oid = oid exactly, with no
+	// implicit cast a same-named operator elsewhere could match better.
+	if sql := e.script(); !strings.Contains(sql, "a.grantee OPERATOR(pg_catalog.=) 'report'::pg_catalog.regrole::pg_catalog.oid") {
+		t.Errorf("grantee lookup:\n%s", sql)
 	}
 }
 

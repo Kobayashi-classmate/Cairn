@@ -107,6 +107,16 @@ func (d *DBs) pgOnline(ctx context.Context, e dbEngine) (pgClusterInfo, error) {
 	return c, err
 }
 
+// pgAdminEnv pins the search path of every session the helper opens as the
+// postgres role. A database user may create objects in a public schema (in
+// any database it owns, and in every database of a cluster created by 14 or
+// earlier), and an unqualified name, or an operator without an exact match
+// in pg_catalog, would otherwise resolve to them and run with superuser
+// rights. pg_catalog comes first and pg_temp, only this session's own,
+// last; options sent at connection time override any search_path set on the
+// database or the role.
+var pgAdminEnv = []string{"PGOPTIONS=-c search_path=pg_catalog,pg_temp"}
+
 // psql runs a script as the postgres role in a database.
 func (d *DBs) psql(ctx context.Context, log io.Writer, e dbEngine, c pgClusterInfo, db string, s *sqlScript) ([][]string, error) {
 	if log != nil {
@@ -114,7 +124,7 @@ func (d *DBs) psql(ctx context.Context, log io.Writer, e dbEngine, c pgClusterIn
 	}
 	args := []string{"-u", "postgres", "--", pgBin(e, "psql"), "-X", "-q", "-A", "-t", "-F", "\t", "-v", "ON_ERROR_STOP=1",
 		"-p", strconv.Itoa(c.port), "-d", db, "-f", "-"}
-	res, err := dbRun(ctx, execx.Cmd{Name: "runuser", Args: args, Stdin: strings.NewReader(s.run.String()), Timeout: dbTimeout, MaxOutput: 8 << 20})
+	res, err := dbRun(ctx, execx.Cmd{Name: "runuser", Args: args, Stdin: strings.NewReader(s.run.String()), Env: pgAdminEnv, Timeout: dbTimeout, MaxOutput: 8 << 20})
 	if err != nil {
 		return nil, pgError(err, e)
 	}
@@ -430,7 +440,7 @@ func (d *DBs) pgUserSet(ctx context.Context, log io.Writer, e dbEngine, req help
 	// Nil grants leave the privileges as they are: a password or host
 	// change never revokes anything.
 	if req.Grants != nil {
-		s.add("SELECT 'g', d.datname FROM pg_database d WHERE NOT d.datistemplate AND EXISTS (SELECT 1 FROM aclexplode(d.datacl) a WHERE a.grantee = %s::regrole);", pgStr(req.Name))
+		s.add("SELECT 'g', d.datname FROM pg_database d WHERE NOT d.datistemplate AND EXISTS (SELECT 1 FROM aclexplode(d.datacl) a WHERE a.grantee OPERATOR(pg_catalog.=) %s::pg_catalog.regrole::pg_catalog.oid);", pgStr(req.Name))
 	}
 	rows, err := d.psql(ctx, log, e, c, "postgres", &s)
 	if err != nil {
@@ -594,7 +604,7 @@ func (d *DBs) pgDump(ctx context.Context, log io.Writer, e dbEngine, name string
 func (d *DBs) pgDumpTo(ctx context.Context, log io.Writer, e dbEngine, c pgClusterInfo, name string, w io.Writer) error {
 	args := []string{"-u", "postgres", "--", pgBin(e, "pg_dump"), "-Fc", "--no-owner", "--no-privileges", "-p", strconv.Itoa(c.port), "-d", name}
 	_, _ = fmt.Fprintf(log, "$ pg_dump -Fc --no-owner --no-privileges -d %s\n", name)
-	if _, err := dbRun(ctx, execx.Cmd{Name: "runuser", Args: args, Stdout: w, Output: log, Timeout: dumpTimeout, MaxOutput: 64 << 10}); err != nil {
+	if _, err := dbRun(ctx, execx.Cmd{Name: "runuser", Args: args, Stdout: w, Output: log, Env: pgAdminEnv, Timeout: dumpTimeout, MaxOutput: 64 << 10}); err != nil {
 		return pgError(err, e)
 	}
 	return nil
