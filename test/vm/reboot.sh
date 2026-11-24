@@ -25,12 +25,21 @@ port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 base="https://127.0.0.1:${port}"
 jar=/root/reboot-jar
 pw=vm-test-password-1
-req() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+# A browser session is the cookie in the jar and the session key that
+# signing in answers with: keep_key saves it next to the jar, and every
+# request sends it (the cookie alone is refused).
+skey() { cat "$jar.key" 2>/dev/null || true; }
+keep_key() (
+	out=$(cat)
+	printf '%s' "$out" | sed -n 's/.*"sessionKey":"\([A-Za-z0-9_-]*\)".*/\1/p' >"$jar.key"
+	printf '%s\n' "$out"
+)
+req() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 sign_in() {
 	for _ in $(seq 120); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 1; done
-	rm -f "$jar"
-	req -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
+	rm -f "$jar" "$jar.key"
+	req -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | keep_key | grep_q '"username":"admin"' || fail "login"
 	req -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 }
 rules() {
