@@ -11,6 +11,8 @@
 #   BACKUP_TARGETS="debian:trixie" bash test/backups/run.sh
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# shellcheck source=test/lib/images.sh
+. test/lib/images.sh
 ls dist/cairn_*_amd64.deb dist/cairn-*.x86_64.rpm >/dev/null
 targets=${BACKUP_TARGETS:-"debian:trixie ubuntu:22.04 rockylinux:9"}
 mapfile -t key < <(sh scripts/go.sh go run ./test/backups/agekey)
@@ -22,7 +24,7 @@ cleanup() {
 }
 trap cleanup EXIT
 docker network create "$net" >/dev/null
-docker run -d --rm --name "$s3" --network "$net" --network-alias s3 --entrypoint sh rclone/rclone:latest \
+docker run -d --rm --name "$s3" --network "$net" --network-alias s3 --entrypoint sh "$RCLONE_IMAGE" \
 	-c 'mkdir -p /data/cairn-backups && exec rclone serve s3 --auth-key TESTKEY,TESTSECRET --addr :8080 /data' >/dev/null
 failed=()
 for image in $targets; do

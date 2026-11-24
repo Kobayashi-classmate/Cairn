@@ -26,6 +26,8 @@
 # the password in accept.sh), for screenshots and UI tests.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+# shellcheck source=test/lib/images.sh
+. test/lib/images.sh
 target=${1:-debian-13}
 script=${SCRIPT:-inside.sh}
 keep=${KEEP:-0}
@@ -63,11 +65,11 @@ case "$script" in accept.sh | keep.sh) services=1 ;; esac
 if [ "$services" = 1 ]; then
 	# Pebble and rclone come out of their images as they are.
 	mkdir -p "$work/tools"
-	cid=$(docker create "${PEBBLE_IMAGE:-ghcr.io/letsencrypt/pebble:latest}")
+	cid=$(docker create "$PEBBLE_IMAGE")
 	docker cp "$cid:/app" "$work/tools/pebble" >/dev/null
 	docker cp "$cid:/test" "$work/tools/pebble-test" >/dev/null
 	docker rm "$cid" >/dev/null
-	cid=$(docker create "${RCLONE_IMAGE:-rclone/rclone:latest}")
+	cid=$(docker create "$RCLONE_IMAGE")
 	docker cp "$cid:/usr/local/bin/rclone" "$work/tools/rclone" >/dev/null
 	docker rm "$cid" >/dev/null
 fi

@@ -10,7 +10,8 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 ls dist/cairn_*_amd64.deb >/dev/null
-PEBBLE_IMAGE=${PEBBLE_IMAGE:-ghcr.io/letsencrypt/pebble:latest}
+# shellcheck source=test/lib/images.sh
+. test/lib/images.sh
 work=$(mktemp -d)
 net=cairn-acme-$$
 cleanup() {
