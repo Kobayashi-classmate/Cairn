@@ -134,6 +134,11 @@ done
 api "$base/api/v1/jobs/$job/log" | grep_q -E '\$ (apt-get update|dnf makecache)' || fail "job log"
 step "menu from the enabled modules; catalog resolved; package index refresh ran as a helper operation"
 
+# Something in the backups root, made through the helper, for the purge
+# below to keep.
+api -X POST "$base/api/v1/files/touch" -d '{"root":"backups","dir":"","name":"note.txt"}' | grep_q '"name":"note.txt"' || fail "file in the backups root"
+step "file made in the backups root through the helper"
+
 cairn reset-2fa --username admin --lang en | grep_q "turned off" || fail "cairn reset-2fa"
 [ "$(stat -c '%U:%G %a' /var/lib/cairn/master.key)" = "cairn:cairn 600" ] || fail "master key ownership/mode"
 step "cairn reset-2fa works; master key is cairn-only (0600)"
@@ -174,13 +179,55 @@ if [ "${SMOKE_SYSTEMD_VERIFY:-0}" = 1 ]; then
 	step "systemd units verified (systemd $(systemd-analyze --version | head -1 | awk '{print $2}')); cairn-web ${exposure#→ }"
 fi
 
+# Backups as the helper leaves them: a database dump, a backup plan's
+# local copy, and empty directories made on first use.
+b=/var/lib/cairn/backups
+runuser -u cairn -- mkdir -p $b/db/mysql $b/db/redis $b/plans/p1 $b/plans/p2
+runuser -u cairn -- sh -c "echo dump >$b/db/mysql/shop.sql.gz && echo plan >$b/plans/p1/dir_x.tar.zst"
+
+# What remove and purge leave is listed in README.md ("Uninstall").
 if [ "$family" = deb ]; then
-	apt-get purge -y cairn >/dev/null 2>&1 || fail "apt purge"
-	[ ! -e /usr/bin/cairn-web ] && [ ! -e /etc/cairn ] && [ ! -e /var/lib/cairn ] && [ ! -e /var/lib/cairn-helper ] || fail "purge left files behind"
-	step "purged: binaries, configuration and data removed"
+	apt-get remove -y cairn >/tmp/remove.log 2>&1 || fail "apt remove"
+	[ ! -e /usr/bin/cairn-web ] && [ -f /etc/cairn/config.toml ] && [ -f /var/lib/cairn/cairn.db ] && [ -d /var/lib/cairn-helper ] || fail "remove did not keep the data"
+	grep_q 'configuration and data were kept' /tmp/remove.log || fail "remove did not say what it kept"
+	step "removed: binaries gone, configuration and data kept and reported"
+
+	apt-get purge -y cairn >/tmp/purge.log 2>&1 || fail "apt purge"
+	[ ! -e /etc/cairn ] && [ ! -e /var/lib/cairn-helper ] && [ ! -e /var/lib/cairn-unpack ] || fail "purge left files behind"
+	[ "$(ls -A /var/lib/cairn)" = backups ] || fail "purge kept more than the backups: $(ls -A /var/lib/cairn)"
+	[ "$(cd $b && find . -mindepth 1 | sort | tr '\n' ' ')" = "./db ./db/mysql ./db/mysql/shop.sql.gz ./note.txt ./plans ./plans/p1 ./plans/p1/dir_x.tar.zst " ] ||
+		fail "purge did not keep exactly the backups: $(cd $b && find . -mindepth 1 | sort | tr '\n' ' ')"
+	grep_q "kept in $b" /tmp/purge.log || fail "purge did not say where the backups are"
+	step "purged: binaries, configuration and data removed; backups kept and reported"
+
+	# Installed again with a new cairn account (another uid): the kept
+	# backups change hands, links in them are not followed, and files of
+	# other owners stay theirs.
+	old_uid=$(id -u cairn)
+	userdel cairn
+	if getent group cairn >/dev/null; then groupdel cairn; fi
+	useradd --system --no-create-home --uid "$old_uid" cairn-old
+	echo secret >/root/target
+	ln -s /root/target $b/db/link
+	chown -h cairn-old: $b/db/link
+	touch $b/rootfile
+	CAIRN_LANG=$INSTALL_LANG apt-get install -y "$PKGS"/cairn_*_amd64.deb >/tmp/reinstall.log 2>&1 || fail "apt install after purge"
+	[ "$(id -u cairn)" != "$old_uid" ] || fail "the test did not change the cairn uid"
+	[ -z "$(find /var/lib/cairn -user "$old_uid")" ] || fail "files left to the old uid: $(find /var/lib/cairn -user "$old_uid")"
+	[ "$(stat -c %U /root/target)" = root ] && [ "$(stat -c %U $b/rootfile)" = root ] || fail "ownership changed outside the old account's files"
+	runuser -u cairn -- cat $b/db/mysql/shop.sql.gz | grep_q dump || fail "the panel cannot read a kept dump"
+	runuser -u cairn -- ls $b/plans/p1 | grep_q dir_x.tar.zst || fail "the panel cannot read a kept backup"
+	step "installed again with another cairn uid: kept backups taken over, links not followed"
+
+	CAIRN_PURGE_BACKUPS=1 apt-get purge -y cairn >/tmp/purge2.log 2>&1 || fail "apt purge with CAIRN_PURGE_BACKUPS=1"
+	[ ! -e /var/lib/cairn ] && [ ! -e /etc/cairn ] && [ -f /root/target ] || fail "CAIRN_PURGE_BACKUPS=1 did not delete the backups"
+	grep_q 'were deleted (CAIRN_PURGE_BACKUPS=1)' /tmp/purge2.log || fail "purge did not say the backups were deleted"
+	step "purged with CAIRN_PURGE_BACKUPS=1: backups deleted too"
 else
-	dnf remove -y cairn >/dev/null 2>&1 || fail "dnf remove"
+	dnf remove -y cairn >/tmp/remove.log 2>&1 || fail "dnf remove"
 	[ ! -e /usr/bin/cairn-web ] || fail "remove left binaries behind"
-	step "removed: binaries gone (RPM keeps /etc/cairn and /var/lib/cairn by design)"
+	[ -f /etc/cairn/config.toml ] && [ -f /var/lib/cairn/cairn.db ] && [ -f $b/db/mysql/shop.sql.gz ] || fail "remove did not keep the data"
+	grep_q 'configuration and data were kept' /tmp/remove.log || fail "remove did not say what it kept"
+	step "removed: binaries gone, configuration and data kept and reported (RPM has no purge)"
 fi
 echo "== PASS: ${PRETTY_NAME}"

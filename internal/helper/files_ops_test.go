@@ -39,6 +39,31 @@ func TestBackupsRootLinkAndUnknownRoot(t *testing.T) {
 	}
 }
 
+// A purge keeps the backups; the panel account of a new installation
+// may have another uid. The helper takes the directory over and lists
+// what was kept (the package hands the files over, postinstall.sh).
+func TestBackupsRootTakesOverKeptDirectory(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("needs root to give the directory to another uid")
+	}
+	e := newFilesEnv(t)
+	e.put("/var/lib/cairn/backups/db/mysql/shop.sql.gz", "dump")
+	dir := filepath.Join(e.f.Root, "/var/lib/cairn/backups")
+	for _, p := range []string{dir, dir + "/db", dir + "/db/mysql", dir + "/db/mysql/shop.sql.gz"} {
+		if err := os.Lchown(p, 4242, 4242); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l, err := call[helperapi.FileList](t, e.r, helperapi.ActionFileList, helperapi.FileListRequest{Root: "backups", Path: "db/mysql"})
+	if err != nil || len(l.Entries) != 1 || l.Entries[0].Name != "shop.sql.gz" {
+		t.Fatalf("kept backups: %+v %v", l, err)
+	}
+	var st syscall.Stat_t
+	if err := syscall.Lstat(dir, &st); err != nil || int(st.Uid) != os.Getuid() {
+		t.Fatalf("backups root owner: %d %v", st.Uid, err)
+	}
+}
+
 func TestRecursiveChangesSkipLinksAndHardLinks(t *testing.T) {
 	e := newFilesEnv(t)
 	e.put("/srv/www/blog/app/secret", "blog secret") // 0600

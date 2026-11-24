@@ -319,8 +319,16 @@ apt-get purge -y cairn >/root/purge.log 2>&1 || fail "purge"
 for u in cairn-web.service cairn-helper.service cairn-helper.socket; do
 	[ "$(systemctl show -p LoadState --value "$u")" = not-found ] || fail "$u left behind"
 done
-[ ! -e /etc/cairn ] && [ ! -e /var/lib/cairn ] && [ ! -e /var/lib/cairn-helper ] && [ ! -e /run/cairn/helper.sock ] || fail "purge left files behind"
+# What a purge leaves is listed in README.md ("Uninstall"): of the panel's
+# own files only the local backups (the backup task above made one), and
+# /etc/cairn/apps while an app site's environment file is in it (the app
+# site is gone, so /etc/cairn is too).
+[ ! -e /etc/cairn ] && [ ! -e /var/lib/cairn-helper ] && [ ! -e /var/lib/cairn-unpack ] && [ ! -e /run/cairn/helper.sock ] || fail "purge left files behind"
+[ "$(ls -A /var/lib/cairn)" = backups ] || fail "purge kept more than the backups: $(ls -A /var/lib/cairn)"
+ls /var/lib/cairn/backups/plans/"$plan"/* >/dev/null 2>&1 || fail "purge deleted the local backup"
+grep_q 'kept in /var/lib/cairn/backups' /root/purge.log || fail "purge did not say where the backups are"
+if [ -e /etc/cairn-cron ] || ls /etc/systemd/system/cairn-cron-* >/dev/null 2>&1; then fail "scheduled tasks left behind"; fi
 ! pgrep -f 'cairn-(web|helper)' >/dev/null || fail "processes left running"
 ! nft list table inet cairn >/dev/null 2>&1 && [ ! -e /etc/cairn-firewall ] || fail "the firewall table or its file left behind"
-step "purged: units, files, socket, processes and Cairn's nftables table gone"
+step "purged: units, files, scheduled tasks, socket, processes and Cairn's nftables table gone; local backups kept"
 echo "== PASS: ${PRETTY_NAME} (VM)"

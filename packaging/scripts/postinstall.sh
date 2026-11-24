@@ -61,7 +61,25 @@ if ! getent passwd cairn-unpack >/dev/null 2>&1; then
 fi
 
 install -d -m 0750 -o root -g cairn /etc/cairn
+# Data kept from an earlier installation (the backups a purge keeps, or
+# everything after a remove) belongs to the cairn account of that time. If
+# the account has been deleted and made anew since, its uid may differ.
+old_uid=
+if [ -d /var/lib/cairn ] && [ ! -L /var/lib/cairn ]; then
+	old_uid=$(stat -c %u /var/lib/cairn)
+fi
 install -d -m 0700 -o cairn -g cairn /var/lib/cairn
+new_uid=$(id -u cairn)
+if [ -n "$old_uid" ] && [ "$old_uid" != "$new_uid" ] && [ "$old_uid" != 0 ]; then
+	# Only what the old account owned changes hands. The directory was
+	# writable by that account, so find never follows links (-P) or leaves
+	# the file system, and -execdir changes each owner from inside its
+	# directory (chown -h: a link itself), so no link on the way redirects
+	# it. find refuses -execdir with a relative PATH entry.
+	PATH=/usr/sbin:/usr/bin:/sbin:/bin find -P /var/lib/cairn -xdev -mindepth 1 -user "$old_uid" \
+		-execdir chown -h cairn:cairn {} +
+	echo "Cairn: files in /var/lib/cairn kept from an earlier installation now belong to the cairn account."
+fi
 # Root helper state: update status and the packages kept for rollback.
 install -d -m 0700 -o root -g root /var/lib/cairn-helper
 

@@ -105,3 +105,8 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   panel only sets their password.
 - A site, layer-4 proxy or scheduled task whose change was cut off by a
   restart of the panel shows as failed and can be saved again.
+- Removing the package keeps the configuration and the data and says where
+  they are. `apt purge cairn` deletes them but keeps the local backups and
+  database dumps in `/var/lib/cairn/backups`, which may be the only copy;
+  `CAIRN_PURGE_BACKUPS=1` deletes those too. The README lists what each
+  way of uninstalling leaves behind.
