@@ -3,7 +3,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, ExternalLink, Settings2 } from '@lucide/vue'
-import { isAvailable, type Offer, type SoftwareEntry } from '@/api/software'
+import { isAvailable, isEndOfLifeInstalled, type Offer, type SoftwareEntry } from '@/api/software'
 import DataTable from '@/components/common/DataTable.vue'
 import StatusDot from '@/components/common/StatusDot.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
@@ -94,6 +94,12 @@ function homepage(entry: SoftwareEntry): string | null {
 function versionTitle(offer: Offer): string | undefined {
   return installedVersion(offer) || undefined
 }
+
+/** The pill's name for screen readers; an ended line says so, as its badge does. */
+function openLineLabel(entry: SoftwareEntry, offer: Offer): string {
+  const named = { name: entry.name, line: offer.line, state: lineStateText(lineState(offer)) }
+  return isEndOfLifeInstalled(offer) ? t('software.endOfLife.openLine', named) : t('software.openLine', named)
+}
 </script>
 
 <template>
@@ -161,12 +167,13 @@ function versionTitle(offer: Offer): string | undefined {
           v-for="offer in installedOffers(row)"
           :key="offer.line"
           type="button"
-          class="rounded-full outline-none tap-area focus-visible:ring-2 focus-visible:ring-ring/50"
+          class="inline-flex items-center gap-1 rounded-full outline-none tap-area focus-visible:ring-2 focus-visible:ring-ring/50"
           :title="versionTitle(offer)"
-          :aria-label="t('software.openLine', { name: row.name, line: offer.line, state: lineStateText(lineState(offer)) })"
+          :aria-label="openLineLabel(row, offer)"
           @click="emit('open', row.id, offer.line)"
         >
           <StatusPill :tone="LINE_STATE_TONE[lineState(offer)]" dot class="font-mono hover:underline">{{ offer.line }}</StatusPill>
+          <StatusPill v-if="isEndOfLifeInstalled(offer)" tone="warning">{{ t('software.endOfLife.badge') }}</StatusPill>
         </button>
       </div>
       <span v-else class="text-muted-foreground">—</span>

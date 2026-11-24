@@ -190,6 +190,11 @@
     "until": "Supported until {date}",
     "ended": "Support ended {date}"
   },
+  "endOfLife": {
+    "badge": "End of life",
+    "openLine": "{name} {line}, {state}, upstream support has ended: open its settings",
+    "installed": "Upstream support for {name} {line} ended on {date}: it no longer gets security updates. Move the sites and data that use it to a supported version, then uninstall it."
+  },
   "steps": {
     "separator": ", ",
     "addRepo": "Add the {repo} repository and check its signing key against the pinned fingerprint",

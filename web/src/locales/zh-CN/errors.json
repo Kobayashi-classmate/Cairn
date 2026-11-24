@@ -236,6 +236,7 @@
     },
     "site": {
       "php_missing": "PHP {line}（含 PHP-FPM）未安装。",
+      "php_unknown": "网站 {site} 使用的 PHP {line} 不在此系统的软件目录中，无法找到该网站的 PHP-FPM 进程池，未做任何更改。",
       "domain_taken": "{domain} 已被网站 {site} 使用。",
       "code_taken": "网站代号 {code} 已被使用。",
       "config_invalid": "{check} 检查拒绝了新配置，未做任何更改。",
@@ -355,6 +356,7 @@
     "unsupported": "此系统暂不支持网站功能。",
     "nginx_missing": "未安装 nginx。",
     "php_missing": "所选的 PHP 版本（含 PHP-FPM）未安装。",
+    "php_unknown": "该网站当前使用的 PHP 版本不在此系统的软件目录中，无法找到它的 PHP-FPM 进程池，未做任何更改。",
     "domain_taken": "有域名已被其他网站使用。",
     "code_taken": "该网站代号已被使用。",
     "config_invalid": "nginx 或 PHP-FPM 拒绝了新配置，未做任何更改。",

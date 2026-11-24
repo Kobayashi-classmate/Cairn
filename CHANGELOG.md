@@ -114,3 +114,7 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   database dumps in `/var/lib/cairn/backups`, which may be the only copy;
   `CAIRN_PURGE_BACKUPS=1` deletes those too. The README lists what each
   way of uninstalling leaves behind.
+- A version whose upstream support has ended cannot be installed, unless
+  the distribution itself maintains it. One that is installed already
+  stays on the Software page, marked "End of life", and can still be
+  started, configured, used by sites and uninstalled.

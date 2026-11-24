@@ -84,7 +84,7 @@ func lineLocks(software, line string) []string {
 
 // installedOffer resolves a request to a line that is installed here.
 func (s *Software) installedOffer(ctx context.Context, software, line string) (*catalog.Software, catalog.Offer, error) {
-	sw, o, err := s.offer(helperapi.SoftwareRequest{Software: software, Line: line})
+	sw, o, err := s.knownOffer(helperapi.SoftwareRequest{Software: software, Line: line})
 	if err != nil {
 		return nil, o, err
 	}

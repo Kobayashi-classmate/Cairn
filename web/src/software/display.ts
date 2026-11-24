@@ -6,6 +6,7 @@ import type { Component } from 'vue'
 import { Boxes, Code, Database, Globe, Wrench, Zap } from '@lucide/vue'
 import {
   isAvailable,
+  isEndOfLifeInstalled,
   providerName,
   type Offer,
   type Repository,
@@ -132,12 +133,22 @@ export function reasonText(offer: Offer): string {
   return offer.reason && te(`software.reason.${offer.reason}`) ? t(`software.reason.${offer.reason}`) : t('software.reason.unknown')
 }
 
+/**
+ * What to tell about an installed line past its upstream support: when
+ * that ended, that it gets no more security updates, and what to do.
+ */
+export function endOfLifeNotice(name: string, offer: Offer): string {
+  return i18n.global.t('software.endOfLife.installed', { name, line: offer.line, date: offer.eol ? formatIsoDate(offer.eol) : '' })
+}
+
 /** Facts about a line for choosing it: "Recommended · LTS · Supported until 2028-12-31". */
 export function lineFacts(offer: Offer): string {
   const { t } = i18n.global
   const parts: string[] = []
   if (offer.installed) parts.push(t('software.installed'))
-  if (!isAvailable(offer)) {
+  // An installed line past its upstream support says when that ended (below)
+  // rather than why it cannot be installed: it is installed.
+  if (!isAvailable(offer) && !isEndOfLifeInstalled(offer)) {
     parts.push(reasonText(offer))
     return parts.join(' · ')
   }

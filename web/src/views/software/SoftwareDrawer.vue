@@ -3,8 +3,9 @@
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Blocks, Download, FileCog, Play, RotateCw, ScrollText, Server, Square, Tag, Trash2 } from '@lucide/vue'
-import { isManageable } from '@/api/software'
+import { isAvailable, isEndOfLifeInstalled, isManageable } from '@/api/software'
 import EmptyState from '@/components/common/EmptyState.vue'
+import Notice from '@/components/common/Notice.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import SettingsDrawer from '@/components/common/SettingsDrawer.vue'
 import type { DrawerItem } from '@/components/common/types'
@@ -14,6 +15,7 @@ import { useNavRoutes } from '@/composables/useNavRoutes'
 import {
   LINE_STATE_TONE,
   categoryIcon,
+  endOfLifeNotice,
   installedOffers,
   installedVersion,
   lineKey,
@@ -21,6 +23,7 @@ import {
   lineStateText,
   methodText,
   parseLineKey,
+  reasonText,
 } from '@/software/display'
 import { useSessionStore } from '@/stores/session'
 import { useSoftwareStore } from '@/stores/software'
@@ -187,12 +190,14 @@ function install() {
     </template>
 
     <template v-if="entry && offer">
+      <!-- Not installed and not installable: nothing to manage, nothing to offer. -->
       <EmptyState
-        v-if="!installed && section === 'version' && !offer.method"
+        v-if="!installed && section === 'version' && !isAvailable(offer)"
         :title="t('software.drawer.notAvailable', { name: title })"
-        :text="t('software.reason.unknown')"
+        :text="offer.method ? reasonText(offer) : t('software.reason.unknown')"
       />
       <template v-else>
+        <Notice v-if="isEndOfLifeInstalled(offer)" tone="warning">{{ endOfLifeNotice(entry.name, offer) }}</Notice>
         <EmptyState
           v-if="!installed"
           :icon="Download"

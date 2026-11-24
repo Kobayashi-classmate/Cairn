@@ -35,6 +35,7 @@ const (
 	CodeSiteSELinux       = "site.selinux"        // an SELinux label could not be set
 	CodeSiteNoNginx       = "site.nginx_missing"  // nginx is not installed
 	CodeSitePHPMissing    = "site.php_missing"    // the PHP line is not installed (or has no FPM)
+	CodeSitePHPUnknown    = "site.php_unknown"    // the catalog does not know the site's current PHP line here, so its pool cannot be found; nothing was changed
 	CodeSiteDomainTaken   = "site.domain_taken"   // another site serves the domain
 	CodeSiteConfigInvalid = "site.config_invalid" // nginx -t or php-fpm -t refused the change; nothing was changed
 	CodeSiteReloadFailed  = "site.reload_failed"  // the reload failed; the previous configuration was restored

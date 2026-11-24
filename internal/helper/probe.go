@@ -79,7 +79,7 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 	var libs []string
 	plans := make([]helperapi.LinePlan, len(req.Items))
 	for i, it := range req.Items {
-		sw, o, err := s.offer(it)
+		sw, o, err := s.installableOffer(it)
 		if err != nil {
 			return helperapi.ProbeResult{}, err
 		}

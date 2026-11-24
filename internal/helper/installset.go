@@ -22,7 +22,7 @@ import (
 func (s *Software) setLocks(req helperapi.InstallSetRequest) []string {
 	pkg, rt := false, false
 	for _, it := range req.Items {
-		_, o, err := s.offer(it)
+		_, o, err := s.installableOffer(it)
 		switch {
 		case err != nil:
 		case o.Method == catalog.MethodStandalone:
@@ -50,7 +50,7 @@ func (s *Software) setLocks(req helperapi.InstallSetRequest) []string {
 func (s *Software) installSet(ctx context.Context, _ helperapi.Caller, req helperapi.InstallSetRequest, log io.Writer) (any, error) {
 	items := make([]lineItem, 0, len(req.Items))
 	for _, r := range req.Items {
-		sw, o, err := s.offer(r)
+		sw, o, err := s.installableOffer(r)
 		if err != nil {
 			return nil, err
 		}

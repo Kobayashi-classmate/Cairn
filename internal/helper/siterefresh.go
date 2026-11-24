@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 )
 
@@ -136,19 +137,23 @@ func (st *Sites) refreshFiles(ctx context.Context, log io.Writer, spec helperapi
 			return sf, err
 		}
 	}
-	o, ok := st.phpOffer(spec.PHP)
-	if spec.Type == helperapi.SitePHP && !ok {
-		return sf, siteErr(helperapi.CodeSitePHPMissing, map[string]any{"line": spec.PHP})
+	var fpm *catalog.FPM
+	if spec.Type == helperapi.SitePHP {
+		f, installed := st.phpFPM(spec.PHP)
+		if !installed {
+			return sf, siteErr(helperapi.CodeSitePHPMissing, map[string]any{"line": spec.PHP})
+		}
+		fpm = f
 	}
-	conf, pool, err := st.render(spec, o.FPM)
+	conf, pool, err := st.render(spec, fpm)
 	if err != nil {
 		return sf, err
 	}
 	sf.changes = []fileChange{{path: siteConfPath(spec.Code), data: conf}}
-	if spec.Type == helperapi.SitePHP {
-		sf.changes = append(sf.changes, fileChange{path: poolPath(o.FPM, spec.Code), data: pool})
-		sf.checks = append(sf.checks, fpmCheck(o.FPM))
-		sf.reloads = append(sf.reloads, fpmReload(o.FPM))
+	if fpm != nil {
+		sf.changes = append(sf.changes, fileChange{path: poolPath(fpm, spec.Code), data: pool})
+		sf.checks = append(sf.checks, fpmCheck(fpm))
+		sf.reloads = append(sf.reloads, fpmReload(fpm))
 	}
 	sf.checks = append(sf.checks, st.nginxCheck())
 	sf.reloads = append(sf.reloads, st.nginxReload())

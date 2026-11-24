@@ -190,6 +190,11 @@
     "until": "支持到 {date}",
     "ended": "已于 {date} 停止支持"
   },
+  "endOfLife": {
+    "badge": "已停止维护",
+    "openLine": "{name} {line}，{state}，上游已停止维护：打开设置",
+    "installed": "{name} {line} 的上游支持已于 {date} 结束，不再有安全更新。请把使用它的网站和数据迁移到仍受支持的版本，然后卸载它。"
+  },
   "steps": {
     "separator": "、",
     "addRepo": "添加 {repo} 软件源，并按预置的指纹校验其签名密钥",

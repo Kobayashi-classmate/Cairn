@@ -112,7 +112,7 @@ func (m *Module) service(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	id := r.PathValue("id")
-	sw, err := m.availableOffer(id, req.Line)
+	sw, _, err := m.knownLine(id, req.Line)
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func (m *Module) service(w http.ResponseWriter, r *http.Request) error {
 
 func (m *Module) lineRef(r *http.Request) (helperapi.LineRef, string, error) {
 	ref := helperapi.LineRef{Software: r.PathValue("id"), Line: r.PathValue("line")}
-	sw, err := m.availableOffer(ref.Software, ref.Line)
+	sw, _, err := m.knownLine(ref.Software, ref.Line)
 	if err != nil {
 		return ref, "", err
 	}

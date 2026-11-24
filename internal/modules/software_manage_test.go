@@ -143,6 +143,125 @@ func TestSoftwareLineManagement(t *testing.T) {
 	admin.expect(admin.do("POST", "/api/v1/software/probe", map[string]any{"items": []any{map[string]any{"software": "nodejs", "line": "24"}}}), 409, helperapi.CodePkgBusy)
 }
 
+// A line that is installed stays managed after its upstream support has
+// ended; only installing it anew is refused. Debian 13 on 2027-01-01: PHP
+// 8.2 (sury) ended the day before, PostgreSQL 14 (PGDG) weeks earlier, PHP
+// 8.3 (sury) is still supported and 8.4 is Debian's own.
+func TestSoftwareEndOfLifeLines(t *testing.T) {
+	e := newEnv(t)
+	e.software.Now = func() time.Time { return time.Date(2027, 1, 1, 12, 0, 0, 0, time.UTC) }
+	admin := e.setupAdmin("admin")
+	admin.elevate("")
+	e.helper.respond(helperapi.ActionPkgStatus, helperapi.SoftwareStatus{
+		Installed: map[string]map[string][]helperapi.InstalledPackage{
+			"php":        {"8.2": {{Name: "php8.2-fpm", Version: "8.2.30-1"}}, "8.4": {{Name: "php8.4-fpm", Version: "8.4.27-1"}}},
+			"postgresql": {"14": {{Name: "postgresql-14", Version: "14.20-1.pgdg13+1"}}},
+		},
+		Services: map[string]string{"php8.2-fpm": "active", "php8.4-fpm": "active", "postgresql": "active"},
+	})
+
+	// The list: installed, with its services and files, not installable.
+	list := admin.expect(admin.do("GET", "/api/v1/software", nil), 200, "")
+	for _, ref := range [][2]string{{"php", "8.2"}, {"postgresql", "14"}} {
+		o := findOffer(t, list.body, ref[0], ref[1])
+		if o["method"] != "vendor" || o["installed"] != true || o["installable"] != false || o["endOfLife"] != true || o["reason"] != "end_of_life" ||
+			o["eol"] == nil || o["recommended"] != false || o["units"] == nil || o["configs"] == nil {
+			t.Errorf("%s %s: %v", ref[0], ref[1], o)
+		}
+	}
+	if o := findOffer(t, list.body, "php", "8.2"); fmt.Sprint(o["units"]) != "[map[canReload:false name:php8.2-fpm state:running]]" || o["extensions"] != true {
+		t.Errorf("php 8.2: %v", o)
+	}
+	// Other lines are as before: a supported vendor line, the system's
+	// line (recommended), and an ended line that is not installed.
+	if o := findOffer(t, list.body, "php", "8.3"); o["method"] != "vendor" || o["installable"] != true || o["endOfLife"] != false || o["reason"] != nil || o["installed"] != false {
+		t.Errorf("php 8.3: %v", o)
+	}
+	if o := findOffer(t, list.body, "php", "8.4"); o["method"] != "system" || o["installable"] != true || o["recommended"] != true || o["endOfLife"] != false {
+		t.Errorf("php 8.4: %v", o)
+	}
+	if o := findOffer(t, list.body, "php", "7.4"); o["installable"] != false || o["reason"] != "end_of_life" || o["installed"] != false || o["units"] != nil {
+		t.Errorf("php 7.4: %v", o)
+	}
+
+	// Everything but installing works on the ended lines.
+	e.opsSucceed(helperapi.ActionPkgService, helperapi.ActionPkgRemove, helperapi.ActionPkgConfigWrite, helperapi.ActionPkgExtApply, helperapi.ActionPkgInstall, helperapi.ActionPkgInstallSet)
+	e.helper.respond(helperapi.ActionPkgExtStatus, helperapi.ExtStatus{Extensions: []helperapi.ExtensionInfo{{ID: "intl", Name: "intl", Modules: []string{"intl"}, Available: true}}})
+	e.helper.respond(helperapi.ActionPkgConfigRead, helperapi.ConfigFile{ID: "php.ini", SHA256: strings.Repeat("a", 64), Editable: true})
+	for _, tc := range []struct {
+		method, path string
+		body         any
+		status       int
+	}{
+		{"POST", "/api/v1/software/php/service", map[string]any{"line": "8.2", "action": "restart"}, 202},
+		{"GET", "/api/v1/software/php/lines/8.2/extensions", nil, 200},
+		{"POST", "/api/v1/software/php/lines/8.2/extensions", map[string]any{"install": []string{"intl"}}, 202},
+		{"GET", "/api/v1/software/php/lines/8.2/configs/php.ini", nil, 200},
+		{"PUT", "/api/v1/software/php/lines/8.2/configs/php.ini", map[string]any{"content": "memory_limit = 256M\n", "base": strings.Repeat("a", 64)}, 202},
+		{"POST", "/api/v1/software/php/remove", map[string]any{"line": "8.2"}, 202},
+		{"POST", "/api/v1/software/postgresql/service", map[string]any{"line": "14", "action": "restart"}, 202},
+		{"GET", "/api/v1/software/postgresql/lines/14/configs/postgresql.conf", nil, 200},
+		{"POST", "/api/v1/software/postgresql/remove", map[string]any{"line": "14"}, 202},
+	} {
+		r := admin.do(tc.method, tc.path, tc.body)
+		if r.status != tc.status {
+			t.Errorf("%s %s: %d %s %v", tc.method, tc.path, r.status, r.code(), r.params())
+			continue
+		}
+		if tc.status == 202 {
+			admin.runJob(r)
+		}
+	}
+	if q := sentAs[helperapi.SoftwareRequest](t, e, helperapi.ActionPkgRemove); q.Software != "postgresql" || q.Line != "14" {
+		t.Errorf("remove sent to the helper: %+v", q)
+	}
+
+	// Installing an ended line is refused before the helper is asked: on
+	// its own, in a set and in a probe.
+	installs := func() int {
+		n := 0
+		for _, a := range e.helper.callsOf() {
+			if a == helperapi.ActionPkgInstall || a == helperapi.ActionPkgInstallSet || a == helperapi.ActionPkgProbe {
+				n++
+			}
+		}
+		return n
+	}
+	asked := installs()
+	for _, tc := range []struct {
+		path string
+		body any
+		eol  string
+	}{
+		{"/api/v1/software/php/install", map[string]any{"line": "8.2"}, "2026-12-31"},
+		{"/api/v1/software/postgresql/install", map[string]any{"line": "14"}, "2026-11-12"},
+		{"/api/v1/software/install", map[string]any{"items": []map[string]any{{"software": "nginx", "line": "1.26"}, {"software": "php", "line": "8.2"}}}, "2026-12-31"},
+		{"/api/v1/software/probe", map[string]any{"items": []map[string]any{{"software": "php", "line": "8.2"}}}, "2026-12-31"},
+	} {
+		r := admin.expect(admin.do("POST", tc.path, tc.body), 409, helperapi.CodePkgNotAvailable)
+		if r.params()["reason"] != "end_of_life" || r.params()["eol"] != tc.eol {
+			t.Errorf("%s: params %v", tc.path, r.params())
+		}
+	}
+	if installs() != asked {
+		t.Error("the helper was asked to install or probe an ended line")
+	}
+	// A supported line from the same repository still installs.
+	admin.runJob(admin.expect(admin.do("POST", "/api/v1/software/php/install", map[string]any{"line": "8.3"}), 202, ""))
+	// A line nobody builds here stays unknown to every route.
+	admin.expect(admin.do("POST", "/api/v1/software/valkey/remove", map[string]any{"line": "7.2"}), 409, helperapi.CodePkgNotAvailable)
+
+	// The overview keeps the ended line's service.
+	ov := admin.expect(admin.do("GET", "/api/v1/overview", nil), 200, "")
+	units := []string{}
+	for _, s := range ov.body["services"].([]any) {
+		units = append(units, s.(map[string]any)["unit"].(string))
+	}
+	if !strings.Contains(strings.Join(units, ","), "php8.2-fpm") {
+		t.Errorf("overview services: %v", units)
+	}
+}
+
 func TestDatabaseBackupColumns(t *testing.T) {
 	e := newEnv(t)
 	admin := e.setupAdmin("admin")

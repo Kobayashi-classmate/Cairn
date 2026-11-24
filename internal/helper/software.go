@@ -69,6 +69,9 @@ type Software struct {
 	ConfigVersionsDir string
 
 	probing sync.Mutex
+	// now is the clock the lines' end-of-life dates are compared with (nil
+	// means time.Now; tests).
+	now func() time.Time
 }
 
 // RegisterSoftware adds pkg.status, pkg.probe, pkg.install and pkg.remove.
@@ -80,7 +83,7 @@ func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 	// Prebuilt runtimes do not use the package manager: their downloads
 	// must not hold up package operations.
 	locks := func(req helperapi.SoftwareRequest) []string {
-		if _, o, err := s.offer(req); err == nil && o.Method == catalog.MethodStandalone {
+		if _, o, err := s.knownOffer(req); err == nil && o.Method == catalog.MethodStandalone {
 			if len(o.Packages) > 0 { // system libraries come first
 				return []string{LockPkg, LockRuntimes}
 			}
@@ -107,12 +110,22 @@ func pkgErr(code string, params map[string]any) error {
 	return &helperapi.Error{Code: code, Params: params}
 }
 
-func (s *Software) system() catalog.System {
-	return catalog.System{Chain: s.Chain, Arch: s.Arch, Now: time.Now()}
+func (s *Software) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
-// offer resolves a request to an installable line of this system.
-func (s *Software) offer(req helperapi.SoftwareRequest) (*catalog.Software, catalog.Offer, error) {
+func (s *Software) system() catalog.System {
+	return catalog.System{Chain: s.Chain, Arch: s.Arch, Now: s.clock()}
+}
+
+// knownOffer resolves a request to a line the catalog describes for this
+// system, whether or not it can still be installed. Everything that acts on
+// an installed line (removing it, its services, files and extensions) goes
+// by it: a line does not stop being here when its upstream support ends.
+func (s *Software) knownOffer(req helperapi.SoftwareRequest) (*catalog.Software, catalog.Offer, error) {
 	notAvailable := pkgErr(helperapi.CodePkgNotAvailable, map[string]any{"software": req.Software, "line": req.Line})
 	sw, ok := s.Catalog.Find(req.Software)
 	if !ok || (s.Manager != "apt" && s.Manager != "dnf") {
@@ -124,6 +137,21 @@ func (s *Software) offer(req helperapi.SoftwareRequest) (*catalog.Software, cata
 		}
 	}
 	return nil, catalog.Offer{}, notAvailable
+}
+
+// installableOffer resolves a request to a line that can be installed here
+// now. Only what installs asks it (install, install set, probe): a line
+// past its upstream support is refused here and nowhere else.
+func (s *Software) installableOffer(req helperapi.SoftwareRequest) (*catalog.Software, catalog.Offer, error) {
+	sw, o, err := s.knownOffer(req)
+	if err != nil {
+		return nil, catalog.Offer{}, err
+	}
+	if !o.Installable {
+		return nil, catalog.Offer{}, pkgErr(helperapi.CodePkgNotAvailable,
+			map[string]any{"software": req.Software, "line": req.Line, "reason": o.Reason, "eol": o.EOL})
+	}
+	return sw, o, nil
 }
 
 func (s *Software) handles(method string) bool {
@@ -159,7 +187,7 @@ func instance(r catalog.Repo, line string) string {
 }
 
 func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperapi.SoftwareRequest, log io.Writer) (any, error) {
-	sw, o, err := s.offer(req)
+	sw, o, err := s.installableOffer(req)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +465,7 @@ func (s *Software) ensureLibraries(ctx context.Context, log io.Writer, pkgs []st
 }
 
 func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi.SoftwareRequest, log io.Writer) (any, error) {
-	sw, o, err := s.offer(req)
+	sw, o, err := s.knownOffer(req)
 	if err != nil {
 		return nil, err
 	}

@@ -166,6 +166,7 @@ type env struct {
 	notifier *notify.Notifier
 	bus      *events.Bus
 	cloud    *cloudsvc.Module
+	software *softwaremod.Module
 	certs    *certsmod.Module
 	sites    *sitesmod.Module
 	files    *filesmod.Module
@@ -239,11 +240,12 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	sshMod := &sshmod.Module{Jobs: jobManager, Helper: h, DB: db, Events: bus, Log: log}
 	cloudMod := &cloudsvc.Module{DB: db, Helper: h, Events: bus, Settings: cloudsvc.NewSettings(config.Default().Cloud),
 		Log: log, Version: "0.1.0", Family: "debian", Format: "deb", Arch: "amd64"}
+	softwareMod := &softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log,
+		Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"}
 	registry.Add(
 		&core.Module{DB: db, Settings: core.NewSettings("en"), Helper: h, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)},
-		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log,
-			Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"},
+		softwareMod,
 		sitesMod,
 		certsMod,
 		&databases.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Log: log, DataDir: dataDir,
@@ -273,7 +275,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	srv.Config.ConnContext = api.ConnContext
 	srv.StartTLS()
 	t.Cleanup(srv.Close)
-	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, certs: certsMod, sites: sitesMod,
+	return &env{t: t, srv: srv, db: db, helper: h, router: router, notifier: notifier, bus: bus, cloud: cloudMod, software: softwareMod, certs: certsMod, sites: sitesMod,
 		files: filesMod, terminal: termMod, cron: cronMod, backups: backupsMod, firewall: firewallMod, ssh: sshMod, dataDir: dataDir, modules: registry, jobs: jobManager,
 		resolver: resolver}
 }

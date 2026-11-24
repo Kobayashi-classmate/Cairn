@@ -236,6 +236,7 @@
     },
     "site": {
       "php_missing": "PHP {line} with PHP-FPM is not installed.",
+      "php_unknown": "Site {site} uses PHP {line}, which is not in the software catalog for this system, so the site's PHP-FPM pool cannot be found. Nothing was changed.",
       "domain_taken": "{domain} is already served by site {site}.",
       "code_taken": "The site code {code} is already used.",
       "config_invalid": "The {check} check refused the new configuration. Nothing was changed.",
@@ -355,6 +356,7 @@
     "unsupported": "Sites are not available on this system yet.",
     "nginx_missing": "nginx is not installed.",
     "php_missing": "The chosen PHP version with PHP-FPM is not installed.",
+    "php_unknown": "The site's current PHP version is not in the software catalog for this system, so its PHP-FPM pool cannot be found. Nothing was changed.",
     "domain_taken": "A domain is already served by another site.",
     "code_taken": "This site code is already used.",
     "config_invalid": "nginx or PHP-FPM refused the new configuration. Nothing was changed.",

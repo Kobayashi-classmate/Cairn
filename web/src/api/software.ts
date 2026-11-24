@@ -11,7 +11,11 @@ export type InstallMethod = 'system' | 'vendor' | 'standalone'
 export interface Offer {
   /** Version line, for example "8.4". */
   line: string
-  /** How it would be installed; absent or "" when it is not available here. */
+  /**
+   * Where the line comes from here; absent or "" when nobody builds it for
+   * this system. It does not say that the line can be installed: see
+   * `installable`.
+   */
   method?: InstallMethod | ''
   /** Repository id for method "vendor". */
   repo?: string
@@ -24,9 +28,16 @@ export interface Offer {
   lts: boolean
   /** End of upstream support, YYYY-MM-DD. */
   eol?: string
-  /** Upstream support has ended. */
+  /** Upstream support has ended (never for a line from the system repositories). */
   endOfLife: boolean
-  /** Why the line is not available: "end_of_life" or "not_built". */
+  /**
+   * The line can be installed now. False when nobody builds it for this
+   * system, and for a line past its upstream support; that one keeps its
+   * method, packages, services and files, so that it stays manageable and
+   * removable where it is installed.
+   */
+  installable: boolean
+  /** Why the line is not installable: "end_of_life" or "not_built". */
   reason?: string
   /** systemd units started after installation. */
   services?: string[]
@@ -242,7 +253,10 @@ export async function saveConfig(id: string, line: string, config: string, conte
   return (await api.put<{ job: Job }>(configPath(id, line, config), { content, base })).job
 }
 
-/** Lines the panel can install and remove: packages and prebuilt runtimes. */
+/**
+ * Lines the panel manages and removes where they are installed: packages
+ * and prebuilt runtimes, also past their upstream support.
+ */
 export function isManageable(offer: Offer): boolean {
   return offer.method === 'system' || offer.method === 'vendor' || offer.method === 'standalone'
 }
@@ -261,9 +275,17 @@ export function runtimePaths(id: string, offer: Offer): { line: string; build: s
   return { line: `${RUNTIME_ROOT}/${id}/${offer.line}`, build: `${RUNTIME_ROOT}/${id}/${version}` }
 }
 
-/** True when the line can be installed on this system. */
+/**
+ * True when the line can be installed on this system now. An installed
+ * line stays manageable when this turns false (see isManageable).
+ */
 export function isAvailable(offer: Offer): boolean {
-  return !!offer.method
+  return offer.installable
+}
+
+/** An installed line whose upstream support has ended: still managed, no longer updated. */
+export function isEndOfLifeInstalled(offer: Offer): boolean {
+  return offer.installed && offer.endOfLife
 }
 
 /** "recommended": the fastest source serving exactly the official file; "official": upstream addresses only. */

@@ -52,6 +52,18 @@ type Module struct {
 	Release string
 	Chain   []string
 	Arch    string
+	// Now is the clock the lines' end-of-life dates are compared with (nil
+	// means time.Now; tests).
+	Now func() time.Time
+}
+
+// system is the machine offers are computed for, as of now.
+func (m *Module) system() catalog.System {
+	now := time.Now
+	if m.Now != nil {
+		now = m.Now
+	}
+	return catalog.System{Chain: m.Chain, Arch: m.Arch, Now: now()}
 }
 
 // ID implements module.Module.
@@ -187,7 +199,7 @@ type jobResponse struct {
 }
 
 func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
-	sys := catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}
+	sys := m.system()
 	resp := listResponse{Release: m.Release, Arch: m.Arch, Supported: m.Release != "", Software: []entry{}, Repos: []catalog.Repo{}}
 	var st helperapi.SoftwareStatus
 	if resp.Supported {
@@ -275,7 +287,7 @@ func (m *Module) putSettings(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (m *Module) suites(w http.ResponseWriter, _ *http.Request) error {
-	sys := catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}
+	sys := m.system()
 	resp := suitesResponse{Suites: []suiteView{}}
 	for _, su := range m.Catalog.Suites {
 		resp.Suites = append(resp.Suites, suiteView{ID: su.ID, Items: m.Catalog.Resolve(su, sys)})
@@ -294,7 +306,7 @@ func (m *Module) installSet(w http.ResponseWriter, r *http.Request) error {
 	var listed []map[string]any
 	names := map[string]string{}
 	for _, it := range req.Items {
-		sw, err := m.availableOffer(it.Software, it.Line)
+		sw, err := m.installableLine(it.Software, it.Line)
 		if err != nil {
 			return err
 		}
@@ -363,7 +375,7 @@ func (m *Module) probe(w http.ResponseWriter, r *http.Request) error {
 	policy := m.policy(r.Context())
 	hreq := helperapi.ProbeRequest{Policy: helperPolicy(policy)}
 	for _, it := range req.Items {
-		if _, err := m.availableOffer(it.Software, it.Line); err != nil {
+		if _, err := m.installableLine(it.Software, it.Line); err != nil {
 			return err
 		}
 		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line})
@@ -390,24 +402,43 @@ func (m *Module) remove(w http.ResponseWriter, r *http.Request) error {
 	return m.startLineJob(w, r, "software.remove", helperapi.ActionPkgRemove)
 }
 
-// availableOffer returns the offer of a line that can be installed here.
-func (m *Module) availableOffer(id, line string) (*catalog.Software, error) {
+// knownLine resolves a line the catalog describes for this system, whether
+// or not it can still be installed. Everything that acts on an installed
+// line (removing it, its services, extensions and files) goes by it: a line
+// does not stop being here when its upstream support ends, and the helper
+// says whether it is installed.
+func (m *Module) knownLine(id, line string) (*catalog.Software, catalog.Offer, error) {
 	sw, ok := m.Catalog.Find(id)
 	if !ok {
-		return nil, api.ErrNotFound
+		return nil, catalog.Offer{}, api.ErrNotFound
 	}
 	params := map[string]any{"software": id, "line": line}
-	for _, o := range sw.Offers(catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}) {
+	for _, o := range sw.Offers(m.system()) {
 		if o.Line != line {
 			continue
 		}
 		if o.Method == "" {
 			params["reason"] = o.Reason
-			return nil, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable, params)
+			return nil, catalog.Offer{}, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable, params)
 		}
-		return sw, nil
+		return sw, o, nil
 	}
-	return nil, api.NewError(http.StatusNotFound, "request.not_found", params)
+	return nil, catalog.Offer{}, api.NewError(http.StatusNotFound, "request.not_found", params)
+}
+
+// installableLine resolves a line that can be installed here now. Only
+// what installs asks it (install, install set, probe): a line past its
+// upstream support is refused here and nowhere else.
+func (m *Module) installableLine(id, line string) (*catalog.Software, error) {
+	sw, o, err := m.knownLine(id, line)
+	if err != nil {
+		return nil, err
+	}
+	if !o.Installable {
+		return nil, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable,
+			map[string]any{"software": id, "line": line, "reason": o.Reason, "eol": o.EOL})
+	}
+	return sw, nil
 }
 
 // startLineJob checks that the line can be handled on this system and
@@ -418,7 +449,13 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 		return err
 	}
 	id := r.PathValue("id")
-	sw, err := m.availableOffer(id, req.Line)
+	var sw *catalog.Software
+	var err error
+	if action == helperapi.ActionPkgInstall {
+		sw, err = m.installableLine(id, req.Line)
+	} else {
+		sw, _, err = m.knownLine(id, req.Line)
+	}
 	if err != nil {
 		return err
 	}
@@ -472,7 +509,7 @@ func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (mo
 	if err := m.Helper.Call(ctx, helperapi.ActionPkgStatus, callerOf(r), nil, &st); err != nil {
 		return module.Summary{}, err
 	}
-	sys := catalog.System{Chain: m.Chain, Arch: m.Arch, Now: time.Now()}
+	sys := m.system()
 	var sum module.Summary
 	for i := range m.Catalog.Software {
 		sw := &m.Catalog.Software[i]

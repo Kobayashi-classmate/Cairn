@@ -12,8 +12,10 @@
 //   - otherwise the software's official repository or download is used;
 //     a source that is not official needs the owner's recorded approval
 //     (Repo.Approved), as for the PHP repositories;
-//   - lines whose upstream support has ended are never installed natively;
-//     they are offered only as containers, which come with the Docker module.
+//   - lines whose upstream support has ended are no longer installed
+//     natively (containers, which come with the Docker module, are the way
+//     to run them). One that is installed already stays known, with its
+//     packages, services and files, so that it can be managed and removed.
 package catalog
 
 import (
@@ -777,16 +779,19 @@ func (c *Catalog) Find(id string) (*Software, bool) {
 	return nil, false
 }
 
-// Reasons a line is not available on a system.
+// Reasons a line cannot be installed on a system.
 const (
-	ReasonEndOfLife = "end_of_life" // upstream support ended: containers only
+	ReasonEndOfLife = "end_of_life" // upstream support ended: no new installations
 	ReasonNotBuilt  = "not_built"   // nobody builds it for this release
 )
 
 // Offer is one line as offered on a given system.
 type Offer struct {
-	Line     string   `json:"line"`
-	Method   string   `json:"method,omitempty"` // empty: not available
+	Line string `json:"line"`
+	// Method says where the line comes from here; empty when nobody builds
+	// it for this system. It does not say that the line can be installed:
+	// see Installable.
+	Method   string   `json:"method,omitempty"`
 	Repo     string   `json:"repo,omitempty"`
 	Provider string   `json:"provider,omitempty"`
 	Packages []string `json:"packages,omitempty"`
@@ -803,8 +808,15 @@ type Offer struct {
 	EOL         string       `json:"eol,omitempty"`
 	// EndOfLife is true when upstream support has ended (system packages
 	// stay maintained by the distribution and are still offered).
-	EndOfLife bool   `json:"endOfLife"`
-	Reason    string `json:"reason,omitempty"`
+	EndOfLife bool `json:"endOfLife"`
+	// Installable is true when the line can be installed here now. A line
+	// past its upstream support is not, yet its Method, packages, services
+	// and files are still given: where it was installed earlier it must
+	// stay manageable and removable. Whether a line is installed is not
+	// the catalog's to know; only new installations look at this field.
+	Installable bool `json:"installable"`
+	// Reason says why a line is not installable.
+	Reason string `json:"reason,omitempty"`
 }
 
 // System identifies the machine offers are computed for.
@@ -830,24 +842,36 @@ func expand(tmpl, line string) string {
 	return strings.NewReplacer("{line}", line, "{line_nodot}", strings.ReplaceAll(line, ".", "")).Replace(tmpl)
 }
 
+// source picks where a line comes from on sys: the first matching source in
+// catalog order, which lists the system repositories first. The date plays
+// no part: if a line came from elsewhere the day its upstream support ends,
+// what was installed from the earlier source would no longer be recognized.
+func (sw *Software) source(line string, sys System) *Source {
+	for i := range sw.Sources {
+		src := &sw.Sources[i]
+		if slices.Contains(src.Lines, line) && sys.matches(*src) {
+			return src
+		}
+	}
+	return nil
+}
+
 // Offers resolves every line of sw for sys, newest first as in the catalog,
-// and marks the recommended one: the system repositories' line if there is
-// one (the newest of them), else the newest available LTS line, else the
-// newest available line.
+// and marks the recommended one among those that can be installed: the
+// system repositories' line if there is one (the newest of them), else the
+// newest LTS line, else the newest line.
+//
+// A line past its upstream support that the distribution does not maintain
+// is described like any other but is not installable: the date decides
+// about new installations only, never about what is on the machine.
 func (sw *Software) Offers(sys System) []Offer {
 	today := sys.Now.Format(time.DateOnly)
 	offers := make([]Offer, 0, len(sw.Lines))
 	for _, l := range sw.Lines {
-		o := Offer{Line: l.Version, LTS: l.LTS, EOL: l.EOL, EndOfLife: l.EOL != "" && l.EOL < today, Reason: ReasonNotBuilt}
-		for _, src := range sw.Sources {
-			if !slices.Contains(src.Lines, l.Version) || !sys.matches(src) {
-				continue
-			}
-			if src.Method != MethodSystem && o.EndOfLife {
-				o.Reason = ReasonEndOfLife
-				continue
-			}
-			o.Method, o.Repo, o.Provider, o.Reason = src.Method, src.Repo, src.Provider, ""
+		ended := l.EOL != "" && l.EOL < today
+		o := Offer{Line: l.Version, LTS: l.LTS, EOL: l.EOL, EndOfLife: ended, Reason: ReasonNotBuilt}
+		if src := sw.source(l.Version, sys); src != nil {
+			o.Method, o.Repo, o.Provider = src.Method, src.Repo, src.Provider
 			for _, p := range src.Packages {
 				o.Packages = append(o.Packages, expand(p, l.Version))
 			}
@@ -864,16 +888,17 @@ func (sw *Software) Offers(sys System) []Offer {
 			for _, cf := range src.Configs {
 				o.Configs = append(o.Configs, cf.expand(l.Version, o.Services))
 			}
-			if src.Method == MethodSystem {
-				o.EndOfLife = false
+			o.EndOfLife = ended && src.Method != MethodSystem
+			o.Installable, o.Reason = !o.EndOfLife, ""
+			if o.EndOfLife {
+				o.Reason = ReasonEndOfLife
 			}
-			break
 		}
 		offers = append(offers, o)
 	}
 	pick := func(ok func(Offer) bool) bool {
 		for i := range offers {
-			if offers[i].Method != "" && ok(offers[i]) {
+			if offers[i].Installable && ok(offers[i]) {
 				offers[i].Recommended = true
 				return true
 			}

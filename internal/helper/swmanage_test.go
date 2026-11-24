@@ -287,7 +287,7 @@ func TestProbePlanVersions(t *testing.T) {
 		" libnginx-mod-stream | 1.26.3-3+deb13u1 | http://deb.debian.org/debian trixie/main amd64 Packages",
 	}, "\n")}
 	s, _, _ := lineSoftware(t, f)
-	sw, o, err := s.offer(helperapi.SoftwareRequest{Software: "nginx", Line: "1.26"})
+	sw, o, err := s.installableOffer(helperapi.SoftwareRequest{Software: "nginx", Line: "1.26"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestProbePlanVersions(t *testing.T) {
 		t.Fatalf("plan: %+v", p)
 	}
 	// A vendor repository that is not added yet: versions are unknown.
-	sw, o, _ = s.offer(helperapi.SoftwareRequest{Software: "php", Line: "8.3"})
+	sw, o, _ = s.installableOffer(helperapi.SoftwareRequest{Software: "php", Line: "8.3"})
 	p = s.plan(context.Background(), sw, o)
 	if p.Method != "vendor" || p.Repo != "sury" || p.RepoReady || p.Packages[0].Version != "" {
 		t.Fatalf("vendor plan: %+v", p)

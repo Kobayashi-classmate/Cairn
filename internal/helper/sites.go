@@ -141,19 +141,42 @@ func siteDirOf(code string) string {
 	return path.Join(sitesDir, code)
 }
 
-// phpOffer returns the PHP line's offer when its FPM can host site pools.
-func (st *Sites) phpOffer(line string) (catalog.Offer, bool) {
+// phpFPM says where a PHP line's FPM keeps its pools on this system (nil
+// when the catalog has no such line with an FPM here) and whether that FPM
+// is installed. Whether the line can still be installed plays no part: a
+// site stays on an installed line past its upstream support.
+func (st *Sites) phpFPM(line string) (fpm *catalog.FPM, installed bool) {
 	sw, ok := st.Software.Catalog.Find("php")
 	if !ok {
-		return catalog.Offer{}, false
+		return nil, false
 	}
 	for _, o := range sw.Offers(st.Software.system()) {
 		if o.Line == line && o.FPM != nil {
 			_, err := os.Stat(st.path(o.FPM.Binary))
-			return o, err == nil
+			return o.FPM, err == nil
 		}
 	}
-	return catalog.Offer{}, false
+	return nil, false
+}
+
+// poolRemoval is what takes a site's pool out of a PHP line: the file to
+// remove and, while the line's FPM is installed, its check and reload. The
+// pool of a line that was removed outside the panel still goes, without
+// either: left behind it would come back with the line, on the socket the
+// site now uses elsewhere or as a user that no longer exists, and PHP-FPM
+// does not start with such a pool. When the catalog does not say where the
+// line keeps its pools, the pool cannot be found; the caller must not go on
+// then (and delete the site's user or write its pool for another line).
+func (st *Sites) poolRemoval(line, code string) (fileChange, []configCheck, []reloader, error) {
+	fpm, installed := st.phpFPM(line)
+	if fpm == nil {
+		return fileChange{}, nil, nil, siteErr(helperapi.CodeSitePHPUnknown, map[string]any{"line": line, "site": code})
+	}
+	change := fileChange{path: poolPath(fpm, code)}
+	if !installed {
+		return change, nil, nil, nil
+	}
+	return change, []configCheck{fpmCheck(fpm)}, []reloader{fpmReload(fpm)}, nil
 }
 
 // Status reports what sites can use on this system and what was applied.
@@ -168,7 +191,7 @@ func (st *Sites) Status(_ context.Context) helperapi.SiteStatus {
 	_, s.Nginx.Running = processAlive(st.path(nginxPidFile))
 	if sw, ok := st.Software.Catalog.Find("php"); ok {
 		for _, o := range sw.Offers(st.Software.system()) {
-			if _, ok := st.phpOffer(o.Line); ok {
+			if _, installed := st.phpFPM(o.Line); installed {
 				s.PHP = append(s.PHP, o.Line)
 			}
 		}
@@ -862,11 +885,24 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 	}
 	var fpm *catalog.FPM
 	if spec.Type == helperapi.SitePHP {
-		o, ok := st.phpOffer(spec.PHP)
-		if !ok {
+		f, installed := st.phpFPM(spec.PHP)
+		if !installed {
 			return nil, siteErr(helperapi.CodeSitePHPMissing, map[string]any{"line": spec.PHP})
 		}
-		fpm = o.FPM
+		fpm = f
+	}
+	// The pool of a previous PHP line goes away when the line changes; when
+	// it cannot be found, nothing is changed at all.
+	prev, hadPrev := states[spec.Code]
+	var oldPool []fileChange
+	var oldChecks []configCheck
+	var oldReloads []reloader
+	if hadPrev && prev.Spec.Type == helperapi.SitePHP && (spec.Type != helperapi.SitePHP || prev.Spec.PHP != spec.PHP) {
+		change, checks, reloads, err := st.poolRemoval(prev.Spec.PHP, spec.Code)
+		if err != nil {
+			return nil, err
+		}
+		oldPool, oldChecks, oldReloads = []fileChange{change}, checks, reloads
 	}
 	var certFiles []fileChange
 	if spec.TLS != nil {
@@ -935,17 +971,9 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 	changes := append(certFiles,
 		fileChange{path: path.Join(nginxConfD, "cairn.conf"), data: []byte(globalNginx)},
 		fileChange{path: siteConfPath(spec.Code), data: conf})
-	checks := []configCheck{}
-	reloads := []reloader{}
-	// The pool of a previous PHP line goes away when the line changes.
-	prev, hadPrev := states[spec.Code]
-	if hadPrev && prev.Spec.Type == helperapi.SitePHP && (spec.Type != helperapi.SitePHP || prev.Spec.PHP != spec.PHP) {
-		if o, ok := st.phpOffer(prev.Spec.PHP); ok {
-			changes = append(changes, fileChange{path: poolPath(o.FPM, spec.Code)})
-			checks = append(checks, fpmCheck(o.FPM))
-			reloads = append(reloads, fpmReload(o.FPM))
-		}
-	}
+	changes = append(changes, oldPool...)
+	checks := append([]configCheck{}, oldChecks...)
+	reloads := append([]reloader{}, oldReloads...)
 	if fpm != nil {
 		changes = append(changes, fileChange{path: poolPath(fpm, spec.Code), data: pool})
 		checks = append(checks, fpmCheck(fpm))
@@ -1023,12 +1051,15 @@ func (st *Sites) remove(ctx context.Context, _ helperapi.Caller, req helperapi.S
 		changes = append(changes, files...)
 	}
 	if prev.Spec.Type == helperapi.SitePHP {
-		if o, ok := st.phpOffer(prev.Spec.PHP); ok {
-			changes = append(changes, fileChange{path: poolPath(o.FPM, req.Code)})
-			checks = append(checks, fpmCheck(o.FPM))
-			// nginx stops sending requests before the pool goes away.
-			reloads = append(reloads, fpmReload(o.FPM))
+		// A pool that cannot be found must not outlive the site's user.
+		pool, poolChecks, poolReloads, err := st.poolRemoval(prev.Spec.PHP, req.Code)
+		if err != nil {
+			return nil, err
 		}
+		changes = append(changes, pool)
+		checks = append(checks, poolChecks...)
+		// nginx stops sending requests before the pool goes away.
+		reloads = append(reloads, poolReloads...)
 	}
 	reloaded, err := st.transact(ctx, log, changes, checks, reloads)
 	if err != nil {
