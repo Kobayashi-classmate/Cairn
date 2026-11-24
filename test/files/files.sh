@@ -4,10 +4,10 @@
 # Runs inside one throwaway container (see run.sh): installs the panel and
 # a site directory owned like a real site's, then uses the file manager
 # and the terminal through the API and checks the results on disk:
-# ownership, uploads (tus), downloads, archives (also hostile ones, and 7z
-# through unar where the system has it), the trash, permissions, search,
-# fetching a URL, full-disk access, and terminals as the site owner and as
-# root.
+# ownership, uploads (tus), downloads, archives (also hostile ones; 7z
+# through unar is refused here, without systemd), the trash, permissions,
+# search, URLs on this host or its network refused for fetching, full-disk
+# access, and terminals as the site owner and as root.
 set -euo pipefail
 # grep_q is "grep -q" that reads all of its input (pipefail and SIGPIPE).
 grep_q() { grep "$@" >/dev/null; }
@@ -147,9 +147,14 @@ if [ "$ID" != rocky ] && [ "$ID" != almalinux ]; then
 	apt-get install -y -qq p7zip-full >/dev/null 2>&1 || apt-get install -y -qq 7zip >/dev/null
 	(cd /tmp && mkdir -p seven/inner && echo seven >seven/inner/s.txt && (7z a -bd -y s.7z seven >/dev/null 2>&1 || 7zz a -bd -y s.7z seven >/dev/null))
 	cp /tmp/s.7z $S/ && chown cw-demo:cw-demo $S/s.7z
-	follow POST /api/v1/files/extract '{"root":"sites","path":"demo/app/s.7z","dest":"demo/app"}'
-	[ "$(cat $S/seven/inner/s.txt)" = seven ] && [ "$(owner $S/seven/inner/s.txt)" = cw-demo:cw-demo ] || fail "7z extract"
-	step "unar $line installed through the panel; a 7z archive extracted for the site owner"
+	# unar runs in a transient systemd unit, and this container has no
+	# systemd: a clear refusal, with the reason in the job log. The VM
+	# acceptance (test/vm/accept.sh) extracts one for real.
+	out=$(start POST /api/v1/files/extract '{"root":"sites","path":"demo/app/s.7z","dest":"demo/app"}')
+	[ "$out" = "failed file.systemd_required" ] || fail "7z without systemd: $out"
+	grep_q 'needs systemd' /tmp/job.log || fail "7z without systemd: the job log does not say why"
+	[ ! -e $S/seven ] || fail "7z without systemd: something was extracted"
+	step "unar $line installed through the panel; a 7z archive refused without systemd (file.systemd_required)"
 fi
 
 # Trash, permissions, search.
@@ -169,13 +174,26 @@ r=$(api "$base/api/v1/files/search?root=sites&path=demo&q=V2&content=true")
 [ "$(printf '%s' "$r" | json '[(m["path"], m["line"]) for m in d["matches"]]')" = "[('demo/app/index.html', 1)]" ] || fail "search: $r"
 step "trash: delete, restore, delete for good; chmod -R (setgid dirs, setuid refused); chown; content search"
 
-# Fetching a URL, as the panel's own user.
+# Fetching a URL: public addresses only, so a server here (this host
+# itself, or this container's private address) is refused although it
+# answers. A download that succeeds is covered by the Go tests; it needs a
+# public server, which these tests do not depend on.
 mkdir -p /tmp/www && echo fetched >/tmp/www/remote.txt
-(cd /tmp/www && python3 -m http.server 8765 --bind 127.0.0.1 >/dev/null 2>&1 &)
-sleep 1
-follow POST /api/v1/files/fetch '{"root":"sites","dir":"demo/app","url":"http://127.0.0.1:8765/remote.txt"}'
-[ "$(cat $S/remote.txt)" = fetched ] && [ "$(owner $S/remote.txt)" = cw-demo:cw-demo ] || fail "fetch"
-step "a URL fetched into the site directory"
+(cd /tmp/www && python3 -m http.server 8765 >/dev/null 2>&1 &)
+own=$(python3 -c 'import socket; s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.connect(("10.255.255.255", 1)); print(s.getsockname()[0])')
+for _ in $(seq 50); do curl -fs -o /dev/null "http://$own:8765/remote.txt" && break; sleep 0.1; done
+curl -fs -o /dev/null "http://$own:8765/remote.txt" || fail "the test server does not answer on $own"
+for u in "http://127.0.0.1:8765/remote.txt" "http://localhost:8765/remote.txt" "http://$own:8765/remote.txt"; do
+	r=$(api -X POST "$base/api/v1/files/fetch" -d "{\"root\":\"sites\",\"dir\":\"demo/app\",\"url\":\"$u\"}")
+	id=$(printf '%s' "$r" | json 'd.get("job",{}).get("id","")')
+	[ -n "$id" ] || fail "fetch $u not started: $r"
+	out=$(follow_id "$id")
+	[ "$out" = "failed file.fetch_failed" ] || fail "fetch $u: $out"
+	r=$(api "$base/api/v1/jobs/$id")
+	printf '%s' "$r" | json 'd["job"]["error"]["params"]["detail"]' | grep_q 'not allowed' || fail "fetch $u not refused by the address guard: $r"
+	[ ! -e $S/remote.txt ] || fail "fetch $u placed a file"
+done
+step "fetching a URL from this host (127.0.0.1, localhost) or its private address ($own) is refused"
 
 # Full-disk access.
 [ "$(api "$base/api/v1/files/list?root=system&path=etc" | json 'd["error"]["code"]')" = file.root_unavailable ] || fail "system root before"

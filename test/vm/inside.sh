@@ -25,7 +25,7 @@ journal_has() {
 }
 fail() {
 	printf 'FAIL: %s\n' "$*" >&2
-	tail -20 /root/install.log 2>/dev/null >&2 || true
+	tail -20 /root/install.log >&2 2>/dev/null || true
 	journalctl -u cairn-web -u cairn-helper -u 'cairn-update-*' --no-pager -n 60 >&2 || true
 	exit 1
 }
@@ -67,16 +67,27 @@ wait_web() {
 	fail "web did not answer"
 }
 wait_web
-jar=/root/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+jar=/root/jar elevated=/root/elevated-at
+req() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+elevate() {
+	req -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+	date +%s >"$elevated"
+}
+# A step-up lasts 10 minutes: every call elevates again first once the
+# last step-up is 8 minutes old (kept in a file: calls run in command
+# substitutions).
+api() {
+	if [ -s "$elevated" ] && [ $(($(date +%s) - $(cat "$elevated"))) -ge 480 ]; then elevate; fi
+	req "$@"
+}
 pw=vm-test-password-1
 token=$(grep -o 'token=[A-Za-z0-9_-]*' /root/install.log | head -1 | cut -d= -f2)
 api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"zh-CN\"}" |
 	grep -q '"username":"admin"' || fail "setup"
 login() {
-	rm -f "$jar"
-	api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
-	api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+	rm -f "$jar" "$elevated"
+	req -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
+	elevate
 }
 login
 systemctl is-active --quiet cairn-helper.service || fail "helper was not started through its socket"

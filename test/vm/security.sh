@@ -23,10 +23,10 @@ fail() {
 		echo "--- SELinux $(getenforce); contexts:" >&2
 		ps -eZ | grep -E 'cairn|firewalld' >&2 || true
 		ls -Z /usr/lib/cairn/ /usr/bin/cairn* >&2 || true
-		echo "--- recent AVC denials:" >&2
-		{ ausearch -m AVC,USER_AVC,SELINUX_ERR -ts recent 2>/dev/null; journalctl -b _TRANSPORT=audit --no-pager 2>/dev/null; } | grep -E 'denied|SELINUX_ERR' | tail -30 >&2 || true
+		d=$({ ausearch -m AVC,USER_AVC,SELINUX_ERR -ts recent 2>/dev/null; journalctl -b _TRANSPORT=audit --no-pager 2>/dev/null; } | grep -E 'denied|SELINUX_ERR' | tail -30 || true)
+		printf -- '--- recent AVC denials:\n%s\n' "${d:-(none)}" >&2
 	fi
-	tail -30 /root/install.log 2>/dev/null >&2 || true
+	tail -30 /root/install.log >&2 2>/dev/null || true
 	journalctl -u cairn-web -u cairn-helper -u 'cairn-fw-*' -u 'cairn-ssh-*' --no-pager -n 80 >&2 || true
 	exit 1
 }
@@ -85,13 +85,25 @@ step "install.sh switched the firewall on ($backend): SSH, the panel port $port,
 
 base="https://127.0.0.1:${port}"
 for _ in $(seq 120); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 1; done
-jar=/root/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+jar=/root/jar elevated=/root/elevated-at
+req() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+elevate() {
+	req -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+	date +%s >"$elevated"
+}
+# A step-up lasts 10 minutes: every call elevates again first once the
+# last step-up is 8 minutes old (kept in a file: calls run in command
+# substitutions).
+api() {
+	if [ -s "$elevated" ] && [ $(($(date +%s) - $(cat "$elevated"))) -ge 480 ]; then elevate; fi
+	req "$@"
+}
 pw=vm-test-password-1
 token=$(grep -o 'token=[A-Za-z0-9_-]*' /root/install.log | head -1 | cut -d= -f2)
 api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep_q '"username":"admin"' || fail "setup"
+rm -f "$elevated"
 api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
-api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+elevate
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 wait_job() { # job id -> final state, log in /root/job.log
 	local state="" offset=0 r
@@ -120,12 +132,22 @@ rules() {
 	esac
 }
 
-# Firewall: a change is kept when confirmed over a new connection (every
-# curl run opens one), and rolled back by its timer when not.
+# Firewall: a change is kept when confirmed over a new connection, and
+# rolled back by its timer when not. Only a connection opened from the
+# second after the change counts: confirm as the page does, a second
+# after the change, then again while the server asks to retry (every curl
+# run opens a new connection).
 r=$(api -X POST "$base/api/v1/firewall/rules" -d '{"action":"allow","protocol":"tcp","ports":["8081"],"note":"vm"}')
 pending=$(printf '%s' "$r" | json 'd["pending"]["id"]') || fail "rule: $r"
 systemctl list-timers --all | grep_q "cairn-fw-rollback-$pending" || fail "no rollback timer"
-api -X POST "$base/api/v1/firewall/confirm" -d "{\"id\":\"$pending\"}" | grep_q '^{}' || fail "confirm"
+sleep 1
+for tries in $(seq 20); do
+	r=$(api -X POST "$base/api/v1/firewall/confirm" -d "{\"id\":\"$pending\"}")
+	printf '%s' "$r" | grep_q '^{}' && break
+	printf '%s' "$r" | grep_q '"firewall.confirm_retry"' || fail "confirm: $r"
+	[ "$tries" -lt 20 ] || fail "confirm: still asked to retry after $tries tries: $r"
+	sleep 1.5
+done
 rules | grep_q 8081 || fail "rule 8081 missing"
 ! systemctl list-timers --all | grep_q "cairn-fw-rollback-$pending" || fail "rollback timer left after the confirmation"
 r=$(api -X POST "$base/api/v1/firewall/rules" -d '{"action":"allow","protocol":"tcp","ports":["8083"]}')

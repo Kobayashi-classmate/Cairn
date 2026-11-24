@@ -4,6 +4,7 @@
 # The P1 acceptance, run as root inside the test VM (see run.sh) on every
 # tier-1 distribution: deploy a PHP site and a Node.js project, issue their
 # certificates (HTTP-01 and DNS-01 from Pebble, Let's Encrypt's test CA),
+# extract a 7z archive into the PHP site (Debian and Ubuntu: unar),
 # set up databases and a backup to an S3-compatible bucket and restore it,
 # and change the firewall without losing SSH (run.sh logs in again after
 # this script). Pebble, an authoritative DNS server for "test." (TSIG
@@ -30,7 +31,7 @@ avcs() {
 }
 fail() {
 	printf 'FAIL: %s\n' "$*" >&2
-	tail -40 /root/job.log 2>/dev/null >&2 || true
+	tail -40 /root/job.log >&2 2>/dev/null || true
 	[ "$selinux" = yes ] && avcs | tail -20 >&2
 	journalctl -u cairn-helper --no-pager -n 30 >&2 || true
 	exit 1
@@ -49,16 +50,27 @@ systemctl stop cairn-helper.service 2>/dev/null || true
 port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 base="https://127.0.0.1:${port}"
 for _ in $(seq 120); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 1; done
-jar=/root/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+jar=/root/jar elevated=/root/elevated-at
+req() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+elevate() {
+	req -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+	date +%s >"$elevated"
+}
+# A step-up lasts 10 minutes, and the software install alone can take
+# longer: every call elevates again first once the last step-up is 8
+# minutes old (kept in a file: calls run in command substitutions).
+api() {
+	if [ -s "$elevated" ] && [ $(($(date +%s) - $(cat "$elevated"))) -ge 480 ]; then elevate; fi
+	req "$@"
+}
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pw=vm-test-password-1
 token=$(grep -o 'token=[A-Za-z0-9_-]*' /root/install.log | head -1 | cut -d= -f2)
 api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"zh-CN\"}" | grep_q '"username":"admin"' || fail "setup"
 login() {
-	rm -f "$jar"
-	api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
-	api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+	rm -f "$jar" "$elevated"
+	req -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
+	elevate
 }
 login
 # The installer switched the firewall on (Chinese install log, so ask the
@@ -109,8 +121,8 @@ step "installed through the panel: nginx, PHP $php, Node.js $node, MariaDB, $red
 
 # The custom CA: Pebble, whose HTTPS is signed by its test root.
 root=$(python3 -c 'import json; print(json.dumps(open("/tmp/minica.pem").read()))')
-api -X PUT "$base/api/v1/certs/settings" -d "{\"email\":\"\",\"defaultCa\":\"custom\",\"cas\":{\"custom\":{\"directory\":\"https://pebble:14000/dir\",\"rootPem\":$root}}}" |
-	grep_q '"ready":true' || fail "CA settings"
+r=$(api -X PUT "$base/api/v1/certs/settings" -d "{\"email\":\"\",\"defaultCa\":\"custom\",\"cas\":{\"custom\":{\"directory\":\"https://pebble:14000/dir\",\"rootPem\":$root}}}")
+printf '%s' "$r" | grep_q '"ready":true' || fail "CA settings: $r"
 curl -sk https://pebble:15000/roots/0 >/root/pebble-root.pem
 curl -sk https://pebble:15000/intermediates/0 >>/root/pebble-root.pem
 acct=$(api -X POST "$base/api/v1/dns/accounts" -d "{\"name\":\"bind\",\"provider\":\"rfc2136\",\"fields\":{\"server\":\"$H:53\",\"key_name\":\"cairn.\",\"key\":\"$TSIG_SECRET\",\"key_alg\":\"hmac-sha256\"}}" | json 'd["id"]')
@@ -130,6 +142,27 @@ follow PUT /api/v1/sites/site-test "{\"type\":\"php\",\"domains\":[\"site.test\"
 out=$(curl -s --cacert /root/pebble-root.pem --resolve site.test:443:127.0.0.1 https://site.test/)
 [ "$out" = "php site, uploads=yes" ] || fail "PHP over HTTPS: $out"
 step "PHP site site.test: certificate from Pebble over HTTP-01, HTTPS verified against Pebble's root, uploads/ writable"
+
+# A 7z archive extracted through the panel: unar (installed through the
+# panel) runs in a transient unit of its own, and what it made goes to the
+# site's owner. The names are ones systemd would expand in a unit file.
+# unar is not in the EL systems' own repositories.
+if [ "$family" = debian ]; then
+	follow POST /api/v1/software/install "{\"items\":[{\"software\":\"unar\",\"line\":\"$(recommended unar)\"}]}"
+	apt-get install -y -qq p7zip-full >/dev/null 2>&1 || apt-get install -y -qq 7zip >/dev/null 2>&1 || fail "no 7z tool to make the archive"
+	# shellcheck disable=SC2016 # literal names
+	name='%h-${HOME}' archive='seven-%h-${HOME}.7z'
+	rm -rf /root/seven /root/seven.7z && mkdir -p /root/seven/inner && echo seven >"/root/seven/inner/$name"
+	(cd /root && { 7z a -bd -y seven.7z seven >/dev/null 2>&1 || 7zz a -bd -y seven.7z seven >/dev/null; }) || fail "making the 7z archive"
+	install -o cw-site-test -g "$(stat -c %G /srv/www/site-test/app)" -m 0640 /root/seven.7z "/srv/www/site-test/app/$archive"
+	follow POST /api/v1/files/extract "{\"root\":\"sites\",\"path\":\"site-test/app/$archive\",\"dest\":\"site-test/app\"}"
+	f="/srv/www/site-test/app/seven/inner/$name"
+	[ "$(cat "$f" 2>/dev/null)" = seven ] || fail "7z: $(find /srv/www/site-test/app/seven 2>&1 | head -10)"
+	[ "$(stat -c %U:%G "$f")" = "$(stat -c %U:%G /srv/www/site-test/app)" ] && [ "$(stat -c %U "$f")" = cw-site-test ] ||
+		fail "7z: extracted as $(stat -c %U:%G "$f"), the site directory is $(stat -c %U:%G /srv/www/site-test/app)"
+	[ -z "$(ls -A /var/lib/cairn-unpack)" ] || fail "7z: scratch left: $(ls -A /var/lib/cairn-unpack)"
+	step "7z through unar $(recommended unar) in its own unit: extracted for the site owner; archive and entry names with %h and \${HOME} taken as they are"
+fi
 
 # A Node.js project with DNS-01 (RFC 2136 to the test zone) and HTTPS.
 follow POST /api/v1/sites "{\"type\":\"app\",\"domains\":[\"app.test\"],\"writable\":[\"data\"],\"app\":{\"runtime\":\"nodejs\",\"line\":\"$node\",\"command\":\"node server.js\",\"port\":0}}"
@@ -218,18 +251,35 @@ for _ in $(seq 120); do
 	case "$state" in succeeded | failed) break ;; esac
 	sleep 1
 done
+api "$base/api/v1/jobs/$id/log?offset=0" | json 'd["log"]' >/root/job.log || true
 [ "$state" = failed ] || fail "a broken $redis_conf was applied: $state"
 cmp -s /root/redis.orig "$redis_conf" || fail "$redis_conf not put back"
-systemctl is-active --quiet "$redis_unit" || fail "$redis_unit not running after the rollback"
+systemctl is-active --quiet "$redis_unit" ||
+	fail "$redis_unit not running after the rollback: $(systemctl show -p ActiveState -p Result -p Restart -p NRestarts "$redis_unit" | tr '\n' ' ')"
 step "installed lines: nginx restarted, PHP $php has intl (PHP-FPM reloaded), nginx.conf saved and reloaded, a broken $(basename "$redis_conf") rolled back with $redis_unit running"
 
 # The firewall: changes confirmed over a new connection; SSH stays
 # reachable (run.sh logs in again afterwards).
+confirm() { # pending id -> confirms it as the page does
+	local r tries=0
+	# Only a connection opened from the second after the change counts:
+	# wait a second, then retry while the server asks to (every curl run
+	# opens a new connection).
+	sleep 1
+	while :; do
+		r=$(api -X POST "$base/api/v1/firewall/confirm" -d "{\"id\":\"$1\"}")
+		printf '%s' "$r" | grep_q '^{}' && return 0
+		printf '%s' "$r" | grep_q '"firewall.confirm_retry"' || fail "confirm $1: $r"
+		tries=$((tries + 1))
+		[ "$tries" -lt 20 ] || fail "confirm $1: still asked to retry after $tries tries: $r"
+		sleep 1.5
+	done
+}
 change() { # method path body -> confirms the pending change
 	local r id
 	r=$(api -X "$1" "$base$2" -d "$3")
 	id=$(printf '%s' "$r" | json 'd["pending"]["id"]') || fail "firewall $2: $r"
-	api -X POST "$base/api/v1/firewall/confirm" -d "{\"id\":\"$id\"}" | grep_q '^{}' || fail "confirm $2"
+	confirm "$id"
 }
 change POST /api/v1/firewall/rules '{"action":"allow","protocol":"tcp","ports":["8081"],"note":"acceptance"}'
 change POST /api/v1/firewall/addresses '{"address":"192.0.2.50","action":"deny","note":"acceptance"}'

@@ -32,7 +32,7 @@ denials() {
 }
 fail() {
 	printf 'FAIL: %s\n' "$*" >&2
-	tail -40 /root/job.log 2>/dev/null >&2 || true
+	tail -40 /root/job.log >&2 2>/dev/null || true
 	if [ "$selinux" = yes ]; then
 		echo "--- AVC denials:" >&2
 		denials | tail -30 >&2
@@ -48,15 +48,26 @@ sh /root/install.sh --mirror "$R" --lang en --yes >/root/install.log 2>&1 || fai
 port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 base="https://127.0.0.1:${port}"
 for _ in $(seq 120); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 1; done
-jar=/root/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+jar=/root/jar elevated=/root/elevated-at
+req() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+elevate() {
+	req -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+	date +%s >"$elevated"
+}
+# A step-up lasts 10 minutes: every call elevates again first once the
+# last step-up is 8 minutes old (kept in a file: calls run in command
+# substitutions).
+api() {
+	if [ -s "$elevated" ] && [ $(($(date +%s) - $(cat "$elevated"))) -ge 480 ]; then elevate; fi
+	req "$@"
+}
 pw=vm-test-password-1
 token=$(grep -o 'token=[A-Za-z0-9_-]*' /root/install.log | head -1 | cut -d= -f2)
 api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep_q '"username":"admin"' || fail "setup"
 login() {
-	rm -f "$jar"
-	api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
-	api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
+	rm -f "$jar" "$elevated"
+	req -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
+	elevate
 }
 login
 follow() {
