@@ -146,6 +146,33 @@ func TestCronModule(t *testing.T) {
 		op.expect(op.do("GET", "/api/v1/cron/"+id+"/runs/"+strings.Repeat("ab", 16)+"/log", nil), 403, "auth.forbidden")
 		admin.expect(admin.do("GET", "/api/v1/cron/"+id+"/runs/"+strings.Repeat("ab", 16)+"/log", nil), 200, "")
 	}
+	// So are a privileged task's runs: they name the invocations, and one of
+	// them asked for under another task's ID would reach its output.
+	reader := e.bearer(func() string {
+		r := admin.expect(admin.do("POST", "/api/v1/me/tokens", map[string]any{"name": "reader", "permissions": []string{"cron.read"}, "expiresInDays": 1}), 201, "")
+		return r.body["token"].(string)
+	}(), "GET", "/api/v1/cron/"+rootID+"/runs", nil)
+	if reader.status != 403 || reader.code() != "auth.forbidden" {
+		t.Fatalf("token reads the root task's runs: %d %s", reader.status, reader.raw)
+	}
+	for _, id := range []string{rootID, sudoID} {
+		aud.expect(aud.do("GET", "/api/v1/cron/"+id+"/runs", nil), 403, "auth.forbidden")
+		op.expect(op.do("GET", "/api/v1/cron/"+id+"/runs", nil), 403, "auth.forbidden")
+		admin.expect(admin.do("GET", "/api/v1/cron/"+id+"/runs", nil), 200, "")
+	}
+	aud.expect(aud.do("GET", "/api/v1/cron/"+spec.ID+"/runs", nil), 200, "")
+	op.expect(op.do("GET", "/api/v1/cron/"+spec.ID+"/runs", nil), 200, "")
+	// The helper finds no such run of the task named: not found.
+	e.helper.mu.Lock()
+	e.helper.errs = map[string]error{helperapi.ActionCronLog: &helperapi.Error{Code: helperapi.CodeCronNotFound}}
+	e.helper.mu.Unlock()
+	aud.expect(aud.do("GET", "/api/v1/cron/"+spec.ID+"/runs/"+strings.Repeat("d4", 16)+"/log", nil), 404, helperapi.CodeCronNotFound)
+	if q := sentAs[helperapi.CronLogRequest](t, e, helperapi.ActionCronLog); q.ID != spec.ID || q.Invocation != strings.Repeat("d4", 16) {
+		t.Fatalf("log request %+v", q)
+	}
+	e.helper.mu.Lock()
+	e.helper.errs = nil
+	e.helper.mu.Unlock()
 
 	// A failed run is reported once.
 	got := e.published(events.CronFailed)

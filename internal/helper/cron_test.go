@@ -267,6 +267,45 @@ func TestJournal(t *testing.T) {
 	}
 }
 
+// A run's output is read only for a run of the task named, from that
+// task's unit.
+func TestCronLogOwnRunsOnly(t *testing.T) {
+	e := newCronEnv(t)
+	writeSystemFile(t, e.st.Root, "/usr/bin/journalctl", "#!binary")
+	e.f.journal = "task output\n"
+	own, other := "t6123456789abcde", "t7123456789abcde"
+	mine, theirs := strings.Repeat("a1", 16), strings.Repeat("c3", 16)
+	if err := e.c.saveRuns(own, []helperapi.CronRun{{Invocation: mine, Started: 1794800000, Result: "success"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.c.saveRuns(other, []helperapi.CronRun{{Invocation: theirs, Started: 1794800000, Result: "success"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := call[helperapi.CronLog](t, e.r, helperapi.ActionCronLog, helperapi.CronLogRequest{ID: own, Invocation: mine})
+	if err != nil || len(out.Lines) != 1 || out.Lines[0] != "task output" {
+		t.Fatalf("own run: %+v %v", out, err)
+	}
+	if !e.f.ran("query journalctl --no-pager --output=cat --lines=2000 _SYSTEMD_UNIT=cairn-cron-" + own + ".service _SYSTEMD_INVOCATION_ID=" + mine) {
+		t.Fatalf("journalctl arguments: %v", e.f.cmds)
+	}
+
+	// Another task's invocation, and one of no task at all (a task without
+	// any recorded run), are not found and the journal is not read.
+	e.f.mu.Lock()
+	e.f.cmds = nil
+	e.f.mu.Unlock()
+	for _, req := range []helperapi.CronLogRequest{{ID: own, Invocation: theirs}, {ID: "t0123456789abcde", Invocation: theirs}} {
+		_, err := call[helperapi.CronLog](t, e.r, helperapi.ActionCronLog, req)
+		if he, ok := helperapi.AsError(err); !ok || he.Code != helperapi.CodeCronNotFound {
+			t.Fatalf("%+v: %v", req, err)
+		}
+	}
+	if e.f.ran("query journalctl") {
+		t.Fatal("journal read for a foreign invocation")
+	}
+}
+
 func TestTaskURLAddresses(t *testing.T) {
 	// A site's own cron URL on this host is fine.
 	hits := 0

@@ -426,7 +426,21 @@ func (c *Cron) log(ctx context.Context, _ helperapi.Caller, req helperapi.CronLo
 	if !hasJournal(c.Files.Root) {
 		return out, fileErr(helperapi.CodeLogNoJournal, nil)
 	}
-	text, err := queryCommand(ctx, "journalctl", "--no-pager", "--output=cat", "--lines=2000", "_SYSTEMD_INVOCATION_ID="+req.Invocation)
+	// Only a run this task recorded is read, and the journal is matched on
+	// the task's unit as well (fields are ANDed): an invocation ID taken
+	// from another task, or from any other unit, finds nothing.
+	known := false
+	for _, run := range c.runs(req.ID) {
+		if run.Invocation != "" && run.Invocation == req.Invocation {
+			known = true
+			break
+		}
+	}
+	if !known {
+		return out, fileErr(helperapi.CodeCronNotFound, map[string]any{"id": req.ID, "invocation": req.Invocation})
+	}
+	text, err := queryCommand(ctx, "journalctl", "--no-pager", "--output=cat", "--lines=2000",
+		"_SYSTEMD_UNIT="+cronUnit(req.ID)+".service", "_SYSTEMD_INVOCATION_ID="+req.Invocation)
 	if err != nil {
 		return out, fileErr(helperapi.CodeOpFailed, map[string]any{"detail": errDetail(err)})
 	}

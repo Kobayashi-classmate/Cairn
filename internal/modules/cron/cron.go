@@ -553,6 +553,11 @@ func (m *Module) runs(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
+	// The runs name the invocations whose output runLog serves, so a
+	// privileged task's are for the same callers as that output.
+	if err := m.checkPrivileged(r, rw.spec, false, false); err != nil {
+		return err
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	var resp helperapi.CronRuns
