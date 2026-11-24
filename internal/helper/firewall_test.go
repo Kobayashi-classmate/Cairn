@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,15 +46,28 @@ func (b *fakeBackend) last() fwRender { return b.applied[len(b.applied)-1] }
 
 func newTestFirewall(t *testing.T) (*Firewall, *fakeBackend) {
 	t.Helper()
-	old, oldSystemd := sshPorts, systemdRunning
-	t.Cleanup(func() { sshPorts, systemdRunning = old, oldSystemd })
-	sshPorts = func(context.Context) []int { return []int{22} }
+	old, oldSystemd := sshDetect, systemdRunning
+	t.Cleanup(func() { sshDetect, systemdRunning = old, oldSystemd })
+	sshDetect = func(context.Context, string) sshEndpoints { return sshEndpoints{Ports: []int{22}, Installed: true} }
 	systemdRunning = func() bool { return false }
 	fake := &fakeBackend{}
 	off := &fakeBackend{}
 	f := &Firewall{StateDir: t.TempDir(), Default: "ufw", PanelPort: 28443,
 		backends: map[string]fwBackend{helperapi.FirewallUFW: fake, helperapi.FirewallFirewalld: off, helperapi.FirewallNftables: &fakeBackend{}}}
+	fakeClock(t, f)
 	return f, fake
+}
+
+// fakeClock makes the firewall's waits pass at once: waiting moves its
+// clock instead (a rollback run before its change expired waits for the
+// expiry, and tries a failed one again after a pause).
+func fakeClock(t *testing.T, f *Firewall) {
+	t.Helper()
+	oldSleep := fwSleep
+	t.Cleanup(func() { fwSleep = oldSleep })
+	var ahead atomic.Int64
+	f.now = func() time.Time { return time.Now().Add(time.Duration(ahead.Load())) }
+	fwSleep = func(d time.Duration) { ahead.Add(int64(d)) }
 }
 
 var fwAdmin = helperapi.Caller{Source: "web", Remote: "203.0.113.5"}
@@ -238,7 +252,7 @@ func TestFirewallChecks(t *testing.T) {
 		}
 	}
 	// A failed apply leaves nothing pending and puts the old rules back.
-	b.fail = true
+	b.failNext = 1
 	if _, err := f.setRule(ctx, fwAdmin, helperapi.FirewallRule{Action: "allow", Protocol: "tcp", Ports: []string{"81"}}); !hasCode(err, helperapi.CodeFirewallApplyFailed) {
 		t.Fatalf("failed apply: %v", err)
 	}

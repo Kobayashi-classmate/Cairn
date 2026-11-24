@@ -45,3 +45,5 @@
 "notify.ssh.login.body" = "{{.user}} 从 {{.ip}} 通过 SSH 登录（{{.method}}）。如果不是你本人，请到面板的 SSH 页面检查。"
 "notify.firewall.rolled_back.title" = "[Cairn] {{.host}} 上的防火墙修改已撤销"
 "notify.firewall.rolled_back.body" = "有一次防火墙修改在 60 秒内没有得到确认，已自动撤销，之前的规则重新生效。"
+"notify.firewall.rollback_failed.title" = "[Cairn] {{.host}} 上的防火墙修改未能撤销"
+"notify.firewall.rollback_failed.body" = "有一次防火墙修改没有得到确认，但撤销失败（已尝试 {{.attempts}} 次）：{{.detail}}。这次修改的规则仍在生效。如果还能打开面板，请在“防火墙”页面重试；如果服务器已经连不上，请使用服务商的控制台处理。"

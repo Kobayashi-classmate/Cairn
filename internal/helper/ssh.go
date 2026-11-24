@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,6 +42,13 @@ type SSH struct {
 	Root       string
 	Log        *slog.Logger
 	now        func() time.Time
+
+	// watch makes port changes look out for the first connection from
+	// another host (set by Resume, in the helper that keeps running).
+	watch   bool
+	watchMu sync.Mutex
+	// watching: the lookout is running.
+	watching bool
 }
 
 const (
@@ -74,7 +82,7 @@ func RegisterSSH(r *Registry, o *Ops, s *SSH) {
 	RegisterOp(r, o, helperapi.ActionSSHPortFinish, OpSpec[helperapi.Empty]{
 		Locks: func(q helperapi.Empty) []string { return locks(q) },
 		Run: func(ctx context.Context, _ helperapi.Caller, _ helperapi.Empty, log io.Writer) (any, error) {
-			return nil, s.FinishPort(ctx, log)
+			return nil, s.FinishPort(ctx, log, false)
 		}})
 	RegisterOp(r, o, helperapi.ActionSSHPortCancel, OpSpec[helperapi.Empty]{
 		Locks: func(q helperapi.Empty) []string { return locks(q) }, Run: s.cancelPort})
@@ -158,16 +166,38 @@ func parseSSHDConfig(out string) sshdConfig {
 }
 
 func (s *SSH) effective(ctx context.Context) (sshdConfig, error) {
-	_ = os.MkdirAll(s.path("/run/sshd"), 0o755) //nolint:gosec // G301: sshd's privilege separation directory.
-	out, err := queryCommand(ctx, s.path(sshdBinary), "-T")
+	c, err := readSSHDConfig(ctx, s.Root)
 	if err != nil {
 		return nil, sshErr(helperapi.CodeSSHConfigInvalid, map[string]any{"output": errDetail(err)})
 	}
-	return parseSSHDConfig(out), nil
+	return c, nil
 }
 
+// ports are the Port options in effect: what the drop-in sets. Where sshd
+// listens is another matter (see sshDetect).
 func (c sshdConfig) ports() []int {
-	return parseSSHDPorts("port " + strings.Join(c["port"], "\nport "))
+	var ports []int
+	for _, v := range c["port"] {
+		if n, err := strconv.Atoi(v); err == nil {
+			ports = addPorts(ports, n)
+		}
+	}
+	return ports
+}
+
+// sshStatePorts are the SSH ports the panel set, from the state kept in
+// dir (none until the panel changed the port).
+func sshStatePorts(dir string) []int {
+	var st sshState
+	data, err := os.ReadFile(filepath.Join(dir, "ssh.json")) //nolint:gosec // G304: the helper's own state file.
+	if err != nil || json.Unmarshal(data, &st) != nil {
+		return nil
+	}
+	ports := slices.Clone(st.Ports)
+	if st.Pending != nil {
+		ports = append(append(ports, st.Pending.OldPorts...), st.Pending.NewPort)
+	}
+	return ports
 }
 
 func rootLogin(v string) string {
@@ -211,11 +241,16 @@ func (s *SSH) Status(ctx context.Context) helperapi.SSHStatus {
 		return st
 	}
 	st.SocketActivated = s.socketActivated(ctx)
+	// The ports are read where the firewall reads them, so that this page
+	// and the firewall's always-open rule cannot disagree; they are known
+	// even while sshd's configuration cannot be read.
+	if ports := sshDetect(ctx, s.Root).Ports; len(ports) > 0 {
+		st.Ports = ports
+	}
 	c, err := s.effective(ctx)
 	if err != nil {
 		return st
 	}
-	st.Ports = c.ports()
 	for _, a := range c["listenaddress"] {
 		if host, _, err := net.SplitHostPort(a); err == nil && !slices.Contains(st.ListenAddresses, host) {
 			st.ListenAddresses = append(st.ListenAddresses, host)
@@ -507,10 +542,18 @@ func (s *SSH) listening(ctx context.Context, c sshdConfig, port int) error {
 				return nil
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(sshProbePause)
 	}
 	return sshErr(helperapi.CodeSSHNotListening, map[string]any{"port": port, "detail": err.Error()})
 }
+
+// sshProbePause is the wait between two tries to reach sshd on a new port;
+// sshWatchEvery how often a pending port change looks for a connection
+// from another host. Tests shorten both.
+var (
+	sshProbePause = 500 * time.Millisecond
+	sshWatchEvery = 3 * time.Second
+)
 
 // labelPort lets sshd bind a port under SELinux.
 func (s *SSH) labelPort(ctx context.Context, log io.Writer, port int) error {
@@ -701,12 +744,20 @@ func (s *SSH) addPort(ctx context.Context, _ helperapi.Caller, q helperapi.SSHPo
 			_, _ = fmt.Fprintf(log, "Warning: the timer that closes the old ports could not start; close them on the SSH page.\n")
 		}
 	}
+	_, _ = fmt.Fprintf(log, "When the time is up, the old ports close only if a connection from another host has reached port %d by then.\n", q.Port)
+	s.watchPort()
 	return next.Pending, nil
 }
 
-// FinishPort closes the old ports of a port change (from the panel or
-// from its timer).
-func (s *SSH) FinishPort(ctx context.Context, log io.Writer) error {
+// FinishPort closes the old ports of a port change. Asked for in the panel,
+// it only needs sshd to answer on the new port: the person asking says the
+// port works. Unattended (the change's timer) it also needs a connection
+// from another host to have reached the new port since it was opened.
+// That sshd answers on this host says nothing about a security group or a
+// firewall in front of it, and closing the port that works on a guess is
+// how an administrator gets locked out. Without that proof both ports stay
+// open and the change stays pending, for a person to finish or cancel.
+func (s *SSH) FinishPort(ctx context.Context, log io.Writer, unattended bool) error {
 	unlock, err := s.lock()
 	if err != nil {
 		return err
@@ -715,6 +766,21 @@ func (s *SSH) FinishPort(ctx context.Context, log io.Writer) error {
 	st := s.load()
 	if st.Pending == nil {
 		return sshErr(helperapi.CodeSSHNoPending, nil)
+	}
+	port := st.Pending.NewPort
+	c, err := s.effective(ctx)
+	if err == nil {
+		err = s.listening(ctx, c, port)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintf(log, "sshd does not answer on port %d: the old ports %v stay open.\n", port, st.Pending.OldPorts)
+		return s.holdPort(st, unattended, helperapi.SSHHeldNotListening, err)
+	}
+	if unattended && st.Pending.ReachedAt == 0 && reachedFromOutside(s.Root, port) == "" {
+		_, _ = fmt.Fprintf(log, "No connection from another host has reached port %d: the old ports %v stay open. "+
+			"Log in through port %d, then close the old ports on the SSH page.\n", port, st.Pending.OldPorts, port)
+		return s.holdPort(st, true, helperapi.SSHHeldUnreached,
+			sshErr(helperapi.CodeSSHPortUnreached, map[string]any{"port": port, "old": st.Pending.OldPorts}))
 	}
 	next := st
 	next.Ports = []int{st.Pending.NewPort}
@@ -725,6 +791,87 @@ func (s *SSH) FinishPort(ctx context.Context, log io.Writer) error {
 	}
 	s.stopTimer(ctx)
 	return s.save(next)
+}
+
+// holdPort records why the timer left the old ports open (its one run is
+// over: from now on the change waits for a person) and returns cause.
+func (s *SSH) holdPort(st sshState, unattended bool, reason string, cause error) error {
+	if !unattended {
+		return cause
+	}
+	pending := *st.Pending
+	pending.Held = reason
+	st.Pending = &pending
+	if err := s.save(st); err != nil {
+		return errors.Join(cause, err)
+	}
+	if s.Log != nil {
+		s.Log.Warn("the old SSH ports were not closed when the time of the port change ran out", "new", pending.NewPort,
+			"old", pending.OldPorts, "reason", reason)
+	}
+	return cause
+}
+
+// Resume takes up a port change that was pending when the helper started,
+// and makes later ones look out for a connection from another host too.
+func (s *SSH) Resume() {
+	s.watch = true
+	s.watchPort()
+}
+
+// watchPort looks out for the first connection from another host to the
+// new port of the pending port change and records when it came: what lets
+// the timer close the old ports. A connection may be short (someone logs
+// in to check and leaves), so the state at the moment the timer runs is
+// not enough.
+func (s *SSH) watchPort() {
+	if !s.watch {
+		return
+	}
+	s.watchMu.Lock()
+	defer s.watchMu.Unlock()
+	if s.watching || s.load().Pending == nil {
+		return
+	}
+	s.watching = true
+	go func() {
+		for {
+			// Deciding to stop and saying so are one step: a change made
+			// meanwhile either finds this lookout or starts its own.
+			s.watchMu.Lock()
+			p := s.load().Pending
+			if p == nil || p.ReachedAt != 0 {
+				s.watching = false
+				s.watchMu.Unlock()
+				return
+			}
+			s.watchMu.Unlock()
+			if peer := reachedFromOutside(s.Root, p.NewPort); peer != "" {
+				s.reached(p.NewPort, peer)
+			}
+			time.Sleep(sshWatchEvery)
+		}
+	}()
+}
+
+// reached records that a connection from another host arrived on the new
+// port of the pending change.
+func (s *SSH) reached(port int, peer string) {
+	unlock, err := s.lock()
+	if err != nil {
+		return
+	}
+	defer unlock()
+	st := s.load()
+	if st.Pending == nil || st.Pending.NewPort != port || st.Pending.ReachedAt != 0 {
+		return
+	}
+	pending := *st.Pending
+	pending.ReachedAt = s.clock().Unix()
+	st.Pending = &pending
+	if err := s.save(st); err == nil && s.Log != nil {
+		s.Log.Info("a connection from another host reached the new SSH port", "port", port, "peer", peer)
+	}
 }
 
 func (s *SSH) cancelPort(ctx context.Context, _ helperapi.Caller, _ helperapi.Empty, log io.Writer) (any, error) {

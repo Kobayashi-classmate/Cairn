@@ -59,7 +59,7 @@
     },
     "firewall": {
       "label": "Firewall",
-      "description": "Firewall changes rolled back because they were not confirmed."
+      "description": "Firewall changes rolled back because they were not confirmed, and rollbacks that failed."
     }
   },
   "event": {
@@ -95,7 +95,8 @@
       "login": "SSH login"
     },
     "firewall": {
-      "rolled_back": "Firewall change rolled back"
+      "rolled_back": "Firewall change rolled back",
+      "rollback_failed": "Firewall rollback failed"
     }
   },
   "channel": {

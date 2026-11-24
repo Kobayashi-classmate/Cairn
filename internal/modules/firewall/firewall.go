@@ -42,6 +42,8 @@ type Module struct {
 	Log    *slog.Logger
 
 	lastRollback int64
+	// failedRollback is the change whose failed rollback was reported.
+	failedRollback string
 }
 
 // ID implements module.Module.
@@ -153,10 +155,19 @@ func (m *Module) status(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusOK, View{FirewallStatus: st, ClientIP: api.ClientIP(r)})
 }
 
+// detach gives a request that changes the firewall a context of its own.
+// The browser may go away while the helper works (a closed tab, a proxy's
+// timeout); the change, its confirmation or its rollback is then finished
+// and audited all the same, instead of ending wherever it happened to be.
+func detach(r *http.Request, limit time.Duration) (*http.Request, context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), limit)
+	return r.WithContext(ctx), ctx, cancel
+}
+
 // apply sends a change to the helper. The answer closes the connection:
 // the browser must confirm over a new one.
 func (m *Module) apply(w http.ResponseWriter, r *http.Request, action, auditAction string, req any, params map[string]any) error {
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	r, ctx, cancel := detach(r, 10*time.Minute)
 	defer cancel()
 	var ch helperapi.FirewallChange
 	if err := m.Helper.Call(ctx, action, callerOf(r), req, &ch); err != nil {
@@ -341,7 +352,7 @@ func (m *Module) confirm(w http.ResponseWriter, r *http.Request) error {
 		api.CloseConnection(w)
 		return api.NewError(http.StatusConflict, helperapi.CodeFirewallConfirmRetry, nil)
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	r, ctx, cancel := detach(r, 3*time.Minute)
 	defer cancel()
 	if err := m.Helper.Call(ctx, helperapi.ActionFirewallConfirm, callerOf(r), helperapi.FirewallRef{ID: q.ID}, nil); err != nil {
 		return helperError(err)
@@ -360,7 +371,7 @@ func (m *Module) rollback(w http.ResponseWriter, r *http.Request) error {
 	if !helperapi.ValidFirewallTxID(q.ID) {
 		return api.NewError(http.StatusConflict, helperapi.CodeFirewallNoPending, map[string]any{"id": q.ID})
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+	r, ctx, cancel := detach(r, 10*time.Minute)
 	defer cancel()
 	if err := m.Helper.Call(ctx, helperapi.ActionFirewallRollback, callerOf(r), helperapi.FirewallRef{ID: q.ID}, nil); err != nil {
 		modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "firewall.rollback", modutil.ErrorCode(helperError(err)), map[string]any{"pending": q.ID})
@@ -403,7 +414,7 @@ func (m *Module) disable(w http.ResponseWriter, r *http.Request) error {
 	})
 }
 
-// Run reports rolled back changes until ctx ends.
+// Run reports rolled back changes, and rollbacks that failed, until ctx ends.
 func (m *Module) Run(ctx context.Context) {
 	t := time.NewTicker(checkEvery)
 	defer t.Stop()
@@ -418,10 +429,21 @@ func (m *Module) Run(ctx context.Context) {
 }
 
 // Check publishes firewall.rolled_back once for a change that was rolled
-// back since the last check.
+// back since the last check, and firewall.rollback_failed once for a
+// change that could not be undone: its rules are still in force, which
+// whoever is locked out by them must learn some other way than the panel.
 func (m *Module) Check(ctx context.Context) {
 	st, err := m.helperStatus(ctx, helperapi.Caller{Source: "system", Username: "cairn"})
-	if err != nil || st.LastRollback == nil {
+	if err != nil {
+		return
+	}
+	if p := st.Pending; p != nil && p.RollbackFailed != nil && p.ID != m.failedRollback {
+		m.failedRollback = p.ID
+		m.Events.Publish(events.Event{Type: events.FirewallRollbackFailed, Level: events.Critical,
+			Params:    map[string]any{"kind": p.Kind, "detail": p.RollbackFailed.Detail, "attempts": p.RollbackFailed.Attempts},
+			DedupeKey: "firewall.rollback_failed:" + p.ID})
+	}
+	if st.LastRollback == nil {
 		return
 	}
 	at := st.LastRollback.At
@@ -451,6 +473,9 @@ func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (mo
 	}
 	c := module.Check{Route: "firewall"}
 	switch {
+	case st.Pending != nil && st.Pending.RollbackFailed != nil:
+		// Whatever else is true, rules nobody confirmed are in force.
+		c.Code, c.Status, c.Params = "firewall.rollback_failed", module.StatusBad, map[string]any{"kind": st.Pending.Kind}
 	case !st.Systemd || st.Backend == "":
 		c.Code, c.Status = "firewall.unavailable", module.StatusWarn
 	case st.Conflict != "":

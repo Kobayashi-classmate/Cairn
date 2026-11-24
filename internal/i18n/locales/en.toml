@@ -47,3 +47,5 @@
 "notify.ssh.login.body" = "{{.user}} logged in over SSH from {{.ip}} ({{.method}}). If this was not you, check the SSH page of the panel."
 "notify.firewall.rolled_back.title" = "[Cairn] Firewall change rolled back on {{.host}}"
 "notify.firewall.rolled_back.body" = "A firewall change was undone because it was not confirmed within 60 seconds. The previous rules are in effect again."
+"notify.firewall.rollback_failed.title" = "[Cairn] Firewall change could NOT be rolled back on {{.host}}"
+"notify.firewall.rollback_failed.body" = "A firewall change was not confirmed, and undoing it failed ({{.attempts}} tries): {{.detail}}. Its rules are still in force. If you can open the panel, retry on the Firewall page; if the server cannot be reached any more, use its console."

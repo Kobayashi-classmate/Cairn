@@ -101,16 +101,26 @@ const writable = computed(
     !busy.value &&
     !jobRunning.value &&
     !working.value &&
-    !foreignPending.value,
+    !foreignPending.value &&
+    !failedRollback.value,
 )
 /** Rules change only while the firewall is on (as before). */
 const ruleWritable = computed(() => writable.value && !!view.value?.enabled)
 const canAddForward = computed(() => (view.value?.forwards.length ?? 0) < FORWARDS_MAX)
 
+/**
+ * A change the server could not undo: its rules are still in force and
+ * nothing else can change until a rollback works.
+ */
+const failedRollback = computed(() => {
+  const waiting = view.value?.pending
+  return waiting?.rollbackFailed && !busy.value ? waiting : null
+})
+
 /** A change made elsewhere (another tab, the API) that waits for confirmation. */
 const foreignPending = computed(() => {
   const waiting = view.value?.pending
-  if (!waiting || busy.value) return null
+  if (!waiting || busy.value || waiting.rollbackFailed) return null
   return waiting.expires > serverSeconds.value ? waiting : null
 })
 
@@ -202,11 +212,12 @@ function enable() {
   if (!current) return
   void confirmAction({
     title: t('firewall.enable.title'),
-    description: t('firewall.enable.text', {
-      backend: current.backend,
-      ssh: current.sshPorts.map((port) => `${port}/tcp`).join(', '),
-      panel: `${current.panelPort}/tcp`,
-    }),
+    description:
+      t('firewall.enable.text', {
+        backend: current.backend,
+        ssh: current.sshPorts.map((port) => `${port}/tcp`).join(', '),
+        panel: `${current.panelPort}/tcp`,
+      }) + (current.sshUnread ? ` ${t('firewall.sshUnread')}` : ''),
     confirmLabel: t('firewall.enable.submit'),
     // Step-up protected: the client asks for the password and retries.
     run: () => startEnable(true),
@@ -334,6 +345,26 @@ const foreignLeft = computed(() => (foreignPending.value ? Math.max(0, Math.ceil
               </button>
             </template>
           </Notice>
+
+          <Notice v-if="failedRollback" tone="destructive">
+            {{
+              t('firewall.rollbackFailed', {
+                change: pendingKindLabel(failedRollback.kind),
+                detail: failedRollback.rollbackFailed?.detail ?? '',
+              })
+            }}
+            <template v-if="canManage" #action>
+              <button
+                type="button"
+                class="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+                :disabled="working || jobRunning"
+                @click="changes.rollBackForeign(failedRollback)"
+              >
+                {{ t('firewall.rollbackRetry') }}
+              </button>
+            </template>
+          </Notice>
+          <Notice v-if="view.sshUnread" tone="warning">{{ t('firewall.sshUnread') }}</Notice>
 
           <PendingChangeBanner
             v-if="pending"

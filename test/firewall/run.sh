@@ -6,13 +6,16 @@
 # ufw on Ubuntu, and firewalld's policy file checked offline on Rocky
 # (firewalld itself needs a VM). Between the phases a second container
 # checks which ports are reachable; a third is the other host that a port
-# forward sends connections to.
+# forward sends connections to. The target "installer" checks the firewall
+# step of packaging/install.sh with a stand-in helper (installer.sh), under
+# dash on Debian and bash on Rocky; the target "sshd" checks how the SSH
+# ports are found against a real sshd on Debian, Ubuntu and Rocky (sshd.sh).
 #
 #   bash test/firewall/run.sh
 #   FIREWALL_TARGETS="nftables" bash test/firewall/run.sh
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-targets=${FIREWALL_TARGETS:-"nftables ufw firewalld"}
+targets=${FIREWALL_TARGETS:-"installer sshd nftables ufw firewalld"}
 bin=test/firewall/fwtest
 sh scripts/go.sh sh -c "CGO_ENABLED=0 go test -c -tags fwsystem -o $bin ./internal/helper"
 net=cairn-fw-$$
@@ -57,8 +60,32 @@ phase() { # backend phase
 		{ cat "$log"; return 1; }
 }
 
+run_installer() {
+	local image
+	for image in debian:trixie rockylinux:9; do
+		echo "== installer: $image"
+		docker run --rm -v "$PWD:/src:ro" "$image" sh /src/test/firewall/installer.sh || return 1
+	done
+}
+
+run_sshd() {
+	local image
+	for image in debian:trixie ubuntu:24.04 rockylinux:9; do
+		echo "== sshd: $image"
+		docker run --rm -v "$PWD/test/firewall:/t:ro" "$image" sh /t/sshd.sh || return 1
+	done
+}
+
 run_backend() {
 	local backend=$1 image packages
+	if [ "$backend" = installer ]; then
+		run_installer
+		return
+	fi
+	if [ "$backend" = sshd ]; then
+		run_sshd
+		return
+	fi
 	case $backend in
 		nftables) image=debian:trixie packages=nftables ;;
 		ufw) image=ubuntu:24.04 packages="ufw nftables" ;;
@@ -74,7 +101,7 @@ run_backend() {
 		return
 	fi
 	docker exec -e DEBIAN_FRONTEND=noninteractive "$server" sh -c "apt-get update -qq && apt-get install -y -qq $packages" >/dev/null 2>&1 || return 1
-	docker exec -d -e CAIRN_FW_LISTEN=80,8081,28443,3306 "$server" /t/fwtest -test.run '^TestFirewallListen$' || return 1
+	docker exec -d -e CAIRN_FW_LISTEN=80,8081,8082,28443,3306 "$server" /t/fwtest -test.run '^TestFirewallListen$' || return 1
 	sleep 1
 	expect open 80 8081 || return 1
 	phase "$backend" setup || return 1
@@ -85,6 +112,16 @@ run_backend() {
 	phase "$backend" blockclient || return 1
 	expect closed 80 8081 || return 1
 	phase "$backend" rollback || return 1
+	expect open 80 8081 || return 1
+	# A change left unconfirmed by a process that is gone (as after a
+	# reboot) is undone by what runs at boot.
+	phase "$backend" unconfirmed || return 1
+	expect open 8082 || return 1
+	phase "$backend" recover || return 1
+	expect closed 8082 || return 1
+	expect open 80 8081 || return 1
+	# A rollback whose backend command fails stays pending until one works.
+	phase "$backend" rollback-fails || return 1
 	expect open 80 8081 || return 1
 	phase "$backend" managed || return 1
 	phase "$backend" ping || return 1

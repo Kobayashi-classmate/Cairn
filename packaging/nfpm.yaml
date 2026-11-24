@@ -52,6 +52,16 @@ contents:
     dst: /usr/lib/systemd/system/cairn-forward.service
     file_info:
       mode: 0644
+  - src: packaging/systemd/cairn-firewall-recover.service
+    dst: /usr/lib/systemd/system/cairn-firewall-recover.service
+    file_info:
+      mode: 0644
+  # Wanted by multi-user.target from the package itself: it runs at every
+  # boot without "systemctl enable", also after an upgrade from a version
+  # that did not have it.
+  - src: /usr/lib/systemd/system/cairn-firewall-recover.service
+    dst: /usr/lib/systemd/system/multi-user.target.wants/cairn-firewall-recover.service
+    type: symlink
   - src: packaging/needrestart/cairn.conf
     dst: /etc/needrestart/conf.d/cairn.conf
     type: config

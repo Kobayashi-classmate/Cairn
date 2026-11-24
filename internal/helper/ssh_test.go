@@ -64,19 +64,24 @@ func (f *fakeSSHD) effective() string {
 			out = append(out, d)
 		}
 	}
-	out = append(out, "listenaddress 0.0.0.0:22")
+	// Without a ListenAddress of its own, sshd -T lists the wildcard
+	// address with every port.
+	for _, p := range ports {
+		out = append(out, "listenaddress 0.0.0.0:"+p)
+	}
 	return strings.Join(out, "\n") + "\n"
 }
 
 func (f *fakeSSHD) use(t *testing.T) {
 	t.Helper()
-	oldRun, oldQuery, oldSystemd, oldDial, oldPorts := runCommand, queryCommand, systemdRunning, sshdDial, sshPorts
+	oldRun, oldQuery, oldSystemd, oldDial, oldDetect := runCommand, queryCommand, systemdRunning, sshdDial, sshDetect
 	t.Cleanup(func() {
-		runCommand, queryCommand, systemdRunning, sshdDial, sshPorts = oldRun, oldQuery, oldSystemd, oldDial, oldPorts
+		runCommand, queryCommand, systemdRunning, sshdDial, sshDetect = oldRun, oldQuery, oldSystemd, oldDial, oldDetect
 	})
 	systemdRunning = func() bool { return true }
 	sshdDial = func(context.Context, string) error { return nil }
-	sshPorts = func(context.Context) []int { return parseSSHDPorts(f.effective()) }
+	// The firewall of a test has no root of its own: it reads this one's.
+	sshDetect = func(ctx context.Context, _ string) sshEndpoints { return detectSSH(ctx, f.root) }
 	runCommand = func(_ context.Context, _ io.Writer, name string, args ...string) error {
 		f.cmds = append(f.cmds, filepath.Base(name)+" "+strings.Join(args, " "))
 		return nil
@@ -181,7 +186,7 @@ func TestSSHSettingsAndPort(t *testing.T) {
 	if _, err := s.addPort(ctx, helperapi.Caller{}, helperapi.SSHPortRequest{Port: 2223, CloseAfterMinutes: 30}, io.Discard); !hasCode(err, helperapi.CodeSSHPending) {
 		t.Fatalf("second change: %v", err)
 	}
-	if err := s.FinishPort(ctx, io.Discard); err != nil {
+	if err := s.FinishPort(ctx, io.Discard, false); err != nil {
 		t.Fatal(err)
 	}
 	if st := s.Status(ctx); len(st.Ports) != 1 || st.Ports[0] != 2222 || st.Pending != nil {
@@ -201,7 +206,7 @@ func TestSSHSettingsAndPort(t *testing.T) {
 	if st := s.Status(ctx); len(st.Ports) != 1 || st.Ports[0] != 2222 {
 		t.Fatalf("cancelled %+v", st)
 	}
-	if err := s.FinishPort(ctx, io.Discard); !hasCode(err, helperapi.CodeSSHNoPending) {
+	if err := s.FinishPort(ctx, io.Discard, false); !hasCode(err, helperapi.CodeSSHNoPending) {
 		t.Fatalf("finish without change: %v", err)
 	}
 }

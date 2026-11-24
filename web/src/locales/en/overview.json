@@ -50,7 +50,8 @@
       "off": "{backend} · off",
       "conflict": "Another firewall manager is active: {conflict}",
       "unavailable": "The firewall could not be checked",
-      "not_loaded": "{backend} is on, but its rules are not in effect"
+      "not_loaded": "{backend} is on, but its rules are not in effect",
+      "rollback_failed": "A firewall change could not be rolled back; its rules are still in force"
     },
     "ssh": {
       "keys_only": "Port {ports} · key sign-in only",

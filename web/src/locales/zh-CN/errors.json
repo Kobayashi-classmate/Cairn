@@ -331,7 +331,8 @@
       "apply_failed": "无法应用防火墙规则：{detail}",
       "unsupported": "此系统上的防火墙不支持这项操作：{reasonText}。",
       "protected": "端口 {port} 留给 SSH 或面板使用，它们必须始终可以访问，因此这里不能使用。",
-      "forward_taken": "已有转发在监听端口 {port}。"
+      "forward_taken": "已有转发在监听端口 {port}。",
+      "rollback_failed": "这次修改未能回滚：{detail}。它的规则仍在生效。"
     },
     "ssh": {
       "config_invalid": "SSH 配置无效：{output}",
@@ -339,6 +340,7 @@
       "port_in_use": "端口 {port} 已被占用：已有其他程序在监听它，或者它是面板的端口。",
       "selinux_port": "SELinux 不允许 SSH 使用端口 {port}（类型 {type}）。",
       "not_listening": "SSH 没有在端口 {port} 上监听。",
+      "port_unreached": "还没有人从其他主机连接过端口 {port}，旧端口保持开放。",
       "no_keys": "删除此密钥后，{user} 在密码登录关闭的情况下将没有可用的密钥，该账号将无法登录。请先添加其他密钥或开启密码登录。"
     },
     "host": {
@@ -523,7 +525,8 @@
     "deny_needs_source": "拒绝规则至少需要一个来源地址：未被允许的连接本来就会被拒绝。",
     "confirm_retry": "暂时还无法确认此修改。",
     "no_pending": "没有等待确认的修改（已被撤销或已过期）。",
-    "forward_taken": "已有转发在监听这个端口。"
+    "forward_taken": "已有转发在监听这个端口。",
+    "rollback_failed": "这次修改未能回滚，它的规则仍在生效。"
   },
   "ssh": {
     "not_installed": "未安装 SSH 服务器。",
@@ -536,6 +539,7 @@
     "no_pending": "没有进行中的端口修改。",
     "selinux_port": "SELinux 不允许 SSH 使用此端口。",
     "not_listening": "SSH 没有在新端口上监听。",
+    "port_unreached": "还没有人从其他主机连接过新端口，旧端口保持开放。",
     "key_invalid": "这不是有效的 SSH 公钥。",
     "key_exists": "此密钥已经授权。",
     "user_not_found": "此用户不存在。",

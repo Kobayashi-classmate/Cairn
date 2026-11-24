@@ -59,7 +59,7 @@
     },
     "firewall": {
       "label": "防火墙",
-      "description": "因未确认而被撤销的防火墙修改。"
+      "description": "因未确认而被回滚的防火墙修改，以及失败的回滚。"
     }
   },
   "event": {
@@ -95,7 +95,8 @@
       "login": "SSH 登录"
     },
     "firewall": {
-      "rolled_back": "防火墙修改已撤销"
+      "rolled_back": "防火墙修改已撤销",
+      "rollback_failed": "防火墙回滚失败"
     }
   },
   "channel": {

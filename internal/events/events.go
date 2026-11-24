@@ -62,14 +62,18 @@ const (
 	// JobFailed: a background job failed (published by the jobs package).
 	JobFailed = "system.job_failed"
 	// SSHLogin: someone logged in over SSH; FirewallRolledBack: a firewall
-	// change was undone because nobody confirmed it in time.
-	SSHLogin           = "ssh.login"
-	FirewallRolledBack = "firewall.rolled_back"
+	// change was undone because nobody confirmed it in time;
+	// FirewallRollbackFailed: undoing one failed, so its rules are still
+	// in force.
+	SSHLogin               = "ssh.login"
+	FirewallRolledBack     = "firewall.rolled_back"
+	FirewallRollbackFailed = "firewall.rollback_failed"
 )
 
 // Types lists every event type; each has a notification text.
 var Types = []string{SecurityLockout, SecurityLogin, SecurityTOTPDisabled, UsersChange, SystemTest, CloudAnnouncement,
-	CertRenewFailed, CertExpiring, AppUnhealthy, CronFailed, BackupFailed, JobFailed, SSHLogin, FirewallRolledBack}
+	CertRenewFailed, CertExpiring, AppUnhealthy, CronFailed, BackupFailed, JobFailed, SSHLogin, FirewallRolledBack,
+	FirewallRollbackFailed}
 
 // Categories are the prefixes a notification channel can subscribe to.
 var Categories = []string{"security.", "users.", "system.", "cloud.", "cert.", "app.", "cron.", "backup.", "ssh.", "firewall."}

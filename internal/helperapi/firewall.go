@@ -66,6 +66,9 @@ const (
 	CodeFirewallDenyNeedsSrc   = "firewall.deny_needs_source"
 	// CodeFirewallForwardTaken: another forward already listens on the port.
 	CodeFirewallForwardTaken = "firewall.forward_taken"
+	// CodeFirewallRollbackFailed: a change could not be undone; its rules
+	// are still in force and it stays pending.
+	CodeFirewallRollbackFailed = "firewall.rollback_failed"
 )
 
 // Limits.
@@ -142,10 +145,21 @@ type FirewallPending struct {
 	ID      string `json:"id"`
 	Expires int64  `json:"expires"`
 	Kind    string `json:"kind"`
+	// RollbackFailed is set once undoing the change failed: its time is
+	// up (or it was given up) and its rules are still in force.
+	RollbackFailed *FirewallRollbackFailure `json:"rollbackFailed,omitempty"`
+}
+
+// FirewallRollbackFailure records the last failed try to undo a change.
+type FirewallRollbackFailure struct {
+	At       int64  `json:"at"`
+	Attempts int    `json:"attempts"`
+	Detail   string `json:"detail"`
 }
 
 // FirewallRollback records the last change that was rolled back: not
-// confirmed in time, or undone on request.
+// confirmed in time, or undone on request. A rollback that failed is not
+// recorded here but in the change, which stays pending.
 type FirewallRollback struct {
 	ID        string `json:"id"`
 	At        int64  `json:"at"`
@@ -155,14 +169,18 @@ type FirewallRollback struct {
 
 // FirewallStatus describes the firewall.
 type FirewallStatus struct {
-	Backend   string            `json:"backend"`
-	Installed bool              `json:"installed"`
-	Enabled   bool              `json:"enabled"`
-	Loaded    bool              `json:"loaded"`
-	Conflict  string            `json:"conflict"`
-	Systemd   bool              `json:"systemd"`
-	BlockPing bool              `json:"blockPing"`
-	SSHPorts  []int             `json:"sshPorts"`
+	Backend   string `json:"backend"`
+	Installed bool   `json:"installed"`
+	Enabled   bool   `json:"enabled"`
+	Loaded    bool   `json:"loaded"`
+	Conflict  string `json:"conflict"`
+	Systemd   bool   `json:"systemd"`
+	BlockPing bool   `json:"blockPing"`
+	SSHPorts  []int  `json:"sshPorts"`
+	// SSHUnread reports that sshd's configuration could not be read:
+	// SSHPorts are then the ports sshd listens on now, the ones known
+	// before and 22.
+	SSHUnread bool              `json:"sshUnread"`
 	PanelPort int               `json:"panelPort"`
 	Rules     []FirewallRule    `json:"rules"`
 	Addresses []FirewallAddress `json:"addresses"`

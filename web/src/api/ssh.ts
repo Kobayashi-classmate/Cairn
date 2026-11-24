@@ -24,6 +24,18 @@ export interface SshPortChange {
   newPort: number
   /** Unix seconds the old port closes. */
   closeAt: number
+  /**
+   * Unix seconds a connection from another host first reached the new port;
+   * absent while none has. Only then does the server close the old port on
+   * its own.
+   */
+  reachedAt?: number
+  /**
+   * Why the server kept the old port when the time ran out: nobody had
+   * connected to the new port from outside, or sshd did not answer on it.
+   * The move then waits to be finished or cancelled by hand.
+   */
+  held?: 'unreached' | 'not_listening'
 }
 
 export interface SshView {

@@ -2,9 +2,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 #
 # Runs as root inside the test VM (see run.sh) to check P1 batch 9 with the
-# real systemd, firewall and sshd: the firewall switched on by install.sh,
-# changes confirmed over a new connection, one rolled back by its timer;
-# the SSH port moved in two steps (and back), keys, the login log; host
+# real systemd, firewall and sshd: the firewall switched on by install.sh
+# (run over SSH with nobody at a terminal: the connection it runs in stays
+# open), changes confirmed over a new connection, one rolled back by its
+# timer, one whose timer was lost taken over the way a boot does, a rollback
+# that fails and is tried again; the SSH port moved in two steps (and back;
+# the old port only closes by itself once the new one was reached from
+# outside), a port set on ssh.socket, keys, the login log; host
 # name, time zone, swap, updates, automatic updates and a switch of the
 # system source with its restore.
 #
@@ -81,7 +85,17 @@ esac
 if [ "$family" = el ]; then
 	ps -eZ | grep cairn-helper | grep_q unconfined_service_t || fail "the helper does not run as unconfined_service_t: $(ps -eZ | grep cairn-helper)"
 fi
-step "install.sh switched the firewall on ($backend): SSH, the panel port $port, 80 and 443 open"
+# This script runs in an SSH session (through sudo, which drops
+# SSH_CONNECTION): the helper finds the session among its ancestors, and its
+# port is among the ones that stay open.
+plan=$(/usr/lib/cairn/cairn-helper firewall plan) || fail "firewall plan"
+printf '%s\n' "$plan" | grep_q '^session=22$' || fail "the helper did not find the SSH session this runs in: $plan"
+printf '%s\n' "$plan" | grep -E '^ssh=(.* )?22( .*)?$' >/dev/null || fail "port 22 is not kept open for SSH: $plan"
+printf '%s\n' "$plan" | grep_q '^unattended=yes$' || fail "the plan: $plan"
+! grep_q 'NOT switched on' /root/install.log || fail "the installer left the firewall off"
+[ "$(systemctl is-enabled cairn-firewall-recover.service)" = static ] || fail "cairn-firewall-recover.service: $(systemctl is-enabled cairn-firewall-recover.service)"
+systemctl list-dependencies multi-user.target | grep_q cairn-firewall-recover.service || fail "cairn-firewall-recover.service is not started at boot"
+step "install.sh switched the firewall on ($backend): SSH, the panel port $port, 80 and 443 open; the SSH session it ran in was found and kept open"
 
 base="https://127.0.0.1:${port}"
 for _ in $(seq 120); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 1; done
@@ -168,6 +182,57 @@ api "$base/api/v1/firewall" | json 'd["pending"] is None and d["lastRollback"]["
 api -X POST "$base/api/v1/firewall/addresses" -d '{"address":"127.0.0.1","action":"deny"}' | grep_q firewall.self_block || fail "own address blocked"
 step "firewall: rule 8081 confirmed over a new connection; rule 8083 rolled back by its timer after 60 s; own address refused"
 
+# A pending change that lost its timer (what a reboot leaves behind: the
+# timer is a transient unit, the rules are on disk) is taken over by the
+# unit that runs at boot: with time left it gets its timer back, past its
+# time it is rolled back at once.
+r=$(api -X POST "$base/api/v1/firewall/rules" -d '{"action":"allow","protocol":"tcp","ports":["8084"]}')
+pending=$(printf '%s' "$r" | json 'd["pending"]["id"]') || fail "rule 8084: $r"
+systemctl stop "cairn-fw-rollback-$pending.timer"
+systemctl start cairn-firewall-recover.service
+for _ in $(seq 20); do systemctl list-timers --all | grep_q "cairn-fw-rollback-$pending" && break; sleep 1; done
+systemctl list-timers --all | grep_q "cairn-fw-rollback-$pending" || fail "the pending change did not get its timer back"
+systemctl stop "cairn-fw-rollback-$pending.timer"
+sleep 62
+rules | grep_q 8084 || fail "rule 8084 went away although its timer was stopped"
+api -X POST "$base/api/v1/firewall/rules" -d '{"action":"allow","protocol":"tcp","ports":["8087"]}' | grep_q '"firewall.pending"' || fail "a change was accepted while another is pending"
+systemctl start cairn-firewall-recover.service
+for _ in $(seq 60); do
+	api "$base/api/v1/firewall" | json 'd["pending"] is None' | grep_q True && break
+	sleep 1
+done
+api "$base/api/v1/firewall" | json "d[\"pending\"] is None and d[\"lastRollback\"][\"id\"] == \"$pending\"" | grep_q True ||
+	fail "the expired change was not taken over: $(api "$base/api/v1/firewall")"
+! rules | grep_q 8084 || fail "rule 8084 still there after the takeover"
+step "firewall: a pending change without its timer got the timer back; past its time it was rolled back by cairn-firewall-recover.service"
+
+# A rollback that fails is not recorded as done: the change stays pending
+# with the failure, the overview shows it, and the next try ends it. The
+# backend is made to fail by making its files immutable.
+case "$backend" in
+	nftables) locked="/etc/cairn-firewall" ;;
+	ufw) locked="/etc/ufw/user.rules /etc/ufw/user6.rules" ;;
+	firewalld) locked="/etc/firewalld/policies" ;;
+esac
+r=$(api -X POST "$base/api/v1/firewall/rules" -d '{"action":"allow","protocol":"tcp","ports":["8086"]}')
+pending=$(printf '%s' "$r" | json 'd["pending"]["id"]') || fail "rule 8086: $r"
+# shellcheck disable=SC2086 # a list of files
+chattr +i $locked || fail "chattr +i $locked"
+# shellcheck disable=SC2086
+unlock() { chattr -i $locked; }
+r=$(api -X POST "$base/api/v1/firewall/rollback" -d "{\"id\":\"$pending\"}")
+printf '%s' "$r" | grep_q '"firewall.rollback_failed"' || { unlock; fail "a rollback that cannot work answered: $r"; }
+api "$base/api/v1/firewall" | json "d[\"pending\"][\"id\"] == \"$pending\" and d[\"pending\"][\"rollbackFailed\"][\"attempts\"] >= 1 and (d[\"lastRollback\"] or {}).get(\"id\") != \"$pending\"" |
+	grep_q True || { unlock; fail "the failed rollback is not on record: $(api "$base/api/v1/firewall")"; }
+rules | grep_q 8086 || { unlock; fail "rule 8086 is gone although its rollback failed"; }
+api "$base/api/v1/overview" | grep_q '"firewall.rollback_failed"' || { unlock; fail "the overview does not show the failed rollback"; }
+unlock
+# (Its own timer may have got there first once the files could be written.)
+api -X POST "$base/api/v1/firewall/rollback" -d "{\"id\":\"$pending\"}" | grep -E '^\{\}|"firewall.no_pending"' >/dev/null || fail "the second rollback: $(api "$base/api/v1/firewall")"
+api "$base/api/v1/firewall" | json "d[\"pending\"] is None and d[\"lastRollback\"][\"id\"] == \"$pending\"" | grep_q True || fail "after the second rollback: $(api "$base/api/v1/firewall")"
+! rules | grep_q 8086 || fail "rule 8086 still there after the second rollback"
+step "firewall: a rollback that failed stayed pending with the failure on record (overview: firewall.rollback_failed); the retry rolled it back"
+
 # SSH: a second port next to 22, then back; then moved and back again.
 ssh_ports() { ss -Htln | awk '{print $4}' | grep -oE ':(22|2222)$' | sort -u | tr '\n' ' '; }
 run_job POST /api/v1/ssh/port '{"port":2222,"closeAfterMinutes":5}' "ssh port 2222"
@@ -180,15 +245,57 @@ run_job POST /api/v1/ssh/port/cancel '' "ssh port cancel"
 [ "$(ssh_ports)" = ":22 " ] || fail "after cancel: $(ssh_ports)"
 ! rules | grep_q 2222 || fail "2222 still open after cancel"
 run_job POST /api/v1/ssh/port '{"port":2222,"closeAfterMinutes":5}' "ssh port 2222 again"
-# The timer's own service closes the old port, as it would after 5 minutes.
+# The timer's own service, as it would run after 5 minutes. Nobody has
+# connected to 2222 from another host (a security group in front of the
+# server could still block it): the old port stays, the move waits.
+systemctl start cairn-ssh-port-close.service 2>/dev/null || true
+for _ in $(seq 30); do api "$base/api/v1/ssh" | json '(d["pending"] or {}).get("held")' | grep_q unreached && break; sleep 1; done
+api "$base/api/v1/ssh" | json 'd["pending"]["held"]' | grep_q unreached || { journalctl -u cairn-ssh-port-close.service --no-pager >&2; fail "the move is not held: $(api "$base/api/v1/ssh")"; }
+[ "$(ssh_ports)" = ":22 :2222 " ] || fail "the old port was closed although nobody reached the new one: $(ssh_ports)"
+rules | grep -E '(^|[^0-9])22([^0-9]|$)' >/dev/null || fail "the firewall closed port 22"
+run_job POST /api/v1/ssh/port/cancel '' "ssh port cancel while held"
+[ "$(ssh_ports)" = ":22 " ] || fail "after the cancel: $(ssh_ports)"
+# Again, this time with a connection to 2222 from another host: a network
+# namespace of its own, whose address is not one of this host's.
+run_job POST /api/v1/ssh/port '{"port":2222,"closeAfterMinutes":5}' "ssh port 2222 a third time"
+ip netns add cairn-probe
+ip link add cairn-p0 type veth peer name cairn-p1
+ip link set cairn-p1 netns cairn-probe
+ip addr add 10.99.0.1/30 dev cairn-p0
+ip link set cairn-p0 up
+ip netns exec cairn-probe ip addr add 10.99.0.2/30 dev cairn-p1
+ip netns exec cairn-probe ip link set cairn-p1 up
+ip netns exec cairn-probe timeout 40 bash -c 'exec 3<>/dev/tcp/10.99.0.1/2222 && head -c 4 <&3 && sleep 30' >/root/probe.log 2>&1 &
+for _ in $(seq 30); do api "$base/api/v1/ssh" | json '(d["pending"] or {}).get("reachedAt", 0) > 0' | grep_q True && break; sleep 1; done
+api "$base/api/v1/ssh" | json 'd["pending"]["reachedAt"] > 0' | grep_q True || { cat /root/probe.log >&2; fail "the connection from outside was not seen: $(api "$base/api/v1/ssh")"; }
 systemctl start cairn-ssh-port-close.service
 for _ in $(seq 30); do [ "$(ssh_ports)" = ":2222 " ] && break; sleep 1; done
 [ "$(ssh_ports)" = ":2222 " ] || { journalctl -u cairn-ssh-port-close.service --no-pager >&2; fail "after the timer: $(ssh_ports)"; }
+ip netns del cairn-probe
+ip link del cairn-p0 2>/dev/null || true
 run_job POST /api/v1/ssh/port '{"port":22,"closeAfterMinutes":5}' "ssh port back to 22"
 run_job POST /api/v1/ssh/port/finish '' "ssh port finish"
 [ "$(ssh_ports)" = ":22 " ] || fail "back on 22: $(ssh_ports)"
 sshd -T | grep_q '^port 22$' || fail "sshd -T"
-step "SSH: 2222 added next to 22 (firewall$( [ "$family" = el ] && echo ', SELinux')), cancelled; moved to 2222 by the timer's service; moved back to 22"
+step "SSH: 2222 added next to 22 (firewall$( [ "$family" = el ] && echo ', SELinux')), cancelled; the timer's service kept 22 while nobody had reached 2222 from outside, and closed it once someone had; moved back to 22"
+
+# With socket activation the ports are the socket unit's: one set there
+# (as "systemctl edit ssh.socket" does) is kept open like the others,
+# although sshd's own configuration does not know it.
+if systemctl is-active --quiet ssh.socket; then
+	mkdir -p /etc/systemd/system/ssh.socket.d
+	printf '[Socket]\nListenStream=2223\n' >/etc/systemd/system/ssh.socket.d/cairn-test.conf
+	systemctl daemon-reload
+	systemctl restart ssh.socket
+	api "$base/api/v1/firewall" | json '2223 in d["sshPorts"] and 22 in d["sshPorts"]' | grep_q True || fail "the port of ssh.socket is not kept open: $(api "$base/api/v1/firewall" | json 'd["sshPorts"]')"
+	api "$base/api/v1/ssh" | json '2223 in d["ports"]' | grep_q True || fail "the SSH page does not list the port of ssh.socket"
+	rm -f /etc/systemd/system/ssh.socket.d/cairn-test.conf
+	rmdir /etc/systemd/system/ssh.socket.d 2>/dev/null || true
+	systemctl daemon-reload
+	systemctl restart ssh.socket
+	api "$base/api/v1/firewall" | json '2223 not in d["sshPorts"]' | grep_q True || fail "port 2223 stayed after the drop-in went"
+	step "SSH: a port set on ssh.socket (2223) shows on the firewall and SSH pages"
+fi
 
 run_job PUT /api/v1/ssh/settings '{"passwordAuthentication":false,"permitRootLogin":"no"}' "ssh settings"
 sshd -T | grep_q '^passwordauthentication no$' || fail "password login still on"

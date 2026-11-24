@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 )
@@ -31,10 +32,31 @@ func systemFirewall(t *testing.T) *Firewall {
 	if backend == helperapi.FirewallNftables {
 		def = "none"
 	}
-	old := sshPorts
-	t.Cleanup(func() { sshPorts = old })
-	sshPorts = func(context.Context) []int { return []int{22} }
-	return &Firewall{StateDir: fwStateDir, Default: def, PanelPort: 28443}
+	old := sshDetect
+	t.Cleanup(func() { sshDetect = old })
+	sshDetect = func(context.Context, string) sshEndpoints { return sshEndpoints{Ports: []int{22}, Installed: true} }
+	f := &Firewall{StateDir: fwStateDir, Default: def, PanelPort: 28443}
+	// Each phase is a process of its own, as the rollback timer's is: the
+	// minute a change waits passes on the firewall's clock.
+	fakeClock(t, f)
+	return f
+}
+
+// breakTool makes a backend's command fail until the returned function is
+// called.
+func breakTool(t *testing.T, bin string) func() {
+	t.Helper()
+	if err := os.Rename(bin, bin+".real"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho 'broken for the test' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.Rename(bin+".real", bin); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func sh(t *testing.T, name string, args ...string) string {
@@ -95,12 +117,12 @@ func TestFirewallSystem(t *testing.T) {
 	ufw := backend == helperapi.FirewallUFW
 	switch phase := os.Getenv("CAIRN_FW_PHASE"); phase {
 	case "setup":
-		plan, err := f.Plan(ctx)
+		plan, err := f.Plan(ctx, nil)
 		if err != nil || plan.Backend != backend || strings.Join(plan.Ports, " ") != "22/tcp 28443/tcp 80/tcp 443/tcp" {
 			t.Fatalf("plan %+v %v", plan, err)
 		}
-		if err := f.Setup(ctx, os.Stdout); err != nil {
-			t.Fatal(err)
+		if p, err := f.Setup(ctx, os.Stdout, FirewallSetup{}); err != nil || p != nil {
+			t.Fatalf("%+v %v", p, err)
 		}
 		st := f.Status(ctx)
 		if !st.Enabled || !st.Loaded || st.Backend != backend || st.Pending != nil {
@@ -147,6 +169,62 @@ func TestFirewallSystem(t *testing.T) {
 			t.Fatalf("status %+v", st)
 		}
 		want(t, false, os.Getenv("CAIRN_FW_CLIENT"))
+	case "unconfirmed":
+		// A change nobody confirms; the process that made it goes away with
+		// its timer, as a machine that is restarted does.
+		ch, err := f.setRule(ctx, admin, helperapi.FirewallRule{Action: "allow", Protocol: "tcp", Ports: []string{"8082"}, Note: "test"})
+		if err != nil || ch.Pending == nil {
+			t.Fatalf("%+v %v", ch, err)
+		}
+		if ufw {
+			want(t, true, "8082/tcp")
+		} else {
+			want(t, true, "tcp dport 8082 accept")
+		}
+	case "recover":
+		// What runs at boot: the change expired meanwhile and is undone.
+		if st := f.Status(ctx); st.Pending == nil {
+			t.Fatalf("nothing pending: %+v", st)
+		}
+		fwSleep(2 * time.Minute)
+		if err := f.Recover(ctx); err != nil {
+			t.Fatal(err)
+		}
+		st := f.Status(ctx)
+		if st.Pending != nil || st.LastRollback == nil || st.LastRollback.Kind != "rule.add" {
+			t.Fatalf("status %+v", st)
+		}
+		want(t, false, "8082")
+	case "rollback-fails":
+		// The backend's command fails while a change is rolled back: the
+		// change stays pending with the failure on record, and a later
+		// rollback that works ends it.
+		ch, err := f.setRule(ctx, admin, helperapi.FirewallRule{Action: "allow", Protocol: "tcp", Ports: []string{"8084"}, Note: "test"})
+		if err != nil || ch.Pending == nil {
+			t.Fatalf("%+v %v", ch, err)
+		}
+		tool := nftBinary
+		if ufw {
+			tool = ufwBinary
+		}
+		repair := breakTool(t, tool)
+		rerr := f.Rollback(ctx, ch.Pending.ID)
+		repair()
+		if !hasCode(rerr, helperapi.CodeFirewallRollbackFailed) {
+			t.Fatalf("rollback with a broken %s: %v", tool, rerr)
+		}
+		cfg, err := f.load()
+		if err != nil || cfg.Pending == nil || cfg.Pending.RollbackFailed == nil || cfg.Pending.RollbackFailed.Attempts != 1+len(fwRollbackRetry) || cfg.LastRollback != nil && cfg.LastRollback.ID == ch.Pending.ID {
+			t.Fatalf("state after the failed rollback: %+v %v", cfg.Pending, err)
+		}
+		want(t, true, "8084")
+		if err := f.RollbackNow(ctx, ch.Pending.ID); err != nil {
+			t.Fatal(err)
+		}
+		if st := f.Status(ctx); st.Pending != nil || st.LastRollback == nil || st.LastRollback.ID != ch.Pending.ID {
+			t.Fatalf("status %+v", st)
+		}
+		want(t, false, "8084")
 	case "managed":
 		if err := f.SetManaged(ctx, os.Stdout, "db:mysql", "tcp", []string{"3306"}); err != nil {
 			t.Fatal(err)
@@ -275,6 +353,22 @@ func TestFirewallSystem(t *testing.T) {
 		}
 	default:
 		t.Skip("CAIRN_FW_PHASE not set")
+	}
+}
+
+// TestSSHDetectSystem checks what the detection of the SSH ports finds on
+// the system it runs on, which test/firewall/sshd.sh sets up with a real
+// sshd: CAIRN_SSH_EXPECT lists the ports, CAIRN_SSH_UNREAD says whether
+// sshd's configuration is unreadable.
+func TestSSHDetectSystem(t *testing.T) {
+	expect, ok := os.LookupEnv("CAIRN_SSH_EXPECT")
+	if !ok {
+		t.Skip("CAIRN_SSH_EXPECT not set")
+	}
+	d := detectSSH(context.Background(), "")
+	got := strings.Join(portStrings(d.Ports), " ")
+	if unread := os.Getenv("CAIRN_SSH_UNREAD") == "yes"; got != expect || (d.Unread != "") != unread {
+		t.Fatalf("found ports %q (unread: %q, sshd installed: %v), want %q (unread: %v)", got, d.Unread, d.Installed, expect, unread)
 	}
 }
 

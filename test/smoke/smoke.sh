@@ -179,6 +179,11 @@ if [ "${SMOKE_SYSTEMD_VERIFY:-0}" = 1 ]; then
 	fi
 	units="/usr/lib/systemd/system/cairn-helper.socket /usr/lib/systemd/system/cairn-helper.service /usr/lib/systemd/system/cairn-web.service"
 	units="$units /usr/lib/systemd/system/cairn-firewall.service /usr/lib/systemd/system/cairn-forward.service"
+	units="$units /usr/lib/systemd/system/cairn-firewall-recover.service"
+	# The package itself links the unit that takes over a pending firewall
+	# change at boot into multi-user.target.
+	[ "$(readlink /usr/lib/systemd/system/multi-user.target.wants/cairn-firewall-recover.service)" = /usr/lib/systemd/system/cairn-firewall-recover.service ] ||
+		fail "cairn-firewall-recover.service is not wanted by multi-user.target"
 	# No output means no findings; a container without systemd as PID 1 adds
 	# harmless working-directory noise, which is filtered out.
 	# shellcheck disable=SC2086

@@ -50,7 +50,8 @@
       "off": "{backend} · 未启用",
       "conflict": "另一个防火墙管理工具正在运行：{conflict}",
       "unavailable": "无法检查防火墙",
-      "not_loaded": "{backend} 已启用，但规则没有生效"
+      "not_loaded": "{backend} 已启用，但规则没有生效",
+      "rollback_failed": "有一次防火墙修改未能回滚，它的规则仍在生效"
     },
     "ssh": {
       "keys_only": "端口 {ports} · 只允许密钥登录",

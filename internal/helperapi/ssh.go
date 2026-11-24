@@ -35,6 +35,9 @@ const (
 	CodeSSHNoPending     = "ssh.no_pending"
 	CodeSSHSELinuxPort   = "ssh.selinux_port"
 	CodeSSHNotListening  = "ssh.not_listening"
+	// CodeSSHPortUnreached: the time of a port change is up and nobody
+	// connected to the new port from another host, so the old ports stay.
+	CodeSSHPortUnreached = "ssh.port_unreached"
 	CodeSSHKeyInvalid    = "ssh.key_invalid"
 	CodeSSHKeyExists     = "ssh.key_exists"
 	CodeSSHUserNotFound  = "ssh.user_not_found"
@@ -57,11 +60,28 @@ const (
 	SSHLoginsMax    = 500
 )
 
+// Why the timer of a port change left the old ports open.
+const (
+	// SSHHeldUnreached: no connection from another host reached the new port.
+	SSHHeldUnreached = "unreached"
+	// SSHHeldNotListening: sshd did not answer on the new port.
+	SSHHeldNotListening = "not_listening"
+)
+
 // SSHPortPending is a port change in progress.
 type SSHPortPending struct {
 	OldPorts []int `json:"oldPorts"`
 	NewPort  int   `json:"newPort"`
 	CloseAt  int64 `json:"closeAt"`
+	// ReachedAt is when a connection from another host was first seen on
+	// the new port (0: not yet). Only then does the timer close the old
+	// ports: that sshd answers on this host says nothing about a firewall
+	// or security group in front of it.
+	ReachedAt int64 `json:"reachedAt,omitempty"`
+	// Held is set when the time ran out and the old ports were kept
+	// (SSHHeldUnreached, SSHHeldNotListening): the change waits for
+	// someone to finish or cancel it.
+	Held string `json:"held,omitempty"`
 }
 
 // SSHUser is an account whose keys the panel manages.

@@ -58,20 +58,26 @@
       "firewall": "Open port {port} in the firewall ({firewall})",
       "selinux": "On systems with SELinux, allow SSH on the new port",
       "check": "Check that SSH answers on port {port}",
-      "close": "Close port {old} after {minutes} minutes, or earlier when you close it"
+      "close": "Close port {old} after {minutes} minutes if someone has connected to port {port} from another host by then, or earlier when you close it"
     },
     "submit": "Move SSH",
     "title": "Move SSH to port {port}?",
-    "text": "SSH will listen on both the old and the new port. Log in on the new port to check it works (and open it in your cloud provider's security group). The old port closes automatically after {minutes} minutes, or when you close it.",
+    "text": "SSH will listen on both the old and the new port. Log in on the new port to check it works (and open it in your cloud provider's security group). The old port closes after {minutes} minutes once a connection from another host has reached the new port, or when you close it; with no such connection it stays open.",
     "pendingTitle": "Moving SSH to port {port}",
     "pendingText": "SSH listens on port {old} and on the new port {port}. Log in on port {port} to check it works, and open it in your cloud provider's security group if there is one.",
+    "pendingReached": "SSH listens on port {old} and on the new port {port}. A connection from another host has reached port {port}.",
     "step": {
       "listening": "Both ports listening",
       "check": "Log in on port {port}",
       "closed": "Port {old} closed"
     },
     "closesIn": "The old port closes in {time}",
+    "closesInIfReached": "The old port closes in {time} if the new port is reached from outside by then",
     "closing": "The old port is closing…",
+    "held": "The old port was kept open",
+    "heldUnreached": "The time ran out, but nobody had connected to port {port} from another host, so port {old} was kept open: a security group or firewall in front of this server may still block port {port}. Log in on port {port}, then close the old port here, or cancel the move.",
+    "heldReached": "The time ran out before anyone had connected to port {port} from another host, so port {old} was kept open. A connection has reached port {port} since: close the old port here, or cancel the move.",
+    "heldNotListening": "The time ran out, but SSH did not answer on port {port}, so port {old} was kept open. Check the SSH server, then close the old port here, or cancel the move.",
     "finish": "Close the old port now",
     "finishTitle": "Close port {old} now?",
     "finishText": "Only port {port} stays open. Make sure you have logged in on it.",

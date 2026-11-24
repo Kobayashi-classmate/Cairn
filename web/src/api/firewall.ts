@@ -68,6 +68,11 @@ export interface FirewallPending {
   /** Unix seconds; the change is rolled back after this. */
   expires: number
   kind: string
+  /**
+   * Set once the server failed to undo the change: its time is up and its
+   * rules are still in force. It stays pending until a rollback works.
+   */
+  rollbackFailed?: { at: number; attempts: number; detail: string }
 }
 
 export interface FirewallRollback {
@@ -90,6 +95,11 @@ export interface FirewallView {
   systemd: boolean
   blockPing: boolean
   sshPorts: number[]
+  /**
+   * The SSH server's configuration could not be read: `sshPorts` are the
+   * ports it listens on now, the ones known before and 22.
+   */
+  sshUnread: boolean
   panelPort: number
   rules: FirewallRule[]
   addresses: FirewallAddress[]

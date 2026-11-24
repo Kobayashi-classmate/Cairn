@@ -26,9 +26,15 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - A file manager and a web terminal.
 - Scheduled tasks, a log browser and backups to local or S3 storage.
 - Firewall management on nftables, firewalld or ufw, with automatic rollback
-  of a change that locks the administrator out.
+  of a change that locks the administrator out. The rollback holds when
+  the browser goes away and when the server restarts before the change is
+  confirmed; one that fails is tried again and reported. The installer
+  keeps the firewall on only after you confirm from a new SSH connection
+  that you can still log in and, with nobody to ask, switches it on only
+  when the SSH ports are known for certain.
 - SSH settings and authorized keys, and host settings: host name, time,
-  swap, system updates and package sources.
+  swap, system updates and package sources. A change of the SSH port keeps
+  the old port open until the new one has been reached from outside.
 - Support for SELinux in enforcing mode on Enterprise Linux.
 - English and Simplified Chinese interfaces.
 - Light, dark and system colour schemes, saved with each account; a menu

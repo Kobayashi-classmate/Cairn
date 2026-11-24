@@ -58,20 +58,26 @@
       "firewall": "在防火墙（{firewall}）中放行端口 {port}",
       "selinux": "在启用了 SELinux 的系统上，允许 SSH 使用新端口",
       "check": "确认 SSH 在端口 {port} 上有响应",
-      "close": "{minutes} 分钟后关闭端口 {old}，也可以提前手动关闭"
+      "close": "{minutes} 分钟后，如果已有人从其他主机连接过端口 {port}，就关闭端口 {old}；也可以提前手动关闭"
     },
     "submit": "修改端口",
     "title": "把 SSH 改到端口 {port}？",
-    "text": "SSH 会同时监听新旧两个端口。请用新端口登录确认可用（并在云服务商的安全组中放行）。旧端口会在 {minutes} 分钟后自动关闭，你也可以手动关闭。",
+    "text": "SSH 将同时监听新旧两个端口。请用新端口登录，确认可用（如有云服务商的安全组，记得放行）。{minutes} 分钟后，只要已有连接从其他主机到达过新端口，旧端口就会关闭；也可以手动关闭。一直没有这样的连接时，旧端口保持开放。",
     "pendingTitle": "正在把 SSH 改到端口 {port}",
     "pendingText": "SSH 正在同时监听端口 {old} 和新端口 {port}。请用端口 {port} 登录确认可用；如果有云服务商的安全组，也要在其中放行。",
+    "pendingReached": "SSH 正在监听端口 {old} 和新端口 {port}。已有连接从其他主机到达端口 {port}。",
     "step": {
       "listening": "新旧端口同时监听",
       "check": "用端口 {port} 登录确认",
       "closed": "关闭端口 {old}"
     },
     "closesIn": "旧端口将在 {time}后关闭",
+    "closesInIfReached": "如果届时已有外部连接到达新端口，旧端口将在 {time}后关闭",
     "closing": "正在关闭旧端口……",
+    "held": "旧端口已保留",
+    "heldUnreached": "时限已到，但没有人从其他主机连接过端口 {port}，因此保留了端口 {old}：服务器前面的安全组或防火墙可能仍在拦截端口 {port}。请用端口 {port} 登录，然后在这里关闭旧端口，或者取消这次修改。",
+    "heldReached": "时限到达时还没有人从其他主机连接过端口 {port}，因此保留了端口 {old}。之后已有连接到达端口 {port}：可以在这里关闭旧端口，或者取消这次修改。",
+    "heldNotListening": "时限已到，但 SSH 在端口 {port} 上没有应答，因此保留了端口 {old}。请检查 SSH 服务，然后在这里关闭旧端口，或者取消这次修改。",
     "finish": "立即关闭旧端口",
     "finishTitle": "立即关闭端口 {old}？",
     "finishText": "只保留端口 {port}。请确认你已经用它登录过。",

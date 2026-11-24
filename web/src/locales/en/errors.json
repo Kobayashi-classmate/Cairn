@@ -331,7 +331,8 @@
       "apply_failed": "The firewall rules could not be applied: {detail}",
       "unsupported": "This is not possible with the firewall on this system: {reasonText}.",
       "protected": "Port {port} is kept for SSH or the panel, which always stay reachable, so it cannot be used here.",
-      "forward_taken": "Another forward already listens on port {port}."
+      "forward_taken": "Another forward already listens on port {port}.",
+      "rollback_failed": "The change could not be rolled back: {detail}. Its rules are still in force."
     },
     "ssh": {
       "config_invalid": "The SSH configuration is not valid: {output}",
@@ -339,6 +340,7 @@
       "port_in_use": "Port {port} is already in use: another program listens on it, or it is the panel's port.",
       "selinux_port": "SELinux does not allow SSH on port {port} (type {type}).",
       "not_listening": "SSH is not listening on port {port}.",
+      "port_unreached": "Nobody has connected to port {port} from another host yet, so the old port stays open.",
       "no_keys": "Deleting this key would leave {user} without a usable key while password sign-in is off, so the account could no longer sign in. Add another key or turn on password sign-in first."
     },
     "host": {
@@ -523,7 +525,8 @@
     "deny_needs_source": "A deny rule needs at least one source address: everything not allowed is refused already.",
     "confirm_retry": "The change could not be confirmed yet.",
     "no_pending": "There is no change waiting for confirmation (it was rolled back or has expired).",
-    "forward_taken": "Another forward already listens on this port."
+    "forward_taken": "Another forward already listens on this port.",
+    "rollback_failed": "The change could not be rolled back; its rules are still in force."
   },
   "ssh": {
     "not_installed": "The SSH server is not installed.",
@@ -536,6 +539,7 @@
     "no_pending": "There is no port move in progress.",
     "selinux_port": "SELinux does not allow SSH on this port.",
     "not_listening": "SSH is not listening on the new port.",
+    "port_unreached": "Nobody has connected to the new port from another host yet, so the old port stays open.",
     "key_invalid": "This is not a valid SSH public key.",
     "key_exists": "This key is already authorized.",
     "user_not_found": "This user does not exist.",

@@ -183,6 +183,15 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	// Existing sites get what this version writes into their configuration
 	// (after an upgrade), before any request can change them.
 	e.sites.StartRefresh(ctx, ops, log)
+	// A firewall change left pending by a restart of the machine or of the
+	// helper has lost its rollback timer; a pending SSH port change waits
+	// for a connection from outside. Neither holds up the first request.
+	go func() {
+		if err := e.firewall.Recover(ctx); err != nil {
+			log.Error("taking over the pending firewall change failed", "err", err)
+		}
+	}()
+	e.ssh.Resume()
 
 	srv := &helper.Server{
 		Registry: reg,
@@ -260,21 +269,31 @@ func runSSH(args []string, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	return e.ssh.FinishPort(context.Background(), os.Stdout)
+	return e.ssh.FinishPort(context.Background(), os.Stdout, true)
 }
 
-// runFirewall is the firewall's command line, for the installer and the
-// rollback timer:
+// runFirewall is the firewall's command line, for the installer, the
+// rollback timer and the boot-time unit:
 //
-//	cairn-helper firewall plan            (what setup would do, key=value lines)
-//	cairn-helper firewall setup           (enable it at install time)
-//	cairn-helper firewall rollback <tx>   (undo a change nobody confirmed)
+//	cairn-helper firewall plan [--ssh-port N]    (what setup would do, key=value lines)
+//	cairn-helper firewall setup [--ssh-port N] [--confirm]
+//	                                             (enable it at install time; with --confirm
+//	                                             only until "confirm", else it is undone)
+//	cairn-helper firewall confirm <tx>           (keep a change made with --confirm)
+//	cairn-helper firewall undo <tx>              (undo a pending change now)
+//	cairn-helper firewall rollback <tx>          (undo a change nobody confirmed in time)
+//	cairn-helper firewall recover                (take over a change left pending by a reboot)
+//
+// --ssh-port is the server port of the SSH connection the installer runs
+// in (the fourth field of SSH_CONNECTION): it stays open whatever the
+// detection of the SSH ports finds.
 func runFirewall(args []string, log *slog.Logger) error {
+	const usage = "usage: cairn-helper firewall plan|setup [--ssh-port N] [--confirm] | confirm|undo|rollback <tx> | recover"
 	if os.Geteuid() != 0 {
 		return errors.New("the firewall commands run as root")
 	}
 	if len(args) == 0 {
-		return errors.New("usage: cairn-helper firewall plan|setup|rollback <tx>")
+		return errors.New(usage)
 	}
 	cfg, err := config.Load(config.DefaultPath)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -287,25 +306,78 @@ func runFirewall(args []string, log *slog.Logger) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	switch {
-	case args[0] == "plan" && len(args) == 1:
-		plan, err := e.firewall.Plan(ctx)
+	switch args[0] {
+	case "plan", "setup":
+		set := flag.NewFlagSet("firewall "+args[0], flag.ContinueOnError)
+		sshPort := set.Int("ssh-port", 0, "server port of the SSH connection in use")
+		confirm := set.Bool("confirm", false, "roll the firewall back unless it is confirmed")
+		if err := set.Parse(args[1:]); err != nil || set.NArg() != 0 || *sshPort < 0 || *sshPort > 65535 {
+			return errors.New(usage)
+		}
+		var keep []int
+		if *sshPort > 0 {
+			keep = []int{*sshPort}
+		}
+		if args[0] == "plan" {
+			plan, err := e.firewall.Plan(ctx, keep)
+			if err != nil {
+				return err
+			}
+			printPlan(plan)
+			return nil
+		}
+		pending, err := e.firewall.Setup(ctx, os.Stdout, helper.FirewallSetup{SSHPorts: keep, Confirm: *confirm})
 		if err != nil {
 			return err
 		}
-		active := "no"
-		if plan.Active {
-			active = "yes"
+		if pending != nil {
+			fmt.Printf("pending=%s\nexpires=%d\n", pending.ID, pending.Expires)
 		}
-		fmt.Printf("backend=%s\nactive=%s\ninstall=%s\nports=%s\n", plan.Backend, active,
-			strings.Join(plan.Install, " "), strings.Join(plan.Ports, " "))
 		return nil
-	case args[0] == "setup" && len(args) == 1:
-		return e.firewall.Setup(ctx, os.Stdout)
-	case args[0] == "rollback" && len(args) == 2 && helperapi.ValidFirewallTxID(args[1]):
+	case "recover":
+		if len(args) != 1 {
+			return errors.New(usage)
+		}
+		return e.firewall.Recover(ctx)
+	case "confirm", "undo", "rollback":
+		if len(args) != 2 || !helperapi.ValidFirewallTxID(args[1]) {
+			return errors.New(usage)
+		}
+		switch args[0] {
+		case "confirm":
+			return e.firewall.Confirm(ctx, args[1])
+		case "undo":
+			return e.firewall.RollbackNow(ctx, args[1])
+		}
 		return e.firewall.Rollback(ctx, args[1])
 	}
-	return errors.New("usage: cairn-helper firewall plan|setup|rollback <tx>")
+	return errors.New(usage)
+}
+
+// printPlan writes the plan as key=value lines for install.sh.
+func printPlan(plan helper.FirewallPlan) {
+	yes := func(b bool) string {
+		if b {
+			return "yes"
+		}
+		return "no"
+	}
+	ports := func(list []int) string {
+		out := make([]string, len(list))
+		for i, p := range list {
+			out[i] = strconv.Itoa(p)
+		}
+		return strings.Join(out, " ")
+	}
+	sshConfig := "ok"
+	if plan.SSHUnread {
+		sshConfig = "unread"
+	}
+	fmt.Printf("backend=%s\nactive=%s\ninstall=%s\nports=%s\n", plan.Backend, yes(plan.Active),
+		strings.Join(plan.Install, " "), strings.Join(plan.Ports, " "))
+	fmt.Printf("ssh=%s\nssh_config=%s\nsession=%s\nclosing=%s\n", ports(plan.SSH), sshConfig, ports(plan.Session),
+		strings.Join(plan.Closing, " "))
+	fmt.Printf("unattended=%s\nreason=%s\nconfirm_minutes=%d\n", yes(plan.Unattended), plan.Reason, helper.FirewallSetupConfirmMinutes)
 }
 
 // runTask is what a scheduled task's service runs:

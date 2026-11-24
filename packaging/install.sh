@@ -11,7 +11,12 @@
 # checksum list and installs it with apt-get or dnf. No package repository is
 # added: dependencies come from the system's own sources, and later versions
 # are installed through the panel's online update. It then switches the
-# firewall on (after showing which ports stay open; --no-firewall skips it).
+# firewall on, after showing which ports stay open and which listening ones
+# close (--no-firewall skips it). At a terminal it asks first, and switches
+# the firewall off again unless you confirm from a new SSH connection that
+# you can still log in. With nobody to ask (--yes, no terminal) it switches
+# the firewall on only when the SSH ports are known for certain: the SSH
+# connection the installer runs in, or an SSH server found listening.
 # Nothing else changes: system mirrors, /bin/sh, /etc/hosts and other global
 # settings are left alone. Every step can be reproduced by hand; see the
 # README.
@@ -26,6 +31,9 @@
 #                     install from it (the repository installer's default)
 #   --repo URL        package repository for --with-repo
 #   --yes             do not ask questions; use --lang or the system locale
+#                     (the firewall is then switched on without the check
+#                     from a new SSH connection, and only when the SSH ports
+#                     are known for certain)
 #   --no-firewall     leave the firewall alone (by default it is switched on:
 #                     incoming connections denied except SSH, the panel's
 #                     port, 80 and 443; the panel changes it later)
@@ -112,7 +120,16 @@ msg() {
 			done) text='安装完成。请打开上面显示的初始化链接，创建管理员账号。' ;;
 			fw_plan) text='将启用防火墙（%s）：拒绝所有入站连接，只放行以下端口：%s' ;;
 			fw_install) text='需要先从系统软件源安装：%s' ;;
+			fw_closing) text='以下端口现在可以从其他主机连接，启用后将无法再从外部访问：%s' ;;
+			fw_ssh_unread) text='警告：读不到 SSH 服务的配置。上面列出的 SSH 端口是它此刻正在监听的端口、之前已知的端口，再加上 22；请确认你使用的端口在其中。' ;;
+			fw_ssh_none) text='警告：这台机器上没有找到 SSH 服务，不会为 SSH 保留任何端口。' ;;
 			fw_prompt) text='现在启用防火墙？以后可以在面板里修改 [Y/n]：' ;;
+			fw_confirm) text='防火墙已启用。请现在另开一个 SSH 连接登录这台服务器，确认还能登录，然后输入 yes 保留防火墙。输入其他内容，或者 %s 分钟内没有回答，防火墙会重新关闭：' ;;
+			fw_undone) text='防火墙已重新关闭，其他设置没有改动。可以以后在面板的"防火墙"页面启用。' ;;
+			fw_expired) text='回答得太晚，防火墙此前已经重新关闭。可以以后在面板的"防火墙"页面启用。' ;;
+			fw_unattended_unread) text='没有启用防火墙：现在没有人能在终端上确认 SSH 仍可登录，而 SSH 服务的配置又读不到，它的端口只能靠猜。' ;;
+			fw_unattended_unknown) text='没有启用防火墙：现在没有人能在终端上确认 SSH 仍可登录，也没有找到可以为之保留端口的 SSH 服务。' ;;
+			fw_unattended_how) text='可以在面板的"防火墙"页面启用（面板确认不了就会自动撤销），或者以 root 身份运行：%s firewall setup' ;;
 			fw_enabled) text='防火墙已启用。' ;;
 			fw_skipped) text='没有修改防火墙。可以以后在面板的"防火墙"页面启用。' ;;
 			fw_failed) text='启用防火墙失败，面板已安装好；可以以后在面板的"防火墙"页面重试。' ;;
@@ -150,7 +167,16 @@ msg() {
 			done) text='Done. Open the setup link shown above to create the administrator account.' ;;
 			fw_plan) text='The firewall (%s) will be switched on: incoming connections are denied except on %s' ;;
 			fw_install) text='It is installed first from the system repositories: %s' ;;
+			fw_closing) text='These ports take connections from other hosts now and will not be reachable from outside any more: %s' ;;
+			fw_ssh_unread) text='Warning: the SSH server'"'"'s configuration cannot be read. The SSH ports listed above are the ones it listens on now, the ones known before and 22; check that the port you use is among them.' ;;
+			fw_ssh_none) text='Warning: no SSH server was found on this system, so no port stays open for SSH.' ;;
 			fw_prompt) text='Switch the firewall on now? You can change it in the panel later [Y/n]: ' ;;
+			fw_confirm) text='The firewall is on. Open a NEW SSH connection to this server now and check that you can still log in, then type yes to keep the firewall. With any other answer, or none within %s minutes, it is switched off again: ' ;;
+			fw_undone) text='The firewall was switched off again; nothing else changed. You can switch it on later on the panel'"'"'s Firewall page.' ;;
+			fw_expired) text='The answer came too late: the firewall had been switched off again. You can switch it on later on the panel'"'"'s Firewall page.' ;;
+			fw_unattended_unread) text='The firewall was NOT switched on: nobody is at a terminal to check that SSH still works, and the SSH server'"'"'s configuration cannot be read, so its ports would be a guess.' ;;
+			fw_unattended_unknown) text='The firewall was NOT switched on: nobody is at a terminal to check that SSH still works, and no SSH server was found whose port could be kept open.' ;;
+			fw_unattended_how) text='Switch it on on the panel'"'"'s Firewall page (the change is undone unless the panel can confirm it), or as root with: %s firewall setup' ;;
 			fw_enabled) text='The firewall is on.' ;;
 			fw_skipped) text='The firewall was left alone. You can switch it on later on the panel'"'"'s Firewall page.' ;;
 			fw_failed) text='Switching the firewall on failed; the panel itself is installed. You can retry on the panel'"'"'s Firewall page.' ;;
@@ -427,30 +453,89 @@ EOF
 
 # ---- Firewall --------------------------------------------------------------
 # The helper decides which firewall to use (a running firewalld or ufw, else
-# the system's default) and lists the ports that stay open.
+# the system's default), lists the ports that stay open and the listening
+# ones that will not, and says whether the SSH ports are known well enough
+# to switch the firewall on with nobody there to check. The SSH connection
+# this installer runs in stays possible in any case: its server port is the
+# fourth field of SSH_CONNECTION (sudo drops the variable; the helper then
+# finds the connection among its own ancestors).
+plan_field() { # name
+	printf '%s\n' "$plan" | sed -n "s/^$1=//p"
+}
+
 setup_firewall() {
 	helper=/usr/lib/cairn/cairn-helper
 	if [ "$FIREWALL" -eq 0 ] || [ ! -d /run/systemd/system ] || [ ! -x "$helper" ]; then
 		[ "$FIREWALL" -eq 0 ] && say fw_skipped
 		return 0
 	fi
+	# shellcheck disable=SC2086 # split into its four fields
+	set -- ${SSH_CONNECTION:-}
+	ssh_port=${4:-}
+	case "$ssh_port" in "" | 0* | *[!0-9]* | ??????*) ssh_port="" ;; esac
+	set --
+	[ -z "$ssh_port" ] || set -- --ssh-port "$ssh_port"
+
 	fwlog=$(mktemp)
-	plan=$("$helper" firewall plan 2>"$fwlog") || { say fw_failed; tail -5 "$fwlog" >&2; rm -f "$fwlog"; return 0; }
-	backend=$(printf '%s\n' "$plan" | sed -n 's/^backend=//p')
-	ports=$(printf '%s\n' "$plan" | sed -n 's/^ports=//p')
-	install=$(printf '%s\n' "$plan" | sed -n 's/^install=//p')
+	plan=$("$helper" firewall plan "$@" 2>"$fwlog") || { say fw_failed; tail -5 "$fwlog" >&2; rm -f "$fwlog"; return 0; }
+	backend=$(plan_field backend)
+	ports=$(plan_field ports)
+	install=$(plan_field install)
+	closing=$(plan_field closing)
 	echo
 	say fw_plan "$backend" "$ports"
-	[ -n "$install" ] && say fw_install "$install"
-	answer=""
+	if [ -n "$install" ]; then say fw_install "$install"; fi
+	if [ -n "$closing" ]; then say fw_closing "$closing"; fi
+	if [ "$(plan_field ssh_config)" = unread ]; then say fw_ssh_unread; fi
+	if [ -z "$(plan_field ssh)" ]; then say fw_ssh_none; fi
+
 	if [ "$ASSUME_YES" -eq 0 ] && have_tty; then
+		# Someone is there: ask, switch it on with its rollback timer
+		# running, and keep it only once they say that SSH still works.
 		msg fw_prompt >/dev/tty
 		read -r answer </dev/tty || answer=""
+		case "$answer" in
+			n* | N*) say fw_skipped; rm -f "$fwlog"; return 0 ;;
+		esac
+		if ! "$helper" firewall setup --confirm "$@" >"$fwlog" 2>&1; then
+			say fw_failed
+			tail -10 "$fwlog" >&2
+			rm -f "$fwlog"
+			return 0
+		fi
+		pending=$(sed -n 's/^pending=//p' "$fwlog")
+		minutes=$(plan_field confirm_minutes)
+		rm -f "$fwlog"
+		{
+			echo
+			msg fw_confirm "${minutes:-5}"
+		} >/dev/tty
+		# No answer (the terminal is gone with the connection) is a "no";
+		# the timer undoes the change even if this script is gone too.
+		read -r answer </dev/tty || answer=""
+		case "$answer" in
+			yes | Yes | YES | y | Y)
+				if "$helper" firewall confirm "$pending" >/dev/null 2>&1; then say fw_enabled; else say fw_expired; fi
+				;;
+			*)
+				"$helper" firewall undo "$pending" >/dev/null 2>&1 || true
+				say fw_undone
+				;;
+		esac
+		return 0
 	fi
-	case "$answer" in
-		n* | N*) say fw_skipped; rm -f "$fwlog"; return 0 ;;
-	esac
-	if "$helper" firewall setup >"$fwlog" 2>&1; then
+
+	# Nobody to ask: only when the helper found the SSH ports for certain.
+	if [ "$(plan_field unattended)" != yes ]; then
+		case "$(plan_field reason)" in
+			ssh_unread) say fw_unattended_unread ;;
+			*) say fw_unattended_unknown ;;
+		esac
+		say fw_unattended_how "$helper"
+		rm -f "$fwlog"
+		return 0
+	fi
+	if "$helper" firewall setup "$@" >"$fwlog" 2>&1; then
 		say fw_enabled
 	else
 		say fw_failed
@@ -471,4 +556,4 @@ setup_firewall
 echo
 /usr/bin/cairn setup-link --lang "$CHOSEN_LANG" || true
 echo
-say done
+say 'done'

@@ -156,6 +156,23 @@ function cancelPort() {
   void runPortJob(cancelSshPort, false)
 }
 
+/** What the banner says about closing the old port. */
+const pendingText = computed(() => {
+  const current = pending.value
+  if (!current) return ''
+  const named = { old: current.oldPorts.join(', '), port: current.newPort }
+  if (current.held === 'not_listening') return t('ssh.port.heldNotListening', named)
+  if (current.held === 'unreached') return t(current.reachedAt ? 'ssh.port.heldReached' : 'ssh.port.heldUnreached', named)
+  return t(current.reachedAt ? 'ssh.port.pendingReached' : 'ssh.port.pendingText', named)
+})
+const pendingCountdown = computed(() => {
+  const current = pending.value
+  if (!current) return ''
+  if (current.held) return t('ssh.port.held')
+  if (closesIn.value <= 0) return t('ssh.port.closing')
+  return t(current.reachedAt ? 'ssh.port.closesIn' : 'ssh.port.closesInIfReached', { time: formatDuration(closesIn.value) })
+})
+
 const steps = computed(() => {
   const current = pending.value
   if (!current) return []
@@ -192,12 +209,12 @@ const steps = computed(() => {
 
         <PendingChangeBanner
           v-if="pending"
-          tone="waiting"
+          :tone="pending.held ? 'warning' : 'waiting'"
           :title="t('ssh.port.pendingTitle', { port: pending.newPort })"
-          :description="t('ssh.port.pendingText', { old: pending.oldPorts.join(', '), port: pending.newPort })"
+          :description="pendingText"
           :steps="steps"
           :current="1"
-          :countdown="closesIn > 0 ? t('ssh.port.closesIn', { time: formatDuration(closesIn) }) : t('ssh.port.closing')"
+          :countdown="pendingCountdown"
         >
           <template v-if="canManage" #actions>
             <Button size="sm" class="max-md:h-11" :disabled="portBusy" @click="finishPort">

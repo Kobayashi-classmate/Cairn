@@ -38,7 +38,7 @@ const steps = computed(() => {
   const list = [t('ssh.port.steps.listen', { port: target })]
   if (props.view.firewall) list.push(t('ssh.port.steps.firewall', { port: target, firewall: props.view.firewall }))
   list.push(t('ssh.port.steps.selinux'), t('ssh.port.steps.check', { port: target }))
-  list.push(t('ssh.port.steps.close', { old: props.view.ports.join(', '), minutes: minutes.value ?? CLOSE_AFTER_DEFAULT }))
+  list.push(t('ssh.port.steps.close', { old: props.view.ports.join(', '), port: target, minutes: minutes.value ?? CLOSE_AFTER_DEFAULT }))
   return list
 })
 

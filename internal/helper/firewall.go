@@ -33,10 +33,13 @@ import (
 // (firewalld on EL, ufw on Ubuntu, a table of Cairn's own in nftables on
 // Debian).
 //
-// The SSH ports (read with sshd -T) and the panel port are always
-// allowed. A change from the panel is rolled back after 60 seconds unless
-// it is confirmed; the rollback runs in a timer of its own, so it happens
-// even if the helper stops.
+// The SSH ports (see sshDetect) and the panel port are always allowed. A
+// change from the panel is rolled back after 60 seconds unless it is
+// confirmed. The change is written down as pending and its rollback timer
+// started before the first rule changes, and the timer is a unit of its
+// own: the rollback happens even if the helper stops or the request that
+// made the change goes away, and a pending change left behind by a reboot
+// is taken over when the system comes up (Recover).
 type Firewall struct {
 	StateDir string
 	// Software installs the backend when it is missing (nil: never).
@@ -66,6 +69,12 @@ type fwConfig struct {
 	Forwards     []helperapi.FirewallForward `json:"forwards,omitempty"`
 	Pending      *fwPending                  `json:"pending,omitempty"`
 	LastRollback *helperapi.FirewallRollback `json:"lastRollback,omitempty"`
+	// SSHSeen is where SSH was found the last time sshd's configuration
+	// could be read: what stays open when it cannot be.
+	SSHSeen []int `json:"sshSeen,omitempty"`
+	// SSHKeep are ports an administrator was connected through (at install
+	// time) that the detection did not find; they stay open until it does.
+	SSHKeep []int `json:"sshKeep,omitempty"`
 }
 
 // fwPending is a change waiting for confirmation, with the configuration
@@ -73,6 +82,13 @@ type fwConfig struct {
 type fwPending struct {
 	helperapi.FirewallPending
 	Previous fwConfig `json:"previous"`
+	// Backend is the backend the change is applied to, which is not always
+	// the one of Previous ("" in state files written before it was kept).
+	Backend string `json:"backend,omitempty"`
+	// Applying is set until the rules are in place. Whoever finds it while
+	// holding the lock knows the apply was cut short: such a change can be
+	// undone, never confirmed.
+	Applying bool `json:"applying,omitempty"`
 }
 
 // fwRender is what a backend puts in place: every rule (the protected ones
@@ -102,8 +118,25 @@ type fwBackend interface {
 const (
 	fwConfirm      = helperapi.FirewallConfirmSeconds * time.Second
 	fwRollbackUnit = "cairn-fw-rollback-"
+	// fwCommandLimit bounds starting and stopping a timer; fwApplyLimit a
+	// backend's apply or disable (ufw runs one command per rule).
 	fwCommandLimit = 2 * time.Minute
+	fwApplyLimit   = 5 * time.Minute
+	// fwSetupConfirm is how long the install-time setup waits for a person
+	// to check a new SSH connection and answer.
+	fwSetupConfirm = 5 * time.Minute
 )
+
+// FirewallSetupConfirmMinutes is fwSetupConfirm for the installer's prompt.
+const FirewallSetupConfirmMinutes = int(fwSetupConfirm / time.Minute)
+
+// fwRollbackRetry is how long the timer waits before it tries a rollback
+// that failed again; after the last try the failure stays on record for
+// the next start of the helper and for "roll back now".
+var fwRollbackRetry = []time.Duration{10 * time.Second, 30 * time.Second}
+
+// fwSleep waits (tests shorten it).
+var fwSleep = time.Sleep
 
 // RegisterFirewall adds the firewall actions.
 func RegisterFirewall(r *Registry, o *Ops, f *Firewall) {
@@ -217,6 +250,8 @@ func (cfg fwConfig) clone() fwConfig {
 	}
 	out.Addresses = slices.Clone(cfg.Addresses)
 	out.Forwards = slices.Clone(cfg.Forwards)
+	out.SSHSeen = slices.Clone(cfg.SSHSeen)
+	out.SSHKeep = slices.Clone(cfg.SSHKeep)
 	return out
 }
 
@@ -277,36 +312,67 @@ func (f *Firewall) detect(ctx context.Context, cfg fwConfig) fwSystem {
 
 // Protected rules -----------------------------------------------------------
 
-// sshPorts reads the ports sshd listens on; when sshd is installed but its
-// configuration cannot be read, port 22 stays open to be safe.
-var sshPorts = func(ctx context.Context) []int {
-	if _, err := os.Stat("/usr/sbin/sshd"); err != nil {
-		return nil
-	}
-	out, err := queryCommand(ctx, "/usr/sbin/sshd", "-T")
-	if err != nil {
-		return []int{22}
-	}
-	ports := parseSSHDPorts(out)
-	if len(ports) == 0 {
-		return []int{22}
-	}
-	return ports
+// fwSSH is where SSH stays reachable: the ports of the rule that is always
+// there and, when they are partly a guess, why.
+type fwSSH struct {
+	ports []int
+	// unread is not empty when sshd's configuration could not be read.
+	unread string
 }
 
-func parseSSHDPorts(out string) []int {
-	var ports []int
-	for _, line := range strings.Split(out, "\n") {
-		k, v, ok := strings.Cut(strings.TrimSpace(line), " ")
-		if !ok || k != "port" {
-			continue
-		}
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 && n < 65536 && !slices.Contains(ports, n) {
-			ports = append(ports, n)
+// sshView works out the SSH ports to keep open from what the system tells
+// (d) and what is on record. While sshd's configuration can be read, they
+// are what the system tells now. When it cannot (a file on disk has an
+// option this sshd does not know, a host key is missing), the running sshd
+// still listens where it did: the ports seen last, the ones the panel set
+// and 22 stay open as well. Without any sshd to ask, the ports SSH servers
+// were seen listening on stay on record, since such a server may be down
+// for a moment just when the rules are applied.
+func (f *Firewall) sshView(d sshEndpoints, cfg fwConfig) fwSSH {
+	v := fwSSH{ports: addPorts(slices.Clone(d.Ports), cfg.SSHKeep...), unread: d.Unread}
+	if d.Installed && d.Unread == "" {
+		return v
+	}
+	v.ports = addPorts(v.ports, cfg.SSHSeen...)
+	if d.Installed {
+		v.ports = addPorts(v.ports, sshStatePorts(f.StateDir)...)
+		v.ports = addPorts(v.ports, 22)
+	}
+	return v
+}
+
+// sshKept reads the SSH ports to keep open without recording anything.
+func (f *Firewall) sshKept(ctx context.Context, cfg fwConfig) fwSSH {
+	return f.sshView(sshDetect(ctx, f.Root), cfg)
+}
+
+// sshRemember is sshKept for a change: what it learns about the SSH ports
+// goes into the configuration that will be stored. keep adds ports an
+// administrator is connected through.
+func (f *Firewall) sshRemember(ctx context.Context, cfg *fwConfig, keep ...int) fwSSH {
+	d := sshDetect(ctx, f.Root)
+	if d.Installed && d.Unread == "" {
+		// The configuration is the authority again: what it lists needs
+		// no other record.
+		cfg.SSHSeen = slices.Clone(d.Ports)
+		cfg.SSHKeep = slices.DeleteFunc(slices.Clone(cfg.SSHKeep), func(p int) bool { return slices.Contains(d.Ports, p) })
+	} else {
+		cfg.SSHSeen = addPorts(slices.Clone(cfg.SSHSeen), d.Ports...)
+	}
+	for _, p := range keep {
+		if !slices.Contains(d.Ports, p) {
+			cfg.SSHKeep = addPorts(slices.Clone(cfg.SSHKeep), p)
 		}
 	}
-	slices.Sort(ports)
-	return ports
+	if len(cfg.SSHKeep) == 0 {
+		cfg.SSHKeep = nil
+	}
+	v := f.sshView(d, *cfg)
+	if v.unread != "" && f.Log != nil {
+		f.Log.Warn("sshd's configuration cannot be read: the SSH ports it listens on now, the ones known before and 22 stay open",
+			"ports", v.ports, "err", v.unread)
+	}
+	return v
 }
 
 func portStrings(ports []int) []string {
@@ -318,9 +384,9 @@ func portStrings(ports []int) []string {
 }
 
 // protected returns the rules that are always there.
-func (f *Firewall) protected(ctx context.Context) []helperapi.FirewallRule {
+func (f *Firewall) protected(ssh []int) []helperapi.FirewallRule {
 	var rules []helperapi.FirewallRule
-	if ports := sshPorts(ctx); len(ports) > 0 {
+	if ports := ssh; len(ports) > 0 {
 		rules = append(rules, helperapi.FirewallRule{ID: helperapi.OwnerSSH, Action: helperapi.FirewallAllow, Protocol: helperapi.ProtoTCP,
 			Ports: portStrings(ports), Owner: helperapi.OwnerSSH})
 	}
@@ -331,8 +397,8 @@ func (f *Firewall) protected(ctx context.Context) []helperapi.FirewallRule {
 	return rules
 }
 
-func (f *Firewall) render(ctx context.Context, cfg fwConfig) fwRender {
-	return fwRender{Rules: append(f.protected(ctx), cfg.Rules...), Addresses: cfg.Addresses, BlockPing: cfg.BlockPing, Forwards: cfg.Forwards}
+func (f *Firewall) render(cfg fwConfig, ssh []int) fwRender {
+	return fwRender{Rules: append(f.protected(ssh), cfg.Rules...), Addresses: cfg.Addresses, BlockPing: cfg.BlockPing, Forwards: cfg.Forwards}
 }
 
 // Checks ------------------------------------------------------------------
@@ -352,7 +418,7 @@ func coversPort(r helperapi.FirewallRule, port int) bool {
 // check refuses configurations that would block the caller's own address
 // from the panel or SSH, and trusted addresses overlapping blocked ones:
 // backends order rules differently, so the result must not depend on it.
-func (f *Firewall) check(ctx context.Context, cfg fwConfig, remote string) error {
+func (f *Firewall) check(cfg fwConfig, remote string, ssh []int) error {
 	type entry struct {
 		p    netip.Prefix
 		text string
@@ -397,7 +463,7 @@ func (f *Firewall) check(ctx context.Context, cfg fwConfig, remote string) error
 	if len(cfg.Rules) > helperapi.FirewallMaxRules || len(cfg.Addresses) > helperapi.FirewallMaxRules {
 		return fwErr("validation.invalid", map[string]any{"field": "rules", "rule": "count"})
 	}
-	if err := checkForwards(cfg.Forwards, append(sshPorts(ctx), f.PanelPort)); err != nil {
+	if err := checkForwards(cfg.Forwards, append(slices.Clone(ssh), f.PanelPort)); err != nil {
 		return err
 	}
 	ip, err := netip.ParseAddr(remote)
@@ -410,7 +476,7 @@ func (f *Firewall) check(ctx context.Context, cfg fwConfig, remote string) error
 			return fwErr(helperapi.CodeFirewallSelfBlock, map[string]any{"address": remote})
 		}
 	}
-	keep := append(portStrings(sshPorts(ctx)), strconv.Itoa(f.PanelPort))
+	keep := append(portStrings(ssh), strconv.Itoa(f.PanelPort))
 	for _, r := range denyRules {
 		hit := false
 		for _, s := range r.Sources {
@@ -445,10 +511,20 @@ func (f *Firewall) active(ctx context.Context, cfg *fwConfig, sys fwSystem) bool
 	return cfg.Enabled
 }
 
+// detached gives a step of a change a context of its own: the request that
+// asked for the change may end (a closed browser tab, a proxy's timeout)
+// while rules are half applied, and neither the apply nor what puts the
+// old rules back may stop there. Every step gets a fresh time limit, so
+// that undoing still works after an apply ran into its own.
+func detached(ctx context.Context, limit time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), limit)
+}
+
 // change applies a change to the configuration. While the firewall is on,
 // the change takes effect at once and waits for confirmation; while it is
 // off, it is only stored.
 func (f *Firewall) change(ctx context.Context, c helperapi.Caller, kind string, mutate func(*fwConfig) error) (helperapi.FirewallChange, error) {
+	ctx = context.WithoutCancel(ctx)
 	unlock, err := f.lock()
 	if err != nil {
 		return helperapi.FirewallChange{}, err
@@ -470,20 +546,17 @@ func (f *Firewall) change(ctx context.Context, c helperapi.Caller, kind string, 
 	if err := mutate(&cfg); err != nil {
 		return helperapi.FirewallChange{}, err
 	}
-	if err := f.check(ctx, cfg, c.Remote); err != nil {
+	ssh := f.sshRemember(ctx, &cfg)
+	if err := f.check(cfg, c.Remote, ssh.ports); err != nil {
 		return helperapi.FirewallChange{}, err
 	}
 	if !on {
 		return helperapi.FirewallChange{}, f.save(cfg)
 	}
 	var out bytes.Buffer
-	if err := f.backend(sys.backend).apply(ctx, &out, f.render(ctx, cfg)); err != nil {
-		f.restore(ctx, prev, sys.backend)
-		return helperapi.FirewallChange{}, applyErr(err, out.String())
-	}
-	p, err := f.hold(ctx, &cfg, prev, kind)
+	p, err := f.commit(ctx, &out, &cfg, prev, sys.backend, kind, ssh.ports, fwConfirm)
 	if err != nil {
-		return helperapi.FirewallChange{}, err
+		return helperapi.FirewallChange{}, applyErr(err, out.String())
 	}
 	return helperapi.FirewallChange{Pending: p}, nil
 }
@@ -499,53 +572,130 @@ func applyErr(err error, out string) error {
 	return fwErr(helperapi.CodeFirewallApplyFailed, map[string]any{"detail": tailString(detail, 600)})
 }
 
-// restore puts the previous configuration back after a failed change.
-func (f *Firewall) restore(ctx context.Context, prev fwConfig, backend string) {
+// commit applies cfg on backend as a change that waits for confirmation.
+// The pending change is stored and its rollback timer started before the
+// first rule changes: whatever cuts the apply short (the helper stopping,
+// the machine going down), the state says what to go back to and
+// something is there to do it. window is how long the change then waits.
+func (f *Firewall) commit(ctx context.Context, log io.Writer, cfg *fwConfig, prev fwConfig, backend, kind string, ssh []int,
+	window time.Duration) (*helperapi.FirewallPending, error) {
 	b := f.backend(backend)
-	var err error
-	if prev.Enabled {
-		err = b.apply(ctx, io.Discard, f.render(ctx, prev))
-	} else {
-		err = b.disable(ctx, io.Discard)
+	if b == nil {
+		return nil, fwErr(helperapi.CodeFirewallBackendMissing, map[string]any{"backend": backend})
 	}
-	if err != nil && f.Log != nil {
-		f.Log.Error("restoring the previous firewall configuration failed", "err", err)
-	}
-}
-
-// hold stores the new configuration with a pending confirmation and
-// schedules its rollback.
-func (f *Firewall) hold(ctx context.Context, cfg *fwConfig, prev fwConfig, kind string) (*helperapi.FirewallPending, error) {
-	p := helperapi.FirewallPending{ID: newHexID("x"), Expires: f.clock().Add(fwConfirm).Unix(), Kind: kind}
-	cfg.Pending = &fwPending{FirewallPending: p, Previous: prev}
+	tx := newHexID("x")
+	cfg.Pending = &fwPending{FirewallPending: helperapi.FirewallPending{ID: tx, Expires: f.clock().Add(window).Unix(), Kind: kind},
+		Previous: prev, Backend: backend, Applying: true}
 	if err := f.save(*cfg); err != nil {
 		return nil, err
 	}
-	if err := f.schedule(ctx, p.ID); err != nil {
-		// Without a rollback timer the change cannot stay: undo it now.
-		f.restore(ctx, prev, cfg.Backend)
-		prev.Pending = nil
-		_ = f.save(prev)
+	// Nothing has changed on the system yet: without a timer, nothing will.
+	if err := f.schedule(ctx, tx, window); err != nil {
+		return nil, errors.Join(err, f.save(f.previous(*cfg)))
+	}
+	actx, cancel := detached(ctx, fwApplyLimit)
+	err := b.apply(actx, log, f.render(*cfg, ssh))
+	cancel()
+	if err == nil {
+		// The change waits from now on: a connection that confirms it must
+		// be younger than the rules.
+		cfg.Pending.Applying = false
+		cfg.Pending.Expires = f.clock().Add(window).Unix()
+		err = f.save(*cfg)
+	}
+	if err != nil {
+		if uerr := f.undo(ctx, *cfg, ssh); uerr != nil {
+			// The pending change and its timer stay: the rollback is tried
+			// again when the time is up.
+			f.undoFailed(cfg, uerr)
+			return nil, err
+		}
+		if serr := f.save(f.previous(*cfg)); serr != nil {
+			return nil, errors.Join(err, serr)
+		}
+		f.unschedule(ctx, tx)
 		return nil, err
 	}
+	p := cfg.Pending.FirewallPending
 	return &p, nil
 }
 
+// previous is the configuration to store when the pending change of cfg is
+// gone: the one before it, with what was learned about the SSH ports since.
+func (f *Firewall) previous(cfg fwConfig) fwConfig {
+	prev := cfg.Pending.Previous
+	prev.Pending = nil
+	prev.SSHSeen, prev.SSHKeep = cfg.SSHSeen, cfg.SSHKeep
+	return prev
+}
+
+// undo puts the system back to what it was before the pending change of
+// cfg: on the backend the change was applied to, which is not always the
+// one in use before (switching the firewall on picks the platform's when
+// the earlier one no longer runs).
+func (f *Firewall) undo(ctx context.Context, cfg fwConfig, ssh []int) error {
+	prev := cfg.Pending.Previous
+	applied := cfg.Pending.Backend
+	if applied == "" {
+		// A state file from before the backend was recorded.
+		if applied = prev.Backend; applied == "" {
+			applied = cfg.Backend
+		}
+	}
+	before := prev.Backend
+	if before == "" {
+		before = applied
+	}
+	ab, bb := f.backend(applied), f.backend(before)
+	if ab == nil || bb == nil {
+		return fwErr(helperapi.CodeFirewallBackendMissing, map[string]any{"backend": applied})
+	}
+	ctx, cancel := detached(ctx, fwApplyLimit)
+	defer cancel()
+	if !prev.Enabled || before != applied {
+		if err := ab.disable(ctx, io.Discard); err != nil {
+			return err
+		}
+	}
+	if prev.Enabled {
+		return bb.apply(ctx, io.Discard, f.render(prev, ssh))
+	}
+	return nil
+}
+
+// undoFailed records that the pending change of cfg could not be undone:
+// its rules are (partly) in force, and the state must say so.
+func (f *Firewall) undoFailed(cfg *fwConfig, err error) {
+	failed := &helperapi.FirewallRollbackFailure{At: f.clock().Unix(), Attempts: 1, Detail: tailString(errDetail(err), 400)}
+	if old := cfg.Pending.RollbackFailed; old != nil {
+		failed.Attempts = old.Attempts + 1
+	}
+	cfg.Pending.RollbackFailed = failed
+	serr := f.save(*cfg)
+	if f.Log != nil {
+		f.Log.Error("undoing a firewall change failed: its rules are still in force", "tx", cfg.Pending.ID, "kind", cfg.Pending.Kind,
+			"attempts", failed.Attempts, "err", err, "save_err", serr)
+	}
+}
+
 // schedule starts the rollback timer of a pending change.
-func (f *Firewall) schedule(ctx context.Context, tx string) error {
+func (f *Firewall) schedule(ctx context.Context, tx string, delay time.Duration) error {
 	if !systemdRunning() {
 		if f.timers == nil {
 			f.timers = map[string]*time.Timer{}
 		}
-		f.timers[tx] = time.AfterFunc(fwConfirm, func() {
+		f.timers[tx] = time.AfterFunc(delay, func() {
 			if err := f.Rollback(context.Background(), tx); err != nil && f.Log != nil {
 				f.Log.Error("firewall rollback failed", "tx", tx, "err", err)
 			}
 		})
 		return nil
 	}
+	ctx, cancel := detached(ctx, fwCommandLimit)
+	defer cancel()
+	seconds := max(int((delay+time.Second-1)/time.Second), 1)
 	_, err := queryCommand(ctx, "systemd-run", "--unit="+fwRollbackUnit+tx, "--description=Cairn firewall rollback",
-		"--on-active="+strconv.Itoa(helperapi.FirewallConfirmSeconds), "--timer-property=AccuracySec=1s",
+		"--on-active="+strconv.Itoa(seconds), "--timer-property=AccuracySec=1s",
 		"--property=CollectMode=inactive-or-failed", "--property=Type=oneshot", f.Executable, "firewall", "rollback", tx)
 	if err != nil {
 		return fmt.Errorf("start the rollback timer: %w", err)
@@ -559,12 +709,37 @@ func (f *Firewall) unschedule(ctx context.Context, tx string) {
 		delete(f.timers, tx)
 	}
 	if systemdRunning() {
+		ctx, cancel := detached(ctx, fwCommandLimit)
+		defer cancel()
 		_, _ = queryCommand(ctx, "systemctl", "stop", fwRollbackUnit+tx+".timer")
 	}
 }
 
+// scheduled reports whether the rollback of a pending change is on its
+// way: its timer waits, or the timer's service is at work.
+func (f *Firewall) scheduled(ctx context.Context, tx string) bool {
+	if _, ok := f.timers[tx]; ok {
+		return true
+	}
+	if !systemdRunning() {
+		return false
+	}
+	ctx, cancel := detached(ctx, fwCommandLimit)
+	defer cancel()
+	// is-active exits non-zero unless every unit is active; its output has
+	// a line per unit all the same.
+	out, _ := queryCommand(ctx, "systemctl", "is-active", fwRollbackUnit+tx+".timer", fwRollbackUnit+tx+".service")
+	for _, state := range strings.Fields(out) {
+		if state == "active" || state == "activating" {
+			return true
+		}
+	}
+	return false
+}
+
 // Confirm keeps a pending change.
 func (f *Firewall) Confirm(ctx context.Context, tx string) error {
+	ctx = context.WithoutCancel(ctx)
 	unlock, err := f.lock()
 	if err != nil {
 		return err
@@ -574,79 +749,176 @@ func (f *Firewall) Confirm(ctx context.Context, tx string) error {
 	if err != nil {
 		return err
 	}
-	if cfg.Pending == nil || cfg.Pending.ID != tx {
+	// A change whose apply was cut short is not in place as a whole, and
+	// one whose rollback failed may be half undone: neither can be kept.
+	if cfg.Pending == nil || cfg.Pending.ID != tx || cfg.Pending.Applying {
 		return fwErr(helperapi.CodeFirewallNoPending, map[string]any{"id": tx})
 	}
-	f.unschedule(ctx, tx)
+	if cfg.Pending.RollbackFailed != nil {
+		return fwErr(helperapi.CodeFirewallRollbackFailed, map[string]any{"id": tx, "detail": cfg.Pending.RollbackFailed.Detail})
+	}
 	cfg.Pending = nil
-	return f.save(cfg)
+	// The state first: a timer that still fires finds nothing to undo,
+	// while a stopped timer with the change still pending would leave it
+	// in force unconfirmed.
+	if err := f.save(cfg); err != nil {
+		return err
+	}
+	f.unschedule(ctx, tx)
+	return nil
 }
 
-// Rollback undoes a pending change that was not confirmed in time.
+// Rollback undoes a pending change that was not confirmed in time. It is
+// what the change's timer runs: a rollback that fails is tried again a few
+// times, and stays on record when it keeps failing.
 func (f *Firewall) Rollback(ctx context.Context, tx string) error {
-	return f.rollback(ctx, tx, false)
+	ctx = context.WithoutCancel(ctx)
+	mayWait := true
+	for try := 0; ; {
+		wait, err := f.rollback(ctx, tx, false, mayWait)
+		if wait > 0 {
+			// Waited for once only: afterwards the change goes, whatever
+			// the clock says by then.
+			mayWait = false
+			fwSleep(wait)
+			continue
+		}
+		if err == nil || try >= len(fwRollbackRetry) {
+			return err
+		}
+		fwSleep(fwRollbackRetry[try])
+		try++
+	}
 }
 
 // RollbackNow undoes a pending change at once, on request: the user saw
 // that it does not work and does not want to wait for the timer.
 func (f *Firewall) RollbackNow(ctx context.Context, tx string) error {
-	return f.rollback(ctx, tx, true)
+	_, err := f.rollback(context.WithoutCancel(ctx), tx, true, false)
+	return err
 }
 
-func (f *Firewall) rollback(ctx context.Context, tx string, requested bool) error {
+// rollback undoes the pending change tx. The timer of a change is started
+// before its rules are applied, so it fires that much before the change
+// expires: with mayWait, rollback then reports how long is left instead of
+// undoing anything. The change counts as rolled back only once the old
+// rules are in place again; until then it stays pending, its failure on
+// record.
+func (f *Firewall) rollback(ctx context.Context, tx string, requested, mayWait bool) (time.Duration, error) {
 	unlock, err := f.lock()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer unlock()
 	cfg, err := f.load()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if cfg.Pending == nil || cfg.Pending.ID != tx {
 		if requested {
-			return fwErr(helperapi.CodeFirewallNoPending, map[string]any{"id": tx})
+			return 0, fwErr(helperapi.CodeFirewallNoPending, map[string]any{"id": tx})
 		}
-		return nil // confirmed meanwhile
+		return 0, nil // confirmed meanwhile
+	}
+	if !requested {
+		delete(f.timers, tx)
+		if left := time.Unix(cfg.Pending.Expires, 0).Sub(f.clock()); mayWait && !cfg.Pending.Applying && left > 0 {
+			return min(left, fwSetupConfirm), nil
+		}
+	}
+	kind := cfg.Pending.Kind
+	ssh := f.sshRemember(ctx, &cfg)
+	if err := f.undo(ctx, cfg, ssh.ports); err != nil {
+		f.undoFailed(&cfg, err)
+		return 0, fwErr(helperapi.CodeFirewallRollbackFailed, map[string]any{"id": tx, "detail": cfg.Pending.RollbackFailed.Detail})
+	}
+	prev := f.previous(cfg)
+	prev.LastRollback = &helperapi.FirewallRollback{ID: tx, At: f.clock().Unix(), Kind: kind, Requested: requested}
+	// Should this fail, the change stays pending with the old rules in
+	// place: the next try puts them in place once more and stores it.
+	if err := f.save(prev); err != nil {
+		return 0, err
 	}
 	if requested {
 		f.unschedule(ctx, tx)
-	} else {
-		delete(f.timers, tx)
-	}
-	prev := cfg.Pending.Previous
-	backend := cfg.Backend
-	if prev.Backend != "" {
-		backend = prev.Backend
-	}
-	b := f.backend(backend)
-	if prev.Enabled {
-		err = b.apply(ctx, io.Discard, f.render(ctx, prev))
-	} else {
-		err = b.disable(ctx, io.Discard)
-	}
-	prev.Pending = nil
-	prev.LastRollback = &helperapi.FirewallRollback{ID: tx, At: f.clock().Unix(), Kind: cfg.Pending.Kind, Requested: requested}
-	if serr := f.save(prev); serr != nil {
-		return errors.Join(err, serr)
 	}
 	if f.Log != nil {
 		if requested {
-			f.Log.Info("firewall change rolled back on request", "tx", tx, "kind", prev.LastRollback.Kind)
+			f.Log.Info("firewall change rolled back on request", "tx", tx, "kind", kind)
 		} else {
-			f.Log.Warn("firewall change rolled back: it was not confirmed in time", "tx", tx, "kind", prev.LastRollback.Kind)
+			f.Log.Warn("firewall change rolled back: it was not confirmed in time", "tx", tx, "kind", kind)
 		}
 	}
-	return err
+	return 0, nil
+}
+
+// Recover takes over a pending change whose rollback timer is gone: the
+// machine was restarted before the change was confirmed (the timer is a
+// transient unit, the rules are on disk and loaded at boot), or the helper
+// stopped in the middle of applying it. A change that has expired, or was
+// never applied as a whole, is rolled back at once; one that still has
+// time gets a timer for what is left of it. It runs when the helper starts
+// and once at boot (cairn-firewall-recover.service).
+func (f *Firewall) Recover(ctx context.Context) error {
+	ctx = context.WithoutCancel(ctx)
+	unlock, err := f.lock()
+	if err != nil {
+		return err
+	}
+	cfg, err := f.load()
+	if err != nil || cfg.Pending == nil {
+		unlock()
+		return err
+	}
+	tx := cfg.Pending.ID
+	left := time.Unix(cfg.Pending.Expires, 0).Sub(f.clock())
+	if !cfg.Pending.Applying && left > 0 {
+		if !f.scheduled(ctx, tx) {
+			// Never longer than a change waits: the clock may have been
+			// set since the change was made.
+			err = f.schedule(ctx, tx, min(left, fwSetupConfirm))
+			if f.Log != nil {
+				f.Log.Warn("a firewall change was left pending without its rollback timer; the timer is started again",
+					"tx", tx, "kind", cfg.Pending.Kind, "seconds", int(left/time.Second), "err", err)
+			}
+		}
+		unlock()
+		return err
+	}
+	if f.Log != nil {
+		f.Log.Warn("a firewall change was left pending past its time; rolling it back", "tx", tx, "kind", cfg.Pending.Kind,
+			"interrupted", cfg.Pending.Applying)
+	}
+	unlock()
+	return f.Rollback(ctx, tx)
+}
+
+// fwEnable is how the firewall is switched on.
+type fwEnable struct {
+	// confirm asks for the rollback window; window is its length (the
+	// usual one when zero).
+	confirm bool
+	window  time.Duration
+	// seedWeb opens 80 and 443 when there are no rules yet (install time).
+	seedWeb bool
+	// keepSSH are ports of SSH connections that must stay possible.
+	keepSSH []int
 }
 
 // Enable switches the firewall on (installing the backend when needed)
 // with Cairn's rules; confirm asks for the rollback window.
 func (f *Firewall) Enable(ctx context.Context, c helperapi.Caller, confirm bool, log io.Writer) (*helperapi.FirewallPending, error) {
+	return f.enable(ctx, c, fwEnable{confirm: confirm}, log)
+}
+
+func (f *Firewall) enable(ctx context.Context, c helperapi.Caller, o fwEnable, log io.Writer) (*helperapi.FirewallPending, error) {
 	// Only a root caller (the install-time setup) goes without the
 	// rollback window; the web process always gets it, whatever it asks.
 	if !c.PeerRoot {
-		confirm = true
+		o.confirm, o.window, o.seedWeb, o.keepSSH = true, 0, false, nil
+	}
+	if o.window == 0 {
+		o.window = fwConfirm
 	}
 	unlock, err := f.lock()
 	if err != nil {
@@ -676,29 +948,51 @@ func (f *Firewall) Enable(ctx context.Context, c helperapi.Caller, confirm bool,
 			return nil, fwErr(helperapi.CodeFirewallBackendMissing, map[string]any{"backend": sys.backend, "detail": errDetail(err)})
 		}
 	}
+	// From here on nothing follows the caller's context any more.
+	ctx = context.WithoutCancel(ctx)
+	if o.seedWeb && len(cfg.Rules) == 0 {
+		cfg.Rules = append(cfg.Rules, helperapi.FirewallRule{ID: newHexID("r"), Action: helperapi.FirewallAllow,
+			Protocol: helperapi.ProtoTCP, Ports: webPorts, Note: "web"})
+	}
+	ssh := f.sshRemember(ctx, &cfg, o.keepSSH...)
 	cfg.Enabled, cfg.Backend = true, sys.backend
-	if err := f.check(ctx, cfg, c.Remote); err != nil {
+	if err := f.check(cfg, c.Remote, ssh.ports); err != nil {
 		return nil, err
 	}
-	r := f.render(ctx, cfg)
+	r := f.render(cfg, ssh.ports)
 	_, _ = fmt.Fprintf(log, "Enabling the firewall (%s): incoming connections are denied except:\n", sys.backend)
 	for _, rule := range r.Rules {
 		if rule.Action == helperapi.FirewallAllow && len(rule.Sources) == 0 {
 			_, _ = fmt.Fprintf(log, "  %s %s\n", strings.Join(rule.Ports, ","), rule.Protocol)
 		}
 	}
-	if err := b.apply(ctx, log, r); err != nil {
-		f.restore(ctx, prev, sys.backend)
+	switch {
+	case ssh.unread != "":
+		_, _ = fmt.Fprintf(log, "Warning: sshd's configuration cannot be read (%s). The SSH ports above are the ones sshd listens on now, "+
+			"the ones known before and 22.\n", tailString(ssh.unread, 200))
+	case len(ssh.ports) == 0:
+		_, _ = fmt.Fprintln(log, "Warning: no SSH server was found on this system: no port stays open for SSH.")
+	}
+	p, err := f.commit(ctx, log, &cfg, prev, sys.backend, "enable", ssh.ports, o.window)
+	if err != nil {
 		return nil, applyErr(err, "")
 	}
-	if !confirm {
-		return nil, f.save(cfg)
+	if o.confirm {
+		return p, nil
 	}
-	return f.hold(ctx, &cfg, prev, "enable")
+	// No window was asked for: the change is kept at once. Until here it
+	// went the same way, so that an apply cut short is still undone.
+	cfg.Pending = nil
+	if err := f.save(cfg); err != nil {
+		return nil, err
+	}
+	f.unschedule(ctx, p.ID)
+	return nil, nil
 }
 
 // Disable switches the firewall off.
 func (f *Firewall) Disable(ctx context.Context, log io.Writer) error {
+	ctx = context.WithoutCancel(ctx)
 	unlock, err := f.lock()
 	if err != nil {
 		return err
@@ -716,7 +1010,9 @@ func (f *Firewall) Disable(ctx context.Context, log io.Writer) error {
 		return fwErr(helperapi.CodeFirewallConflict, map[string]any{"conflict": sys.conflict})
 	}
 	_, _ = fmt.Fprintf(log, "Disabling the firewall (%s).\n", sys.backend)
-	if err := f.backend(sys.backend).disable(ctx, log); err != nil {
+	actx, cancel := detached(ctx, fwApplyLimit)
+	defer cancel()
+	if err := f.backend(sys.backend).disable(actx, log); err != nil {
 		return applyErr(err, "")
 	}
 	cfg.Enabled = false
@@ -728,6 +1024,7 @@ func (f *Firewall) Disable(ctx context.Context, log io.Writer) error {
 // confirmation: it only ever allows. Sources the user set on the rule are
 // kept.
 func (f *Firewall) SetManaged(ctx context.Context, log io.Writer, owner, protocol string, ports []string) error {
+	ctx = context.WithoutCancel(ctx)
 	unlock, err := f.lock()
 	if err != nil {
 		return err
@@ -763,6 +1060,10 @@ func (f *Firewall) SetManaged(ctx context.Context, log io.Writer, owner, protoco
 	}
 	sys := f.detect(ctx, cfg)
 	on := sys.conflict == "" && f.active(ctx, &cfg, sys)
+	var ssh fwSSH
+	if on {
+		ssh = f.sshRemember(ctx, &cfg)
+	}
 	if err := f.save(cfg); err != nil {
 		return err
 	}
@@ -775,7 +1076,9 @@ func (f *Firewall) SetManaged(ctx context.Context, log io.Writer, owner, protoco
 		_, _ = fmt.Fprintf(log, "Opening %s/%s in the firewall for %s.\n", strings.Join(ports, ","), protocol, owner)
 	}
 	var out bytes.Buffer
-	if err := f.backend(sys.backend).apply(ctx, &out, f.render(ctx, cfg)); err != nil {
+	actx, cancel := detached(ctx, fwApplyLimit)
+	defer cancel()
+	if err := f.backend(sys.backend).apply(actx, &out, f.render(cfg, ssh.ports)); err != nil {
 		return applyErr(err, out.String())
 	}
 	return nil
@@ -889,15 +1192,16 @@ func (f *Firewall) Status(ctx context.Context) helperapi.FirewallStatus {
 	if err != nil && f.Log != nil {
 		f.Log.Warn("reading the firewall state failed", "err", err)
 	}
+	ssh := f.sshKept(ctx, cfg)
 	st := helperapi.FirewallStatus{Systemd: systemdRunning(), BlockPing: cfg.BlockPing, PanelPort: f.PanelPort,
-		SSHPorts: sshPorts(ctx), Rules: []helperapi.FirewallRule{}, Addresses: []helperapi.FirewallAddress{}, External: []string{},
-		LastRollback: cfg.LastRollback}
+		SSHPorts: ssh.ports, SSHUnread: ssh.unread != "", Rules: []helperapi.FirewallRule{}, Addresses: []helperapi.FirewallAddress{},
+		External: []string{}, LastRollback: cfg.LastRollback}
 	if st.SSHPorts == nil {
 		st.SSHPorts = []int{}
 	}
 	sys := f.detect(ctx, cfg)
 	st.Conflict = sys.conflict
-	st.Rules = append(append(st.Rules, f.protected(ctx)...), cfg.Rules...)
+	st.Rules = append(append(st.Rules, f.protected(ssh.ports)...), cfg.Rules...)
 	st.Addresses = append(st.Addresses, cfg.Addresses...)
 	st.Forwards = append([]helperapi.FirewallForward{}, cfg.Forwards...)
 	st.IPForward = f.ipForwardOn()
@@ -929,13 +1233,60 @@ type FirewallPlan struct {
 	Active  bool
 	Install []string
 	Ports   []string // "22/tcp"
+	// SSH are the ports that stay open for SSH. With SSHUnread they are
+	// partly a guess: sshd's configuration could not be read.
+	SSH       []int
+	SSHUnread bool
+	// Session are the server ports of the SSH connections the plan was
+	// asked from; they are among SSH whatever the detection found.
+	Session []int
+	// Closing lists what other hosts can connect to now and will not be
+	// able to any more ("25/tcp(master)"); empty when a firewall already
+	// runs, which closed what it closed before.
+	Closing []string
+	// Unattended reports whether the firewall may be switched on with
+	// nobody there to check that SSH still works: the SSH connection in
+	// use is known, or the SSH ports were found for certain. Reason says
+	// what is missing otherwise (ssh_unread, ssh_unknown).
+	Unattended bool
+	Reason     string
+}
+
+// FirewallSetup is how the install-time setup switches the firewall on.
+type FirewallSetup struct {
+	// SSHPorts are server ports of SSH connections that must stay
+	// possible: the installer's own (the fourth field of SSH_CONNECTION).
+	SSHPorts []int
+	// Confirm keeps the rollback timer running until Confirm is called,
+	// for a person who checks a new SSH connection first.
+	Confirm bool
 }
 
 // webPorts are opened at install time for the sites the panel serves.
 var webPorts = []string{"80", "443"}
 
-// Plan describes the install-time setup.
-func (f *Firewall) Plan(ctx context.Context) (FirewallPlan, error) {
+// sessionPorts are the SSH ports this process was reached through: the
+// ones it was told, and the ones its ancestors hold connections on.
+func (f *Firewall) sessionPorts(told []int) []int {
+	return addPorts(sshSessionPorts(f.Root, os.Getpid()), told...)
+}
+
+// opens reports whether a rule lets everyone connect to a port.
+func opens(r helperapi.FirewallRule, port int, udp bool) bool {
+	if r.Action != helperapi.FirewallAllow || len(r.Sources) > 0 || r.Protocol == helperapi.ProtoUDP && !udp || r.Protocol == helperapi.ProtoTCP && udp {
+		return false
+	}
+	for _, p := range r.Ports {
+		if lo, hi, ok := helperapi.ParsePortRange(p); ok && lo <= port && port <= hi {
+			return true
+		}
+	}
+	return false
+}
+
+// Plan describes the install-time setup; sshPorts are the SSH ports the
+// installer knows it is connected through.
+func (f *Firewall) Plan(ctx context.Context, sshPorts []int) (FirewallPlan, error) {
 	cfg, err := f.load()
 	if err != nil {
 		return FirewallPlan{}, err
@@ -944,41 +1295,86 @@ func (f *Firewall) Plan(ctx context.Context) (FirewallPlan, error) {
 	if sys.conflict != "" {
 		return FirewallPlan{}, fwErr(helperapi.CodeFirewallConflict, map[string]any{"conflict": sys.conflict})
 	}
-	plan := FirewallPlan{Backend: sys.backend, Active: sys.active}
+	plan := FirewallPlan{Backend: sys.backend, Active: sys.active, Session: f.sessionPorts(sshPorts)}
 	if b := f.backend(sys.backend); !b.installed() {
 		plan.Install = b.packages()
 	}
-	for _, r := range f.protected(ctx) {
-		for _, p := range r.Ports {
-			plan.Ports = append(plan.Ports, p+"/tcp")
+	// What Setup would do, without storing anything.
+	d := sshDetect(ctx, f.Root)
+	for _, p := range plan.Session {
+		if !slices.Contains(d.Ports, p) {
+			cfg.SSHKeep = addPorts(slices.Clone(cfg.SSHKeep), p)
 		}
 	}
-	for _, p := range webPorts {
-		plan.Ports = append(plan.Ports, p+"/tcp")
+	ssh := f.sshView(d, cfg)
+	plan.SSH, plan.SSHUnread = ssh.ports, ssh.unread != ""
+	rules := f.protected(ssh.ports)
+	if len(cfg.Rules) == 0 {
+		rules = append(rules, helperapi.FirewallRule{Action: helperapi.FirewallAllow, Protocol: helperapi.ProtoTCP, Ports: webPorts})
+	}
+	rules = append(rules, cfg.Rules...)
+	for _, r := range rules {
+		if r.Action != helperapi.FirewallAllow || len(r.Sources) > 0 {
+			continue
+		}
+		for _, proto := range protocols(r.Protocol) {
+			for _, p := range r.Ports {
+				plan.Ports = append(plan.Ports, p+"/"+proto)
+			}
+		}
+	}
+	if !sys.active {
+		for _, l := range exposedListeners(f.Root) {
+			if slices.ContainsFunc(rules, func(r helperapi.FirewallRule) bool { return opens(r, l.Port, l.UDP) }) {
+				continue
+			}
+			item := strconv.Itoa(l.Port) + "/" + helperapi.ProtoTCP
+			if l.UDP {
+				item = strconv.Itoa(l.Port) + "/" + helperapi.ProtoUDP
+			}
+			if name := plainName(l.Process); name != "" {
+				item += "(" + name + ")"
+			}
+			plan.Closing = append(plan.Closing, item)
+		}
+	}
+	switch {
+	case len(plan.Session) > 0:
+		plan.Unattended = true
+	case ssh.unread != "":
+		plan.Reason = "ssh_unread"
+	case len(ssh.ports) == 0:
+		plan.Reason = "ssh_unknown"
+	default:
+		plan.Unattended = true
 	}
 	return plan, nil
 }
 
-// Setup enables the firewall at install time: the protected ports plus
-// 80 and 443, no confirmation. A firewall Cairn already manages is left
-// as it is.
-func (f *Firewall) Setup(ctx context.Context, log io.Writer) error {
-	cfg, err := f.load()
-	if err != nil {
-		return err
-	}
-	if len(cfg.Rules) == 0 {
-		cfg.Rules = append(cfg.Rules, helperapi.FirewallRule{ID: newHexID("r"), Action: helperapi.FirewallAllow,
-			Protocol: helperapi.ProtoTCP, Ports: webPorts, Note: "web"})
-		f.mu.Lock()
-		err := f.save(cfg)
-		f.mu.Unlock()
-		if err != nil {
-			return err
+// plainName keeps the characters of a process name that are safe to print
+// in a line a shell script takes apart.
+func plainName(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '_', r == '-', r == '+':
+			return r
 		}
+		return '_'
+	}, s)
+}
+
+// Setup enables the firewall at install time: the protected ports plus 80
+// and 443 (rules Cairn already has are left as they are). The SSH
+// connections the installer runs in stay possible whatever the detection
+// of the SSH ports finds. Without o.Confirm the firewall stays on at once
+// (nil is returned); with it, the pending change is returned and rolled
+// back unless Confirm is called in time.
+func (f *Firewall) Setup(ctx context.Context, log io.Writer, o FirewallSetup) (*helperapi.FirewallPending, error) {
+	e := fwEnable{confirm: o.Confirm, seedWeb: true, keepSSH: f.sessionPorts(o.SSHPorts)}
+	if o.Confirm {
+		e.window = fwSetupConfirm
 	}
-	_, err = f.Enable(ctx, helperapi.Caller{Source: "cli", PeerRoot: true}, false, log)
-	return err
+	return f.enable(ctx, helperapi.Caller{Source: "cli", PeerRoot: true}, e, log)
 }
 
 // forwardsTCP reports whether a port forward takes TCP connections on
@@ -1007,6 +1403,7 @@ func (f *Firewall) ActiveBackend(ctx context.Context) string {
 // Refresh re-applies the configuration while the firewall is on, after
 // the protected ports changed (the SSH port).
 func (f *Firewall) Refresh(ctx context.Context, log io.Writer) error {
+	ctx = context.WithoutCancel(ctx)
 	unlock, err := f.lock()
 	if err != nil {
 		return err
@@ -1020,10 +1417,17 @@ func (f *Firewall) Refresh(ctx context.Context, log io.Writer) error {
 	if sys.conflict != "" || !f.active(ctx, &cfg, sys) {
 		return nil
 	}
+	seen, keep := cfg.SSHSeen, cfg.SSHKeep
+	ssh := f.sshRemember(ctx, &cfg)
 	_, _ = fmt.Fprintf(log, "Updating the firewall (%s) for the SSH ports.\n", sys.backend)
 	var out bytes.Buffer
-	if err := f.backend(sys.backend).apply(ctx, &out, f.render(ctx, cfg)); err != nil {
+	actx, cancel := detached(ctx, fwApplyLimit)
+	defer cancel()
+	if err := f.backend(sys.backend).apply(actx, &out, f.render(cfg, ssh.ports)); err != nil {
 		return applyErr(err, out.String())
 	}
-	return nil
+	if slices.Equal(seen, cfg.SSHSeen) && slices.Equal(keep, cfg.SSHKeep) {
+		return nil
+	}
+	return f.save(cfg)
 }

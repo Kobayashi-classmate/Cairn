@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Takes over a firewall change that a reboot left pending. A change made in
+# the panel is rolled back unless it is confirmed within a minute, by a
+# transient timer: the timer does not survive a reboot, while the rules it
+# would have undone are on disk and loaded again at boot. This unit runs
+# once at every boot (the package links it into multi-user.target; it needs
+# no "systemctl enable"): a change that has expired is rolled back at once,
+# one with time left gets its timer again. The helper does the same when it
+# starts, but it only starts when something connects to it.
+[Unit]
+Description=Cairn firewall: roll back a change left unconfirmed by a reboot
+Documentation=https://github.com/Kobayashi-classmate/Cairn
+After=cairn-firewall.service cairn-forward.service nftables.service firewalld.service ufw.service
+ConditionPathExists=/var/lib/cairn-helper/firewall/state.json
+
+[Service]
+# Not a oneshot: a rollback that has to be tried again must not hold up
+# the boot.
+Type=simple
+ExecStart=/usr/lib/cairn/cairn-helper firewall recover

@@ -126,7 +126,7 @@ for _ in $(seq 120); do ssh "${ssh_opts[@]}" tester@127.0.0.1 true 2>/dev/null &
 ssh "${ssh_opts[@]}" tester@127.0.0.1 true || { tail -30 /work/serial.log; echo "VM did not come up"; exit 1; }
 echo "   VM reachable after $(($(date +%s) - t0))s"
 
-files=(/t/inside.sh /t/security.sh /t/sites.sh /t/accept.sh /t/keep.sh /f/ws.py)
+files=(/t/inside.sh /t/security.sh /t/reboot.sh /t/sites.sh /t/accept.sh /t/keep.sh /f/ws.py)
 [ "${SERVICES:-0}" = 1 ] && cp /work/tools/pebble-test/certs/pebble.minica.pem /work/minica.pem && files+=(/work/minica.pem)
 scp -q -P 2222 -i key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${files[@]}" tester@127.0.0.1:/tmp/
 status=0
@@ -139,6 +139,20 @@ if [ "$SCRIPT" = security.sh ] && [ $status = 0 ]; then
 	else
 		echo "FAIL: reachability from outside the VM (8081 should answer, 8083 not)"
 		status=1
+	fi
+	# A firewall change nobody confirmed must not stay in force because the
+	# machine was restarted: its timer does not survive the reboot, its
+	# rules do (reboot.sh).
+	if [ $status = 0 ]; then
+		ssh "${ssh_opts[@]}" tester@127.0.0.1 "sudo bash /tmp/reboot.sh before" || status=$?
+	fi
+	if [ $status = 0 ]; then
+		ssh "${ssh_opts[@]}" tester@127.0.0.1 'sudo systemctl reboot' 2>/dev/null || true
+		sleep 20
+		for _ in $(seq 120); do ssh "${ssh_opts[@]}" tester@127.0.0.1 true 2>/dev/null && break; sleep 5; done
+		# /tmp does not keep the scripts over a reboot everywhere.
+		scp -q -P 2222 -i key -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /t/security.sh /t/reboot.sh tester@127.0.0.1:/tmp/ || status=$?
+		ssh "${ssh_opts[@]}" tester@127.0.0.1 "sudo bash /tmp/reboot.sh after" || status=$?
 	fi
 	ssh "${ssh_opts[@]}" tester@127.0.0.1 "sudo bash /tmp/security.sh purge" || status=$?
 fi
