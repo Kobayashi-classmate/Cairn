@@ -10,7 +10,9 @@ LINT_IMAGE ?= golangci/golangci-lint:v2.15.0
 
 # goproxy.cn first: proxy.golang.org downloads are unreachable on some networks.
 GOPROXY ?= https://goproxy.cn,https://proxy.golang.org,direct
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo 0.0.0-dev)
+# With no tag in reach the version is 0.0.0-dev.g<commit>, never the bare
+# commit id: dpkg refuses a version that starts with a letter.
+VERSION ?= $(shell v=$$(git describe --tags --dirty 2>/dev/null | sed 's/^v//'); echo "$${v:-0.0.0-dev.g$$(git rev-parse --short HEAD 2>/dev/null || echo none)}")
 ARCH    ?= amd64
 GO_TAGS ?= embedui
 DIST    := dist
