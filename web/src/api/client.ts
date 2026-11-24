@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { sessionKey } from './credentials'
 
 /** Base path of the Cairn HTTP API. */
 export const API_BASE = '/api/v1'
@@ -55,10 +56,34 @@ export interface RequestOptions {
    * `auth.step_up_required`. Used by the re-authentication call itself.
    */
   skipStepUp?: boolean
+  /** Further request headers (the device key of a sign-in). */
+  headers?: Record<string, string>
 }
 
-/** Header every state-changing request carries (CSRF guard); its value is "1". */
+/**
+ * Header carrying the session key. The server takes the session cookie only
+ * together with it: the browser sends the cookie to every port of the
+ * panel's host name, the key is sent by this page alone.
+ */
+export const SESSION_HEADER = 'X-Cairn-Session'
+
+/**
+ * Header (value "1") of the state-changing requests made before there is a
+ * session (setup, sign-in). Like the session key it is a custom header,
+ * which another site cannot make a browser send here.
+ */
 export const CSRF_HEADER = 'X-Cairn-Request'
+
+/**
+ * The headers that make a request this page's own: the session key, or
+ * before there is one the CSRF guard on requests that change something.
+ * For requests made outside this client too (uploads with progress).
+ */
+export function authHeaders(method: string): Record<string, string> {
+  const key = sessionKey()
+  if (key) return { [SESSION_HEADER]: key }
+  return method === 'GET' ? {} : { [CSRF_HEADER]: '1' }
+}
 
 /** Error code of a 403 response asking the user to confirm their identity again. */
 export const STEP_UP_REQUIRED = 'auth.step_up_required'
@@ -127,11 +152,7 @@ async function request<T>(
   body: unknown,
   options: RequestOptions = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  if (method !== 'GET') {
-    // CSRF guard: the server rejects state-changing requests without it.
-    headers[CSRF_HEADER] = '1'
-  }
+  const headers: Record<string, string> = { Accept: 'application/json', ...authHeaders(method), ...options.headers }
   let payload: string | undefined
   if (body !== undefined) {
     headers['Content-Type'] = 'application/json'

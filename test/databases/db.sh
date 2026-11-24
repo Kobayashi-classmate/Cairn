@@ -35,11 +35,20 @@ port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 base="https://127.0.0.1:${port}"
 for _ in $(seq 100); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 0.1; done
 jar=/tmp/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+# A browser session is the cookie in the jar and the session key that setup
+# and sign-in answer with: keep_key saves it next to the jar, and every
+# request sends it (the cookie alone is refused).
+skey() { cat "${1:-$jar}.key" 2>/dev/null || true; }
+keep_key() (
+	out=$(cat)
+	printf '%s' "$out" | sed -n 's/.*"sessionKey":"\([A-Za-z0-9_-]*\)".*/\1/p' >"${1:-$jar}.key"
+	printf '%s\n' "$out"
+)
+api() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pw=databases-test-password-1
 token=$(cairn setup-link 2>&1 | grep -o 'token=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
-api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep_q '"username":"admin"' || fail "setup"
+api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | keep_key | grep_q '"username":"admin"' || fail "setup"
 # Second verification lasts ten minutes; sections renew it.
 elevate() { api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"; }
 
@@ -76,7 +85,7 @@ refused() {
 engine() { api "$base/api/v1/databases" | json "[e for e in d['engines'] if e['id']=='$1'][0]$2"; }
 password() { api "$base/api/v1/databases/$1/users/$2/password" | json 'd["password"]'; }
 upload() {
-	curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/octet-stream' -o /dev/null -w '%{http_code}' \
+	curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/octet-stream' -o /dev/null -w '%{http_code}' \
 		-X PUT --data-binary "@$3" "$base/api/v1/databases/$1/dumps/$2"
 }
 dump() { # dump ENGINE NAME: dumps and prints the newest dump's file name
@@ -138,7 +147,7 @@ step "the owner of my_app cannot reach myxapp (GRANT wildcards escaped)"
 # Dump, download, restore.
 file=$(dump mysql shop)
 case "$file" in shop_*.sql.gz) ;; *) fail "dump name $file" ;; esac
-curl -sk -b "$jar" -o /tmp/shop.sql.gz "$base/api/v1/databases/mysql/dumps/$file"
+curl -sk -b "$jar" -H "X-Cairn-Session: $(skey)" -o /tmp/shop.sql.gz "$base/api/v1/databases/mysql/dumps/$file"
 gunzip -c /tmp/shop.sql.gz | grep_q 'CREATE TABLE `t`' || fail "downloaded dump"
 [ "$(stat -c '%U %a' "/var/lib/cairn/backups/db/mysql/$file")" = "cairn 600" ] || fail "dump owner $(stat -c '%U %a' "/var/lib/cairn/backups/db/mysql/$file")"
 "$myc" shop -e "DROP TABLE t"

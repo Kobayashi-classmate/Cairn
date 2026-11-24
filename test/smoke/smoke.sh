@@ -68,10 +68,19 @@ grep -q "root helper reachable" /tmp/web.log || fail "web could not reach the he
 step "helper (root) and web (cairn) running, socket handshake ok"
 
 jar=/tmp/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+# A browser session is the cookie in the jar and the session key that setup
+# and sign-in answer with: keep_key saves it next to the jar, and every
+# request sends it (the cookie alone is refused).
+skey() { cat "${1:-$jar}.key" 2>/dev/null || true; }
+keep_key() (
+	out=$(cat)
+	printf '%s' "$out" | sed -n 's/.*"sessionKey":"\([A-Za-z0-9_-]*\)".*/\1/p' >"${1:-$jar}.key"
+	printf '%s\n' "$out"
+)
+api() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 
 api "$base/api/v1/meta" | grep_q '"setupRequired":true' || fail "meta before setup"
-out=$(api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"smoke-test-password-1\",\"locale\":\"$INSTALL_LANG\"}")
+out=$(api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"smoke-test-password-1\",\"locale\":\"$INSTALL_LANG\"}" | keep_key)
 echo "$out" | grep_q '"username":"admin"' || fail "setup: $out"
 grep -q '#HttpOnly_127.0.0.1.*TRUE.*__Host-cairn_session' "$jar" || fail "session cookie must be HttpOnly and Secure"
 step "administrator created through the setup link"
@@ -92,14 +101,16 @@ step "default language changed through the root helper (audited)"
 
 code=$(curl -sk -c "$jar" -b "$jar" -H 'Content-Type: application/json' -o /dev/null -w '%{http_code}' -X PUT "$base/api/v1/me/locale" -d '{"locale":"en"}')
 [ "$code" = 403 ] || fail "request without CSRF header returned $code"
-step "CSRF header enforced"
+code=$(curl -sk -b "$jar" -H 'X-Cairn-Request: 1' -o /dev/null -w '%{http_code}' "$base/api/v1/auth/me")
+[ "$code" = 401 ] || fail "the session cookie without the session key returned $code"
+step "CSRF header enforced; the session cookie alone is refused"
 
 newpw=$(cairn reset-password --lang en | sed -n 's/.*New password: //p')
 [ -n "$newpw" ] || fail "reset-password printed no password"
 rm -f "$jar"
 code=$(api -o /dev/null -w '%{http_code}' -X POST "$base/api/v1/auth/login" -d '{"username":"admin","password":"smoke-test-password-1"}')
 [ "$code" = 401 ] || fail "old password still works ($code)"
-api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$newpw\"}" | grep_q '"username":"admin"' || fail "login with reset password"
+api -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$newpw\"}" | keep_key | grep_q '"username":"admin"' || fail "login with reset password"
 step "cairn reset-password works, old password rejected"
 
 newop='{"username":"ops","password":"smoke-operator-password","role":"operator"}'
@@ -108,8 +119,8 @@ api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$newpw\"}" | grep_q 
 api -X POST "$base/api/v1/users" -d "$newop" | grep_q '"role":"operator"' || fail "create operator"
 opjar=/tmp/opjar
 curl -sk -c "$opjar" -b "$opjar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' -X POST "$base/api/v1/auth/login" \
-	-d '{"username":"ops","password":"smoke-operator-password"}' | grep_q '"system.read"' || fail "operator login"
-curl -sk -b "$opjar" "$base/api/v1/users" | grep_q '"auth.forbidden"' || fail "operator reached user management"
+	-d '{"username":"ops","password":"smoke-operator-password"}' | keep_key "$opjar" | grep_q '"system.read"' || fail "operator login"
+curl -sk -b "$opjar" -H "X-Cairn-Session: $(skey "$opjar")" "$base/api/v1/users" | grep_q '"auth.forbidden"' || fail "operator reached user management"
 api "$base/api/v1/audit?action=users.create" | grep_q '"username":"ops"' || fail "audit entry for users.create"
 step "roles enforced: step-up for user management, operator denied, change audited"
 

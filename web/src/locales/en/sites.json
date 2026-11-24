@@ -284,7 +284,8 @@
     "remove": "Remove {domain}",
     "add": "Add domain",
     "duplicate": "{domain} is already in the list.",
-    "certNote": "The certificate must cover every domain; saving fails for a domain it does not cover."
+    "certNote": "The certificate must cover every domain; saving fails for a domain it does not cover.",
+    "panelHost": "{domains} is also the panel's host name. A browser sends the panel's cookies to every website on the same host name, whatever the port, and such a website can set cookies for the panel. The panel never accepts its cookies alone, but it is safer to keep the panel on a host name of its own, such as panel.example.com. | {domains} are also host names of the panel. A browser sends the panel's cookies to every website on the same host name, whatever the port, and such a website can set cookies for the panel. The panel never accepts its cookies alone, but it is safer to keep the panel on a host name of its own, such as panel.example.com."
   },
   "php": {
     "intro": "The site runs in a PHP-FPM pool of its own, as {runner}.",

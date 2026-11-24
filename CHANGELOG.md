@@ -129,3 +129,10 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   user. Folders with spaces, dots, dashes or non-ASCII characters in their
   path can be backed up like any other, and retention never deletes the
   backup a run has just made.
+- A session is more than its cookie. Browsers send a host's cookies to
+  every port of it, so the page also holds a key that only the panel's own
+  address can read, and nothing accepts the cookie without it: a website
+  on the panel's host name cannot use an administrator's session.
+  Terminals and downloads use one-time tickets, websites never receive
+  the panel's cookies, and the panel warns when a site shares its host
+  name. A new tab signs in through a tab that is already open.

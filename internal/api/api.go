@@ -3,8 +3,9 @@
 // Package api provides the HTTP API framework: explicit route registration,
 // structured errors (a code plus parameters, never pre-rendered sentences),
 // strict JSON decoding, security headers, CSRF protection and session
-// authentication. Every route is registered explicitly; nothing is dispatched
-// by name from request data.
+// authentication (a cookie plus a key in a request header, or a one-time
+// ticket where a request cannot carry headers). Every route is registered
+// explicitly; nothing is dispatched by name from request data.
 package api
 
 import (
@@ -16,6 +17,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"reflect"
 	"strings"
 	"time"
@@ -106,7 +108,10 @@ func ClientIP(r *http.Request) string {
 
 type ctxKey int
 
-const principalKey ctxKey = iota
+const (
+	principalKey ctxKey = iota
+	ticketKey
+)
 
 // Principal is the authenticated user of a request.
 type Principal struct {
@@ -158,6 +163,14 @@ func WithPrincipal(ctx context.Context, p *Principal) context.Context {
 // Authenticator resolves a request to a principal, or returns an *Error.
 type Authenticator func(r *http.Request) (*Principal, error)
 
+// TakesTicket reports whether the request is for a route registered with
+// Ticket; the authenticator accepts a one-time ticket in place of the
+// session key only there.
+func TakesTicket(ctx context.Context) bool {
+	ok, _ := ctx.Value(ticketKey).(bool)
+	return ok
+}
+
 // Router registers routes explicitly and wraps them with the standard
 // middleware chain. It also keeps the registry the OpenAPI document is
 // generated from.
@@ -173,6 +186,8 @@ type routerState struct {
 	auth   Authenticator
 	log    *slog.Logger
 	routes []Route
+	// tickets holds the patterns of the routes registered with Ticket.
+	tickets map[string]bool
 }
 
 // NewRouter returns a router using auth for non-public routes.
@@ -197,6 +212,7 @@ type Route struct {
 	StepUp     bool
 	// SessionOnly routes refuse API tokens.
 	SessionOnly bool
+	Ticket      bool // takes a one-time ticket in place of the session key
 	Tag         string
 	Summary     string
 	Module      string               // registering module, if any
@@ -219,6 +235,7 @@ type routeConfig struct {
 	perm      authz.Permission
 	stepUp    bool
 	session   bool
+	ticket    bool
 	tag       string
 	summary   string
 	request   reflect.Type
@@ -284,6 +301,13 @@ func StepUp() RouteOption { return func(c *routeConfig) { c.stepUp = true } }
 // otherwise pass, and a leaked read-only token could take the account.
 func SessionOnly() RouteOption { return func(c *routeConfig) { c.session = true } }
 
+// Ticket lets a browser session enter a GET route with a one-time ticket
+// (the query parameter TicketParam) in place of the session key: for
+// requests the browser makes by itself, which cannot carry the header (a
+// WebSocket handshake, a download link, an image). Everything else the
+// route requires is checked as usual.
+func Ticket() RouteOption { return func(c *routeConfig) { c.ticket = true } }
+
 // Authorization errors.
 var (
 	ErrForbidden      = NewError(http.StatusForbidden, "auth.forbidden", nil)
@@ -305,8 +329,17 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 		panic("api: route " + pattern + " needs undefined permission " + string(cfg.perm))
 	}
 	method, path, _ := strings.Cut(pattern, " ")
+	if cfg.ticket {
+		if cfg.public || method != http.MethodGet {
+			panic("api: route " + pattern + " cannot take tickets")
+		}
+		if rt.tickets == nil {
+			rt.tickets = map[string]bool{}
+		}
+		rt.tickets[pattern] = true
+	}
 	rt.routes = append(rt.routes, Route{
-		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp, SessionOnly: cfg.session,
+		Method: method, Path: path, Public: cfg.public, Permission: cfg.perm, StepUp: cfg.stepUp, SessionOnly: cfg.session, Ticket: cfg.ticket,
 		Tag: cfg.tag, Summary: cfg.summary, Module: rt.module, Request: cfg.request, NoBody: cfg.noBody, RawBody: cfg.rawBody, Responses: cfg.responses, Files: cfg.files,
 	})
 	gate := rt.gate
@@ -319,6 +352,9 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 			}
 		}
 		if !cfg.public {
+			if cfg.ticket {
+				r = r.WithContext(context.WithValue(r.Context(), ticketKey, true))
+			}
 			p, err := rt.auth(r)
 			if err != nil {
 				writeError(w, r, rt.log, err)
@@ -344,6 +380,13 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 			writeError(w, r, rt.log, err)
 		}
 	})
+}
+
+// TicketRoute reports whether a GET of u reaches a route registered with
+// Ticket.
+func (rt *Router) TicketRoute(u *url.URL) bool {
+	_, pattern := rt.mux.Handler(&http.Request{Method: http.MethodGet, URL: u})
+	return rt.tickets[pattern]
 }
 
 // ServeHTTP implements http.Handler; unknown API paths get a JSON 404.
@@ -373,18 +416,38 @@ func BearerToken(r *http.Request) string {
 	return strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 }
 
-// CSRFHeader must be present on every state-changing request. Browsers cannot
-// add custom headers to cross-site requests without a CORS preflight, which
-// the panel never grants; SameSite=Strict cookies are a second layer.
-const CSRFHeader = "X-Cairn-Request"
+// Request headers and the query parameter of browser sessions.
+const (
+	// SessionHeader carries the session key, the half of a session that is
+	// not a cookie: the sign-in answers with it once, the page keeps it in
+	// storage of its own origin (which, unlike a cookie, includes the port)
+	// and sends it with every request. A website on the panel's host name
+	// gets the cookie from the browser and never this.
+	SessionHeader = "X-Cairn-Session"
+	// DeviceHeader carries the device key with a sign-in, the same way for
+	// the known-device cookie.
+	DeviceHeader = "X-Cairn-Device"
+	// CSRFHeader, with the value "1", marks the state-changing requests made
+	// before there is a session (setup, sign-in): see checkCSRF.
+	CSRFHeader = "X-Cairn-Request"
+	// TicketParam carries a one-time ticket on the routes registered with
+	// Ticket.
+	TicketParam = "ticket"
+)
 
+// checkCSRF requires a custom header on every state-changing request: the
+// session key, or, before there is a session, the constant CSRFHeader.
+// Browsers cannot add custom headers to cross-site requests without a CORS
+// preflight, which the panel never grants; SameSite=Strict cookies are a
+// second layer. Whether the session key is the right one is the
+// authenticator's business.
 func checkCSRF(r *http.Request) error {
 	// Bearer tokens are not sent automatically by browsers, so token requests
 	// cannot be forged cross-site; the authenticator ignores cookies on them.
 	if IsBearer(r) {
 		return nil
 	}
-	if r.Header.Get(CSRFHeader) != "1" {
+	if r.Header.Get(SessionHeader) == "" && r.Header.Get(CSRFHeader) != "1" {
 		return ErrCSRF
 	}
 	if origin := r.Header.Get("Origin"); origin != "" && origin != "https://"+r.Host {

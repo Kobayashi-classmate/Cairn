@@ -145,7 +145,7 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("PUT /api/v1/files/content", m.save, api.Require(Manage), api.Body(helperapi.FileWriteRequest{}),
 		doc("Save a text file; etag is the version read (empty: a new file); answers with the new etag"), api.Returns(200, helperapi.FileSaved{}))
 	r.Handle("GET /api/v1/files/download", m.download, api.Require(Read),
-		doc("Download a file: ?root=&path=; &inline=true shows images in the browser"), api.ReturnsFile(200, "application/octet-stream"))
+		doc("Download a file: ?root=&path=; &inline=true shows images in the browser"), api.Ticket(), api.ReturnsFile(200, "application/octet-stream"))
 	r.Handle("POST /api/v1/files/mkdir", m.mkdir, api.Require(Manage), api.Body(helperapi.FileNewRequest{}), doc("Make a directory"), api.Returns(200, helperapi.FileEntry{}))
 	r.Handle("POST /api/v1/files/touch", m.touch, api.Require(Manage), api.Body(helperapi.FileNewRequest{}), doc("Make an empty file"), api.Returns(200, helperapi.FileEntry{}))
 	r.Handle("POST /api/v1/files/rename", m.rename, api.Require(Manage), api.Body(helperapi.FileRenameRequest{}), doc("Rename an entry"), api.Returns(200, helperapi.FileEntry{}))

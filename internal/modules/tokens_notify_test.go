@@ -17,12 +17,13 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/notify"
 )
 
-// bearer sends a request with an API token and no cookie or CSRF header.
+// bearer sends a request with an API token and no cookie, session key or
+// CSRF header.
 func (e *env) bearer(token, method, path string, body any) reply {
 	e.t.Helper()
 	c := e.client()
 	c.hc.Jar = nil
-	return c.do(method, path, body, "Authorization", "Bearer "+token, api.CSRFHeader, "")
+	return c.do(method, path, body, "Authorization", "Bearer "+token, api.CSRFHeader, "", api.SessionHeader, "")
 }
 
 func TestAPITokens(t *testing.T) {

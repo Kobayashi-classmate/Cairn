@@ -28,6 +28,7 @@ import {
   type FieldErrors,
 } from '@/sites/form'
 import { rewriteLabel } from '@/sites/labels'
+import { domainsOnHosts, panelHosts } from '@/sites/panelHost'
 import { useInstalledRuntimes } from '@/sites/useRuntimes'
 import { MAX_DOMAINS, deriveCode, isIndexName, isRelativePath, isSiteHost, normalizeHost } from '@/sites/validate'
 import { useSitesStore } from '@/stores/sites'
@@ -109,6 +110,8 @@ const rewriteOptions = computed<SelectOption[]>(() => [
 ])
 
 const covering = computed(() => coveringCerts(certs.value, form.domains))
+/** Domains that are the panel's own host name: allowed, but warned about. */
+const onPanelHost = computed(() => domainsOnHosts(form.domains, panelHosts(certs.value)))
 const certOptions = computed<SelectOption[]>(() => [
   { value: '', label: t('sites.form.noTls') },
   ...covering.value.map((cert) => ({ value: cert.id, label: `${cert.name} (${cert.domains.join(', ')})` })),
@@ -190,6 +193,9 @@ async function submit() {
         />
       </template>
     </FormField>
+    <Notice v-if="onPanelHost.length > 0" tone="warning">
+      {{ t('sites.domains.panelHost', { domains: onPanelHost.join(', ') }, onPanelHost.length) }}
+    </Notice>
 
     <FormField id="site-code" :label="t('common.field.siteCode')" :hint="t('sites.form.codeHint')" :error="errors.code">
       <template #default="field">

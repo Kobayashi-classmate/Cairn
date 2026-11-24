@@ -280,10 +280,54 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 		resolver: resolver}
 }
 
-// client is one browser with its own cookie jar.
+// client is one browser tab: its own cookie jar and, once signed in, the
+// session key the page keeps and sends with every request.
 type client struct {
-	e  *env
-	hc *http.Client
+	e   *env
+	hc  *http.Client
+	key string
+	// device is the device key the page keeps across sign-ins.
+	device string
+}
+
+// authorize adds what the panel's page sends with every request: the
+// session key, or before there is one the constant header on requests that
+// change something; with a sign-in, the device key.
+func (c *client) authorize(req *http.Request) {
+	if c.key != "" {
+		req.Header.Set(api.SessionHeader, c.key)
+	} else if req.Method != http.MethodGet {
+		req.Header.Set(api.CSRFHeader, "1")
+	}
+	if c.device != "" && strings.HasPrefix(req.URL.Path, "/api/v1/auth/login") {
+		req.Header.Set(api.DeviceHeader, c.device)
+	}
+}
+
+// link follows a download link the way a browser does: with the cookies
+// and nothing else.
+func (c *client) link(path string) (int, []byte) {
+	c.e.t.Helper()
+	res, err := c.hc.Get(c.e.srv.URL + path)
+	if err != nil {
+		c.e.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	data, _ := io.ReadAll(res.Body)
+	return res.StatusCode, data
+}
+
+// ticket trades the session key for a one-time ticket for a GET of path
+// and returns the path with the ticket: what the page does before the
+// browser opens a WebSocket or follows a download link.
+func (c *client) ticket(path string) string {
+	c.e.t.Helper()
+	r := c.expect(c.do("POST", "/api/v1/auth/tickets", map[string]any{"path": path}), 200, "")
+	sep := "?"
+	if strings.Contains(path, "?") {
+		sep = "&"
+	}
+	return path + sep + api.TicketParam + "=" + r.body["ticket"].(string)
 }
 
 func (e *env) client() *client {
@@ -335,9 +379,7 @@ func (c *client) do(method, path string, body any, headers ...string) reply {
 		rd = bytes.NewReader(b)
 	}
 	req, _ := http.NewRequest(method, c.e.srv.URL+path, rd)
-	if method != http.MethodGet {
-		req.Header.Set(api.CSRFHeader, "1")
-	}
+	c.authorize(req)
 	for i := 0; i+1 < len(headers); i += 2 {
 		if headers[i+1] == "" {
 			req.Header.Del(headers[i])
@@ -355,6 +397,14 @@ func (c *client) do(method, path string, body any, headers ...string) reply {
 	out.raw = string(data)
 	if len(data) > 0 {
 		_ = json.Unmarshal(data, &out.body)
+	}
+	// Setup and sign-in answer with the session key, once, and with the
+	// device key on a browser not seen before.
+	if k, _ := out.body["sessionKey"].(string); k != "" {
+		c.key = k
+	}
+	if k, _ := out.body["deviceKey"].(string); k != "" {
+		c.device = k
 	}
 	return out
 }

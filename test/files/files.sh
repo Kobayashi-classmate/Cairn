@@ -39,11 +39,29 @@ port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 base="https://127.0.0.1:${port}"
 for _ in $(seq 100); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 0.1; done
 jar=/tmp/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+# A browser session is the cookie in the jar and the session key that setup
+# and sign-in answer with: keep_key saves it next to the jar, and every
+# request sends it (the cookie alone is refused).
+skey() { cat "${1:-$jar}.key" 2>/dev/null || true; }
+keep_key() (
+	out=$(cat)
+	printf '%s' "$out" | sed -n 's/.*"sessionKey":"\([A-Za-z0-9_-]*\)".*/\1/p' >"${1:-$jar}.key"
+	printf '%s\n' "$out"
+)
+api() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
+# ticket PATH: PATH with a one-time ticket added. What a browser fetches by
+# itself (a WebSocket, a download link) cannot send the session key and
+# brings a ticket instead: for that address only, once, within seconds.
+ticket() {
+	local t sep='?'
+	t=$(api -X POST "$base/api/v1/auth/tickets" -d "{\"path\":\"$1\"}" | json 'd["ticket"]')
+	case $1 in *\?*) sep='&' ;; esac
+	printf '%s%sticket=%s' "$1" "$sep" "$t"
+}
 pw=files-test-password-1
 token=$(cairn setup-link 2>&1 | grep -o 'token=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
-api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep_q '"username":"admin"' || fail "setup"
+api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | keep_key | grep_q '"username":"admin"' || fail "setup"
 api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 
 # start METHOD PATH [BODY]: starts a job, waits; prints "state code".
@@ -96,10 +114,10 @@ step "editor: new files and directories belong to the site owner; saves detect c
 # tus upload in two parts.
 head -c 300000 /dev/urandom >/tmp/up.bin
 meta="root $(printf sites | base64),dir $(printf demo/app/img | base64),filename $(printf up.bin | base64)"
-loc=$(curl -sk -b "$jar" -D - -o /dev/null -X POST -H 'X-Cairn-Request: 1' -H 'Tus-Resumable: 1.0.0' -H 'Upload-Length: 300000' \
+loc=$(curl -sk -b "$jar" -D - -o /dev/null -X POST -H "X-Cairn-Session: $(skey)" -H 'Tus-Resumable: 1.0.0' -H 'Upload-Length: 300000' \
 	-H "Upload-Metadata: $meta" "$base/api/v1/files/uploads" | tr -d '\r' | sed -n 's/^Location: //Ip')
 [ -n "$loc" ] || fail "upload not created"
-patch() { curl -sk -b "$jar" -D - -o /dev/null -X PATCH -H 'X-Cairn-Request: 1' -H 'Tus-Resumable: 1.0.0' \
+patch() { curl -sk -b "$jar" -D - -o /dev/null -X PATCH -H "X-Cairn-Session: $(skey)" -H 'Tus-Resumable: 1.0.0' \
 	-H 'Content-Type: application/offset+octet-stream' -H "Upload-Offset: $1" --data-binary @"$2" "$base$loc" | tr -d '\r'; }
 head -c 100000 /tmp/up.bin >/tmp/p1
 tail -c 200000 /tmp/up.bin >/tmp/p2
@@ -110,9 +128,15 @@ jid=$(patch 100000 /tmp/p2 | sed -n 's/^Cairn-Job: //Ip')
 cmp -s /tmp/up.bin $S/img/up.bin || fail "uploaded content: $(wc -c <$S/img/up.bin) bytes, $(cmp /tmp/up.bin $S/img/up.bin 2>&1 | head -1)"
 [ "$(owner $S/img/up.bin)" = cw-demo:cw-demo ] || fail "uploaded owner"
 [ -z "$(ls /var/lib/cairn/uploads)" ] || fail "upload leftovers: $(ls /var/lib/cairn/uploads)"
-curl -sk -b "$jar" -o /tmp/down.bin "$base/api/v1/files/download?root=sites&path=demo/app/img/up.bin"
+curl -sk -b "$jar" -H "X-Cairn-Session: $(skey)" -o /tmp/down.bin "$base/api/v1/files/download?root=sites&path=demo/app/img/up.bin"
 cmp -s /tmp/up.bin /tmp/down.bin || fail "download"
-step "resumable upload in two parts, placed for the site owner; downloaded back intact"
+# As a browser follows a download link: the cookie and a ticket, no key.
+link=$(ticket "/api/v1/files/download?root=sites&path=demo/app/img/up.bin")
+[ "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' "$base${link%%&ticket=*}")" = 401 ] || fail "download with the cookie alone"
+[ "$(curl -sk -b "$jar" -o /tmp/down2.bin -w '%{http_code}' "$base$link")" = 200 ] || fail "download with a ticket"
+cmp -s /tmp/up.bin /tmp/down2.bin || fail "content downloaded with a ticket"
+[ "$(curl -sk -b "$jar" -o /dev/null -w '%{http_code}' "$base$link")" = 401 ] || fail "a download ticket worked twice"
+step "resumable upload in two parts, placed for the site owner; downloaded back intact, by a link with a one-time ticket too"
 
 # Archives both ways, then a hostile one.
 follow POST /api/v1/files/compress '{"root":"sites","dir":"demo/app","names":["index.html","img"],"format":"tar.zst","name":"site.tar.zst"}'
@@ -205,11 +229,14 @@ api -X PUT "$base/api/v1/files/settings" -d '{"fullDisk":false}' >/dev/null
 step "full-disk access on (system root listed) and off"
 
 # Terminals: as the site owner (no systemd here: started by the helper).
-ws() { python3 -I /t/ws.py "wss://127.0.0.1:${port}/api/v1/terminal/sessions/$1/ws" "$jar" "$2" "$3" ${4:-}; }
+ws() { python3 -I /t/ws.py "wss://127.0.0.1:${port}$(ticket "/api/v1/terminal/sessions/$1/ws")" "$jar" "$2" "$3" ${4:-}; }
 api "$base/api/v1/terminal/users" | json '[u["name"] for u in d["users"]]' | grep_q "'cw-demo'" || fail "terminal users"
 sid=$(api -X POST "$base/api/v1/terminal/sessions" -d '{"user":"cw-demo","cols":100,"rows":30}' | json 'd["id"]')
 ws "$sid" 'id -un; pwd; stty size\n' '100' >/tmp/term.out || fail "terminal: $(cat /tmp/term.out)"
 grep_q cw-demo /tmp/term.out && grep_q /srv/www/demo /tmp/term.out || fail "terminal identity: $(cat /tmp/term.out)"
+# The cookie alone attaches to no terminal: a handshake without a ticket is refused.
+if python3 -I /t/ws.py "wss://127.0.0.1:${port}/api/v1/terminal/sessions/$sid/ws" "$jar" 'id\n' 'uid=' >/tmp/term.refused 2>&1; then fail "terminal attached without a ticket"; fi
+grep_q ' 401 ' /tmp/term.refused || fail "terminal without a ticket: $(cat /tmp/term.refused)"
 ws "$sid" 'exit\n' '' --exit >/dev/null || fail "terminal exit"
 [ "$(api -X POST "$base/api/v1/terminal/sessions" -d '{"user":"root","cols":80,"rows":24}' | json 'd["error"]["code"]')" = term.root_disabled ] || fail "root while off"
 api -X PUT "$base/api/v1/terminal/settings" -d '{"rootTerminal":true}' | grep_q '"rootTerminal":true' || fail "root terminal on"

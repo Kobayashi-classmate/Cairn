@@ -164,8 +164,8 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("POST /api/v1/backups/plans/{id}/run", m.runPlan, api.Require(Manage), api.NoBody(), doc("Run a plan now (starts a job)"), job)
 	r.Handle("GET /api/v1/backups/plans/{id}/runs", m.runs, api.Require(Read), doc("A plan's runs, newest first"), api.Returns(200, helperapi.BackupRuns{}))
 	r.Handle("GET /api/v1/backups/plans/{id}/files", m.files, api.Require(Read), doc("A plan's backups, here and in the bucket"), api.Returns(200, helperapi.BackupList{}))
-	r.Handle("GET /api/v1/backups/plans/{id}/files/{name}", m.download, api.Require(Manage), api.StepUp(),
-		doc("Download a backup: the local copy, or a redirect to a short-lived link to the bucket's; ?link=1 answers {url} with that address instead"),
+	r.Handle("GET /api/v1/backups/plans/{id}/files/{name}", m.download, api.Require(Manage), api.StepUp(), api.Ticket(),
+		doc("Download a backup: the local copy, or a redirect to a short-lived link to the bucket's; ?link=1 answers {url} with that address instead (the local copy's with a one-time ticket for a browser session)"),
 		api.ReturnsFile(200, "application/octet-stream"))
 	r.Handle("POST /api/v1/backups/plans/{id}/delete", m.deleteFiles, api.Require(Manage), api.StepUp(), api.Body(filesRequest{}),
 		doc("Delete backups, here and with remote=true in the bucket (starts a job)"), job)
@@ -879,7 +879,11 @@ func (m *Module) download(w http.ResponseWriter, r *http.Request) error {
 		if fi, err := root.Lstat(rel); err == nil && fi.Mode().IsRegular() {
 			if link {
 				// This address without the query; the download audits.
-				return api.WriteJSON(w, http.StatusOK, linkView{URL: r.URL.EscapedPath()})
+				addr, err := modutil.DownloadLink(r, m.DB)
+				if err != nil {
+					return err
+				}
+				return api.WriteJSON(w, http.StatusOK, linkView{URL: addr})
 			}
 			f, err := root.Open(rel)
 			if err != nil {

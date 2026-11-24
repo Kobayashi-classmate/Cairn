@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'
 import Card from '@/components/common/Card.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
+import Notice from '@/components/common/Notice.vue'
 import SelectField from '@/components/common/SelectField.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
 import type { SelectOption } from '@/components/common/types'
@@ -12,8 +13,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useClock } from '@/composables/useClock'
 import { formatDate } from '@/i18n/format'
+import { certHosts, domainsOnHosts } from '@/sites/panelHost'
 import { useCertsStore } from '@/stores/certs'
+import { useNavStore } from '@/stores/nav'
 import { useSessionStore } from '@/stores/session'
+import { useSitesStore } from '@/stores/sites'
 import { askPanelCert, canServePanel } from '@/views/certs/actions'
 import SettingRow from './SettingRow.vue'
 import SettingRows from './SettingRows.vue'
@@ -24,13 +28,18 @@ import SettingRows from './SettingRows.vue'
 const { t } = useI18n()
 const session = useSessionStore()
 const store = useCertsStore()
+const sites = useSitesStore()
 const now = useClock()
 
 const canManage = computed(() => session.can('certs.manage'))
 const list = computed(() => store.list)
 const chosen = ref('')
 
-onMounted(() => void store.load())
+onMounted(() => {
+  void store.load()
+  // The sites' domains, for the warning below; without them it is not shown.
+  if (session.can('sites.read') && useNavStore().entries.some((entry) => entry.route === 'sites') && !sites.list) void sites.load()
+})
 
 // Follow the panel's certificate as it changes (after a switch, elsewhere).
 watch(
@@ -54,6 +63,17 @@ const options = computed<SelectOption[]>(() => [
 const chosenDomain = computed(() => {
   const cert = list.value?.certs.find((c) => c.id === chosen.value)
   return cert?.domains.find((d) => !d.startsWith('*.')) ?? cert?.domains[0] ?? ''
+})
+
+/**
+ * Website domains that are a host name of the chosen certificate: the
+ * panel would be opened on a website's host name (allowed, but warned
+ * about).
+ */
+const sharedWithSites = computed(() => {
+  const hosts = certHosts(list.value?.certs.find((cert) => cert.id === chosen.value))
+  if (hosts.length === 0) return []
+  return [...new Set(sites.sites.flatMap((site) => domainsOnHosts(site.domains, hosts)))]
 })
 
 async function apply() {
@@ -103,5 +123,8 @@ async function apply() {
         <Button class="max-md:h-11" :disabled="chosen === list.panel" @click="apply">{{ t('certs.panel.apply') }}</Button>
       </SettingRow>
     </SettingRows>
+    <Notice v-if="list && canManage && sharedWithSites.length > 0" tone="warning" class="mx-4 mb-4 md:mx-[18px]">
+      {{ t('settings.panelCert.siteHost', { domains: sharedWithSites.join(', ') }, sharedWithSites.length) }}
+    </Notice>
   </Card>
 </template>

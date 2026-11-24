@@ -246,9 +246,9 @@ func TestSessionScopingAndElevation(t *testing.T) {
 	ctx := context.Background()
 	alice, _ := CreateUser(ctx, db, "alice", goodPassword, "", "admin")
 	bob, _ := CreateUser(ctx, db, "bob", goodPassword, "", "operator")
-	a1, _ := CreateSession(ctx, db, alice.ID, "", "")
-	a2, _ := CreateSession(ctx, db, alice.ID, "", "")
-	b1, _ := CreateSession(ctx, db, bob.ID, "", "")
+	a1, k1, _ := CreateSession(ctx, db, alice.ID, "", "")
+	a2, k2, _ := CreateSession(ctx, db, alice.ID, "", "")
+	b1, _, _ := CreateSession(ctx, db, bob.ID, "", "")
 
 	// Alice cannot revoke Bob's session by id.
 	if ok, _ := DeleteSessionByID(ctx, db, alice.ID, SessionID(b1)); ok {
@@ -261,18 +261,18 @@ func TestSessionScopingAndElevation(t *testing.T) {
 	if n, _ := DeleteOtherSessions(ctx, db, alice.ID, SessionID(a1)); n != 1 {
 		t.Fatalf("want 1 revoked, got %d", n)
 	}
-	if _, _, err := LookupSession(ctx, db, a2); !errors.Is(err, ErrSessionInvalid) {
+	if _, _, err := LookupSession(ctx, db, a2, k2); !errors.Is(err, ErrSessionInvalid) {
 		t.Fatal("revoked session still valid")
 	}
 
-	s, _, _ := LookupSession(ctx, db, a1)
+	s, _, _ := LookupSession(ctx, db, a1, k1)
 	if s.Elevated(time.Now()) {
 		t.Fatal("new session must not be elevated")
 	}
 	if _, err := Elevate(ctx, db, s.ID); err != nil {
 		t.Fatal(err)
 	}
-	s, _, _ = LookupSession(ctx, db, a1)
+	s, _, _ = LookupSession(ctx, db, a1, k1)
 	if !s.Elevated(time.Now()) || s.Elevated(time.Now().Add(ElevationWindow+time.Second)) {
 		t.Fatal("elevation window wrong")
 	}
@@ -289,7 +289,7 @@ func TestSessionScopingAndElevation(t *testing.T) {
 	if n, _ := CountActiveAdmins(ctx, db); n != 0 {
 		t.Fatal("disabled admin still counted")
 	}
-	if _, _, err := LookupSession(ctx, db, a1); !errors.Is(err, ErrSessionInvalid) {
+	if _, _, err := LookupSession(ctx, db, a1, k1); !errors.Is(err, ErrSessionInvalid) {
 		t.Fatal("disabled user's session still valid")
 	}
 	if _, err := CreateUser(ctx, db, "bob", goodPassword, "", "operator"); !errors.Is(err, ErrUsernameTaken) {

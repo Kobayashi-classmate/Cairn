@@ -258,6 +258,7 @@ func TestBackupsModule(t *testing.T) {
 	nofollow := *admin.hc
 	nofollow.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	req, _ := http.NewRequest("GET", e.srv.URL+"/api/v1/backups/plans/"+pid+"/files/db-mysql-shop_20261116-030000.sql.zst.age", nil)
+	admin.authorize(req)
 	rres, err := nofollow.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -267,8 +268,17 @@ func TestBackupsModule(t *testing.T) {
 		t.Fatalf("remote download %d %v", rres.StatusCode, rres.Header)
 	}
 	// ?link=1 tells where to download from, as JSON (errors stay JSON too).
-	if got := admin.expect(admin.do("GET", "/api/v1/backups/plans/"+pid+"/files/"+local+"?link=1", nil), 200, "").body["url"]; got != "/api/v1/backups/plans/"+pid+"/files/"+local {
-		t.Fatalf("local link %v", got)
+	// The local copy's address carries a one-time ticket, for the browser
+	// to follow without the session key.
+	link, _ := admin.expect(admin.do("GET", "/api/v1/backups/plans/"+pid+"/files/"+local+"?link=1", nil), 200, "").body["url"].(string)
+	if !strings.HasPrefix(link, "/api/v1/backups/plans/"+pid+"/files/"+local+"?ticket=") {
+		t.Fatalf("local link %v", link)
+	}
+	if status, body := admin.link(link); status != 200 || string(body) != "age-encryption.org/v1" {
+		t.Fatalf("download through the link: %d %q", status, body)
+	}
+	if status, _ := admin.link(link); status != 401 {
+		t.Fatalf("the link worked twice: %d", status)
 	}
 	if got := admin.expect(admin.do("GET", "/api/v1/backups/plans/"+pid+"/files/db-mysql-shop_20261116-030000.sql.zst.age?link=1", nil), 200, "").body["url"]; got != "https://acct.r2.example/x?sig=1" {
 		t.Fatalf("remote link %v", got)

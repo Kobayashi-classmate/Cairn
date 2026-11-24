@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
@@ -55,6 +56,10 @@ func MapError(err error, rename map[string]string) error {
 		return api.NewError(http.StatusUnauthorized, "auth.token_invalid", nil)
 	case errors.Is(err, auth.ErrBusy):
 		return api.NewError(http.StatusServiceUnavailable, "auth.busy", nil)
+	case errors.Is(err, auth.ErrTooManyTickets):
+		return RateLimited(auth.TicketTTL)
+	case errors.Is(err, auth.ErrSessionInvalid):
+		return api.NewError(http.StatusUnauthorized, "auth.session_expired", nil)
 	}
 	return err
 }
@@ -72,6 +77,24 @@ func ErrorCode(err error) string {
 func RateLimited(wait time.Duration) error {
 	secs := int(wait.Round(time.Second) / time.Second)
 	return api.NewError(http.StatusTooManyRequests, "auth.rate_limited", map[string]any{"retryAfterSeconds": max(secs, 1)})
+}
+
+// DownloadLink is the address a page downloads the resource of this GET
+// from, for the routes that answer with it (?link=1) before the browser
+// follows it. A link cannot carry the session key, so a browser session
+// gets the path with a one-time ticket for it. An API token is sent with
+// every request and gets the plain path.
+func DownloadLink(r *http.Request, db *sql.DB) (string, error) {
+	link := r.URL.EscapedPath()
+	p, ok := api.PrincipalFrom(r.Context())
+	if !ok || p.SessionID == "" {
+		return link, nil
+	}
+	ticket, err := auth.IssueTicket(r.Context(), db, p.SessionID, auth.TicketTarget(r.URL.Path, nil, api.TicketParam))
+	if err != nil {
+		return "", MapError(err, nil)
+	}
+	return link + "?" + url.Values{api.TicketParam: {ticket}}.Encode(), nil
 }
 
 // Actor identifies who performed an audited action.

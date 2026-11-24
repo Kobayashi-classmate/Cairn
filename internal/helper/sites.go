@@ -648,6 +648,8 @@ var siteTemplate = template.Must(template.New("site").Funcs(template.FuncMap{"jo
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # Without the panel's own cookies (see ` + nginxConfD + `/cairn.conf).
+        proxy_set_header Cookie $cairn_site_cookie;
 {{- if .Proxy.WebSocket}}
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $cairn_connection_upgrade;
@@ -685,6 +687,8 @@ var siteTemplate = template.Must(template.New("site").Funcs(template.FuncMap{"jo
         fastcgi_param PATH_INFO $path_info;
         fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
         fastcgi_param DOCUMENT_ROOT $realpath_root;
+        # Without the panel's own cookies (see ` + nginxConfD + `/cairn.conf).
+        fastcgi_param HTTP_COOKIE $cairn_site_cookie if_not_empty;
         fastcgi_index index.php;
         fastcgi_pass unix:{{.Socket}};
     }
@@ -760,7 +764,7 @@ php_admin_flag[opcache.validate_permission] = on
 php_admin_value[opcache.restrict_api] = /nonexistent/
 `))
 
-const globalNginx = `# ` + siteManaged + `
+var globalNginx = `# ` + siteManaged + `
 # Panel-wide settings and the sites (` + nginxCairnDir + `/sites).
 log_format cairn_json escape=json '{"time":"$time_iso8601","remote":"$remote_addr","host":"$host",'
     '"method":"$request_method","uri":"$request_uri","status":$status,"bytes":$body_bytes_sent,'
@@ -770,8 +774,48 @@ map $http_upgrade $cairn_connection_upgrade {
     default upgrade;
     ''      close;
 }
-include ` + nginxCairnDir + `/sites/*.conf;
+` + siteCookieMaps() + `include ` + nginxCairnDir + `/sites/*.conf;
 `
+
+// panelCookiePrefix starts the name of every cookie the panel sets (see
+// internal/auth: the session and the known-device cookie).
+const panelCookiePrefix = "__Host-cairn_"
+
+// panelCookiePasses is how many panel cookies are taken out of a Cookie
+// header one by one: those the panel sets, and one to spare.
+const panelCookiePasses = 3
+
+// siteCookieMaps defines $cairn_site_cookie, the Cookie header a site's
+// code gets: the request's, without the panel's own cookies. A browser
+// sends a host's cookies to every port of it, so a site on the host name
+// the panel is opened with receives the administrator's panel cookies;
+// the session key keeps them from being enough for the panel, and this
+// keeps them from the site's code in the first place. The site's own
+// cookies pass unchanged.
+//
+// nginx has no "replace all": each map takes out one panel cookie, at the
+// start of the header or after another cookie, and the last one drops the
+// whole header if one is still there (a browser has one cookie per name, so
+// only a made-up request gets that far).
+func siteCookieMaps() string {
+	var b strings.Builder
+	b.WriteString("# The Cookie header for a site's code: the request's without the panel's own\n" +
+		"# cookies (" + panelCookiePrefix + "*), which the browser also sends to a site on the\n" +
+		"# panel's host name. Each map takes one out; the last drops a header that\n" +
+		"# still has one.\n")
+	from := "$http_cookie"
+	for i := 1; i <= panelCookiePasses; i++ {
+		to := fmt.Sprintf("$cairn_cookie_%d", i)
+		fmt.Fprintf(&b, "map %s %s {\n    default %s;\n", from, to, from)
+		fmt.Fprintf(&b, "    \"~^ *%s[^;]*(?:; *(?<cairn_cookie_rest%d>.*))?$\" $cairn_cookie_rest%d;\n", panelCookiePrefix, i, i)
+		fmt.Fprintf(&b, "    \"~^(?<cairn_cookie_head%d>.*?); *%s[^;]*(?<cairn_cookie_tail%d>.*)$\" $cairn_cookie_head%d$cairn_cookie_tail%d;\n",
+			i, panelCookiePrefix, i, i, i)
+		b.WriteString("}\n")
+		from = to
+	}
+	fmt.Fprintf(&b, "map %s $cairn_site_cookie {\n    default %s;\n    \"~(?:^|;) *%s\" \"\";\n}\n", from, from, panelCookiePrefix)
+	return b.String()
+}
 
 const logrotateConf = `# ` + siteManaged + `
 ` + nginxLogDir + `/*.log {

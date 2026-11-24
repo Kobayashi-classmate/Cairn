@@ -102,7 +102,8 @@
     "inUse": "当前证书",
     "until": "有效期至 {date}",
     "selfSignedTag": "自签名",
-    "choose": "改用其他证书"
+    "choose": "改用其他证书",
+    "siteHost": "{domains} 同时是网站的域名。用它访问面板时，面板和该网站共用主机名：浏览器会把面板的 Cookie 发给该网站（不分端口），该网站还能替面板设置 Cookie。面板不会只凭 Cookie 认人，但更稳妥的做法是给面板一个独立的主机名，例如 panel.example.com。"
   },
   "downloadPolicy": {
     "change": "修改",

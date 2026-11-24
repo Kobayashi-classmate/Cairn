@@ -284,7 +284,8 @@
     "remove": "移除 {domain}",
     "add": "添加域名",
     "duplicate": "{domain} 已在列表中。",
-    "certNote": "证书必须覆盖全部域名，不在证书里的域名无法保存。"
+    "certNote": "证书必须覆盖全部域名，不在证书里的域名无法保存。",
+    "panelHost": "{domains} 也是访问面板用的主机名。浏览器会把面板的 Cookie 发给同一主机名下的所有网站（不分端口），这样的网站还能替面板设置 Cookie。面板不会只凭 Cookie 认人，但更稳妥的做法是让面板使用独立的主机名，例如 panel.example.com。"
   },
   "php": {
     "intro": "本站以 {runner} 身份运行在独立的 PHP-FPM 进程池里。",

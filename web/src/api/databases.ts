@@ -3,7 +3,7 @@
 // Database servers: MySQL/MariaDB, PostgreSQL and Redis/Valkey
 // (`databases.read` to view, `databases.manage` to change). Changes run as
 // jobs; several routes are step-up protected.
-import { API_BASE, ApiError, api, apiErrorFromBody, reportUnauthorized, type ErrorParams } from './client'
+import { API_BASE, ApiError, api, apiErrorFromBody, authHeaders, reportUnauthorized, type ErrorParams } from './client'
 import type { Job } from './jobs'
 
 export type EngineKind = 'mysql' | 'postgresql' | 'redis'
@@ -259,8 +259,8 @@ export function uploadDump(
     xhr.withCredentials = true
     xhr.setRequestHeader('Content-Type', 'application/octet-stream')
     xhr.setRequestHeader('Accept', 'application/json')
-    // CSRF guard, as for every state-changing request.
-    xhr.setRequestHeader('X-Cairn-Request', '1')
+    // The session key, as for every request.
+    for (const [name, value] of Object.entries(authHeaders('PUT'))) xhr.setRequestHeader(name, value)
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total)
     }

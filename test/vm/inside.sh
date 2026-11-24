@@ -68,7 +68,16 @@ wait_web() {
 }
 wait_web
 jar=/root/jar elevated=/root/elevated-at
-req() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+# A browser session is the cookie in the jar and the session key that setup
+# and sign-in answer with: keep_key saves it next to the jar, and every
+# request sends it (the cookie alone is refused).
+skey() { cat "${1:-$jar}.key" 2>/dev/null || true; }
+keep_key() (
+	out=$(cat)
+	printf '%s' "$out" | sed -n 's/.*"sessionKey":"\([A-Za-z0-9_-]*\)".*/\1/p' >"${1:-$jar}.key"
+	printf '%s\n' "$out"
+)
+req() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 elevate() {
 	req -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 	date +%s >"$elevated"
@@ -82,11 +91,11 @@ api() {
 }
 pw=vm-test-password-1
 token=$(grep -o 'token=[A-Za-z0-9_-]*' /root/install.log | head -1 | cut -d= -f2)
-api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"zh-CN\"}" |
+api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"zh-CN\"}" | keep_key |
 	grep -q '"username":"admin"' || fail "setup"
 login() {
 	rm -f "$jar" "$elevated"
-	req -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep_q '"username":"admin"' || fail "login"
+	req -X POST "$base/api/v1/auth/login" -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | keep_key | grep_q '"username":"admin"' || fail "login"
 	elevate
 }
 login
@@ -230,7 +239,10 @@ login
 useradd -m -s /bin/bash alice
 touch /tmp/vm-terminal-marker
 sid=$(api -X POST "$base/api/v1/terminal/sessions" -d '{"user":"alice","cols":100,"rows":30}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
-term() { python3 -I /tmp/ws.py "${base/https:/wss:}/api/v1/terminal/sessions/$sid/ws" "$jar" "$1" "$2"; }
+# A WebSocket handshake from a browser cannot send the session key and
+# brings a one-time ticket instead: ticket adds one to the address.
+ticket() { printf '%s?ticket=%s' "$1" "$(api -X POST "$base/api/v1/auth/tickets" -d "{\"path\":\"$1\"}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["ticket"])')"; }
+term() { python3 -I /tmp/ws.py "${base/https:/wss:}$(ticket "/api/v1/terminal/sessions/$sid/ws")" "$jar" "$1" "$2"; }
 termdiag() {
 	echo "--- session $sid"
 	api "$base/api/v1/terminal/sessions"

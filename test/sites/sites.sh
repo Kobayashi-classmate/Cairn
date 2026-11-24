@@ -31,11 +31,20 @@ port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 base="https://127.0.0.1:${port}"
 for _ in $(seq 100); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 0.1; done
 jar=/tmp/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+# A browser session is the cookie in the jar and the session key that setup
+# and sign-in answer with: keep_key saves it next to the jar, and every
+# request sends it (the cookie alone is refused).
+skey() { cat "${1:-$jar}.key" 2>/dev/null || true; }
+keep_key() (
+	out=$(cat)
+	printf '%s' "$out" | sed -n 's/.*"sessionKey":"\([A-Za-z0-9_-]*\)".*/\1/p' >"${1:-$jar}.key"
+	printf '%s\n' "$out"
+)
+api() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pw=sites-test-password-1
 token=$(cairn setup-link 2>&1 | grep -o 'token=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
-api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep_q '"username":"admin"' || fail "setup"
+api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | keep_key | grep_q '"username":"admin"' || fail "setup"
 api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 
 # follow METHOD PATH [BODY]: starts a job and waits for it to succeed.
@@ -100,6 +109,21 @@ for want in "user=cw-php-test-run" "path=/hello/world" "upload=ok" "code=refused
 done
 [ ! -e $app/hacked.php ] && [ "$(stat -c %U $app/uploads/u.txt)" = cw-php-test-run ] || fail "writes"
 step "PHP site php.test: runs as cw-php-test-run, writes uploads/ only, open_basedir holds, WordPress rule routes /hello/world"
+
+# A browser sends the panel's cookies to a site on the panel's host name as
+# well (cookies know no ports): nginx takes them out before the site's code,
+# and leaves the site's own.
+runuser -u cw-php-test -- tee "$app/cookies.php" >/dev/null <<'PHP'
+<?php
+header('Content-Type: text/plain');
+echo 'cookies=[' . ($_SERVER['HTTP_COOKIE'] ?? '') . ']';
+PHP
+out=$(curl -s -H 'Host: php.test' -H 'Cookie: __Host-cairn_session=x; site=1; __Host-cairn_device=y; theme=dark' http://127.0.0.1/cookies.php)
+[ "$out" = 'cookies=[site=1; theme=dark]' ] || fail "cookies the PHP site got: $out"
+out=$(curl -s -H 'Host: php.test' -H 'Cookie: __Host-cairn_session=x' http://127.0.0.1/cookies.php)
+[ "$out" = 'cookies=[]' ] || fail "cookies the PHP site got from the panel's alone: $out"
+rm -f "$app/cookies.php"
+step "PHP site php.test: the panel's own cookies do not reach the site's code, the site's do"
 
 # A second PHP site on the same line (one FPM master, one opcache), laid
 # out like Laravel: web root public/, public/storage linking into the

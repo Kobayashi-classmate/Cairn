@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -151,7 +152,12 @@ func (st *Sites) refreshFiles(ctx context.Context, log io.Writer, spec helperapi
 	if err != nil {
 		return sf, err
 	}
-	sf.changes = []fileChange{{path: siteConfPath(spec.Code), data: conf}}
+	// The panel-wide file comes along as in apply: a site's block may use
+	// what a newer version defines there.
+	sf.changes = []fileChange{
+		{path: path.Join(nginxConfD, "cairn.conf"), data: []byte(globalNginx)},
+		{path: siteConfPath(spec.Code), data: conf},
+	}
 	if fpm != nil {
 		sf.changes = append(sf.changes, fileChange{path: poolPath(fpm, spec.Code), data: pool})
 		sf.checks = append(sf.checks, fpmCheck(fpm))
@@ -168,9 +174,15 @@ func mergeSiteFiles(sites ...siteFiles) ([]fileChange, []configCheck, []reloader
 	var changes []fileChange
 	var checks []configCheck
 	var fpms, nginx []reloader
-	seenCheck, seenReload := map[string]bool{}, map[string]bool{}
+	seenCheck, seenReload, seenFile := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, sf := range sites {
-		changes = append(changes, sf.changes...)
+		for _, c := range sf.changes {
+			// The panel-wide file is every site's.
+			if !seenFile[c.path] {
+				seenFile[c.path] = true
+				changes = append(changes, c)
+			}
+		}
 		for _, c := range sf.checks {
 			if !seenCheck[c.name] {
 				seenCheck[c.name] = true

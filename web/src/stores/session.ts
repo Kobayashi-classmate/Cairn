@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { isApiError, type ApiError } from '@/api/client'
+import { borrowSessionKey, clearSessionKey, sessionKey, shareSessionKey } from '@/api/credentials'
 import * as sessionApi from '@/api/session'
 import { isMfaChallenge, isThemeMode } from '@/api/session'
 import type {
@@ -57,6 +58,8 @@ export const useSessionStore = defineStore('session', () => {
   }
 
   function clearSession(): void {
+    // The key is of no use without its session, and must not stay behind.
+    clearSessionKey()
     user.value = null
     permissions.value = []
     elevatedUntil.value = 0
@@ -104,19 +107,47 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
+  /**
+   * The session this tab can continue, or null when it has to sign in. The
+   * cookie the browser sends is not enough: the tab needs the session key,
+   * its own (kept across reloads) or, in a new tab, the one a tab already
+   * open hands over. A key the server no longer takes is dropped.
+   */
+  async function restoreSession(): Promise<SessionInfo | null> {
+    for (const borrow of [false, true]) {
+      if (borrow) {
+        clearSessionKey()
+        if (!(await borrowSessionKey())) return null
+      } else if (!sessionKey()) {
+        continue
+      }
+      try {
+        return await sessionApi.fetchSession()
+      } catch (err) {
+        if (!(isApiError(err) && err.status === 401)) throw err
+      }
+    }
+    clearSessionKey()
+    return null
+  }
+
   let startup: Promise<void> | null = null
 
   /** Loads metadata and the current session once; later calls reuse the result. */
   function init(): Promise<void> {
     startup ??= (async () => {
+      shareSessionKey()
       try {
         meta.value = await sessionApi.fetchMeta()
         if (!meta.value.setupRequired) {
-          try {
-            applySession(await sessionApi.fetchSession())
-            await useNavStore().load()
-          } catch (err) {
-            if (!(isApiError(err) && err.status === 401)) throw err
+          const info = await restoreSession()
+          if (info) {
+            applySession(info)
+            try {
+              await useNavStore().load()
+            } catch (err) {
+              if (!(isApiError(err) && err.status === 401)) throw err
+            }
           }
         }
       } catch (err) {

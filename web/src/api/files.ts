@@ -5,6 +5,7 @@
 // "sites" (/srv/www), "backups" (the panel's backups) or "system" (/, only
 // with full-disk access). Changes to many entries run as jobs.
 import { API_BASE, api } from './client'
+import { withTicket } from './session'
 import type { Job } from './jobs'
 
 export type FileRootId = 'sites' | 'backups' | 'system'
@@ -151,9 +152,14 @@ export function saveFile(root: string, path: string, content: string, etag: stri
   return api.put<FileSaved>('/files/content', { root, path, content, etag })
 }
 
-/** Address of a download; with `inline`, images are shown in the browser. */
-export function downloadUrl(root: string, path: string, inline = false): string {
-  return `${API_BASE}/files/download?${query({ root, path, inline })}`
+/**
+ * Address the browser can download a file from by itself (a link, an
+ * image); with `inline`, images are shown in the browser. Such a request
+ * cannot carry the session key, so the address has a one-time ticket: use
+ * it at once, and ask again for every download.
+ */
+export function downloadLink(root: string, path: string, inline = false, signal?: AbortSignal): Promise<string> {
+  return withTicket(`${API_BASE}/files/download?${query({ root, path, inline })}`, signal)
 }
 
 export function makeDir(root: string, dir: string, name: string): Promise<FileEntry> {

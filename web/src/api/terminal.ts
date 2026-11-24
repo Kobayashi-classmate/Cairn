@@ -5,6 +5,7 @@
 // it over a WebSocket and can come back to it after a reload.
 import { API_BASE, api } from './client'
 import type { AccessSettings } from './files'
+import { withTicket } from './session'
 
 export type TermUserKind = 'site' | 'user' | 'root'
 
@@ -62,10 +63,15 @@ export function closeTermSession(id: string): Promise<void> {
   return api.delete<void>(`/terminal/sessions/${encodeURIComponent(id)}`)
 }
 
-/** WebSocket address of a session (same origin; the session cookie signs in). */
-export function termSocketUrl(id: string): string {
+/**
+ * WebSocket address of a session (same origin). A WebSocket cannot carry
+ * the session key, so the address has a one-time ticket: open the socket
+ * with it at once, and ask again for every connection.
+ */
+export async function termSocketUrl(id: string): Promise<string> {
   const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${scheme}://${window.location.host}${API_BASE}/terminal/sessions/${encodeURIComponent(id)}/ws`
+  const path = await withTicket(`${API_BASE}/terminal/sessions/${encodeURIComponent(id)}/ws`)
+  return `${scheme}://${window.location.host}${path}`
 }
 
 /** A saved command of the signed-in account. */

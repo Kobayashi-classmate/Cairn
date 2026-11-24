@@ -20,14 +20,13 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 )
 
 func (c *client) tus(method, path string, body []byte, headers map[string]string) (int, http.Header) {
 	c.e.t.Helper()
 	req, _ := http.NewRequest(method, c.e.srv.URL+path, bytes.NewReader(body))
-	req.Header.Set(api.CSRFHeader, "1")
+	c.authorize(req)
 	req.Header.Set("Tus-Resumable", "1.0.0")
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -262,10 +261,12 @@ func TestTerminalModule(t *testing.T) {
 	id := sess.body["id"].(string)
 	defer shell.Close()
 
+	// As a browser does: the handshake carries the cookie and a one-time
+	// ticket, no session key.
 	dial := func() *websocket.Conn {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		url := strings.Replace(e.srv.URL, "https://", "wss://", 1) + "/api/v1/terminal/sessions/" + id + "/ws"
+		url := strings.Replace(e.srv.URL, "https://", "wss://", 1) + admin.ticket("/api/v1/terminal/sessions/"+id+"/ws")
 		c, res, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPClient: admin.hc})
 		if res != nil && res.Body != nil {
 			_ = res.Body.Close()

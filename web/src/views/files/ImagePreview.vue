@@ -3,17 +3,20 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Download, ImageOff, Lock } from '@lucide/vue'
-import { downloadUrl } from '@/api/files'
+import { isAbortError } from '@/api/client'
+import { downloadLink } from '@/api/files'
 import { ensureElevated } from '@/auth/stepUp'
 import { keepOpenOnCompanion, keepOpenOnEscape, trackOverlay } from '@/components/common/overlayGuard'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog'
 import { absolutePath, baseName } from '@/files/paths'
-import { linkNeedsStepUp, onDownloadClick } from './actions'
+import { download, linkNeedsStepUp } from './actions'
 
 // An image the server serves inline (sandboxed, so an SVG runs nothing),
 // in a dialog whose state is in the address (`?open=view:<path>`). Images
 // outside the sites root load after a re-authentication, as downloads do.
+// The browser fetches the image by itself, without the session key: its
+// address is made for one load, right before it.
 const props = defineProps<{ root: string; path: string | null }>()
 const emit = defineEmits<{ close: [] }>()
 
@@ -64,7 +67,29 @@ watch(
   { immediate: true },
 )
 
-const src = computed(() => (props.path && allowed.value ? downloadUrl(props.root, props.path, true) : ''))
+/** Address of the image for this showing of it; "" until it may load. */
+const src = ref('')
+let linking: AbortController | null = null
+
+watch(
+  () => [props.root, props.path, allowed.value] as const,
+  async ([root, path, may]) => {
+    linking?.abort()
+    linking = null
+    src.value = ''
+    if (!path || !may) return
+    const controller = new AbortController()
+    linking = controller
+    try {
+      const link = await downloadLink(root, path, true, controller.signal)
+      if (!controller.signal.aborted) src.value = link
+    } catch (err) {
+      if (!isAbortError(err) && !controller.signal.aborted) failed.value = true
+    }
+  },
+  { immediate: true },
+)
+
 const name = computed(() => (props.path ? baseName(props.path) : ''))
 
 function onLoad(event: Event) {
@@ -113,7 +138,7 @@ function onOpenChange(value: boolean) {
         <img v-if="src" :src="src" :alt="name" class="max-h-[70vh] max-w-full object-contain" @load="onLoad" @error="failed = true" />
       </div>
       <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button v-if="path" as="a" variant="outline" :href="downloadUrl(root, path)" :download="name" class="max-md:h-11" @click="onDownloadClick($event, root, path)" @auxclick="onDownloadClick($event, root, path)">
+        <Button v-if="path" variant="outline" class="max-md:h-11" @click="download(root, path)">
           <Download aria-hidden="true" />
           {{ t('files.action.download') }}
         </Button>

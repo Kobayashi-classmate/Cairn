@@ -12,7 +12,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/jobs"
 )
@@ -184,7 +183,7 @@ type rawReply struct {
 func (c *client) raw(method, path string, body []byte) (rawReply, []byte) {
 	c.e.t.Helper()
 	req, _ := http.NewRequest(method, c.e.srv.URL+path, bytes.NewReader(body))
-	req.Header.Set(api.CSRFHeader, "1")
+	c.authorize(req)
 	res, err := c.hc.Do(req)
 	if err != nil {
 		c.e.t.Fatal(err)
@@ -222,8 +221,20 @@ func TestDatabaseDumpsAndRedis(t *testing.T) {
 	if res.StatusCode != 200 || string(body) != "CREATE TABLE t (id int);" || res.Header.Get("Content-Disposition") != `attachment; filename="shop_up.sql"` {
 		t.Fatalf("download: %d %q %v", res.StatusCode, body, res.Header)
 	}
-	if got := admin.expect(admin.do("GET", "/api/v1/databases/mysql/dumps/shop_up.sql?link=1", nil), 200, "").body["url"]; got != "/api/v1/databases/mysql/dumps/shop_up.sql" {
-		t.Fatalf("dump link %v", got)
+	// ?link=1 answers with the address a browser can follow: the session key
+	// does not travel with a link, a one-time ticket does.
+	link, _ := admin.expect(admin.do("GET", "/api/v1/databases/mysql/dumps/shop_up.sql?link=1", nil), 200, "").body["url"].(string)
+	if !strings.HasPrefix(link, "/api/v1/databases/mysql/dumps/shop_up.sql?ticket=") {
+		t.Fatalf("dump link %v", link)
+	}
+	if status, _ := admin.link("/api/v1/databases/mysql/dumps/shop_up.sql"); status != 401 {
+		t.Fatalf("download with the cookie alone: %d", status)
+	}
+	if status, body := admin.link(link); status != 200 || string(body) != "CREATE TABLE t (id int);" {
+		t.Fatalf("download through the link: %d %q", status, body)
+	}
+	if status, _ := admin.link(link); status != 401 {
+		t.Fatalf("the link worked twice: %d", status)
 	}
 	admin.expect(admin.do("GET", "/api/v1/databases/mysql/dumps/gone.sql?link=1", nil), 404, helperapi.CodeDBDumpNotFound)
 	// A link in the dump directory is not followed out of it.

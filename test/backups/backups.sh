@@ -37,12 +37,21 @@ port=$(sed -n 's/^listen = "0.0.0.0:\([0-9]*\)"/\1/p' /etc/cairn/config.toml)
 base="https://127.0.0.1:${port}"
 for _ in $(seq 100); do curl -sk -o /dev/null "$base/api/v1/meta" && break; sleep 0.1; done
 jar=/tmp/jar
-api() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
-status() { curl -sk -c "$jar" -b "$jar" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' -o /tmp/body -w '%{http_code}' "$@"; }
+# A browser session is the cookie in the jar and the session key that setup
+# and sign-in answer with: keep_key saves it next to the jar, and every
+# request sends it (the cookie alone is refused).
+skey() { cat "${1:-$jar}.key" 2>/dev/null || true; }
+keep_key() (
+	out=$(cat)
+	printf '%s' "$out" | sed -n 's/.*"sessionKey":"\([A-Za-z0-9_-]*\)".*/\1/p' >"${1:-$jar}.key"
+	printf '%s\n' "$out"
+)
+api() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' "$@"; }
+status() { curl -sk -c "$jar" -b "$jar" -H "X-Cairn-Session: $(skey)" -H 'X-Cairn-Request: 1' -H 'Content-Type: application/json' -o /tmp/body -w '%{http_code}' "$@"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 pw=backups-test-password-1
 token=$(cairn setup-link 2>&1 | grep -o 'token=[A-Za-z0-9_-]*' | head -1 | cut -d= -f2)
-api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | grep_q '"username":"admin"' || fail "setup"
+api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\",\"password\":\"$pw\",\"locale\":\"en\"}" | keep_key | grep_q '"username":"admin"' || fail "setup"
 elevate() { api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"; }
 elevate
 
@@ -138,9 +147,9 @@ step "site restored from the bucket with the private key (refused without it), o
 
 # Download through a short-lived link to the bucket.
 size=$(python3 -c "import json; print([f['size'] for f in json.load(open('/tmp/files.json'))['files'] if f['name']=='$site'][0])")
-code=$(curl -sk -b "$jar" -o /tmp/dl -w '%{http_code}' "$base/api/v1/backups/plans/$plan/files/$site")
+code=$(curl -sk -b "$jar" -H "X-Cairn-Session: $(skey)" -o /tmp/dl -w '%{http_code}' "$base/api/v1/backups/plans/$plan/files/$site")
 [ "$code" = 302 ] || fail "download answered $code"
-curl -sk -b "$jar" -L -o /tmp/dl "$base/api/v1/backups/plans/$plan/files/$site"
+curl -sk -b "$jar" -H "X-Cairn-Session: $(skey)" -L -o /tmp/dl "$base/api/v1/backups/plans/$plan/files/$site"
 [ "$(wc -c </tmp/dl)" = "$size" ] && head -c 21 /tmp/dl | grep_q age-encryption.org || fail "presigned download"
 step "download redirected to a presigned link; the encrypted file arrives whole"
 

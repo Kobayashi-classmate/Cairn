@@ -11,6 +11,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
+	"path"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,6 +68,9 @@ type Module struct {
 	Log      *slog.Logger
 	// Modules is the registry of the running panel (menu, module switches).
 	Modules *module.Registry
+
+	// router knows which routes take tickets (set by Routes).
+	router *api.Router
 }
 
 // ID implements module.Module.
@@ -79,6 +85,7 @@ func (m *Module) Info() module.Info {
 
 // Routes implements module.Module.
 func (m *Module) Routes(r *api.Router) {
+	m.router = r
 	self := api.Require(authz.Self)
 	// The account's own security (password, sessions, tokens, two-step
 	// sign-in) is never reachable with an API token.
@@ -89,16 +96,19 @@ func (m *Module) Routes(r *api.Router) {
 	noContent := api.Returns(http.StatusNoContent, nil)
 
 	r.Handle("GET /api/v1/meta", m.meta, api.Public(), api.Doc("meta", "Instance metadata and supported languages"), api.Returns(200, metaResponse{}))
-	r.Handle("POST /api/v1/setup", m.setup, api.Public(), authDoc("Create the first administrator with the setup token"),
-		api.Body(setupRequest{}), api.Returns(200, userResponse{}))
-	r.Handle("POST /api/v1/auth/login", m.login, api.Public(), authDoc("Sign in; may answer with a second-step challenge"),
+	r.Handle("POST /api/v1/setup", m.setup, api.Public(), authDoc("Create the first administrator with the setup token; answers with the session key"),
+		api.Body(setupRequest{}), api.Returns(200, sessionResponse{}))
+	r.Handle("POST /api/v1/auth/login", m.login, api.Public(), authDoc("Sign in; answers with the session key, or with a second-step challenge"),
 		api.Body(loginRequest{}), api.Returns(200, loginResponse{}))
-	r.Handle("POST /api/v1/auth/login/mfa", m.loginMFA, api.Public(), authDoc("Complete sign-in with a TOTP or recovery code"),
-		api.Body(loginMFARequest{}), api.Returns(200, userResponse{}))
+	r.Handle("POST /api/v1/auth/login/mfa", m.loginMFA, api.Public(), authDoc("Complete sign-in with a TOTP or recovery code; answers with the session key"),
+		api.Body(loginMFARequest{}), api.Returns(200, sessionResponse{}))
 	r.Handle("POST /api/v1/auth/logout", m.logout, self, authDoc("Sign out this session"), api.NoBody(), noContent)
 	r.Handle("GET /api/v1/auth/me", m.me, self, authDoc("Current user, permissions and step-up state"), api.Returns(200, meResponse{}))
 	r.Handle("POST /api/v1/auth/elevate", m.elevate, self, account, authDoc("Re-authenticate for sensitive actions (step-up)"),
 		api.Body(elevateRequest{}), api.Returns(200, elevateResponse{}))
+	r.Handle("POST /api/v1/auth/tickets", m.issueTicket, self, account,
+		authDoc("Get a one-time ticket for a request that cannot carry the session key (WebSocket, download link)"),
+		api.Body(ticketRequest{}), api.Returns(200, ticketResponse{}))
 
 	r.Handle("PUT /api/v1/me/locale", m.setMyLocale, self, accountDoc("Set my language"), api.Body(localeRequest{}), noContent)
 	r.Handle("PUT /api/v1/me/theme", m.setMyTheme, self, accountDoc("Set my colour scheme: light, dark or system"), api.Body(themeRequest{}), noContent)
@@ -141,13 +151,22 @@ func (m *Module) Routes(r *api.Router) {
 // loginResponse documents both shapes of a successful POST /auth/login.
 type loginResponse struct {
 	userResponse
+	SessionKey  string `json:"sessionKey,omitempty"`
+	DeviceKey   string `json:"deviceKey,omitempty"`
 	MFARequired bool   `json:"mfaRequired,omitempty"`
 	MFAToken    string `json:"mfaToken,omitempty"`
 }
 
-// Authenticator resolves the session cookie, or an API token presented as
+// Authenticator resolves a browser session, or an API token presented as
 // "Authorization: Bearer", to a principal. Token requests never consult
 // cookies.
+//
+// A session takes the cookie and the session key in its header, both: the
+// cookie also reaches whatever else answers on the panel's host name (a
+// website on another port), the key does not. On the routes that take
+// tickets, a one-time ticket in the address may stand in for the key.
+// Whatever is missing or wrong, the answer says nothing about the other
+// half.
 func Authenticator(db *sql.DB) api.Authenticator {
 	return func(r *http.Request) (*api.Principal, error) {
 		if api.IsBearer(r) {
@@ -157,7 +176,21 @@ func Authenticator(db *sql.DB) api.Authenticator {
 		if err != nil || c.Value == "" {
 			return nil, api.ErrUnauthenticated
 		}
-		s, u, err := auth.LookupSession(r.Context(), db, c.Value)
+		var s *auth.Session
+		var u *auth.User
+		key := r.Header.Get(api.SessionHeader)
+		ticket := ""
+		if key == "" && api.TakesTicket(r.Context()) {
+			ticket = r.URL.Query().Get(api.TicketParam)
+		}
+		switch {
+		case key != "":
+			s, u, err = auth.LookupSession(r.Context(), db, c.Value, key)
+		case ticket != "":
+			s, u, err = auth.RedeemTicket(r.Context(), db, c.Value, ticket, auth.TicketTarget(r.URL.Path, r.URL.Query(), api.TicketParam))
+		default:
+			return nil, api.ErrUnauthenticated
+		}
 		if errors.Is(err, auth.ErrSessionInvalid) {
 			return nil, api.NewError(http.StatusUnauthorized, "auth.session_expired", nil)
 		}
@@ -225,17 +258,24 @@ func (m *Module) failed(r *http.Request, username string, keys ...string) {
 	}
 }
 
+// knownDevice reports whether this browser signed in as username before:
+// it sends the device cookie and, in its header, the device key.
+func (m *Module) knownDevice(r *http.Request, username string) (bool, error) {
+	c, err := r.Cookie(auth.DeviceCookieName)
+	if err != nil {
+		return false, nil
+	}
+	return auth.KnownDevice(r.Context(), m.DB, c.Value, r.Header.Get(api.DeviceHeader), username)
+}
+
 // signInKeys are the throttle keys of a sign-in as username: the address,
 // and the username unless this browser signed in as it before (a known
 // device), whose owner others must not be able to lock out.
 func (m *Module) signInKeys(r *http.Request, username string) ([]string, error) {
 	keys := []string{auth.IPKey(api.ClientIP(r))}
-	known := false
-	if c, err := r.Cookie(auth.DeviceCookieName); err == nil {
-		var kerr error
-		if known, kerr = auth.KnownDevice(r.Context(), m.DB, c.Value, username); kerr != nil {
-			return nil, kerr
-		}
+	known, err := m.knownDevice(r, username)
+	if err != nil {
+		return nil, err
 	}
 	if !known {
 		keys = append(keys, auth.UserKey(username))
@@ -281,6 +321,15 @@ func userBody(u *auth.User) userResponse {
 	return userResponse{User: u, Permissions: authz.PermissionsOf(u.Role)}
 }
 
+// sessionResponse answers a completed sign-in. Only this answer carries the
+// session key, and the device key of a browser not seen before; neither is
+// logged or audited.
+type sessionResponse struct {
+	userResponse
+	SessionKey string `json:"sessionKey"`
+	DeviceKey  string `json:"deviceKey,omitempty"`
+}
+
 type setupRequest struct {
 	Token    string `json:"token"`
 	Username string `json:"username"`
@@ -307,10 +356,7 @@ func (m *Module) setup(w http.ResponseWriter, r *http.Request) error {
 		return modutil.MapError(err, nil)
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.setup", "ok", nil)
-	if err := m.signIn(w, r, u); err != nil {
-		return err
-	}
-	return api.WriteJSON(w, http.StatusOK, userBody(u))
+	return m.signIn(w, r, u)
 }
 
 type loginRequest struct {
@@ -369,10 +415,7 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login", "ok", nil)
 	m.announceLogin(r, u)
-	if err := m.signIn(w, r, u); err != nil {
-		return err
-	}
-	return api.WriteJSON(w, http.StatusOK, userBody(u))
+	return m.signIn(w, r, u)
 }
 
 type loginMFARequest struct {
@@ -429,10 +472,7 @@ func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login_mfa", "ok", map[string]any{"method": method})
 	m.announceLogin(r, u)
-	if err := m.signIn(w, r, u); err != nil {
-		return err
-	}
-	return api.WriteJSON(w, http.StatusOK, userBody(u))
+	return m.signIn(w, r, u)
 }
 
 func (m *Module) logout(w http.ResponseWriter, r *http.Request) error {
@@ -523,33 +563,80 @@ func (m *Module) elevate(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusOK, elevateResponse{ElevatedUntil: until})
 }
 
+// signIn starts a session and answers the sign-in: the cookie, and in the
+// body the session key that every later request has to send with it.
 func (m *Module) signIn(w http.ResponseWriter, r *http.Request, u *auth.User) error {
-	token, err := auth.CreateSession(r.Context(), m.DB, u.ID, api.ClientIP(r), r.UserAgent())
+	token, key, err := auth.CreateSession(r.Context(), m.DB, u.ID, api.ClientIP(r), r.UserAgent())
 	if err != nil {
 		return err
 	}
 	if err := auth.TouchLogin(r.Context(), m.DB, u.ID); err != nil {
 		return err
 	}
+	resp := sessionResponse{userResponse: userBody(u), SessionKey: key}
 	http.SetCookie(w, &http.Cookie{
 		Name: auth.CookieName, Value: token, Path: "/",
 		MaxAge: int(auth.AbsoluteTimeout / time.Second), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
 	})
 	// This browser is now a known device of the account (see signInKeys).
-	if c, err := r.Cookie(auth.DeviceCookieName); err == nil {
-		if known, err := auth.KnownDevice(r.Context(), m.DB, c.Value, u.Username); err != nil || known {
-			return err
-		}
-	}
-	device, err := auth.RememberDevice(r.Context(), m.DB, u.ID)
+	known, err := m.knownDevice(r, u.Username)
 	if err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: auth.DeviceCookieName, Value: device, Path: "/",
-		MaxAge: int(auth.DeviceLifetime / time.Second), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
-	})
-	return nil
+	if !known {
+		device, deviceKey, err := auth.RememberDevice(r.Context(), m.DB, u.ID)
+		if err != nil {
+			return err
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name: auth.DeviceCookieName, Value: device, Path: "/",
+			MaxAge: int(auth.DeviceLifetime / time.Second), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		})
+		resp.DeviceKey = deviceKey
+	}
+	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+type ticketRequest struct {
+	// Path is the request the ticket is for: the path and query of a GET
+	// that takes tickets, as it will be sent (without the ticket).
+	Path string `json:"path"`
+}
+
+type ticketResponse struct {
+	Ticket string `json:"ticket"`
+	// ExpiresIn is how many seconds the ticket waits to be used.
+	ExpiresIn int `json:"expiresIn"`
+}
+
+// maxTicketPath bounds the address a ticket is asked for; file paths make
+// the longest ones.
+const maxTicketPath = 16 << 10
+
+// issueTicket trades the session key (this request carried it) for a
+// one-time ticket for one request the browser will make by itself. What
+// that request needs otherwise (permission, step-up) is checked when the
+// ticket is used.
+func (m *Module) issueTicket(w http.ResponseWriter, r *http.Request) error {
+	var req ticketRequest
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	p, _ := api.PrincipalFrom(r.Context())
+	bad := api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "path", "rule": "ticket_path"})
+	if req.Path == "" || len(req.Path) > maxTicketPath {
+		return bad
+	}
+	u, err := url.Parse(req.Path)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil || u.Fragment != "" || u.Opaque != "" ||
+		!strings.HasPrefix(u.Path, "/") || path.Clean(u.Path) != u.Path || !m.router.TicketRoute(u) {
+		return bad
+	}
+	ticket, err := auth.IssueTicket(r.Context(), m.DB, p.SessionID, auth.TicketTarget(u.Path, u.Query(), api.TicketParam))
+	if err != nil {
+		return modutil.MapError(err, nil)
+	}
+	return api.WriteJSON(w, http.StatusOK, ticketResponse{Ticket: ticket, ExpiresIn: int(auth.TicketTTL / time.Second)})
 }
 
 func clearCookie(w http.ResponseWriter) {

@@ -5,7 +5,7 @@
 // run as jobs the job dock follows; a job that could not do everything
 // offers the way out (delete for good what the trash cannot take, replace
 // what is in the way of a restore).
-import { FILE_BATCH_MAX, deleteEntries, downloadUrl, emptyTrash, purgeTrash, restoreTrash, type TrashEntry } from '@/api/files'
+import { FILE_BATCH_MAX, deleteEntries, downloadLink, emptyTrash, purgeTrash, restoreTrash, type TrashEntry } from '@/api/files'
 import { followJobLog, type Job } from '@/api/jobs'
 import { ensureElevated } from '@/auth/stepUp'
 import { confirmAction } from '@/composables/useConfirmDialog'
@@ -35,9 +35,9 @@ export function withinBatch(count: number): boolean {
 }
 
 /**
- * Whether reading a file of a root through a plain link (download, image
- * preview) needs a recent re-authentication: everything but the sites root
- * holds backups or the whole disk.
+ * Whether reading a file of a root through a link the browser follows
+ * (download, image preview) needs a recent re-authentication: everything
+ * but the sites root holds backups or the whole disk.
  */
 export function linkNeedsStepUp(root: string): boolean {
   return root !== 'sites'
@@ -61,33 +61,18 @@ function saveLink(url: string, name: string): void {
 /**
  * Starts a download of an entry; from roots other than the sites, after
  * re-authenticating (otherwise the browser would save the server's
- * refusal). Does nothing when the user cancels.
+ * refusal). The browser fetches the file by itself, without the session
+ * key, so the address is made for this one download right before it. Does
+ * nothing when the user cancels.
  */
 export async function download(root: string, path: string): Promise<void> {
-  if (linkNeedsStepUp(root)) {
-    try {
-      await ensureElevated()
-    } catch (err) {
-      // A declined re-authentication stays silent.
-      notifyError(err)
-      return
-    }
+  try {
+    if (linkNeedsStepUp(root)) await ensureElevated()
+    saveLink(await downloadLink(root, path), baseName(path))
+  } catch (err) {
+    // A declined re-authentication stays silent.
+    notifyError(err)
   }
-  saveLink(downloadUrl(root, path), baseName(path))
-}
-
-/**
- * Click and auxclick handler for download links (which carry a `download`
- * attribute, so following them leaves the page alone): the browser follows
- * a link to the sites root itself; for other roots any click, a middle or
- * modified one too, waits for the re-authentication first.
- */
-export function onDownloadClick(event: MouseEvent, root: string, path: string): void {
-  // auxclick also reports the right button, which opens the context menu.
-  if (event.type === 'auxclick' && event.button !== 1) return
-  if (!linkNeedsStepUp(root)) return
-  event.preventDefault()
-  void download(root, path)
 }
 
 /**

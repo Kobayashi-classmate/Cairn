@@ -100,7 +100,9 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("POST /api/v1/terminal/sessions", m.open, api.Require(Use), api.StepUp(), api.Body(helperapi.TermOpenRequest{}),
 		doc("Open a terminal (attach to it with the WebSocket)"), api.Returns(201, sessionView{}))
 	r.Handle("DELETE /api/v1/terminal/sessions/{id}", m.close, api.Require(Use), doc("Close a terminal"), api.Returns(204, nil))
-	r.Handle("GET /api/v1/terminal/sessions/{id}/ws", m.attach, api.Require(Use),
+	// A browser's WebSocket handshake cannot carry the session key: it
+	// brings a one-time ticket.
+	r.Handle("GET /api/v1/terminal/sessions/{id}/ws", m.attach, api.Require(Use), api.Ticket(),
 		doc("Attach to a terminal: binary messages carry input and output, text messages {\"type\":\"resize\",\"cols\",\"rows\"}"))
 	m.snippetRoutes(r, doc)
 }
@@ -529,7 +531,8 @@ type control struct {
 }
 
 // attach joins a WebSocket to a session. The WebSocket must come from the
-// panel's own origin (the library refuses others).
+// panel's own origin (the library refuses others), and a browser's brings
+// a ticket only the panel's page could get (see api.Ticket).
 func (m *Module) attach(w http.ResponseWriter, r *http.Request) error {
 	s, err := m.find(r)
 	if err != nil {

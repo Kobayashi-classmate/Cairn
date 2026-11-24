@@ -17,7 +17,8 @@ var pathParam = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 
 // OpenAPI builds an OpenAPI 3.1 document from the route registry. Request
 // and response schemas are derived from the Go types given with Body and
-// Returns; permissions and step-up appear as x-cairn-* extensions.
+// Returns; permissions, step-up and one-time tickets appear as x-cairn-*
+// extensions.
 func (rt *Router) OpenAPI(title, version string) map[string]any {
 	gen := &schemaGen{defs: map[string]any{}, names: map[reflect.Type]string{}}
 	paths := map[string]map[string]any{}
@@ -42,11 +43,17 @@ func (rt *Router) OpenAPI(title, version string) map[string]any {
 			op["security"] = []any{}
 		} else {
 			op["x-cairn-permission"] = string(r.Permission)
-			op["security"] = []any{map[string]any{"session": []any{}}, map[string]any{"bearer": []any{}}}
-			if r.SessionOnly {
-				// API tokens are refused here.
-				op["security"] = []any{map[string]any{"session": []any{}}}
+			// A browser session is the cookie and the session key together.
+			security := []any{map[string]any{"session": []any{}, "sessionKey": []any{}}}
+			if r.Ticket {
+				op["x-cairn-ticket"] = true
+				security = append(security, map[string]any{"session": []any{}, "ticket": []any{}})
 			}
+			if !r.SessionOnly {
+				// API tokens are refused on session-only routes.
+				security = append(security, map[string]any{"bearer": []any{}})
+			}
+			op["security"] = security
 		}
 		if r.Module != "" {
 			op["x-cairn-module"] = r.Module
@@ -98,7 +105,7 @@ func (rt *Router) OpenAPI(title, version string) map[string]any {
 	}
 	return map[string]any{
 		"openapi": "3.1.0",
-		"info":    map[string]any{"title": title, "version": version},
+		"info":    map[string]any{"title": title, "version": version, "description": authDescription},
 		"tags":    tags, // in registration order, which is module order
 		"paths":   paths,
 		"components": map[string]any{
@@ -108,12 +115,27 @@ func (rt *Router) OpenAPI(title, version string) map[string]any {
 				"content":     jsonContent(errorSchema),
 			}},
 			"securitySchemes": map[string]any{
-				"session": map[string]any{"type": "apiKey", "in": "cookie", "name": "__Host-cairn_session"},
-				"bearer":  map[string]any{"type": "http", "scheme": "bearer", "description": "API token (cairn_...)"},
+				"session": map[string]any{"type": "apiKey", "in": "cookie", "name": "__Host-cairn_session",
+					"description": "Session cookie, set by setup and sign-in. Never enough alone: send it with the session key or a ticket."},
+				"sessionKey": map[string]any{"type": "apiKey", "in": "header", "name": SessionHeader,
+					"description": "Session key: the sessionKey of the answer to setup or sign-in."},
+				"ticket": map[string]any{"type": "apiKey", "in": "query", "name": TicketParam,
+					"description": "One-time ticket from POST /api/v1/auth/tickets, in place of the session key on operations marked x-cairn-ticket."},
+				"bearer": map[string]any{"type": "http", "scheme": "bearer", "description": "API token (cairn_...)"},
 			},
 		},
 	}
 }
+
+// authDescription tells API users how requests are authenticated; the
+// security schemes only name the pieces.
+const authDescription = `Scripts and other programs authenticate with an API token: "Authorization: Bearer cairn_...". Nothing else is needed.
+
+A browser session has two halves. Setup and sign-in set the cookie __Host-cairn_session and answer once with "sessionKey"; every later request sends the cookie and the header "` + SessionHeader + `: <sessionKey>". The cookie alone is refused: browsers send cookies to every port of a host name, so a website on the panel's host name receives it, while the key stays with the panel's page. State-changing requests made before there is a session (setup, sign-in) send "` + CSRFHeader + `: 1" instead.
+
+Requests a browser makes without headers (a WebSocket handshake, a download link) use a one-time ticket on the operations marked x-cairn-ticket: POST /api/v1/auth/tickets with the path and query of the request answers with a ticket, valid for a few seconds, once, for that request only; add it as the query parameter "` + TicketParam + `". The session cookie is still required.
+
+Sign-in also answers with "deviceKey" on a browser not seen before; sending it back as "` + DeviceHeader + `" with later sign-ins keeps failed attempts made elsewhere with the same username from locking this browser out.`
 
 // ServeOpenAPI returns a handler serving the document, built once on first
 // use (after every module has registered its routes).

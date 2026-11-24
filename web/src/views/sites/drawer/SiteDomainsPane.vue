@@ -11,6 +11,7 @@ import StatusPill from '@/components/common/StatusPill.vue'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { domainsError } from '@/sites/form'
+import { domainsOnHosts, panelHosts } from '@/sites/panelHost'
 import { MAX_DOMAINS, normalizeHost } from '@/sites/validate'
 import SaveBar from './SaveBar.vue'
 import { useSitePane } from './useSitePane'
@@ -60,6 +61,8 @@ function makePrimary(domain: string) {
 }
 
 const listError = computed(() => errors.value.domains ?? errors.value.tlsCert ?? '')
+/** Domains that are the panel's own host name: allowed, but warned about. */
+const onPanelHost = computed(() => domainsOnHosts(form.domains, panelHosts(props.certs)))
 </script>
 
 <template>
@@ -131,6 +134,9 @@ const listError = computed(() => errors.value.domains ?? errors.value.tlsCert ??
   </Card>
 
   <Notice v-if="listError" tone="destructive">{{ listError }}</Notice>
+  <Notice v-if="onPanelHost.length > 0" tone="warning">
+    {{ t('sites.domains.panelHost', { domains: onPanelHost.join(', ') }, onPanelHost.length) }}
+  </Notice>
   <p v-if="site.tls" class="m-0 text-detail text-muted-foreground">{{ t('sites.domains.certNote') }}</p>
 
   <SaveBar v-if="canManage" :dirty="dirty" :saving="saving" :applying="busy && !saving" :error="error" @save="save" @reset="reset" />

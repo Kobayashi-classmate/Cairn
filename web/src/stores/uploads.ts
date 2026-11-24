@@ -11,8 +11,8 @@ import {
   API_BASE,
   ApiError,
   ClientErrorCode,
-  CSRF_HEADER,
   apiErrorFromBody,
+  authHeaders,
   isAbortError,
   reportUnauthorized,
 } from '@/api/client'
@@ -158,7 +158,11 @@ export const useUploadsStore = defineStore('uploads', () => {
       const instance: Upload = new tus.Upload(job.file, {
         // Absolute, so the upload's address (Location) resolves against it.
         endpoint: new URL(`${API_BASE}/files/uploads`, window.location.origin).toString(),
-        headers: { [CSRF_HEADER]: '1' },
+        // The session key, read for each request: an upload can outlast a
+        // sign-in.
+        onBeforeRequest: (request) => {
+          for (const [name, value] of Object.entries(authHeaders(request.getMethod()))) request.setHeader(name, value)
+        },
         metadata,
         chunkSize: CHUNK_BYTES,
         retryDelays: [0, 1000, 3000, 5000, 10000],

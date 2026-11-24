@@ -102,7 +102,8 @@
     "inUse": "Certificate in use",
     "until": "valid until {date}",
     "selfSignedTag": "Self-signed",
-    "choose": "Serve another certificate"
+    "choose": "Serve another certificate",
+    "siteHost": "{domains} is also a website's domain. Opened there, the panel shares its host name with that website: a browser sends the panel's cookies to it, whatever the port, and it can set cookies for the panel. The panel never accepts its cookies alone, but it is safer to give the panel a host name of its own, such as panel.example.com. | {domains} are also domains of websites. Opened there, the panel shares its host name with a website: a browser sends the panel's cookies to it, whatever the port, and it can set cookies for the panel. The panel never accepts its cookies alone, but it is safer to give the panel a host name of its own, such as panel.example.com."
   },
   "downloadPolicy": {
     "change": "Change",

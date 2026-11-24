@@ -88,9 +88,22 @@ function refit() {
   sendSize()
 }
 
-function connect() {
+async function connect() {
   if (disposed) return
-  const ws = new WebSocket(termSocketUrl(props.sessionId))
+  let url: string
+  try {
+    // Every connection takes a new one-time ticket.
+    url = await termSocketUrl(props.sessionId)
+  } catch (err) {
+    if (disposed || status.value === 'ended') return
+    // Signed out (the sign-in page follows a 401 by itself) or not allowed.
+    if (isApiError(err) && (err.status === 401 || err.status === 403)) ended()
+    // The panel may be restarting; try again later.
+    else scheduleReconnect()
+    return
+  }
+  if (disposed || status.value === 'ended') return
+  const ws = new WebSocket(url)
   ws.binaryType = 'arraybuffer'
   socket = ws
   let opened = false
@@ -155,7 +168,7 @@ function scheduleReconnect() {
       scheduleReconnect()
       return
     }
-    connect()
+    void connect()
   }, delay)
 }
 
@@ -215,7 +228,7 @@ onMounted(async () => {
   observer = new ResizeObserver(() => refit())
   observer.observe(host.value)
   refit()
-  connect()
+  void connect()
   if (props.active) term.focus()
 })
 

@@ -5,6 +5,7 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -14,7 +15,10 @@ import (
 // Session cookie and lifetime settings.
 const (
 	// CookieName uses the __Host- prefix: Secure, Path=/ and no Domain are
-	// enforced by the browser, so no subdomain can set or read it.
+	// enforced by the browser, so no subdomain can set or read it. The
+	// browser still sends it to every port of the host, a website on the
+	// same host name included, so it never signs anyone in by itself: every
+	// use of a session also takes the session key (see CreateSession).
 	CookieName      = "__Host-cairn_session"
 	IdleTimeout     = 2 * time.Hour
 	AbsoluteTimeout = 12 * time.Hour
@@ -24,7 +28,8 @@ const (
 	touchInterval   = time.Minute // throttle last_seen_at writes
 )
 
-// ErrSessionInvalid covers unknown, expired and idle-timed-out sessions.
+// ErrSessionInvalid covers unknown, expired and idle-timed-out sessions,
+// and a session key (or ticket) that is not the session's.
 var ErrSessionInvalid = errors.New("auth: session invalid")
 
 // Session is a signed-in browser.
@@ -38,6 +43,7 @@ type Session struct {
 	Remote        string `json:"remote"`
 	UserAgent     string `json:"userAgent"`
 	Current       bool   `json:"current"`
+	keyHash       string // hash of the session key
 }
 
 // Elevated reports whether a step-up re-authentication is still valid.
@@ -51,47 +57,70 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// CreateSession starts a session and returns the cookie token.
-func CreateSession(ctx context.Context, q queryer, userID int64, remote, userAgent string) (string, error) {
-	token, err := RandomToken(tokenBytes)
-	if err != nil {
-		return "", err
+// sameHash compares two stored hashes in constant time. An empty hash (a
+// row from before the value existed) matches nothing.
+func sameHash(a, b string) bool {
+	return a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// CreateSession starts a session and returns its two halves: the cookie
+// token and the session key. The key goes to the page once, in the answer
+// to the sign-in, and comes back in a request header; only its hash is
+// stored. The cookie reaches whatever answers on the panel's host name, on
+// any port; the key reaches the panel only.
+func CreateSession(ctx context.Context, q queryer, userID int64, remote, userAgent string) (token, key string, err error) {
+	if token, err = RandomToken(tokenBytes); err != nil {
+		return "", "", err
+	}
+	if key, err = RandomToken(tokenBytes); err != nil {
+		return "", "", err
 	}
 	now := time.Now()
 	if len(userAgent) > 256 {
 		userAgent = userAgent[:256]
 	}
 	_, err = q.ExecContext(ctx,
-		`INSERT INTO sessions(id, user_id, created_at, last_seen_at, expires_at, remote_addr, user_agent)
-		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
-		hashToken(token), userID, now.Unix(), now.Unix(), now.Add(AbsoluteTimeout).Unix(), remote, userAgent)
+		`INSERT INTO sessions(id, key_hash, user_id, created_at, last_seen_at, expires_at, remote_addr, user_agent)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+		hashToken(token), hashToken(key), userID, now.Unix(), now.Unix(), now.Add(AbsoluteTimeout).Unix(), remote, userAgent)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return token, nil
+	return token, key, nil
 }
 
-const sessionColumns = `id, user_id, created_at, last_seen_at, expires_at, elevated_until, remote_addr, user_agent`
+const sessionColumns = `id, user_id, created_at, last_seen_at, expires_at, elevated_until, remote_addr, user_agent, key_hash`
 
 func scanSession(row scanner) (*Session, error) {
 	var s Session
-	err := row.Scan(&s.ID, &s.UserID, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.ElevatedUntil, &s.Remote, &s.UserAgent)
+	err := row.Scan(&s.ID, &s.UserID, &s.CreatedAt, &s.LastSeenAt, &s.ExpiresAt, &s.ElevatedUntil, &s.Remote, &s.UserAgent, &s.keyHash)
 	return &s, err
 }
 
-// LookupSession validates a cookie token and returns the session and user.
-// Idle and absolute timeouts are enforced here; expired rows are deleted.
-func LookupSession(ctx context.Context, q queryer, token string) (*Session, *User, error) {
-	if token == "" || len(token) > 128 {
+// LookupSession validates a cookie token together with the session key and
+// returns the session and user. Without the right key the cookie is worth
+// nothing, and the attempt leaves the session as it was. Idle and absolute
+// timeouts are enforced here; expired rows are deleted.
+func LookupSession(ctx context.Context, q queryer, token, key string) (*Session, *User, error) {
+	if token == "" || len(token) > 128 || key == "" || len(key) > 128 {
 		return nil, nil, ErrSessionInvalid
 	}
-	id := hashToken(token)
+	keyHash := hashToken(key)
+	return liveSession(ctx, q, hashToken(token), func(s *Session) bool { return sameHash(s.keyHash, keyHash) })
+}
+
+// liveSession returns the session with this ID and its user when proof
+// accepts it, enforcing the timeouts.
+func liveSession(ctx context.Context, q queryer, id string, proof func(*Session) bool) (*Session, *User, error) {
 	s, err := scanSession(q.QueryRowContext(ctx, `SELECT `+sessionColumns+` FROM sessions WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, ErrSessionInvalid
 	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if !proof(s) {
+		return nil, nil, ErrSessionInvalid
 	}
 	now := time.Now()
 	if now.Unix() > s.ExpiresAt || now.Sub(time.Unix(s.LastSeenAt, 0)) > IdleTimeout {
@@ -177,12 +206,15 @@ func DeleteUserSessions(ctx context.Context, q queryer, userID int64) error {
 	return err
 }
 
-// PurgeExpired removes stale sessions, MFA challenges and quiet throttle
-// counters.
+// PurgeExpired removes stale sessions (their tickets go with them), spent
+// tickets' leftovers, MFA challenges and quiet throttle counters.
 func PurgeExpired(ctx context.Context, q queryer) error {
 	now := time.Now()
 	if _, err := q.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < ? OR last_seen_at < ?`,
 		now.Unix(), now.Add(-IdleTimeout).Unix()); err != nil {
+		return err
+	}
+	if _, err := q.ExecContext(ctx, `DELETE FROM session_tickets WHERE expires_at < ?`, now.Unix()); err != nil {
 		return err
 	}
 	if _, err := q.ExecContext(ctx, `DELETE FROM mfa_challenges WHERE expires_at < ?`, now.Unix()); err != nil {

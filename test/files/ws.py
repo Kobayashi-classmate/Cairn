@@ -3,7 +3,8 @@
 
     python3 -I ws.py URL COOKIEJAR INPUT EXPECT [--exit]
 
-Connects to a terminal session, sends INPUT (with "\\n" for newlines) as one
+Connects to a terminal session the way a browser does (the cookies of
+COOKIEJAR, and whatever one-time ticket URL carries), sends INPUT (with "\\n" for newlines) as one
 binary frame, and reads until the output contains EXPECT. With --exit it
 then waits for the server's {"type":"exit"}. Prints the output; exits 1 on
 a timeout.
@@ -74,7 +75,8 @@ def main():
     raw = socket.create_connection((u.hostname, u.port), timeout=20)
     sock = ctx.wrap_socket(raw, server_hostname=u.hostname)
     key = base64.b64encode(os.urandom(16)).decode()
-    req = (f"GET {u.path} HTTP/1.1\r\nHost: {u.netloc}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+    target = u.path + ("?" + u.query if u.query else "")
+    req = (f"GET {target} HTTP/1.1\r\nHost: {u.netloc}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
            f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\nCookie: {cookie_header(jar)}\r\n\r\n")
     sock.sendall(req.encode())
     head = b""
