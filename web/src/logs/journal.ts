@@ -7,6 +7,7 @@ import type { LocationQuery } from 'vue-router'
 import { JOURNAL_MAX, JOURNAL_TIME, type JournalEntry, type JournalQuery } from '@/api/logs'
 import { truncateBytes } from '@/forms/rules'
 import type { Tone } from '@/lib/tone'
+import { stripAnsi } from './ansi'
 
 /** Minimum levels offered (1 alert … 7 debug); none shows everything. */
 export const PRIORITIES = [1, 2, 3, 4, 5, 6, 7] as const
@@ -95,7 +96,7 @@ export function sourceOf(entry: JournalEntry): string {
   return entry.pid ? `${name}[${entry.pid}]` : name
 }
 
-/** One entry as a line of text (copying the log). */
+/** One entry as a line of text (copying the log), without the message's escape sequences. */
 export function entryText(entry: JournalEntry, time: string, level: string): string {
-  return `${time} ${level} ${sourceOf(entry)}: ${entry.message}`
+  return `${time} ${level} ${sourceOf(entry)}: ${stripAnsi(entry.message)}`
 }

@@ -11,10 +11,14 @@ import Card from '@/components/common/Card.vue'
 import ErrorState from '@/components/common/ErrorState.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import SelectField from '@/components/common/SelectField.vue'
+import { LogSpans } from '@/components/logs/LogText'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatLogTime } from '@/i18n/format'
+import { TONE_TEXT } from '@/lib/tone'
 import { cn } from '@/lib/utils'
+import { useAnsiPalette } from '@/logs/ansiPalette'
+import { priorityTone } from '@/logs/journal'
 import { useSessionStore } from '@/stores/session'
 
 // The system journal of the line's services: the newest 200 entries of one
@@ -25,6 +29,8 @@ const props = defineProps<{ offer: Offer }>()
 
 const { t } = useI18n()
 const session = useSessionStore()
+/** The colours of messages with ANSI colours. */
+const palette = useAnsiPalette()
 
 const units = computed(() => (props.offer.units ?? []).map((unit) => unit.name))
 const unit = ref(units.value[0] ?? '')
@@ -76,11 +82,15 @@ onBeforeUnmount(() => controller?.abort())
 
 const unitOptions = computed(() => units.value.map((name) => ({ value: name, label: name })))
 
-/** Errors and worse in the danger colour, warnings in the warning colour. */
-function priorityClass(priority: number): string {
-  if (priority <= 3) return 'text-destructive'
-  if (priority === 4) return 'text-warning'
-  return ''
+/** Text colour of an entry's level (errors, warnings, debug). */
+function toneText(priority: number): string {
+  const tone = priorityTone(priority)
+  return tone ? TONE_TEXT[tone] : ''
+}
+
+/** The level of entries shown in a colour, so that the colour is not the only sign of it. */
+function levelLabel(priority: number): string {
+  return priorityTone(priority) ? t(`logs.priorityShort.${priority}`) : ''
 }
 </script>
 
@@ -122,11 +132,13 @@ function priorityClass(priority: number): string {
     </div>
     <p v-else-if="entries.length === 0" class="m-0 px-4 py-4 text-detail text-muted-foreground">{{ t('software.logs.empty') }}</p>
     <div v-else ref="box" class="max-h-[min(65vh,620px)] overflow-auto" role="log" tabindex="0" :aria-label="t('software.logs.label', { unit })">
-      <ol class="m-0 list-none p-0 py-2 font-mono text-xs leading-relaxed" dir="ltr">
+      <ol class="m-0 list-none p-0 py-2 font-mono text-xs leading-relaxed" dir="ltr" :style="palette">
         <li v-for="(entry, index) in entries" :key="index" class="flex gap-3 px-4 py-0.5 hover:bg-accent/50">
           <span class="shrink-0 text-muted-foreground tabular-nums">{{ formatLogTime(entry.time / 1000) }}</span>
-          <span :class="cn('min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]', priorityClass(entry.priority))">
-            <span v-if="entry.identifier" class="text-muted-foreground">{{ entry.identifier }}{{ entry.pid ? `[${entry.pid}]` : '' }}: </span>{{ entry.message }}
+          <span class="min-w-0 flex-1 whitespace-pre-wrap [overflow-wrap:anywhere]">
+            <span v-if="levelLabel(entry.priority)" :class="cn('font-semibold', toneText(entry.priority))">{{ levelLabel(entry.priority) }} </span>
+            <span v-if="entry.identifier" class="text-muted-foreground">{{ entry.identifier }}{{ entry.pid ? `[${entry.pid}]` : '' }}: </span>
+            <LogSpans :text="entry.message" :tone="priorityTone(entry.priority)" />
           </span>
         </li>
       </ol>

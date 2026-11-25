@@ -32,7 +32,9 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   `ls`, `grep`, `diff` and `ip` and the prompt, through a profile script
   that acts only in the panel's terminals; users' own shell files are not
   changed and still win.
-- Scheduled tasks, a log browser and backups to local or S3 storage.
+- Scheduled tasks, a log browser and backups to local or S3 storage. Logs
+  show the colours of program output and highlight error and warning
+  lines; copying a log gives the text without colour codes.
 - Firewall management on nftables, firewalld or ufw, with automatic rollback
   of a change that locks the administrator out. The rollback holds when
   the browser goes away and when the server restarts before the change is

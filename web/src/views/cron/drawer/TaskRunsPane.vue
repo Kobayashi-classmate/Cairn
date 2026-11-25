@@ -13,6 +13,7 @@ import RelativeTime from '@/components/common/RelativeTime.vue'
 import SkeletonRows from '@/components/common/SkeletonRows.vue'
 import StatusDot from '@/components/common/StatusDot.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
+import LogText from '@/components/logs/LogText'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { errorMessage } from '@/i18n/errors'
@@ -157,13 +158,13 @@ function duration(run: CronRun): string {
       </div>
       <template v-else-if="log">
         <p v-if="log.truncated" class="m-0 border-b px-4 py-2 text-xs text-muted-foreground">{{ t('cron.runs.truncated') }}</p>
-        <pre
+        <LogText
           v-if="log.lines.length > 0"
+          :text="log.lines.join('\n')"
           tabindex="0"
-          class="m-0 max-h-[min(60vh,560px)] overflow-auto px-4 py-3 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]"
-          dir="ltr"
+          class="m-0 max-h-[min(60vh,560px)] overflow-auto px-4 py-3 font-mono text-xs leading-relaxed"
           role="log"
-        >{{ log.lines.join('\n') }}</pre>
+        />
         <p v-else class="m-0 px-4 py-4 text-detail text-muted-foreground">{{ t('cron.runs.noOutput') }}</p>
       </template>
       <p v-else class="m-0 px-4 py-4 text-detail text-muted-foreground">{{ t('cron.runs.pick') }}</p>

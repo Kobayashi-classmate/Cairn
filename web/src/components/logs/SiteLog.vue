@@ -7,11 +7,13 @@ import LogView from '@/components/common/LogView.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
 import { Switch } from '@/components/ui/switch'
 import { useSiteLog } from '@/composables/useSiteLog'
-import { cn } from '@/lib/utils'
+import { stripAnsi } from '@/logs/ansi'
 import AccessLogTable from './AccessLogTable.vue'
+import LogText from './LogText'
 
 // A site's nginx access or error log, followed while switched on: the
-// access log as a table coloured by status code, the error log as it is.
+// access log as a table coloured by status code, the error log as text
+// with its levels coloured.
 // Shared by the site drawer and the Logs page (which adds a site picker in
 // the `controls` slot).
 const props = defineProps<{
@@ -49,7 +51,7 @@ const label = computed(() => (kind.value === 'access' ? t('sites.logs.access') :
       :error="error"
       :empty="lines.length === 0"
       :empty-text="t('sites.logs.empty')"
-      :copy-text="() => lines.join('\n')"
+      :copy-text="() => stripAnsi(lines.join('\n'))"
       :box-class="boxClass || undefined"
       @retry="retry"
     >
@@ -58,10 +60,7 @@ const label = computed(() => (kind.value === 'access' ? t('sites.logs.access') :
       </template>
       <template #default="{ wrap }">
         <AccessLogTable v-if="kind === 'access'" :lines="lines" :wrap="wrap" />
-        <pre
-          v-else
-          :class="cn('m-0 px-3 py-2 font-mono text-xs leading-relaxed', wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre')"
-        >{{ lines.join('\n') }}</pre>
+        <LogText v-else :text="lines.join('\n')" :wrap="wrap" class="m-0 px-3 py-2 font-mono text-xs leading-relaxed" />
       </template>
     </LogView>
   </div>

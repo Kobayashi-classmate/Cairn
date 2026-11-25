@@ -270,11 +270,14 @@ func (st *Sites) AppStatus(ctx context.Context, code string) (helperapi.AppStatu
 }
 
 // AppLog reads an app's journal: the last 300 lines, or those after cursor.
+// With --all, journalctl prints lines with control characters as they are
+// instead of "[N blob data]": the panel shows the colours of an app's
+// output and drops every other escape sequence.
 func (st *Sites) AppLog(ctx context.Context, req helperapi.AppLogRequest) (helperapi.AppLogResponse, error) {
 	if !systemdRunning() {
 		return helperapi.AppLogResponse{}, siteErr(helperapi.CodeAppNoSystemd, nil)
 	}
-	args := []string{"--unit", appUnit(req.Code), "--no-pager", "--output", "short-iso", "--show-cursor"}
+	args := []string{"--unit", appUnit(req.Code), "--no-pager", "--all", "--output", "short-iso", "--show-cursor"}
 	if req.Cursor != "" {
 		args = append(args, "--after-cursor", req.Cursor)
 	} else {

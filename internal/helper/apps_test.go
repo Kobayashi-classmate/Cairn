@@ -109,6 +109,10 @@ func TestAppSiteUnit(t *testing.T) {
 	if err != nil || len(lg.Lines) != 1 || lg.Cursor != "s=abc;i=1" {
 		t.Fatalf("log: %+v %v", lg, err)
 	}
+	// Lines with colours come as they are, not as "[N blob data]".
+	if !e.f.ran("query journalctl --unit cairn-app-api.service --no-pager --all --output short-iso --show-cursor --lines 300") {
+		t.Fatalf("journalctl arguments: %v", e.f.cmds)
+	}
 
 	// No longer an app: the unit stops and its files go.
 	spec.Type, spec.App, spec.Writable = helperapi.SiteStatic, nil, nil

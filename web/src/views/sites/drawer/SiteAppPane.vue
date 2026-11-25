@@ -10,6 +10,7 @@ import ErrorState from '@/components/common/ErrorState.vue'
 import KeyValueList from '@/components/common/KeyValueList.vue'
 import KeyValueRow from '@/components/common/KeyValueRow.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
+import LogText from '@/components/logs/LogText'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
@@ -238,11 +239,10 @@ const uptime = computed(() => {
       </label>
     </template>
     <ErrorState v-if="logError && lines.length === 0" :error="logError" compact @retry="loadLog" />
-    <div v-else ref="box" class="max-h-[min(60vh,520px)] overflow-auto bg-muted/60 px-4 py-3" role="log" :aria-label="t('sites.process.journal')" tabindex="0">
+    <!-- On the card's own background: the log colours are checked against it. -->
+    <div v-else ref="box" class="max-h-[min(60vh,520px)] overflow-auto px-4 py-3" role="log" :aria-label="t('sites.process.journal')" tabindex="0">
       <p v-if="lines.length === 0" class="m-0 text-detail text-muted-foreground">{{ t('sites.logs.empty') }}</p>
-      <pre v-else class="m-0 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]" dir="ltr">{{
-        lines.join('\n')
-      }}</pre>
+      <LogText v-else :text="lines.join('\n')" class="m-0 font-mono text-xs leading-relaxed" />
     </div>
   </Card>
 </template>

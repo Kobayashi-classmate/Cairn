@@ -7,6 +7,7 @@ import type { Offer, ServiceAction, SoftwareEntry } from '@/api/software'
 import Card from '@/components/common/Card.vue'
 import Notice from '@/components/common/Notice.vue'
 import StatusDot from '@/components/common/StatusDot.vue'
+import LogText from '@/components/logs/LogText'
 import { Button } from '@/components/ui/button'
 import { errorText } from '@/i18n/errors'
 import { UNIT_TONE, lineKey, unitStateText } from '@/software/display'
@@ -99,11 +100,11 @@ function run(action: ServiceAction) {
         <X class="size-4" aria-hidden="true" />
       </button>
     </div>
-    <pre
+    <LogText
       v-if="failureOutput"
+      :text="failureOutput"
       tabindex="0"
-      class="m-0 max-h-60 overflow-auto rounded-md bg-card p-3 font-mono text-xs whitespace-pre-wrap text-foreground [overflow-wrap:anywhere]"
-      dir="ltr"
-    >{{ failureOutput }}</pre>
+      class="m-0 max-h-60 overflow-auto rounded-md bg-card p-3 font-mono text-xs text-foreground"
+    />
   </div>
 </template>

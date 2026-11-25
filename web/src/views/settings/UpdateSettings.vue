@@ -13,6 +13,7 @@ import KeyValueRow from '@/components/common/KeyValueRow.vue'
 import Notice from '@/components/common/Notice.vue'
 import RelativeTime from '@/components/common/RelativeTime.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
+import LogText from '@/components/logs/LogText'
 import MarkdownText from '@/components/MarkdownText'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -235,7 +236,13 @@ function reload() {
       <p class="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{{ job.error }}</p>
       <details v-if="job.log" class="group mt-3">
         <summary class="cursor-pointer text-detail font-medium text-link">{{ t('updates.job.log') }}</summary>
-        <pre tabindex="0" class="mt-2 max-h-80 overflow-auto rounded-md bg-muted px-3 py-2 font-mono text-xs leading-relaxed" dir="ltr">{{ job.log }}</pre>
+        <!-- On the card's background, which the log colours are checked against. -->
+        <LogText
+          :text="job.log"
+          :wrap="false"
+          tabindex="0"
+          class="mt-2 max-h-80 overflow-auto rounded-md border bg-card px-3 py-2 font-mono text-xs leading-relaxed"
+        />
       </details>
     </Card>
     <Notice v-else-if="succeeded && job" tone="success">

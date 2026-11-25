@@ -14,6 +14,7 @@ import Notice from '@/components/common/Notice.vue'
 import RelativeTime from '@/components/common/RelativeTime.vue'
 import SettingsDrawer from '@/components/common/SettingsDrawer.vue'
 import type { DrawerItem } from '@/components/common/types'
+import LogText from '@/components/logs/LogText'
 import { Button } from '@/components/ui/button'
 import { useDrawerRoute } from '@/composables/useDrawerRoute'
 import { useJobFollow } from '@/composables/useJobFollow'
@@ -21,8 +22,8 @@ import { useNow } from '@/composables/useNow'
 import { errorText } from '@/i18n/errors'
 import { formatPercent } from '@/i18n/format'
 import { formatJobParam, isFinalState, jobActorLabel, jobKindLabel, jobStateLabel, sourceLabel } from '@/jobs/labels'
+import { stripAnsi } from '@/logs/ansi'
 import { notifyError, notifySuccess } from '@/lib/notify'
-import { cn } from '@/lib/utils'
 import { jobDuration, jobErrorDetails, jobTone } from './labels'
 
 // A job's drawer: ?open=job:<id>&section=overview|log. The overview has who
@@ -202,7 +203,7 @@ async function cancel() {
         :label="t('jobs.drawer.log')"
         :empty="log === ''"
         :empty-text="final ? t('jobs.detail.noLog') : t('jobs.drawer.waitingLog')"
-        :copy-text="() => log"
+        :copy-text="() => stripAnsi(log)"
         box-class="max-h-[calc(100dvh-260px)] min-h-48"
       >
         <template v-if="trimmed || !final" #toolbar>
@@ -213,7 +214,7 @@ async function cancel() {
           <span v-if="trimmed" class="text-xs text-muted-foreground">{{ t('jobs.detail.trimmed') }}</span>
         </template>
         <template #default="{ wrap: wrapping }">
-          <pre :class="cn('m-0 px-3 py-2 font-mono text-xs leading-relaxed', wrapping ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre')">{{ log }}</pre>
+          <LogText :text="log" :wrap="wrapping" class="m-0 px-3 py-2 font-mono text-xs leading-relaxed" />
         </template>
       </LogView>
     </template>

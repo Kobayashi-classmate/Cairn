@@ -11,6 +11,7 @@ import FormField from '@/components/common/FormField.vue'
 import LogView from '@/components/common/LogView.vue'
 import SelectField from '@/components/common/SelectField.vue'
 import type { SelectOption } from '@/components/common/types'
+import { LogSpans } from '@/components/logs/LogText'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,7 @@ import { Switch } from '@/components/ui/switch'
 import { byteLength } from '@/forms/rules'
 import { validationMessage } from '@/i18n/errors'
 import { formatLogTime, formatNumber } from '@/i18n/format'
+import { useAnsiPalette } from '@/logs/ansiPalette'
 import {
   DEFAULT_LIMIT,
   GREP_MAX_BYTES,
@@ -48,6 +50,8 @@ const KEEP_MAX = 5000
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+/** The colours of messages with ANSI colours. */
+const palette = useAnsiPalette()
 
 /** The filters in effect (from the address). */
 const applied = computed(() => filtersFrom(route.query))
@@ -323,7 +327,7 @@ function toneClass(priority: number): string {
           <template v-else-if="loaded">{{ t('logs.status.entries', { count: formatNumber(rows.length) }, rows.length) }}</template>
         </span>
       </template>
-      <ol class="m-0 list-none p-0 py-1.5">
+      <ol class="m-0 list-none p-0 py-1.5" :style="palette">
         <li
           v-for="{ id, entry } in rows"
           :key="id"
@@ -341,7 +345,11 @@ function toneClass(priority: number): string {
             {{ sourceOf(entry) }}
           </button>
           <span v-else class="w-[30ch] shrink-0 truncate text-muted-foreground max-md:w-auto max-md:max-w-full">{{ sourceOf(entry) }}</span>
-          <span :class="cn('min-w-0 flex-1 max-md:basis-full', toneClass(entry.priority), wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre')">{{ entry.message }}</span>
+          <LogSpans
+            :text="entry.message"
+            :tone="priorityTone(entry.priority)"
+            :class="cn('min-w-0 flex-1 max-md:basis-full', wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere]' : 'whitespace-pre')"
+          />
         </li>
       </ol>
     </LogView>

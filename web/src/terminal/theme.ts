@@ -69,6 +69,31 @@ const DARK_ANSI: Ansi = {
   brightWhite: '#fafafa',
 }
 
+const ANSI_ORDER = [
+  'black',
+  'red',
+  'green',
+  'yellow',
+  'blue',
+  'magenta',
+  'cyan',
+  'white',
+  'brightBlack',
+  'brightRed',
+  'brightGreen',
+  'brightYellow',
+  'brightBlue',
+  'brightMagenta',
+  'brightCyan',
+  'brightWhite',
+] as const satisfies readonly (keyof Ansi)[]
+
+/** The 16 ANSI colours of a mode by index (0 black … 15 bright white); log views use them too. */
+export function ansiColors(dark: boolean): string[] {
+  const set = dark ? DARK_ANSI : LIGHT_ANSI
+  return ANSI_ORDER.map((name) => set[name] ?? '')
+}
+
 const FALLBACK = {
   light: { background: '#ffffff', foreground: '#18181b', primary: '#0f766e' },
   dark: { background: '#141417', foreground: '#f4f4f5', primary: '#2dd4bf' },
