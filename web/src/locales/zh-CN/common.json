@@ -59,6 +59,8 @@
   },
   "field": {
     "username": "用户名",
+    "passphrase": "私钥密码",
+    "passphraseConfirm": "确认私钥密码",
     "password": "密码",
     "passwordConfirm": "确认密码",
     "token": "初始化令牌",
@@ -197,6 +199,7 @@
     "closeAfterMinutes": "旧端口关闭时间",
     "candidate": "软件源",
     "command": "命令",
+    "comment": "备注",
     "toAddress": "目标地址",
     "toPort": "目标端口",
     "forwards": "端口转发",

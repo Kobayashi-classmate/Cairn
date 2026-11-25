@@ -59,6 +59,8 @@
   },
   "field": {
     "username": "Username",
+    "passphrase": "Passphrase",
+    "passphraseConfirm": "Confirm passphrase",
     "password": "Password",
     "passwordConfirm": "Confirm password",
     "token": "Setup token",
@@ -197,6 +199,7 @@
     "closeAfterMinutes": "Close the old port after",
     "candidate": "Source",
     "command": "Command",
+    "comment": "Comment",
     "toAddress": "Target address",
     "toPort": "Target port",
     "forwards": "Port forwards",

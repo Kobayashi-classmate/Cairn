@@ -2,7 +2,8 @@
 //
 // SSH server settings, authorized keys and the login log (`ssh.read` to
 // view, `ssh.manage` to change; changes are step-up protected). Settings
-// and port changes run as jobs.
+// and port changes run as jobs. Key pairs can also be made on the server:
+// it authorizes the public key and hands the private key out once.
 import { api } from './client'
 import type { FirewallBackend } from './firewall'
 import type { Job } from './jobs'
@@ -117,6 +118,39 @@ export async function fetchSshKeys(user: string, signal?: AbortSignal): Promise<
 
 export async function addSshKey(user: string, key: string): Promise<SshKey> {
   return (await api.post<{ key: SshKey }>('/ssh/keys', { user, key })).key
+}
+
+/** Key types the server generates; RSA keys have 4096 bits. */
+export type SshKeyType = 'ed25519' | 'rsa'
+export const SSH_KEY_TYPES: readonly SshKeyType[] = ['ed25519', 'rsa']
+/** Limits of a key pair request, in UTF-8 bytes as the server counts them. */
+export const KEY_COMMENT_MAX = 255
+export const KEY_PASSPHRASE_MAX = 1024
+
+export interface GenerateSshKeyRequest {
+  user: string
+  type: SshKeyType
+  /** Ends the public key line; empty: "<user>@<host name>". */
+  comment?: string
+  /** Encrypts the private key; empty leaves it unencrypted. */
+  passphrase?: string
+}
+
+/** A new key pair. The server keeps only the public key; this is the only copy of the private one. */
+export interface GeneratedSshKey {
+  /** The authorized key, as listed. */
+  key: SshKey
+  /** The line added to authorized_keys. */
+  publicKey: string
+  /** The private key in OpenSSH format, encrypted when a passphrase was given. */
+  privateKey: string
+  /** Where ssh looks for it by default: id_ed25519 or id_rsa. */
+  fileName: string
+}
+
+/** Makes a key pair on the server and authorizes its public key for the user (step-up protected). */
+export function generateSshKey(body: GenerateSshKeyRequest): Promise<GeneratedSshKey> {
+  return api.post<GeneratedSshKey>('/ssh/keys/generate', body)
 }
 
 export function deleteSshKey(user: string, fingerprint: string): Promise<void> {

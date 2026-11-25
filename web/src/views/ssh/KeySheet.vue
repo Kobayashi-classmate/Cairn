@@ -16,8 +16,13 @@ const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ user: string }>()
 const emit = defineEmits<{ added: [] }>()
 
-/** Public keys start with their type: ssh-ed25519, ecdsa-sha2-…, ssh-rsa, sk-… */
-const KEY_PATTERN = /^(?:\S+\s+)?(ssh-(ed25519|rsa|dss)|ecdsa-sha2-\S+|sk-\S+)\s+[A-Za-z0-9+/=]+(\s.*)?$/
+/**
+ * One public key of a type the server accepts, without options in front:
+ * ssh-ed25519, ssh-rsa, ecdsa-sha2-nistp256/384/521 and the FIDO (sk-) keys.
+ * DSA keys and option prefixes are refused by the server, so not offered here.
+ */
+const KEY_PATTERN =
+  /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/=]+(\s.*)?$/
 
 const { t } = useI18n()
 const key = ref('')

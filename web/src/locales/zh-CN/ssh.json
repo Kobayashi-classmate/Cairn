@@ -110,6 +110,40 @@
     "deleteText": "密钥 {fingerprint} 将不能再以 {user} 身份登录。",
     "rootReadOnly": "设置中关闭了 root 访问，因此不能修改 root 的密钥。"
   },
+  "generate": {
+    "action": "生成密钥对",
+    "title": "为 {user} 生成密钥对",
+    "intro": "服务器生成一对新密钥，并为此用户授权其中的公钥。私钥只显示一次，面板不会保存。",
+    "type": "密钥类型",
+    "types": {
+      "ed25519": "Ed25519",
+      "rsa": "RSA 4096"
+    },
+    "recommended": "{type}（推荐）",
+    "ed25519Hint": "短小、快速、安全；OpenSSH 6.5 及以后的版本都支持。",
+    "rsaHint": "用于不支持 Ed25519 的旧系统和工具。",
+    "commentHint": "显示在密钥旁边，便于区分。留空则使用用户名和本服务器的主机名。",
+    "passphraseHint": "可选。用来加密私钥，每次使用密钥时 ssh 都会询问。忘记后无法找回。",
+    "steps": {
+      "generate": "在服务器上生成 {type} 密钥对",
+      "once": "私钥只显示一次，不保留副本"
+    },
+    "submit": "生成",
+    "created": {
+      "title": "{user} 的密钥对",
+      "intro": "公钥已添加到 {file}。请现在保存私钥。",
+      "privateKey": "私钥",
+      "encrypted": "已用你设置的私钥密码加密。",
+      "unencrypted": "未加密：拿到这个文件的人都能以 {user} 身份登录。",
+      "save": "在你的电脑上保存为 ~/.ssh/{file}，并设为只有你自己可读（chmod 600）。",
+      "copyPrivate": "复制私钥",
+      "copyPublic": "复制公钥",
+      "downloadPrivate": "把私钥下载为 {file}",
+      "publicKey": "公钥",
+      "warning": "面板不保存私钥，关闭后无法再次显示。",
+      "done": "我已保存"
+    }
+  },
   "logins": {
     "time": "时间",
     "ip": "来源",

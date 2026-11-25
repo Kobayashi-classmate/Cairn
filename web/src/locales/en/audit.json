@@ -242,6 +242,7 @@
     },
     "ssh": {
       "key_add": "Authorized an SSH key for {user}",
+      "key_generate": "Generated an SSH key pair for {user}",
       "key_delete": "Removed an SSH key of {user}",
       "settings": "Changed the SSH login settings",
       "port": "Moved SSH to port {port}",

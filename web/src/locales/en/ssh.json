@@ -110,6 +110,40 @@
     "deleteText": "The key {fingerprint} can no longer log in as {user}.",
     "rootReadOnly": "Root's keys cannot be changed while root access is turned off in the settings."
   },
+  "generate": {
+    "action": "Generate key pair",
+    "title": "Generate a key pair for {user}",
+    "intro": "The server makes a new key pair and authorizes its public key for this user. You get the private key once; the panel does not keep it.",
+    "type": "Key type",
+    "types": {
+      "ed25519": "Ed25519",
+      "rsa": "RSA 4096"
+    },
+    "recommended": "{type} (recommended)",
+    "ed25519Hint": "Short, fast and secure; works with OpenSSH 6.5 and later.",
+    "rsaHint": "For older systems and tools without Ed25519 support.",
+    "commentHint": "Shown next to the key so you can tell it apart. Leave empty to use the user name and this server's host name.",
+    "passphraseHint": "Optional. Encrypts the private key; ssh asks for it each time the key is used. It cannot be recovered if you forget it.",
+    "steps": {
+      "generate": "Generate an {type} key pair on the server",
+      "once": "Show the private key once, without keeping a copy"
+    },
+    "submit": "Generate",
+    "created": {
+      "title": "Key pair for {user}",
+      "intro": "The public key was added to {file}. Save the private key now.",
+      "privateKey": "Private key",
+      "encrypted": "Encrypted with your passphrase.",
+      "unencrypted": "Not encrypted: anyone who has this file can sign in as {user}.",
+      "save": "Save it on your computer as ~/.ssh/{file}, readable only by you (chmod 600).",
+      "copyPrivate": "Copy the private key",
+      "copyPublic": "Copy the public key",
+      "downloadPrivate": "Download the private key as {file}",
+      "publicKey": "Public key",
+      "warning": "The panel does not keep the private key, so it cannot be shown again.",
+      "done": "I have saved it"
+    }
+  },
   "logins": {
     "time": "Time",
     "ip": "From",

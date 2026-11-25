@@ -115,6 +115,11 @@ export function actionDetails(entry: AuditEntry): string[] {
     const key = `notify.type.${type}`
     return [te(key) ? t(key) : type]
   }
+  // The type of a key pair made on the server (Ed25519, RSA 4096).
+  if (entry.action === 'ssh.key_generate' && typeof type === 'string') {
+    const key = `ssh.generate.types.${type}`
+    return te(key) ? [t(key)] : [type]
+  }
   if (entry.action === 'settings.cloud') {
     const list: string[] = []
     if (typeof entry.params.enabled === 'boolean') {

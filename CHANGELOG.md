@@ -34,7 +34,11 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   when the SSH ports are known for certain.
 - SSH settings and authorized keys, and host settings: host name, time,
   swap, system updates and package sources. A change of the SSH port keeps
-  the old port open until the new one has been reached from outside.
+  the old port open until the new one has been reached from outside. The
+  SSH page also generates key pairs (Ed25519, or RSA 4096, with an
+  optional passphrase): the public key is authorized for the chosen user
+  at once, and the private key is shown once to copy or download. The
+  panel does not keep it.
 - Support for SELinux in enforcing mode on Enterprise Linux.
 - English and Simplified Chinese interfaces.
 - Light, dark and system colour schemes, saved with each account; a menu

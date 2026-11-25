@@ -83,6 +83,9 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("GET /api/v1/ssh/keys", m.keys, api.Require(Read), doc("A user's authorized keys: ?user="), api.Returns(200, helperapi.SSHKeys{}))
 	r.Handle("POST /api/v1/ssh/keys", m.addKey, api.Require(Manage), api.StepUp(), api.Body(helperapi.SSHKeyAddRequest{}),
 		doc("Authorize a public key"), api.Returns(200, keyResponse{}))
+	r.Handle("POST /api/v1/ssh/keys/generate", m.generateKey, api.Require(Manage), api.StepUp(), api.Body(keyGenerateRequest{}),
+		doc("Generate a key pair and authorize its public key; the private key is returned once and not kept"),
+		api.Returns(201, keyGenerateResponse{}))
 	r.Handle("DELETE /api/v1/ssh/keys", m.deleteKey, api.Require(Manage), api.StepUp(),
 		doc("Remove a key: ?user=&fingerprint="), api.Returns(200, struct{}{}))
 	r.Handle("GET /api/v1/ssh/logins", m.logins, api.Require(Read), doc("Login attempts, newest first: ?limit=&before="),

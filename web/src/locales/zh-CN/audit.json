@@ -242,6 +242,7 @@
     },
     "ssh": {
       "key_add": "为 {user} 授权了 SSH 密钥",
+      "key_generate": "为 {user} 生成了 SSH 密钥对",
       "key_delete": "删除了 {user} 的 SSH 密钥",
       "settings": "修改了 SSH 登录设置",
       "port": "把 SSH 改到了端口 {port}",

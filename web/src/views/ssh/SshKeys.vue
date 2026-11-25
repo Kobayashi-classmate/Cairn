@@ -2,9 +2,9 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Trash2 } from '@lucide/vue'
+import { KeyRound, Plus, Trash2 } from '@lucide/vue'
 import { isAbortError } from '@/api/client'
-import { deleteSshKey, fetchSshKeys, type SshKey, type SshUser } from '@/api/ssh'
+import { deleteSshKey, fetchSshKeys, type GeneratedSshKey, type SshKey, type SshUser } from '@/api/ssh'
 import DataTable from '@/components/common/DataTable.vue'
 import Notice from '@/components/common/Notice.vue'
 import SelectField from '@/components/common/SelectField.vue'
@@ -12,10 +12,14 @@ import type { ColumnDef } from '@/components/common/dataTable'
 import { Button } from '@/components/ui/button'
 import { confirmAction } from '@/composables/useConfirmDialog'
 import { notifySuccess } from '@/lib/notify'
+import GeneratedKeyDialog from './GeneratedKeyDialog.vue'
+import GenerateKeySheet from './GenerateKeySheet.vue'
 import KeySheet from './KeySheet.vue'
 
-// A user's authorized SSH keys: pick the user, then list, add and remove
-// (step-up protected). Root's keys are read-only while root access is off.
+// A user's authorized SSH keys: pick the user, then list, add, generate
+// and remove (step-up protected). Root's keys are read-only while root
+// access is off. A generated private key is held only while its dialog is
+// open.
 const props = defineProps<{
   users: SshUser[]
   canManage: boolean
@@ -31,6 +35,9 @@ const loading = ref(false)
 const loadError = ref<unknown>(null)
 const search = ref('')
 const showAdd = ref(false)
+const showGenerate = ref(false)
+/** The key pair just generated, until its dialog is closed. */
+const generated = ref<{ user: string; encrypted: boolean; pair: GeneratedSshKey } | null>(null)
 let controller: AbortController | null = null
 
 const userOptions = computed(() =>
@@ -85,6 +92,11 @@ function changed() {
   emit('changed')
 }
 
+function onGenerated(pair: GeneratedSshKey, encrypted: boolean) {
+  generated.value = { user: user.value, encrypted, pair }
+  changed()
+}
+
 function askDelete(key: SshKey) {
   const name = user.value
   void confirmAction({
@@ -133,10 +145,16 @@ const columns = computed<ColumnDef<SshKey>[]>(() => [
           <label for="ssh-keys-user" class="text-detail font-medium whitespace-nowrap">{{ t('common.field.user') }}</label>
           <SelectField id="ssh-keys-user" v-model="user" :options="userOptions" :disabled="users.length === 0" class="w-56 max-md:h-11" />
         </div>
-        <Button v-if="editable" class="max-md:h-11" @click="showAdd = true">
-          <Plus aria-hidden="true" />
-          {{ t('ssh.keys.add') }}
-        </Button>
+        <template v-if="editable">
+          <Button variant="outline" class="max-md:h-11" @click="showGenerate = true">
+            <KeyRound aria-hidden="true" />
+            {{ t('ssh.generate.action') }}
+          </Button>
+          <Button class="max-md:h-11" @click="showAdd = true">
+            <Plus aria-hidden="true" />
+            {{ t('ssh.keys.add') }}
+          </Button>
+        </template>
       </template>
       <template #cell-type="{ row }">
         <span class="font-mono text-[12.5px]">{{ row.type }}</span>
@@ -165,13 +183,21 @@ const columns = computed<ColumnDef<SshKey>[]>(() => [
         </div>
       </template>
       <template v-if="editable" #empty>
-        <Button @click="showAdd = true">
-          <Plus aria-hidden="true" />
-          {{ t('ssh.keys.add') }}
-        </Button>
+        <div class="flex flex-wrap justify-center gap-2">
+          <Button variant="outline" class="max-md:h-11" @click="showGenerate = true">
+            <KeyRound aria-hidden="true" />
+            {{ t('ssh.generate.action') }}
+          </Button>
+          <Button class="max-md:h-11" @click="showAdd = true">
+            <Plus aria-hidden="true" />
+            {{ t('ssh.keys.add') }}
+          </Button>
+        </div>
       </template>
     </DataTable>
 
     <KeySheet v-if="user" v-model:open="showAdd" :user="user" @added="changed" />
+    <GenerateKeySheet v-if="user" v-model:open="showGenerate" :user="user" @generated="onGenerated" />
+    <GeneratedKeyDialog :result="generated" @close="generated = null" />
   </div>
 </template>
