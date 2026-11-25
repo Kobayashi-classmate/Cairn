@@ -146,10 +146,14 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   installed can still be started, configured, used by sites and
   uninstalled.
 - Re-authentication before sensitive operations can be turned off in the
-  panel settings; it is on by default. Turning it off asks for the
-  password, every change is recorded in the audit log, and API tokens stay
-  refused on those operations either way. Completing the first-run setup
-  counts as a fresh re-authentication.
+  panel settings and in the first-run wizard; it is on by default.
+  Turning it off asks for the password, every change is recorded in the
+  audit log, and API tokens stay refused on those operations either way.
+  Completing the first-run setup counts as a fresh re-authentication.
+- The first-run wizard's presets are starting points. They add their
+  software to one list where each row can be removed, given another
+  version or swapped for its alternative, such as Valkey for Redis, and
+  any other software can be added from the catalog.
 - The file manager and directory backups never follow a site's links into
   another site or into the system, also when a link appears while a task
   runs. A folder replaced by a copy, a move or a restore from the trash

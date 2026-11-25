@@ -1,47 +1,46 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { Check, LoaderCircle } from '@lucide/vue'
-import type { AcceptableValue } from 'reka-ui'
 import { toast } from 'vue-sonner'
 import { isAbortError, isStepUpRequired } from '@/api/client'
 import {
-  MAX_PROBE_ITEMS,
   fetchSoftware,
   fetchSuites,
   installSoftwareSet,
-  isAvailable,
   probeSources,
-  runtimeSlotId,
   type InstallSetItem,
   type ProbeResult,
   type SoftwareCatalog,
-  type SoftwareEntry,
   type Suite,
 } from '@/api/software'
+import { setStepUp } from '@/api/settings'
 import { saveWizardState, type WizardState } from '@/api/wizard'
 import CairnLogo from '@/components/common/CairnLogo.vue'
 import LocaleSelect from '@/components/common/LocaleSelect.vue'
 import Notice from '@/components/common/Notice.vue'
 import StatusPill from '@/components/common/StatusPill.vue'
+import SwitchField from '@/components/common/SwitchField.vue'
 import ThemeSwitcher from '@/components/common/ThemeSwitcher.vue'
 import DownloadEstimate from '@/components/DownloadEstimate.vue'
 import SourceSlots from '@/components/SourceSlots.vue'
 import TotpEnrollment from '@/components/TotpEnrollment.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useJobFollow } from '@/composables/useJobFollow'
 import { errorMessage, errorText } from '@/i18n/errors'
-import { formatPercent } from '@/i18n/format'
+import { formatIsoDate, formatPercent } from '@/i18n/format'
 import { isFinalState, jobStateLabel } from '@/jobs/labels'
 import { jobTone } from '@/views/jobs/labels'
+import SoftwarePicker from '@/views/wizard/SoftwarePicker.vue'
+import { canChoose, offerOf, type PickedLine } from '@/views/wizard/selection'
+import { chosenSource, defaultSelection } from '@/software/sources'
 import { homeLocation } from '@/layouts/navigation'
 import { useSessionStore } from '@/stores/session'
+import { useSoftwareStore } from '@/stores/software'
 
 /** Log lines shown while the installation runs; the job page has the rest. */
 const LOG_TAIL_LINES = 14
@@ -84,6 +83,27 @@ async function leave(state: WizardState | null) {
 const enrolling = ref(false)
 const totpOn = computed(() => session.user?.totpEnabled === true)
 
+/**
+ * The panel's step-up switch, offered to whoever may change settings. The
+ * setup left this session re-authenticated, so turning it off asks for
+ * nothing here; the value being saved shows until the server answers.
+ */
+const canChangeStepUp = computed(() => session.can('settings.manage'))
+const stepUpSaving = ref<boolean | null>(null)
+const stepUpOn = computed(() => stepUpSaving.value ?? session.stepUpRequired)
+
+async function chooseStepUp(value: boolean) {
+  if (stepUpSaving.value !== null || value === session.stepUpRequired) return
+  stepUpSaving.value = value
+  try {
+    await setStepUp(value)
+  } catch (err) {
+    if (!isStepUpRequired(err)) showError(err)
+  } finally {
+    stepUpSaving.value = null
+  }
+}
+
 // ---- Step 2: software ----------------------------------------------------
 
 const catalog = ref<SoftwareCatalog | null>(null)
@@ -100,108 +120,23 @@ onMounted(async () => {
   }
 })
 
-/** Entries with at least one line that can be installed here. */
-const entries = computed(() => (catalog.value?.software ?? []).filter((e) => e.offers.some(isAvailable)))
-const entryById = computed(() => new Map(entries.value.map((e) => [e.id, e])))
-const names = computed(() => Object.fromEntries(entries.value.map((e) => [e.id, e.name])))
+/** The whole catalog by id. */
+const entryById = computed(() => new Map((catalog.value?.software ?? []).map((e) => [e.id, e])))
+const names = computed(() => Object.fromEntries((catalog.value?.software ?? []).map((e) => [e.id, e.name])))
 const repos = computed(() => new Map((catalog.value?.repos ?? []).map((repo) => [repo.id, repo])))
 
-/** Chosen line per software (the recommended one until changed). */
-const lineChoice = reactive<Record<string, string>>({})
-/** Ticked software ids, in the order they were ticked. */
-const ticked = ref<string[]>([])
+/** The selection of the software step: one line per software. */
+const picked = ref<PickedLine[]>([])
 
-function recommendedLine(entry: SoftwareEntry): string {
-  const available = entry.offers.filter(isAvailable)
-  return (available.find((o) => o.recommended) ?? available[0])?.line ?? ''
-}
-
-function lineOf(id: string): string {
-  const entry = entryById.value.get(id)
-  return lineChoice[id] ?? (entry ? recommendedLine(entry) : '')
-}
-
-function installed(id: string, line: string): boolean {
-  return entryById.value.get(id)?.offers.some((o) => o.line === line && o.installed) === true
-}
-
-function lineOptions(entry: SoftwareEntry) {
-  return entry.offers.filter(isAvailable).map((o) => ({
-    value: o.line,
-    label: o.recommended ? t('wizard.software.recommendedLine', { line: o.line }) : o.line,
-  }))
-}
-
-const isTicked = (id: string) => ticked.value.includes(id)
-
-/** Checkbox state of a suite: on, off or partly ticked. */
-function suiteState(suite: Suite): boolean | 'indeterminate' {
-  if (suiteChecked(suite)) return true
-  return suiteIndeterminate(suite) ? 'indeterminate' : false
-}
-
-function onLine(id: string, value: AcceptableValue) {
-  if (typeof value === 'string') chooseLine(id, value)
-}
-const full = computed(() => ticked.value.length >= MAX_PROBE_ITEMS)
-
-function setTicked(id: string, on: boolean) {
-  if (on && !isTicked(id) && !full.value && !installed(id, lineOf(id))) {
-    ticked.value = [...ticked.value, id]
-  } else if (!on) {
-    ticked.value = ticked.value.filter((x) => x !== id)
-  }
-}
-
-function chooseLine(id: string, line: string) {
-  lineChoice[id] = line
-  // An installed line cannot be installed again.
-  if (installed(id, line)) setTicked(id, false)
-}
-
-/** Suite items that can still be ticked: offered here and not installed yet. */
-function suiteTargets(suite: Suite) {
-  return suite.items.filter(
-    (item): item is typeof item & { software: string; line: string } =>
-      !item.missing && !!item.software && !!item.line && !installed(item.software, item.line),
-  )
-}
-
-function suiteChecked(suite: Suite): boolean {
-  const targets = suiteTargets(suite)
-  return targets.length > 0 && targets.every((i) => isTicked(i.software) && lineOf(i.software) === i.line)
-}
-
-function suiteIndeterminate(suite: Suite): boolean {
-  return !suiteChecked(suite) && suiteTargets(suite).some((i) => isTicked(i.software))
-}
-
-function toggleSuite(suite: Suite, on: boolean) {
-  for (const item of suiteTargets(suite)) {
-    if (on) {
-      lineChoice[item.software] = item.line
-      setTicked(item.software, true)
-    } else {
-      setTicked(item.software, false)
-    }
-  }
-}
-
-function suiteItemLabel(item: Suite['items'][number]): string {
-  if (item.missing || !item.software) {
-    return item.choices.map((id) => names.value[id] ?? id).join(' / ')
-  }
-  return `${names.value[item.software] ?? item.software} ${item.line ?? ''}`.trim()
-}
-
-/** What will be installed: ticked lines that are not installed. */
-const items = computed<InstallSetItem[]>(() =>
-  ticked.value
-    .map((id) => ({ software: id, line: lineOf(id) }))
-    .filter((item) => item.line && !installed(item.software, item.line)),
+/** What will be installed: the selected lines that can be installed and are not installed yet. */
+const items = computed<PickedLine[]>(() =>
+  picked.value.filter((item) => {
+    const offer = offerOf(entryById.value, item.software, item.line)
+    return offer !== undefined && canChoose(offer)
+  }),
 )
 
-function itemLabel(item: InstallSetItem): string {
+function itemLabel(item: PickedLine): string {
   return `${names.value[item.software] ?? item.software} ${item.line}`
 }
 
@@ -210,9 +145,24 @@ function itemLabel(item: InstallSetItem): string {
 const probing = ref(false)
 const result = ref<ProbeResult | null>(null)
 const probeError = ref<unknown>(null)
-/** Chosen candidate per runtime slot id. */
-const selection = ref<Record<string, string>>({})
+/** Chosen candidate per selectable slot id (runtime downloads and the system repositories). */
+const sources = ref<Record<string, string>>({})
 let probeController: AbortController | null = null
+
+/** Chosen lines past their upstream support: warned about before the installation starts. */
+const endedItems = computed(() =>
+  items.value.flatMap((item) => {
+    const offer = offerOf(entryById.value, item.software, item.line)
+    return offer?.endOfLife ? [{ ...item, eol: offer.eol ?? '' }] : []
+  }),
+)
+
+function endOfLifeText(item: PickedLine & { eol: string }): string {
+  const named = { name: names.value[item.software] ?? item.software, line: item.line }
+  return item.eol
+    ? t('wizard.confirm.endOfLife', { ...named, date: formatIsoDate(item.eol) })
+    : t('wizard.confirm.endOfLifeUndated', named)
+}
 
 async function probe() {
   probeController?.abort()
@@ -226,9 +176,7 @@ async function probe() {
       { signal: current.signal },
     )
     result.value = probed
-    selection.value = Object.fromEntries(
-      probed.slots.filter((slot) => slot.selectable && slot.selected).map((slot) => [slot.id, slot.selected!]),
-    )
+    sources.value = defaultSelection(probed.slots)
   } catch (err) {
     if (isAbortError(err)) return
     probeError.value = err
@@ -244,13 +192,28 @@ async function probe() {
 function toConfirm() {
   step.value = 'confirm'
   result.value = null
-  selection.value = {}
+  sources.value = {}
   void probe()
 }
 
 function backToSoftware() {
   probeController?.abort()
   step.value = 'software'
+}
+
+/**
+ * An item of the install set: runtimes carry their download's chosen
+ * source, system packages the one shared system source (one transaction
+ * has one main source), vendor lines none. A line past its upstream
+ * support is acknowledged: the confirm step warned about it.
+ */
+function installItem(item: PickedLine): InstallSetItem {
+  const offer = offerOf(entryById.value, item.software, item.line)
+  const out: InstallSetItem = { software: item.software, line: item.line }
+  const source = chosenSource(result.value, sources.value, item.software, item.line, offer?.method)
+  if (source) out.source = source
+  if (offer?.endOfLife) out.acceptEndOfLife = true
+  return out
 }
 
 // ---- Step 4: start -------------------------------------------------------
@@ -263,13 +226,7 @@ async function startInstall() {
   starting.value = true
   startError.value = null
   try {
-    const started = await installSoftwareSet(
-      items.value.map((item) => {
-        // Runtime downloads use the chosen source; package lines use their repositories.
-        const source = selection.value[runtimeSlotId(item.software, item.line)]
-        return source ? { ...item, source } : item
-      }),
-    )
+    const started = await installSoftwareSet(items.value.map(installItem))
     step.value = 'start'
     followJob(started.id)
     if (session.can('settings.manage')) {
@@ -289,6 +246,11 @@ const progressPercent = computed(() =>
 
 const logTail = computed(() => log.value.split('\n').filter(Boolean).slice(-LOG_TAIL_LINES).join('\n'))
 const jobFinal = computed(() => (job.value ? isFinalState(job.value.state) : false))
+// What is installed changed: source checks made before are out of date.
+const softwareStore = useSoftwareStore()
+watch(jobFinal, (done) => {
+  if (done) softwareStore.invalidateProbes()
+})
 const jobErrorText = computed(() => {
   const error = job.value?.error
   return error ? (errorText(error.code, error.params) ?? error.code) : ''
@@ -349,7 +311,17 @@ const jobErrorText = computed(() => {
         </template>
         <!-- Mounted by `enrolling` alone: confirming turns totpOn on before the recovery codes are shown. -->
         <TotpEnrollment v-if="enrolling" @done="enrolling = false" @cancel="enrolling = false" />
-        <div v-else class="mt-4 flex flex-wrap items-center gap-2">
+        <div v-if="!enrolling && canChangeStepUp" class="mt-4 flex flex-col gap-3 border-t border-border pt-4">
+          <SwitchField
+            :model-value="stepUpOn"
+            :label="t('settings.stepUp.title')"
+            :hint="t('settings.stepUp.description')"
+            :disabled="stepUpSaving !== null"
+            @update:model-value="chooseStepUp"
+          />
+          <Notice v-if="!stepUpOn" tone="warning">{{ t('settings.stepUp.offWarning') }}</Notice>
+        </div>
+        <div v-if="!enrolling" class="mt-4 flex flex-wrap items-center gap-2">
           <Button v-if="!totpOn" @click="enrolling = true">{{ t('wizard.security.setUp') }}</Button>
           <Button v-if="!totpOn" variant="outline" @click="step = 'software'">{{ t('wizard.security.later') }}</Button>
           <Button v-else @click="step = 'software'">{{ t('wizard.continue') }}</Button>
@@ -364,65 +336,9 @@ const jobErrorText = computed(() => {
           <Skeleton v-for="n in 2" :key="n" class="h-36 rounded-lg" />
         </div>
         <template v-else-if="catalog">
-          <p class="m-0 mb-3 text-muted-foreground">{{ t('wizard.software.intro') }}</p>
-          <div class="grid gap-4 sm:grid-cols-2">
-            <section v-for="suite in suites" :key="suite.id" class="rounded-lg border border-border bg-card p-4">
-              <div class="flex items-center gap-2">
-                <Checkbox
-                  :id="`suite-${suite.id}`"
-                  :model-value="suiteState(suite)"
-                  :disabled="suiteTargets(suite).length === 0"
-                  @update:model-value="(on) => toggleSuite(suite, on === true)"
-                />
-                <label :for="`suite-${suite.id}`" class="font-semibold">{{ t(`wizard.suite.${suite.id}.name`) }}</label>
-              </div>
-              <p class="mt-1.5 mb-2 text-detail text-muted-foreground">{{ t(`wizard.suite.${suite.id}.description`) }}</p>
-              <ul class="m-0 flex list-disc flex-col gap-0.5 ps-5 text-detail">
-                <li v-for="(item, index) in suite.items" :key="index">
-                  <span class="inline-flex flex-wrap items-center gap-1.5">
-                    <span :class="{ 'text-muted-foreground': item.missing }">{{ suiteItemLabel(item) }}</span>
-                    <span v-if="item.missing" class="text-muted-foreground">{{ t('wizard.software.missing') }}</span>
-                    <Badge v-else-if="item.software && item.line && installed(item.software, item.line)">
-                      {{ t('software.installed') }}
-                    </Badge>
-                  </span>
-                </li>
-              </ul>
-            </section>
-          </div>
-
-          <h2 class="mt-6 mb-3 text-section">{{ t('wizard.software.other') }}</h2>
-          <ul class="m-0 mb-2 grid list-none gap-x-6 gap-y-2 p-0 sm:grid-cols-2">
-            <li v-for="entry in entries" :key="entry.id" class="flex items-center gap-2">
-              <Checkbox
-                :id="`software-${entry.id}`"
-                :model-value="isTicked(entry.id)"
-                :disabled="installed(entry.id, lineOf(entry.id)) || (full && !isTicked(entry.id))"
-                @update:model-value="(on) => setTicked(entry.id, on === true)"
-              />
-              <label :for="`software-${entry.id}`" class="min-w-0 truncate">{{ entry.name }}</label>
-              <Badge v-if="installed(entry.id, lineOf(entry.id))">{{ t('software.installed') }}</Badge>
-              <Select :model-value="lineOf(entry.id)" @update:model-value="(value) => onLine(entry.id, value)">
-                <SelectTrigger
-                  size="sm"
-                  class="ms-auto w-[150px]"
-                  :aria-label="t('wizard.software.lineOf', { name: entry.name })"
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="option in lineOptions(entry)" :key="option.value" :value="option.value">
-                    {{ option.label }}
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </li>
-          </ul>
-
-          <p class="m-0 text-detail text-muted-foreground" role="status">
-            {{ t('wizard.software.count', { count: items.length, max: MAX_PROBE_ITEMS }) }}
-          </p>
-          <div class="mt-4 flex flex-wrap items-center gap-2">
+          <p class="m-0 mb-4 text-muted-foreground">{{ t('wizard.software.intro') }}</p>
+          <SoftwarePicker v-model:picked="picked" :catalog="catalog" :suites="suites" />
+          <div class="mt-6 flex flex-wrap items-center gap-2">
             <Button v-if="route.query.step !== 'software'" variant="outline" @click="step = 'security'">
               {{ t('wizard.back') }}
             </Button>
@@ -439,15 +355,18 @@ const jobErrorText = computed(() => {
         <div class="mb-4 flex flex-wrap gap-1.5">
           <Badge v-for="item in items" :key="item.software" variant="secondary">{{ itemLabel(item) }}</Badge>
         </div>
+        <Notice v-for="item in endedItems" :key="`eol-${item.software}`" tone="warning" class="mb-3">
+          {{ endOfLifeText(item) }}
+        </Notice>
 
         <div v-if="probing" class="flex items-center gap-2.5 py-5 text-muted-foreground" role="status">
           <LoaderCircle class="size-4 animate-spin" aria-hidden="true" />
           <span>{{ t('software.install.probing') }}</span>
         </div>
         <div v-else-if="result">
-          <SourceSlots v-model:selection="selection" :slots="result.slots" :repos="repos" :names="names" />
+          <SourceSlots v-model:selection="sources" :slots="result.slots" :repos="repos" :names="names" />
           <h3 class="mt-4 mb-2 text-section">{{ t('wizard.confirm.estimate') }}</h3>
-          <DownloadEstimate :result="result" :selection="selection" class="mb-3" />
+          <DownloadEstimate :result="result" :selection="sources" class="mb-3" />
         </div>
         <Notice v-if="probeError && !probing" tone="warning" class="mb-3">
           {{ t('software.install.probeFailed') }} {{ errorMessage(probeError) }}

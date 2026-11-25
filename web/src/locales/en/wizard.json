@@ -20,28 +20,55 @@
     "on": "Two-step verification is on for your account."
   },
   "software": {
-    "intro": "Pick a ready-made set or tick single software. Each comes in its recommended version line; you can choose another.",
-    "other": "Other software",
+    "intro": "Choose what to install now, one version of each. Everything can also be installed later from the Software page.",
     "missing": "not available on this system",
     "recommendedLine": "{line} (recommended)",
+    "endedLine": "{line} (support ended {date})",
+    "installedLine": "{line} (installed)",
     "count": "{count} of at most {max} selected",
     "nothing": "Nothing for now",
     "lineOf": "Version line of {name}"
   },
+  "preset": {
+    "title": "Presets",
+    "intro": "Starting points: a preset adds its software to your selection in the recommended version. You can then change or remove each one.",
+    "add": "Add to selection",
+    "picked": "selected",
+    "state": {
+      "included": "All in your selection",
+      "installed": "Already installed",
+      "unavailable": "Not available on this system"
+    }
+  },
+  "selection": {
+    "title": "Your selection",
+    "empty": "Nothing selected yet. Add a preset or pick software below.",
+    "clear": "Remove all",
+    "remove": "Remove {name}",
+    "alternative": "Choose between {names}",
+    "full": "One installation takes at most {max} software. Remove one to add another; the rest can be installed later.",
+    "notAllAdded": "{count} item did not fit: one installation takes at most {max} software. | {count} items did not fit: one installation takes at most {max} software."
+  },
+  "catalog": {
+    "title": "Add software",
+    "empty": "No software can be installed on this system."
+  },
   "suite": {
     "php-site": {
       "name": "PHP site",
-      "description": "nginx, PHP, MariaDB and Redis (Valkey where Redis is not offered)."
+      "description": "For PHP sites such as WordPress: a web server, PHP, a database and a cache."
     },
     "node-java": {
       "name": "Node/Java projects",
-      "description": "nginx, Node.js and a Java JDK."
+      "description": "For Node.js and Java projects: a web server and both runtimes."
     }
   },
   "confirm": {
     "title": "Check and start",
     "estimate": "Estimate",
-    "start": "Start installation"
+    "start": "Start installation",
+    "endOfLife": "Upstream support for {name} {line} ended on {date}: it no longer gets security fixes. It is installed because you chose it.",
+    "endOfLifeUndated": "Upstream support for {name} {line} has ended: it no longer gets security fixes. It is installed because you chose it."
   },
   "start": {
     "title": "Installation started",

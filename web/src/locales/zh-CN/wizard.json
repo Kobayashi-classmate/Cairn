@@ -20,28 +20,55 @@
     "on": "你的账号已开启两步验证。"
   },
   "software": {
-    "intro": "选择现成的组合，或逐个勾选软件。默认使用推荐的版本线，也可以选择其他版本。",
-    "other": "其他软件",
+    "intro": "选择现在要安装的软件，每个软件选一个版本。以后也可以在软件页面安装。",
     "missing": "此系统上不可用",
     "recommendedLine": "{line}（推荐）",
+    "endedLine": "{line}（已于 {date} 停止支持）",
+    "installedLine": "{line}（已安装）",
     "count": "已选 {count} 个，最多 {max} 个",
     "nothing": "暂不安装",
     "lineOf": "{name} 的版本线"
   },
+  "preset": {
+    "title": "预设",
+    "intro": "预设只是起点：添加后，其中的软件以推荐版本加入已选清单，之后可以逐个更改或移除。",
+    "add": "加入已选",
+    "picked": "已选",
+    "state": {
+      "included": "已全部选中",
+      "installed": "已经安装",
+      "unavailable": "此系统上不可用"
+    }
+  },
+  "selection": {
+    "title": "已选软件",
+    "empty": "还没有选择软件。可以添加预设，或在下方选择软件。",
+    "clear": "全部移除",
+    "remove": "移除 {name}",
+    "alternative": "在 {names} 之间选择",
+    "full": "一次最多安装 {max} 个软件。移除一个才能再添加；其余的可以以后再装。",
+    "notAllAdded": "有 {count} 项没有加入：一次最多安装 {max} 个软件。"
+  },
+  "catalog": {
+    "title": "添加软件",
+    "empty": "此系统上没有可以安装的软件。"
+  },
   "suite": {
     "php-site": {
       "name": "PHP 网站",
-      "description": "nginx、PHP、MariaDB 和 Redis（不提供 Redis 时使用 Valkey）。"
+      "description": "适合 WordPress 等 PHP 网站：Web 服务器、PHP、数据库和缓存。"
     },
     "node-java": {
       "name": "Node/Java 项目",
-      "description": "nginx、Node.js 和 Java JDK。"
+      "description": "适合 Node.js 和 Java 项目：Web 服务器和两种运行时。"
     }
   },
   "confirm": {
     "title": "确认并开始",
     "estimate": "预估",
-    "start": "开始安装"
+    "start": "开始安装",
+    "endOfLife": "{name} {line} 的上游支持已于 {date} 结束，不再提供安全修复。因为你选择了它，仍会安装。",
+    "endOfLifeUndated": "{name} {line} 的上游支持已经结束，不再提供安全修复。因为你选择了它，仍会安装。"
   },
   "start": {
     "title": "已开始安装",
