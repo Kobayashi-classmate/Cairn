@@ -70,6 +70,7 @@ def main():
     wait_exit = "--exit" in sys.argv[5:]
     u = urlparse(url)
     ctx = ssl.create_default_context()
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     raw = socket.create_connection((u.hostname, u.port), timeout=20)
