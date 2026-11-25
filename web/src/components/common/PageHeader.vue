@@ -37,10 +37,15 @@ defineProps<{
         <slot name="actions" />
       </div>
     </div>
+    <!--
+      The baseline is an inset shadow rather than a border: the selected
+      tab's underline is drawn over it, and nothing reaches below the box,
+      which would give the bar a scroll bar of its own.
+    -->
     <nav
       v-if="tabs && tabs.length > 0 && tabLocation"
       :aria-label="title"
-      class="-mb-px flex gap-1 overflow-x-auto border-b [scrollbar-width:thin]"
+      class="flex gap-1 overflow-x-auto overflow-y-hidden shadow-[inset_0_-1px_0_var(--border)] [scrollbar-width:thin]"
     >
       <RouterLink
         v-for="item in tabs"
@@ -54,7 +59,7 @@ defineProps<{
           :aria-current="item.value === tab ? 'page' : undefined"
           :class="
             cn(
-              '-mb-px inline-flex h-10 shrink-0 items-center gap-1.5 rounded-t-sm border-b-2 px-3 font-medium whitespace-nowrap no-underline outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 max-md:h-11',
+              'inline-flex h-10 shrink-0 items-center gap-1.5 rounded-t-sm border-b-2 px-3 font-medium whitespace-nowrap no-underline outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset max-md:h-11',
               item.value === tab
                 ? 'border-primary font-semibold text-foreground'
                 : 'border-transparent text-muted-foreground hover:text-foreground',
