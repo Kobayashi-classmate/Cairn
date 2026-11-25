@@ -13,6 +13,7 @@ import { absolutePath, baseName } from '@/files/paths'
 import { i18n } from '@/i18n'
 import { notifyError, notifyInfo } from '@/lib/notify'
 import { useFilesStore } from '@/stores/files'
+import { useSessionStore } from '@/stores/session'
 
 /** What a row's "more" menu or the bulk bar asks the page to do. */
 export type FileActionKey =
@@ -37,10 +38,11 @@ export function withinBatch(count: number): boolean {
 /**
  * Whether reading a file of a root through a link the browser follows
  * (download, image preview) needs a recent re-authentication: everything
- * but the sites root holds backups or the whole disk.
+ * but the sites root holds backups or the whole disk. Never while
+ * re-authentication is turned off for the panel.
  */
 export function linkNeedsStepUp(root: string): boolean {
-  return root !== 'sites'
+  return root !== 'sites' && useSessionStore().stepUpRequired
 }
 
 /**

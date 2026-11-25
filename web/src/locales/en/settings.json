@@ -73,6 +73,13 @@
     "readOnly": "Your role can view these settings but not change them.",
     "saved": "Settings saved."
   },
+  "stepUp": {
+    "title": "Re-authenticate for sensitive operations",
+    "description": "Opening a terminal, managing users, downloading backups and other sensitive operations ask for your password again; one confirmation lasts 10 minutes. API tokens can never perform them.",
+    "offWarning": "Re-authentication is off: anyone with a signed-in session can perform sensitive operations without entering the password.",
+    "enabled": "Sensitive operations ask for the password again.",
+    "disabled": "Sensitive operations no longer ask for the password."
+  },
   "navLabel": "Settings categories",
   "group": {
     "personal": "Personal",

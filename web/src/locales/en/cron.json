@@ -46,7 +46,7 @@
     "deleteText": "The task and its timer are removed. Its past output stays in the system journal.",
     "user": "Run as",
     "userPlaceholder": "Choose a user",
-    "rootNote": "This task runs as root. Root tasks need your password, and they only run while root terminals are allowed: switching root terminals off stops them.",
+    "rootNote": "This task runs as root. Saving a root task may ask for your password, and root tasks only run while root terminals are allowed: switching root terminals off stops them.",
     "rootOff": "Root terminals are switched off right now, so this task will not run.",
     "scriptHint": "Up to {size}. \"#!/bin/sh\" is added when the script has no first line starting with \"#!\".",
     "scriptTooLarge": "The script is larger than {size}.",
@@ -73,7 +73,7 @@
       "disabled": "Leave it off until it is enabled"
     },
     "userHintSites": "A site owner. Tasks as root or other users are for administrators.",
-    "userNote": "This user is not a site owner and may be able to use sudo: as with root tasks, changing, running and deleting this task take the administrator permission, and saving asks for your password."
+    "userNote": "This user is not a site owner and may be able to use sudo: as with root tasks, changing, running and deleting this task take the administrator permission, and saving may ask for your password."
   },
   "schedule": {
     "kind": {

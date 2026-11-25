@@ -15,6 +15,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
@@ -29,10 +30,17 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/secrets"
 )
 
-// Settings holds runtime-adjustable values read from the config file.
+// Settings holds runtime-adjustable panel settings: the default language
+// from the config file, and the step-up switch from the database (see
+// LoadStepUp).
 type Settings struct {
 	mu            sync.RWMutex
 	defaultLocale string
+
+	// stepUpOff caches the step-up switch, which every step-up route
+	// reads; the zero value is on. stepUpMu orders saving it.
+	stepUpOff atomic.Bool
+	stepUpMu  sync.Mutex
 }
 
 // NewSettings returns settings initialized from the config.
@@ -137,6 +145,9 @@ func (m *Module) Routes(r *api.Router) {
 		settingsDoc("Mark the first-login wizard finished, skipped or pending again"), api.Returns(200, wizardBody{}))
 	r.Handle("PUT /api/v1/settings/default-locale", m.setDefaultLocale, api.Require(authz.SettingsManage),
 		settingsDoc("Change the panel default language"), api.Body(localeRequest{}), noContent)
+	r.Handle("PUT /api/v1/settings/step-up", m.setStepUp, api.Require(authz.SettingsManage), api.StepUp(),
+		settingsDoc("Turn re-authentication for sensitive operations on or off (API tokens stay refused on step-up routes)"),
+		api.Body(stepUpBody{}), api.Returns(200, stepUpResponse{}))
 
 	r.Handle("GET /api/v1/overview", m.overview, self, api.Doc("meta", "The overview page: services, checks and notices of the modules the caller may read"),
 		api.Returns(200, module.Overview{}))
@@ -151,10 +162,12 @@ func (m *Module) Routes(r *api.Router) {
 // loginResponse documents both shapes of a successful POST /auth/login.
 type loginResponse struct {
 	userResponse
-	SessionKey  string `json:"sessionKey,omitempty"`
-	DeviceKey   string `json:"deviceKey,omitempty"`
-	MFARequired bool   `json:"mfaRequired,omitempty"`
-	MFAToken    string `json:"mfaToken,omitempty"`
+	SessionKey     string `json:"sessionKey,omitempty"`
+	DeviceKey      string `json:"deviceKey,omitempty"`
+	ElevatedUntil  int64  `json:"elevatedUntil,omitempty"`
+	StepUpRequired bool   `json:"stepUpRequired,omitempty"`
+	MFARequired    bool   `json:"mfaRequired,omitempty"`
+	MFAToken       string `json:"mfaToken,omitempty"`
 }
 
 // Authenticator resolves a browser session, or an API token presented as
@@ -323,11 +336,28 @@ func userBody(u *auth.User) userResponse {
 
 // sessionResponse answers a completed sign-in. Only this answer carries the
 // session key, and the device key of a browser not seen before; neither is
-// logged or audited.
+// logged or audited. The step-up state comes with it, as /auth/me reports
+// it, so the page knows it without asking.
 type sessionResponse struct {
 	userResponse
 	SessionKey string `json:"sessionKey"`
 	DeviceKey  string `json:"deviceKey,omitempty"`
+	stepUpState
+}
+
+// stepUpState is the step-up state of a session: until when it is
+// re-authenticated (Unix seconds, 0 when not), and whether sensitive
+// operations ask for that at all (the panel's step-up switch).
+type stepUpState struct {
+	ElevatedUntil  int64 `json:"elevatedUntil"`
+	StepUpRequired bool  `json:"stepUpRequired"`
+}
+
+func (m *Module) stepUpOf(elevatedUntil int64) stepUpState {
+	if elevatedUntil <= time.Now().Unix() {
+		elevatedUntil = 0
+	}
+	return stepUpState{ElevatedUntil: elevatedUntil, StepUpRequired: m.Settings.StepUpRequired()}
 }
 
 type setupRequest struct {
@@ -356,7 +386,10 @@ func (m *Module) setup(w http.ResponseWriter, r *http.Request) error {
 		return modutil.MapError(err, nil)
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.setup", "ok", nil)
-	return m.signIn(w, r, u)
+	// The password was entered a moment ago: the new session starts
+	// re-authenticated, so that the first-run wizard's settings (the
+	// step-up switch among them) save without asking for it again.
+	return m.signIn(w, r, u, true)
 }
 
 type loginRequest struct {
@@ -415,7 +448,7 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login", "ok", nil)
 	m.announceLogin(r, u)
-	return m.signIn(w, r, u)
+	return m.signIn(w, r, u, false)
 }
 
 type loginMFARequest struct {
@@ -472,7 +505,7 @@ func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.login_mfa", "ok", map[string]any{"method": method})
 	m.announceLogin(r, u)
-	return m.signIn(w, r, u)
+	return m.signIn(w, r, u, false)
 }
 
 func (m *Module) logout(w http.ResponseWriter, r *http.Request) error {
@@ -488,7 +521,7 @@ func (m *Module) logout(w http.ResponseWriter, r *http.Request) error {
 
 type meResponse struct {
 	userResponse
-	ElevatedUntil int64 `json:"elevatedUntil"`
+	stepUpState
 }
 
 func (m *Module) me(w http.ResponseWriter, r *http.Request) error {
@@ -497,11 +530,7 @@ func (m *Module) me(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	until := p.ElevatedUntil
-	if until <= time.Now().Unix() {
-		until = 0
-	}
-	return api.WriteJSON(w, http.StatusOK, meResponse{userResponse: userBody(u), ElevatedUntil: until})
+	return api.WriteJSON(w, http.StatusOK, meResponse{userResponse: userBody(u), stepUpState: m.stepUpOf(p.ElevatedUntil)})
 }
 
 type elevateRequest struct {
@@ -564,8 +593,9 @@ func (m *Module) elevate(w http.ResponseWriter, r *http.Request) error {
 }
 
 // signIn starts a session and answers the sign-in: the cookie, and in the
-// body the session key that every later request has to send with it.
-func (m *Module) signIn(w http.ResponseWriter, r *http.Request, u *auth.User) error {
+// body the session key that every later request has to send with it. With
+// elevated, the session starts re-authenticated (first-run setup).
+func (m *Module) signIn(w http.ResponseWriter, r *http.Request, u *auth.User, elevated bool) error {
 	token, key, err := auth.CreateSession(r.Context(), m.DB, u.ID, api.ClientIP(r), r.UserAgent())
 	if err != nil {
 		return err
@@ -573,7 +603,13 @@ func (m *Module) signIn(w http.ResponseWriter, r *http.Request, u *auth.User) er
 	if err := auth.TouchLogin(r.Context(), m.DB, u.ID); err != nil {
 		return err
 	}
-	resp := sessionResponse{userResponse: userBody(u), SessionKey: key}
+	var until int64
+	if elevated {
+		if until, err = auth.Elevate(r.Context(), m.DB, auth.SessionID(token)); err != nil {
+			return err
+		}
+	}
+	resp := sessionResponse{userResponse: userBody(u), SessionKey: key, stepUpState: m.stepUpOf(until)}
 	http.SetCookie(w, &http.Cookie{
 		Name: auth.CookieName, Value: token, Path: "/",
 		MaxAge: int(auth.AbsoluteTimeout / time.Second), Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode,

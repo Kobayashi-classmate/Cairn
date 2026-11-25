@@ -1,18 +1,35 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // Panel-wide settings: `settings.read` to view, `settings.manage` to change.
+import { useSessionStore } from '@/stores/session'
 import { api } from './client'
 
 export interface PanelSettings {
   defaultLocale: string
+  /** Whether sensitive actions ask for the password again; missing from older servers, which always ask. */
+  stepUpRequired?: boolean
 }
 
-export function fetchSettings(): Promise<PanelSettings> {
-  return api.get<PanelSettings>('/settings')
+export async function fetchSettings(): Promise<PanelSettings> {
+  const settings = await api.get<PanelSettings>('/settings')
+  if (typeof settings.stepUpRequired === 'boolean') useSessionStore().setStepUpRequired(settings.stepUpRequired)
+  return settings
 }
 
 export function updateDefaultLocale(locale: string): Promise<void> {
   return api.put<void>('/settings/default-locale', { locale })
+}
+
+/**
+ * Turns re-authentication for sensitive actions on or off for the whole
+ * panel (`settings.manage`; turning it off is itself a sensitive action).
+ * API tokens stay refused on those actions either way. The session store
+ * follows the answer, so whoever calls this needs nothing more.
+ */
+export async function setStepUp(enabled: boolean): Promise<{ enabled: boolean }> {
+  const answer = await api.put<{ enabled: boolean }>('/settings/step-up', { enabled })
+  useSessionStore().setStepUpRequired(answer.enabled)
+  return answer
 }
 
 export type CloudChannel = 'stable' | 'beta'

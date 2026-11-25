@@ -12,7 +12,7 @@
     "create": "Add account",
     "description": "Secrets are stored on this server and never shown again.",
     "pickProvider": "Choose a provider",
-    "stepUp": "Saving asks for your password again."
+    "stepUp": "Saving may ask for your password again."
   },
   "test": {
     "button": "Test",

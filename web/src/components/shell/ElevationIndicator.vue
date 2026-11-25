@@ -9,14 +9,15 @@ import { formatTime } from '@/i18n/format'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from '@/stores/session'
 
-// Shown while sensitive actions do not ask for the password again.
+// Shown while sensitive actions do not ask for the password again; not at
+// all while re-authentication is turned off for the panel.
 const props = defineProps<{ compact?: boolean }>()
 
 const { t } = useI18n()
 const session = useSessionStore()
 const now = useNow(5000)
 
-const active = computed(() => session.elevatedUntil > now.value)
+const active = computed(() => session.stepUpRequired && session.elevatedUntil > now.value)
 const tooltip = computed(() =>
   t('common.elevated.tooltip', { time: formatTime(session.elevatedUntil, false) }),
 )

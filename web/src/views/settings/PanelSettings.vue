@@ -19,9 +19,11 @@ import DownloadPolicySettings from './DownloadPolicySettings.vue'
 import PanelCertSettings from './PanelCertSettings.vue'
 import SettingRow from './SettingRow.vue'
 import SettingRows from './SettingRows.vue'
+import StepUpSettings from './StepUpSettings.vue'
 
-// Panel-wide settings: the default language, the certificate the panel
-// serves and where runtimes are downloaded from. Quick changes save at once.
+// Panel-wide settings: the default language, re-authentication for
+// sensitive operations, the certificate the panel serves and where runtimes
+// are downloaded from. Quick changes save at once.
 const { t } = useI18n()
 const session = useSessionStore()
 const nav = useNavStore()
@@ -97,6 +99,7 @@ async function changeLocale(value: string) {
     </SettingRows>
   </Card>
 
+  <StepUpSettings />
   <PanelCertSettings v-if="showPanelCert" />
   <DownloadPolicySettings v-if="showDownloadPolicy" />
 </template>

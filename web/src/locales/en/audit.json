@@ -97,7 +97,8 @@
     },
     "settings": {
       "default_locale": "Changed the default language to {locale}",
-      "cloud": "Changed the cloud service settings"
+      "cloud": "Changed the cloud service settings",
+      "step_up": "Changed re-authentication for sensitive operations"
     },
     "notify": {
       "channel_create": "Added notification channel {name}",
@@ -364,6 +365,12 @@
         "stop": "Stopped {name} {line}",
         "restart": "Restarted {name} {line}",
         "reload": "Reloaded {name} {line}"
+      }
+    },
+    "settings": {
+      "step_up": {
+        "enable": "Turned on re-authentication for sensitive operations",
+        "disable": "Turned off re-authentication for sensitive operations"
       }
     }
   },

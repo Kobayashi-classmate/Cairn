@@ -274,7 +274,7 @@
     "noModules": "PHP reported no modules."
   },
   "configs": {
-    "intro": "Configuration files of this version. Opening or saving one asks for your password: they can hold secrets.",
+    "intro": "Configuration files of this version. Opening or saving one may ask for your password: they can hold secrets.",
     "empty": "This version has no editable configuration files.",
     "checked": "Checked before applying",
     "apply": {
@@ -287,7 +287,7 @@
     },
     "back": "All files",
     "stepUp": "Confirm your identity to open this file",
-    "stepUpText": "Configuration files can hold passwords, so opening one asks for your password.",
+    "stepUpText": "Configuration files can hold passwords: confirm your identity to open one.",
     "reload": "Reload the file",
     "save": "Save",
     "discard": "Discard changes",

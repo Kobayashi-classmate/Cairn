@@ -12,7 +12,7 @@
     "create": "添加账号",
     "description": "密钥保存在这台服务器上，保存后不再显示。",
     "pickProvider": "选择服务商",
-    "stepUp": "保存时需要再次输入密码。"
+    "stepUp": "保存时可能需要再次输入密码。"
   },
   "test": {
     "button": "测试",

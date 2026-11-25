@@ -495,8 +495,8 @@ func (m *Module) testNew(w http.ResponseWriter, r *http.Request) error {
 	if s.SecretKey == "" && req.ID != "" {
 		// The saved key goes to whatever endpoint the request names: as
 		// when saving that endpoint, a second verification is needed.
-		if p, ok := api.PrincipalFrom(r.Context()); !ok || p.ElevatedUntil <= time.Now().Unix() {
-			return api.ErrStepUpRequired
+		if err := api.CheckStepUp(r); err != nil {
+			return err
 		}
 		saved, err := m.storage(r.Context(), req.ID)
 		if err != nil {

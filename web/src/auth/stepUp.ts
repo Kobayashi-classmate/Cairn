@@ -20,6 +20,9 @@ let waiters: Waiter[] = []
 export const stepUpOpen = ref(false)
 
 function requestStepUp(error: ApiError): Promise<void> {
+  // The server asked for it, so the panel's switch is on (it may have been
+  // turned on elsewhere since this page learned it).
+  useSessionStore().setStepUpRequired(true)
   return new Promise<void>((resolve, reject) => {
     waiters.push({ error, resolve, reject })
     stepUpOpen.value = true
@@ -44,10 +47,12 @@ export function installStepUp(): void {
 /**
  * Makes sure the session is re-authenticated before a step-up protected
  * request the API client cannot retry itself, such as a download through a
- * plain link or an upload with progress. Rejects when the user cancels.
+ * plain link or an upload with progress. Does nothing while re-authentication
+ * is turned off for the panel. Rejects when the user cancels.
  */
 export async function ensureElevated(): Promise<void> {
   const session = useSessionStore()
+  if (!session.stepUpRequired) return
   // Keep a margin so the elevation does not run out during the request;
   // elevatedUntil is on the server's clock.
   if (session.elevatedUntil > serverNow() / 1000 + 30) return

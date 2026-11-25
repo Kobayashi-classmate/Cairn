@@ -34,8 +34,14 @@ export interface User {
 export interface SessionInfo {
   user: User
   permissions: Permission[]
-  /** Unix seconds until which step-up is not needed; 0 when not elevated. Only sent by /auth/me. */
+  /** Unix seconds until which step-up is not needed; 0 when not elevated. Sent by /auth/me and the sign-in answers. */
   elevatedUntil?: number
+  /**
+   * Whether sensitive actions ask for the password again (the panel's
+   * step-up switch). Sent by /auth/me and the sign-in answers; missing from
+   * older servers, which always ask.
+   */
+  stepUpRequired?: boolean
 }
 
 /**
@@ -133,7 +139,10 @@ export function elevate(body: ElevateRequest): Promise<{ elevatedUntil: number }
   return api.post<{ elevatedUntil: number }>('/auth/elevate', body, { skipStepUp: true })
 }
 
-/** Creates the first administrator; the server signs the new user in. */
+/**
+ * Creates the first administrator; the server signs the new user in, with
+ * the session already re-authenticated (the password was just entered).
+ */
 export async function completeSetup(body: SetupRequest): Promise<SessionInfo> {
   return keepKeys(await api.post<SignedIn>('/setup', body, { skipAuthRedirect: true }))
 }

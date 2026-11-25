@@ -226,7 +226,12 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	settings := core.NewSettings("en")
+	if err := settings.LoadStepUp(context.Background(), db); err != nil {
+		t.Fatal(err)
+	}
 	router := api.NewRouter(core.Authenticator(db), log)
+	router.SetStepUpRequired(settings.StepUpRequired)
 	registry := module.NewRegistry(db)
 	certsMod := &certsmod.Module{Jobs: jobManager, Helper: h, DB: db, Box: box, Events: bus, Log: log}
 	filesMod := &filesmod.Module{Jobs: jobManager, Helper: h, DB: db, Log: log, DataDir: dataDir}
@@ -243,7 +248,7 @@ func newEnv(t *testing.T, extra ...module.Module) *env {
 	softwareMod := &softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: h, DB: db, Log: log,
 		Release: "debian-13", Chain: []string{"debian-13", "debian"}, Arch: "amd64"}
 	registry.Add(
-		&core.Module{DB: db, Settings: core.NewSettings("en"), Helper: h, Box: box, Events: bus, Log: log, Modules: registry},
+		&core.Module{DB: db, Settings: settings, Helper: h, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: metrics.NewCollector(time.Second, 10, log)},
 		softwareMod,
 		sitesMod,
@@ -420,7 +425,21 @@ func (c *client) expect(r reply, status int, code string) reply {
 const pw = "a long enough password"
 
 // setupAdmin completes first-run setup and returns the signed-in client.
+// Setup starts the session re-authenticated (TestSetupElevatesTheSession);
+// the client gets a plain session instead, as after a sign-in, so that
+// tests see step-up wherever it applies.
 func (e *env) setupAdmin(username string) *client {
+	e.t.Helper()
+	c := e.setup(username)
+	if _, err := e.db.Exec(`UPDATE sessions SET elevated_until = 0`); err != nil {
+		e.t.Fatal(err)
+	}
+	return c
+}
+
+// setup completes first-run setup and returns the client with the session
+// it answers with.
+func (e *env) setup(username string) *client {
 	e.t.Helper()
 	token, err := auth.CreateSetupToken(context.Background(), e.db, auth.SetupTokenTTL)
 	if err != nil {

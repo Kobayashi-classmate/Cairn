@@ -97,7 +97,8 @@
     },
     "settings": {
       "default_locale": "将默认语言改为 {locale}",
-      "cloud": "修改了云服务设置"
+      "cloud": "修改了云服务设置",
+      "step_up": "修改了敏感操作二次验证"
     },
     "notify": {
       "channel_create": "添加了通知渠道 {name}",
@@ -364,6 +365,12 @@
         "stop": "停止了 {name} {line}",
         "restart": "重启了 {name} {line}",
         "reload": "重新加载了 {name} {line}"
+      }
+    },
+    "settings": {
+      "step_up": {
+        "enable": "开启了敏感操作二次验证",
+        "disable": "关闭了敏感操作二次验证"
       }
     }
   },

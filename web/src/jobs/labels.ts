@@ -25,6 +25,7 @@ export function labelVariant(kind: string, params: Record<string, unknown>): str
     case 'software.service':
       return typeof params.action === 'string' && /^[a-z]+$/.test(params.action) ? params.action : null
     case 'db.remote':
+    case 'settings.step_up':
       return typeof params.enabled === 'boolean' ? (params.enabled ? 'enable' : 'disable') : null
     case 'db.dump':
       // Redis snapshots have no database.

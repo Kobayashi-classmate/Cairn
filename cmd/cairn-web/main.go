@@ -163,9 +163,16 @@ func run(cfgPath string, log *slog.Logger) error {
 	sshMod := &sshmod.Module{Jobs: jobManager, Helper: helper, DB: db, Events: bus, Log: log}
 	go sshMod.Run(ctx)
 
+	settings := core.NewSettings(cfg.UI.DefaultLocale)
+	if err := settings.LoadStepUp(ctx, db); err != nil {
+		return err
+	}
 	router := api.NewRouter(core.Authenticator(db), log)
+	// Administrators can turn re-authentication for sensitive operations
+	// off; the router asks the cached switch on every step-up route.
+	router.SetStepUpRequired(settings.StepUpRequired)
 	registry.Add(
-		&core.Module{DB: db, Settings: core.NewSettings(cfg.UI.DefaultLocale), Helper: helper, Box: box, Events: bus, Log: log, Modules: registry},
+		&core.Module{DB: db, Settings: settings, Helper: helper, Box: box, Events: bus, Log: log, Modules: registry},
 		&system.Module{Metrics: collector},
 		&softwaremod.Module{Catalog: software, Jobs: jobManager, Helper: helper, DB: db, Log: log, Release: plat.release, Chain: plat.chain, Arch: runtime.GOARCH},
 		sitesMod,

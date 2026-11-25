@@ -36,6 +36,11 @@ export const useSessionStore = defineStore('session', () => {
   const permissions = ref<Permission[]>([])
   /** Unix seconds until which sensitive actions need no re-authentication; 0 if not elevated. */
   const elevatedUntil = ref(0)
+  /**
+   * Whether sensitive actions ask for the password again (the panel's
+   * step-up switch). Assumed on until the server says otherwise.
+   */
+  const stepUpRequired = ref(true)
   /** True once startup has finished, successfully or not. */
   const initialized = ref(false)
   /** Set when the panel could not be loaded at startup. */
@@ -53,6 +58,7 @@ export const useSessionStore = defineStore('session', () => {
     user.value = info.user
     permissions.value = info.permissions ?? []
     elevatedUntil.value = info.elevatedUntil ?? 0
+    stepUpRequired.value = info.stepUpRequired ?? true
     // The account's colour scheme wins over the one remembered in this browser.
     if (isThemeMode(info.user.theme)) useThemeStore().setMode(info.user.theme)
   }
@@ -63,6 +69,7 @@ export const useSessionStore = defineStore('session', () => {
     user.value = null
     permissions.value = []
     elevatedUntil.value = 0
+    stepUpRequired.value = true
     useNavStore().clear()
     // The pages' data (lists, scripts, uploads) is this account's only.
     resetAccountData()
@@ -196,6 +203,14 @@ export const useSessionStore = defineStore('session', () => {
     elevatedUntil.value = (await sessionApi.elevate(body)).elevatedUntil
   }
 
+  /**
+   * Keeps the step-up switch in step: after it was changed here, read with
+   * the panel settings, or found on by a request the server refused.
+   */
+  function setStepUpRequired(required: boolean): void {
+    stepUpRequired.value = required
+  }
+
   /** Setup turned out to be done already (for example from another browser). */
   function setupAlreadyCompleted(reason: ApiError): void {
     if (meta.value) meta.value.setupRequired = false
@@ -287,6 +302,7 @@ export const useSessionStore = defineStore('session', () => {
     user,
     permissions,
     elevatedUntil,
+    stepUpRequired,
     initialized,
     bootError,
     notice,
@@ -299,6 +315,7 @@ export const useSessionStore = defineStore('session', () => {
     signInMfa,
     completeSetup,
     elevate,
+    setStepUpRequired,
     sessionEnded,
     setTotpEnabled,
     setupAlreadyCompleted,

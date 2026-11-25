@@ -333,8 +333,8 @@ func (m *Module) checkPrivileged(r *http.Request, s helperapi.CronSpec, stepUp, 
 	if !ok || !p.Can(Root) {
 		return api.ErrForbidden
 	}
-	if stepUp && p.ElevatedUntil <= time.Now().Unix() {
-		return api.ErrStepUpRequired
+	if stepUp {
+		return api.CheckStepUp(r)
 	}
 	return nil
 }

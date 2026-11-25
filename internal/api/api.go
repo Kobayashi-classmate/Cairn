@@ -111,6 +111,7 @@ type ctxKey int
 const (
 	principalKey ctxKey = iota
 	ticketKey
+	stepUpKey
 )
 
 // Principal is the authenticated user of a request.
@@ -188,12 +189,22 @@ type routerState struct {
 	routes []Route
 	// tickets holds the patterns of the routes registered with Ticket.
 	tickets map[string]bool
+	// stepUpRequired is the panel-wide step-up switch (see
+	// SetStepUpRequired); nil means always on.
+	stepUpRequired func() bool
 }
 
 // NewRouter returns a router using auth for non-public routes.
 func NewRouter(auth Authenticator, log *slog.Logger) *Router {
 	return &Router{routerState: &routerState{mux: http.NewServeMux(), auth: auth, log: log}}
 }
+
+// SetStepUpRequired sets the switch the router asks, on every request to a
+// route registered with StepUp, whether a browser session needs a recent
+// re-authentication. Administrators can turn step-up off; API tokens stay
+// refused on those routes whatever it says (see CheckStepUp). Without a
+// switch, step-up is always required. Call it before serving requests.
+func (rt *Router) SetStepUpRequired(required func() bool) { rt.stepUpRequired = required }
 
 // ForModule returns a view of the router for one module: routes registered
 // through it are tagged with the module ID, and gate (when not nil) is
@@ -292,7 +303,9 @@ func Public() RouteOption { return func(c *routeConfig) { c.public = true } }
 // declare one; registration panics otherwise (default deny).
 func Require(p authz.Permission) RouteOption { return func(c *routeConfig) { c.perm = p } }
 
-// StepUp additionally requires a recent re-authentication of the session.
+// StepUp additionally requires a recent re-authentication of the session
+// while the panel's step-up switch is on, and refuses API tokens always:
+// they cannot re-authenticate (see CheckStepUp).
 func StepUp() RouteOption { return func(c *routeConfig) { c.stepUp = true } }
 
 // SessionOnly refuses API tokens, whatever their scopes: for the routes
@@ -313,6 +326,37 @@ var (
 	ErrForbidden      = NewError(http.StatusForbidden, "auth.forbidden", nil)
 	ErrStepUpRequired = NewError(http.StatusForbidden, "auth.step_up_required", nil)
 )
+
+// CheckStepUp applies the rule of the routes registered with StepUp to the
+// request, for handlers that need step-up for some requests only: an API
+// token is always refused, a browser session passes while step-up is
+// turned off or its re-authentication is still valid. Outside a route that
+// requires a session (no principal), it refuses.
+func CheckStepUp(r *http.Request) error {
+	p, ok := PrincipalFrom(r.Context())
+	if !ok {
+		return ErrStepUpRequired
+	}
+	required, _ := r.Context().Value(stepUpKey).(func() bool)
+	return checkStepUp(p, required)
+}
+
+// checkStepUp is the step-up rule; a nil switch means step-up is on.
+// Tokens are refused whatever the switch says: they cannot re-authenticate,
+// and turning step-up off is meant for the people at the panel, not for
+// automation holding a token.
+func checkStepUp(p *Principal, required func() bool) error {
+	if p.IsToken() || p.SessionID == "" {
+		return ErrStepUpRequired
+	}
+	if required != nil && !required() {
+		return nil
+	}
+	if p.ElevatedUntil <= time.Now().Unix() {
+		return ErrStepUpRequired
+	}
+	return nil
+}
 
 // Handle registers pattern ("METHOD /api/v1/path") with h. Routes require a
 // session and a permission unless Public is given. State-changing methods
@@ -364,11 +408,16 @@ func (rt *Router) Handle(pattern string, h HandlerFunc, opts ...RouteOption) {
 				writeError(w, r, rt.log, ErrForbidden)
 				return
 			}
-			if cfg.stepUp && p.ElevatedUntil <= time.Now().Unix() {
-				writeError(w, r, rt.log, ErrStepUpRequired)
-				return
+			if cfg.stepUp {
+				if err := checkStepUp(p, rt.stepUpRequired); err != nil {
+					writeError(w, r, rt.log, err)
+					return
+				}
 			}
-			r = r.WithContext(WithPrincipal(r.Context(), p))
+			// Handlers that need step-up for some requests only ask the
+			// same switch (CheckStepUp).
+			ctx := context.WithValue(WithPrincipal(r.Context(), p), stepUpKey, rt.stepUpRequired)
+			r = r.WithContext(ctx)
 		}
 		if gate != nil {
 			if err := gate(); err != nil {

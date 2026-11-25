@@ -46,7 +46,7 @@
     "deleteText": "任务及其定时器会被删除。过去的输出仍保留在系统日志中。",
     "user": "运行身份",
     "userPlaceholder": "选择用户",
-    "rootNote": "此任务以 root 身份运行。root 任务需要再次输入密码，并且只在允许 root 终端时运行：关闭 root 终端后它们会停止运行。",
+    "rootNote": "此任务以 root 身份运行。保存 root 任务时可能需要再次输入密码，并且 root 任务只在允许 root 终端时运行：关闭 root 终端后它们会停止运行。",
     "rootOff": "root 终端当前已关闭，因此此任务不会运行。",
     "scriptHint": "最大 {size}。如果脚本第一行不是以“#!”开头，会自动加上“#!/bin/sh”。",
     "scriptTooLarge": "脚本超过了 {size}。",
@@ -73,7 +73,7 @@
       "disabled": "保持停用，直到手动启用"
     },
     "userHintSites": "网站所有者。以 root 或其他用户运行的任务仅限管理员。",
-    "userNote": "该用户不是网站所有者，可能可以使用 sudo：与 root 任务一样，修改、运行和删除此任务都需要管理员权限，保存时还需要再次输入密码。"
+    "userNote": "该用户不是网站所有者，可能可以使用 sudo：与 root 任务一样，修改、运行和删除此任务都需要管理员权限，保存时还可能需要再次输入密码。"
   },
   "schedule": {
     "kind": {

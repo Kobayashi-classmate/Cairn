@@ -8,7 +8,7 @@
   "new": {
     "button": "新建终端",
     "title": "新建终端",
-    "intro": "选择 Shell 的运行身份。打开终端需要再次输入密码。",
+    "intro": "选择 Shell 的运行身份。打开终端时可能需要再次输入密码。",
     "filter": "查找用户",
     "nobody": "没有可以用来运行终端的用户。",
     "step": "以 {user} 的身份在 {home} 打开登录 Shell",

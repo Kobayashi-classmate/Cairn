@@ -157,7 +157,7 @@
   "delete": {
     "title": "Delete {name}?",
     "trashText": "The entries go to the trash of this location, where you can restore them.",
-    "permanentText": "The entries are deleted for good. This cannot be undone; you will be asked for your password.",
+    "permanentText": "The entries are deleted for good. This cannot be undone; you may be asked for your password.",
     "permanent": "Delete permanently (skip the trash)",
     "submit": "Move to trash",
     "submitPermanent": "Delete permanently",
@@ -210,10 +210,10 @@
     "existsText": "Something else now exists at {path}. Replace it with the entry from the trash? | Other entries now exist where these were, such as {path}. Replace them with the entries from the trash?",
     "purge": "Delete permanently",
     "purgeTitle": "Permanently delete {name}?",
-    "purgeText": "This cannot be undone. You will be asked for your password.",
+    "purgeText": "This cannot be undone. You may be asked for your password.",
     "empty": "Empty trash",
     "emptyTitle": "Empty the trash?",
-    "emptyText": "{count} entry is deleted for good. This cannot be undone; you will be asked for your password. | {count} entries are deleted for good. This cannot be undone; you will be asked for your password.",
+    "emptyText": "{count} entry is deleted for good. This cannot be undone; you may be asked for your password. | {count} entries are deleted for good. This cannot be undone; you may be asked for your password.",
     "emptyList": "The trash is empty",
     "total": "{count} entry, {size} | {count} entries, {size}"
   },
@@ -250,7 +250,7 @@
     "image": "Confirm your identity to see this image",
     "file": "Confirm your identity to open this file",
     "search": "Confirm your identity to search the contents of these files",
-    "text": "Outside the site directories, files are opened, searched and downloaded after you confirm your password."
+    "text": "Outside the site directories, opening, searching and downloading files may ask you to confirm your password."
   },
   "unpackReason": {
     "account": "the {user} account that the panel's package creates is missing; reinstall the package",

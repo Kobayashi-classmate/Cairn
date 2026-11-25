@@ -58,9 +58,10 @@ func checkRoot(r *http.Request, root string) error {
 // on their own pages. Every change needs it too: on the system root a write
 // is a write as root, on the backups root it can destroy every backup, and
 // a copy or move from either into a site would hand out the content a read
-// guards. API tokens cannot step up, so they see those roots' names only.
-// Callers check the root (checkRoot) first, so that those who may not use
-// it at all are refused outright rather than asked to verify.
+// guards. API tokens cannot step up, so they see those roots' names only,
+// also while step-up is turned off for browser sessions. Callers check the
+// root (checkRoot) first, so that those who may not use it at all are
+// refused outright rather than asked to verify.
 func stepUpFor(r *http.Request, root string) error {
 	if root == helperapi.RootSites {
 		return nil
@@ -68,13 +69,8 @@ func stepUpFor(r *http.Request, root string) error {
 	return elevated(r)
 }
 
-// elevated requires the caller's second verification to be still valid.
-func elevated(r *http.Request) error {
-	if p, ok := api.PrincipalFrom(r.Context()); !ok || p.ElevatedUntil <= time.Now().Unix() {
-		return api.ErrStepUpRequired
-	}
-	return nil
-}
+// elevated applies the step-up rule of step-up routes (api.CheckStepUp).
+func elevated(r *http.Request) error { return api.CheckStepUp(r) }
 
 // jobPermissions are what seeing and canceling a job on root take: the
 // same as the root itself, so its paths show only to those who may open it.
