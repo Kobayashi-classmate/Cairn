@@ -247,8 +247,16 @@ func (st *Sites) AppStatus(ctx context.Context, code string) (helperapi.AppStatu
 		}
 		return v
 	}
+	// Counts are read at the width they are kept in, not narrowed after.
+	count := func(k string) int {
+		v, err := strconv.Atoi(props[k])
+		if err != nil || v < 0 {
+			return 0
+		}
+		return v
+	}
 	s.ActiveState, s.SubState, s.Result = props["ActiveState"], props["SubState"], props["Result"]
-	s.MainPID, s.Restarts = int(num("MainPID")), int(num("NRestarts"))
+	s.MainPID, s.Restarts = count("MainPID"), count("NRestarts")
 	if v := props["MemoryCurrent"]; v != "[not set]" {
 		s.MemoryBytes = num("MemoryCurrent")
 	}
