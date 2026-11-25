@@ -28,7 +28,10 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - TLS certificates from ACME (HTTP-01 and DNS-01) or uploaded, for sites and
   for the panel itself.
 - Database management for MariaDB, PostgreSQL and Redis or Valkey.
-- A file manager and a web terminal.
+- A file manager and a web terminal. The terminal colours the output of
+  `ls`, `grep`, `diff` and `ip` and the prompt, through a profile script
+  that acts only in the panel's terminals; users' own shell files are not
+  changed and still win.
 - Scheduled tasks, a log browser and backups to local or S3 storage.
 - Firewall management on nftables, firewalld or ufw, with automatic rollback
   of a change that locks the administrator out. The rollback holds when

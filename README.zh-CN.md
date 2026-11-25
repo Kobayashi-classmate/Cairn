@@ -89,6 +89,7 @@ root_access = "never"
 | 助手进程的状态（`/var/lib/cairn-helper`：备份计划及其存储桶设置、证书、更新包） | 保留 | 删除 | 保留 |
 | 计划任务（`/etc/cairn-cron`、`cairn-cron-*` 单元） | 保留，已停止 | 删除 | 保留，已停止 |
 | Cairn 的防火墙（nftables 表 `cairn` 和 `cairn_forward`、`/etc/cairn-firewall`） | 表在重启前仍然生效，文件保留 | 删除 | 同 `apt remove` |
+| 终端配色脚本（`/etc/profile.d/cairn-term.sh`，只在面板的终端里起作用） | 保留 | 删除 | 删除（改动过的保留为 `.rpmsave`） |
 
 - `apt remove` 或 `dnf remove` 之后重新安装，Cairn 沿用保留的数据，并重新启用计划任务和防火墙。
 - `apt purge` 之后重新安装是一个新面板；保留下来的备份在"文件"页的备份目录里，数据库转储在"数据库"页里。备份计划和存储桶设置已经删除，存储桶里的副本不受影响。加密的备份要用你建计划时自己保存的私钥解密：Cairn 从不保存私钥。

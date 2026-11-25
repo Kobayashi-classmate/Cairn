@@ -89,6 +89,7 @@ Removing the package never touches the websites: their files, accounts, units (`
 | Helper state (`/var/lib/cairn-helper`: backup plans with their bucket settings, certificates, update packages) | kept | removed | kept |
 | Scheduled tasks (`/etc/cairn-cron`, `cairn-cron-*` units) | kept, stopped | removed | kept, stopped |
 | Cairn's firewall (nftables tables `cairn` and `cairn_forward`, `/etc/cairn-firewall`) | tables stay loaded until reboot, files kept | removed | as with `apt remove` |
+| Terminal colours (`/etc/profile.d/cairn-term.sh`, which acts only in the panel's terminal) | kept | removed | removed (kept as `.rpmsave` if you changed it) |
 
 - Installed again after `apt remove` or `dnf remove`, Cairn carries on with the kept data and turns the scheduled tasks and the firewall back on.
 - After `apt purge`, a new installation starts a new panel; the kept backups are in the Files page's backups root and the database dumps on the Databases page. Backup plans and their bucket settings are gone, but the copies in buckets are not. Encrypted backups need the private key you kept when you made the plan: Cairn never stores it.

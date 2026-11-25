@@ -62,6 +62,14 @@ contents:
   - src: /usr/lib/systemd/system/cairn-firewall-recover.service
     dst: /usr/lib/systemd/system/multi-user.target.wants/cairn-firewall-recover.service
     type: symlink
+  # Colours in the web terminal's shell (ls and grep aliases, a coloured
+  # prompt); it does nothing outside the terminal (CAIRN_TERM, set by the
+  # helper). A configuration file: an administrator's edits are kept.
+  - src: packaging/profile/cairn-term.sh
+    dst: /etc/profile.d/cairn-term.sh
+    type: config|noreplace
+    file_info:
+      mode: 0644
   - src: packaging/needrestart/cairn.conf
     dst: /etc/needrestart/conf.d/cairn.conf
     type: config

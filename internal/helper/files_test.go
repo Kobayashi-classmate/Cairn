@@ -505,6 +505,10 @@ func TestTerminalUsers(t *testing.T) {
 	if started.Shell != "/bin/bash" || started.Uid != 997 || started.Home != "/srv/www/shop" || started.Cols != 80 {
 		t.Fatalf("started %+v", started)
 	}
+	// The profile script's switch; without systemd execx sets the locale.
+	if env := strings.Join(started.Env, " "); !strings.Contains(env, "CAIRN_TERM=1") || !strings.Contains(env, "TERM=xterm-256color") || strings.Contains(env, "LANG=") {
+		t.Fatalf("environment %q", started.Env)
+	}
 	if _, err := call[helperapi.AccessSettings](t, e.r, helperapi.ActionAccessSet, helperapi.AccessSettings{RootTerminal: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -528,21 +532,57 @@ func TestTerminalUnitsUnderSystemd(t *testing.T) {
 		return running, nil
 	}
 	var unit string
+	var env []string
 	startTerminalUnit = func(_ context.Context, term execx.Terminal, u string) (*os.File, error) {
-		unit = u
+		unit, env = u, term.Env
 		if term.Uid != 1000 || term.Shell != "/bin/sh" {
 			t.Errorf("terminal %+v", term)
 		}
 		r, _, err := os.Pipe()
 		return r, err
 	}
+	// A system without a locale: the unit gets C.UTF-8, as execx gives a
+	// shell without systemd.
+	t.Setenv("LANG", "")
 	s, f, err := e.f.termOpen(context.Background(), helperapi.Caller{}, helperapi.TermOpenRequest{User: "alice", Cols: 80, Rows: 24})
 	if err != nil || !strings.HasPrefix(unit, "cairn-term-") || s.Unit != unit {
 		t.Fatalf("open %+v %v", s, err)
 	}
 	_ = f.Close()
+	if got := strings.Join(env, " "); !strings.Contains(got, "CAIRN_TERM=1") || !strings.Contains(got, "LANG=C.UTF-8") {
+		t.Fatalf("environment %q", env)
+	}
+	// The system's own UTF-8 locale is kept.
+	t.Setenv("LANG", "zh_CN.UTF-8")
+	if _, f, err := e.f.termOpen(context.Background(), helperapi.Caller{}, helperapi.TermOpenRequest{User: "alice", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	} else {
+		_ = f.Close()
+	}
+	if got := strings.Join(env, " "); !strings.Contains(got, "LANG=zh_CN.UTF-8") || strings.Contains(got, "C.UTF-8") {
+		t.Fatalf("environment %q", env)
+	}
 	running = strings.Repeat("cairn-term-x.service loaded active running Cairn terminal\n", maxTerminals)
 	if _, _, err := e.f.termOpen(context.Background(), helperapi.Caller{}, helperapi.TermOpenRequest{User: "alice", Cols: 80, Rows: 24}); errCode(err) != helperapi.CodeTermTooMany {
 		t.Fatalf("limit: %v", err)
+	}
+}
+
+func TestTerminalLocale(t *testing.T) {
+	for system, want := range map[string]string{
+		"":                    "C.UTF-8",
+		"C":                   "C.UTF-8",
+		"POSIX":               "C.UTF-8",
+		"en_US":               "C.UTF-8", // ISO-8859-1
+		"en_US.UTF-8":         "en_US.UTF-8",
+		"zh_CN.utf8":          "zh_CN.utf8",
+		"C.utf8":              "C.utf8",
+		"sr_RS.UTF-8@latin":   "sr_RS.UTF-8@latin",
+		"en_US.UTF-8\nX=1":    "C.UTF-8",
+		"en_US.UTF-8 LC_ALL=": "C.UTF-8",
+	} {
+		if got := terminalLocale(system); got != want {
+			t.Errorf("terminalLocale(%q) = %q, want %q", system, got, want)
+		}
 	}
 }

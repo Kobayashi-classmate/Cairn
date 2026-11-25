@@ -139,10 +139,12 @@ func TestStartTerminal(t *testing.T) {
 }
 
 func TestTerminalUnitArgs(t *testing.T) {
-	args := strings.Join(TerminalUnitArgs(Terminal{Shell: "/bin/bash", Uid: 1000, Gid: 1001, Home: "/home/a", Env: []string{"TERM=xterm-256color"}},
+	env := []string{"TERM=xterm-256color", "CAIRN_TERM=1", "LANG=C.UTF-8"}
+	args := strings.Join(TerminalUnitArgs(Terminal{Shell: "/bin/bash", Uid: 1000, Gid: 1001, Home: "/home/a", Env: env},
 		"cairn-term-x", "/dev/pts/7"), " ")
+	// Every entry of the environment reaches the unit as a --setenv.
 	for _, want := range []string{"--unit=cairn-term-x", "--uid=1000 --gid=1001", "--property=TTYPath=/dev/pts/7", "--property=StandardInput=tty",
-		"--setenv=TERM=xterm-256color", "-- /bin/bash -l"} {
+		"--setenv=TERM=xterm-256color", "--setenv=CAIRN_TERM=1", "--setenv=LANG=C.UTF-8", "-- /bin/bash -l"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args lack %q: %s", want, args)
 		}

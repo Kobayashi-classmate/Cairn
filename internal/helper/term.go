@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -120,6 +121,32 @@ func (f *Files) shellFor(e passwdEntry) string {
 	return "/bin/sh"
 }
 
+// terminalEnv is the shell's environment on top of execx's base. The web
+// terminal is an xterm with true colour; CAIRN_TERM=1 tells
+// /etc/profile.d/cairn-term.sh (packaging/profile) that the login is one,
+// so it turns on colours there and nowhere else.
+func terminalEnv(home, name, shell string) []string {
+	return []string{"HOME=" + home, "USER=" + name, "LOGNAME=" + name, "SHELL=" + shell,
+		"TERM=xterm-256color", "COLORTERM=truecolor", "CAIRN_TERM=1"}
+}
+
+// terminalLocale is LANG for a shell that systemd starts: the system's own
+// (systemd hands it to every unit, and so to the helper) when it is a UTF-8
+// locale, else C.UTF-8 like a shell started without systemd. The web
+// terminal speaks UTF-8; under another locale, or none, programs garble
+// or drop every non-ASCII character.
+func terminalLocale(system string) string {
+	lower := strings.ToLower(system)
+	if (strings.Contains(lower, ".utf-8") || strings.Contains(lower, ".utf8")) && localeName.MatchString(system) {
+		return system
+	}
+	return "C.UTF-8"
+}
+
+// localeName is a locale name as glibc writes them (zh_CN.UTF-8,
+// sr_RS.UTF-8@latin), nothing else.
+var localeName = regexp.MustCompile(`^[A-Za-z0-9_.@-]{1,64}$`)
+
 func (f *Files) termOpen(ctx context.Context, c helperapi.Caller, req helperapi.TermOpenRequest) (helperapi.TermSession, *os.File, error) {
 	var allowed *helperapi.TermUser
 	users := f.termUsers()
@@ -175,10 +202,12 @@ func (f *Files) termOpen(ctx context.Context, c helperapi.Caller, req helperapi.
 	}
 	term := execx.Terminal{
 		Shell: shell, Uid: uint32(e.uid), Gid: uint32(e.gid), Groups: groups, Home: home, //nolint:gosec // G115: 31-bit ids (parseID).
-		Env:  []string{"HOME=" + home, "USER=" + e.name, "LOGNAME=" + e.name, "SHELL=" + shell, "TERM=xterm-256color", "COLORTERM=truecolor"},
+		Env:  terminalEnv(home, e.name, shell),
 		Cols: uint16(req.Cols), Rows: uint16(req.Rows), TTYGroup: tty, //nolint:gosec // G115: validated sizes.
 	}
 	if systemdRunning() {
+		// Without systemd execx sets a UTF-8 locale itself.
+		term.Env = append(term.Env, "LANG="+terminalLocale(os.Getenv("LANG")))
 		// A unit of its own: the helper's sandbox and control group stay
 		// out of the shell, and a helper restart does not end it.
 		release()
