@@ -259,7 +259,7 @@ func TestJournal(t *testing.T) {
 	if err != nil || len(j.Entries) != 2 || j.Entries[0].Message != "bind() failed" || j.Entries[0].PID != 42 || j.Entries[1].Message != "hi" || j.Cursor != "s=1;i=2" {
 		t.Fatalf("journal %+v %v", j, err)
 	}
-	if !e.f.ran("query journalctl --no-pager --output=json --lines=200 --unit=nginx.service --priority=3 --grep=failed") {
+	if !e.f.ran("query journalctl --no-pager --output=json --all --lines=200 --unit=nginx.service --priority=3 --grep=failed") {
 		t.Fatalf("journalctl arguments: %v", e.f.cmds)
 	}
 	if _, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournal, helperapi.JournalRequest{Unit: "nginx; rm"}); err == nil {

@@ -62,7 +62,9 @@ func readJournal(ctx context.Context, root string, req helperapi.JournalRequest)
 	if limit == 0 {
 		limit = 200
 	}
-	args := []string{"--no-pager", "--output=json", "--lines=" + strconv.Itoa(limit)}
+	// --all: without it journalctl's JSON gives null for fields longer
+	// than 4096 bytes, so long messages would show as empty.
+	args := []string{"--no-pager", "--output=json", "--all", "--lines=" + strconv.Itoa(limit)}
 	if req.Unit != "" {
 		args = append(args, "--unit="+req.Unit)
 	}

@@ -73,6 +73,10 @@ func TestReadJournalKeepsCursors(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("calls = %v, want no tail lookup", *calls)
 	}
+	// Long messages come in full: without --all journalctl gives null.
+	if !slices.Contains((*calls)[0], "--all") {
+		t.Fatalf("query %v lacks --all", (*calls)[0])
+	}
 
 	// Following with nothing new keeps the cursor it was given.
 	root, calls = fakeJournal(t, "", tailEntry)
