@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Loads the NAT table of Cairn's port forwards (inet cairn_forward) at boot,
-# on systems where ufw is the firewall: ufw's own files cannot hold NAT rules
-# that survive a reload. Enabled by the panel while port forwards exist.
+# on systems where ufw or firewalld is the firewall: ufw's own files cannot
+# hold NAT rules that survive a reload, and firewalld's port forwards would
+# also catch routed traffic and connections from blocked addresses. Enabled
+# by the panel while port forwards exist.
 # Restarting or reloading nftables.service flushes every table, so this unit
 # follows it.
 [Unit]

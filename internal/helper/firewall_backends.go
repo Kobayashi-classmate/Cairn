@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -129,14 +130,9 @@ func nftRuleLines(r helperapi.FirewallRule) []string {
 	return lines
 }
 
-// renderNft writes the table. Order: loopback and established traffic,
-// blocked addresses, trusted addresses, deny rules, ICMP (needed for IPv6
-// neighbor discovery and path MTU), DHCPv6 replies, allow rules, what port
-// forwards redirected here; anything else is dropped. The port forwards'
-// NAT chains follow the input chain.
-func renderNft(r fwRender) string {
-	var allow4, allow6, deny4, deny6 []string
-	for _, a := range r.Addresses {
+// addressSets groups the trusted and the blocked addresses by family.
+func addressSets(addrs []helperapi.FirewallAddress) (allow4, allow6, deny4, deny6 []string) {
+	for _, a := range addrs {
 		v4, v6 := splitSources([]string{a.Address})
 		if a.Action == helperapi.FirewallAllow {
 			allow4, allow6 = append(allow4, v4...), append(allow6, v6...)
@@ -144,6 +140,17 @@ func renderNft(r fwRender) string {
 			deny4, deny6 = append(deny4, v4...), append(deny6, v6...)
 		}
 	}
+	return allow4, allow6, deny4, deny6
+}
+
+// renderNft writes the table. Order: loopback and established traffic,
+// blocked addresses, trusted addresses, deny rules, ICMP (needed for IPv6
+// neighbor discovery and path MTU), DHCPv6 replies, allow rules, what port
+// forwards redirected here; anything else is dropped. The forward chain
+// (while Cairn switched forwarding on) and the port forwards' NAT chains
+// follow the input chain.
+func renderNft(r fwRender) string {
+	allow4, allow6, deny4, deny6 := addressSets(r.Addresses)
 	var b strings.Builder
 	b.WriteString("#!/usr/sbin/nft -f\n# Managed by Cairn. Change the firewall in the panel instead of editing this file.\n")
 	b.WriteString("table inet cairn\ndelete table inet cairn\ntable inet cairn {\n")
@@ -181,7 +188,8 @@ func renderNft(r fwRender) string {
 		b.WriteString("\t\t" + l + "\n")
 	}
 	b.WriteString("\t}\n")
-	b.WriteString(nftForwardNAT(r.Forwards))
+	b.WriteString(nftForwardFilter(r))
+	b.WriteString(nftForwardNAT(r))
 	b.WriteString("}\n")
 	return b.String()
 }
@@ -222,6 +230,13 @@ func (n *nftBackend) apply(ctx context.Context, log io.Writer, r fwRender) error
 		return err
 	}
 	return nil
+}
+
+// current reports whether the rules file, which cairn-firewall.service
+// loads at boot, holds what r renders to.
+func (n *nftBackend) current(_ context.Context, r fwRender) bool {
+	data, err := os.ReadFile(filepath.Join(n.root, nftRulesFile)) //nolint:gosec // G304: a fixed path.
+	return err == nil && string(data) == renderNft(r)
 }
 
 func (n *nftBackend) disable(ctx context.Context, log io.Writer) error {
@@ -409,15 +424,19 @@ func ufwCommands(r fwRender) []ufwCmd {
 	return cmds
 }
 
+func ufwPingTarget(block bool) string {
+	if block {
+		return "DROP"
+	}
+	return "ACCEPT"
+}
+
 var ufwPingLine = regexp.MustCompile(`(?m)^(-A ufw6?-before-input -p icmp(?:v6)? --icmp(?:v6)?-type echo-request -j )(ACCEPT|DROP)$`)
 
 // setPing switches the echo-request lines of before.rules and
 // before6.rules; it reports whether a file changed.
 func (u *ufwBackend) setPing(block bool) (bool, error) {
-	target := "ACCEPT"
-	if block {
-		target = "DROP"
-	}
+	target := ufwPingTarget(block)
 	changed := false
 	for _, name := range []string{"before.rules", "before6.rules"} {
 		p := filepath.Join(u.root, "/etc/ufw", name)
@@ -482,7 +501,7 @@ func (u *ufwBackend) apply(ctx context.Context, log io.Writer, r fwRender) error
 	if err != nil {
 		return err
 	}
-	if err := u.setForwardNAT(ctx, log, r.Forwards); err != nil {
+	if err := setForwardTable(ctx, log, u.root, r); err != nil {
 		return err
 	}
 	forwardsChanged, err := u.setForwardRules(r.Forwards)
@@ -504,6 +523,41 @@ func (u *ufwBackend) apply(ctx context.Context, log io.Writer, r fwRender) error
 	return nil
 }
 
+// current reports whether ufw holds Cairn's rules as r renders them: the
+// tagged rules, Cairn's lines in before.rules and before6.rules, and the
+// forwards' table.
+func (u *ufwBackend) current(_ context.Context, r fwRender) bool {
+	want, have := map[string]bool{}, map[string]bool{}
+	for _, c := range ufwCommands(r) {
+		want[c.tag] = true
+	}
+	for _, t := range u.tuples() {
+		if strings.HasPrefix(t.comment, ufwTagHead) {
+			have[t.comment] = true
+		}
+	}
+	if !maps.Equal(want, have) {
+		return false
+	}
+	for _, file := range []struct {
+		name string
+		v6   bool
+	}{{"before.rules", false}, {"before6.rules", true}} {
+		data, err := os.ReadFile(filepath.Join(u.root, "/etc/ufw", file.name)) //nolint:gosec // G304: fixed names.
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false
+		}
+		out, err := withUFWForwardBlock(ufwPingLine.ReplaceAll(data, []byte("${1}"+ufwPingTarget(r.BlockPing))), ufwForwardLines(r.Forwards, file.v6))
+		if err != nil || !bytes.Equal(out, data) {
+			return false
+		}
+	}
+	return forwardTableCurrent(u.root, r)
+}
+
 // disable switches ufw off; the port forwards stop with it.
 func (u *ufwBackend) disable(ctx context.Context, log io.Writer) error {
 	if !u.installed() {
@@ -515,7 +569,7 @@ func (u *ufwBackend) disable(ctx context.Context, log io.Writer) error {
 	if _, err := u.setForwardRules(nil); err != nil {
 		return err
 	}
-	return u.setForwardNAT(ctx, log, nil)
+	return setForwardTable(ctx, log, u.root, fwRender{})
 }
 
 func (u *ufwBackend) external(context.Context) []string {
@@ -538,7 +592,8 @@ const (
 
 // firewalldBackend keeps Cairn's rules in a firewalld policy of its own
 // (traffic from any zone to the host), evaluated before the zones; the
-// zones and their services stay as they are.
+// zones and their services stay as they are. The port forwards are in
+// Cairn's NAT table (see setForwardTable).
 type firewalldBackend struct{ root string }
 
 func (d *firewalldBackend) installed() bool {
@@ -566,17 +621,16 @@ func (d *firewalldBackend) loaded(ctx context.Context) bool {
 }
 
 type fwdXML struct {
-	XMLName      xml.Name         `xml:"policy"`
-	Priority     int              `xml:"priority,attr"`
-	Target       string           `xml:"target,attr"`
-	Short        string           `xml:"short"`
-	Description  string           `xml:"description"`
-	Ingress      fwdZone          `xml:"ingress-zone"`
-	Egress       fwdZone          `xml:"egress-zone"`
-	ICMPBlocks   []fwdName        `xml:"icmp-block"`
-	Ports        []fwdPort        `xml:"port"`
-	ForwardPorts []fwdForwardPort `xml:"forward-port"`
-	Rules        []fwdRichXML     `xml:"rule"`
+	XMLName     xml.Name     `xml:"policy"`
+	Priority    int          `xml:"priority,attr"`
+	Target      string       `xml:"target,attr"`
+	Short       string       `xml:"short"`
+	Description string       `xml:"description"`
+	Ingress     fwdZone      `xml:"ingress-zone"`
+	Egress      fwdZone      `xml:"egress-zone"`
+	ICMPBlocks  []fwdName    `xml:"icmp-block"`
+	Ports       []fwdPort    `xml:"port"`
+	Rules       []fwdRichXML `xml:"rule"`
 }
 
 type fwdZone struct {
@@ -664,7 +718,6 @@ func renderFirewalld(r fwRender) ([]byte, error) {
 			}
 		}
 	}
-	pol.ForwardPorts = fwdLocalForwards(r.Forwards)
 	// firewalld refuses duplicate entries (the panel port may also be in a
 	// user rule).
 	seenPort := map[fwdPort]bool{}
@@ -750,13 +803,11 @@ func (d *firewalldBackend) apply(ctx context.Context, log io.Writer, r fwRender)
 	if err != nil {
 		return err
 	}
-	forward, err := renderFirewalldForward(r.Forwards)
-	if err != nil {
-		return err
-	}
 	files := []*fwdFile{
 		{path: filepath.Join(d.root, firewalldPolicyFile), data: main},
-		{path: filepath.Join(d.root, firewalldForwardPolicyFile), data: forward},
+		// The forwards' policy of earlier versions goes: the forwards are
+		// in Cairn's NAT table now.
+		{path: filepath.Join(d.root, firewalldForwardPolicyFile)},
 	}
 	changed := false
 	// Only files already (or partly) written are put back.
@@ -789,23 +840,42 @@ func (d *firewalldBackend) apply(ctx context.Context, log io.Writer, r fwRender)
 			put()
 			return err
 		}
-		return d.supported(ctx)
-	}
-	if changed || !d.loaded(ctx) {
+		if err := d.supported(ctx); err != nil {
+			return err
+		}
+	} else if changed || !d.loaded(ctx) {
 		if err := runCommand(ctx, log, firewallCmd, "--reload"); err != nil {
 			put()
 			_ = runCommand(ctx, io.Discard, firewallCmd, "--reload")
 			return err
 		}
 	}
-	return nil
+	// firewalld accepts the connections this table translated before any
+	// zone or policy (ct status dnat accept), and leaves the table alone
+	// when it reloads.
+	return setForwardTable(ctx, log, d.root, r)
 }
 
-func (d *firewalldBackend) disable(ctx context.Context, log io.Writer) error {
-	if !d.installed() || !systemdRunning() {
-		return nil
+// current reports whether Cairn's policy file is r's, the forwards' policy
+// of earlier versions is gone, and the forwards' table is r's.
+func (d *firewalldBackend) current(_ context.Context, r fwRender) bool {
+	main, err := renderFirewalld(r)
+	if err != nil {
+		return false
 	}
-	return runCommand(ctx, log, "systemctl", "disable", "--now", "firewalld")
+	data, err := os.ReadFile(filepath.Join(d.root, firewalldPolicyFile)) //nolint:gosec // G304: a fixed path.
+	return err == nil && bytes.Equal(data, main) && !fileExists(filepath.Join(d.root, firewalldForwardPolicyFile)) &&
+		forwardTableCurrent(d.root, r)
+}
+
+// disable switches firewalld off; the port forwards stop with it.
+func (d *firewalldBackend) disable(ctx context.Context, log io.Writer) error {
+	if d.installed() && systemdRunning() {
+		if err := runCommand(ctx, log, "systemctl", "disable", "--now", "firewalld"); err != nil {
+			return err
+		}
+	}
+	return setForwardTable(ctx, log, d.root, fwRender{})
 }
 
 // external lists the default zone's services and ports.

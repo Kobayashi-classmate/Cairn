@@ -71,11 +71,15 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   for the selected entries, and an editor that asks before unsaved changes
   are lost. The file editor and the terminal follow the light or dark
   scheme.
-- Port forwards in the firewall: connections to a port of the server go
-  on to another of its ports or to a port of another IPv4 host, on
-  nftables, ufw and firewalld, with the same 60-second rollback as the
-  other firewall changes. Forwarding to another host switches IPv4
-  forwarding on while it is needed.
+- Port forwards in the firewall: connections addressed to the server on
+  one of its ports go on to another of its ports or to a port of another
+  IPv4 host, on nftables, ufw and firewalld, with the same 60-second
+  rollback as the other firewall changes. Blocked addresses and deny rules
+  hold for forwards too, and traffic the server routes for others or its
+  containers' own connections are never redirected. Forwarding to another
+  host switches IPv4 forwarding on while it is needed, and the server then
+  routes nothing else for its neighbors, while container and VM networks
+  keep working; forwarding that was already on is left to you.
 - The firewall, SSH, host, jobs, users, audit, messages and settings pages
   in the new layout. Firewall and SSH port changes show a banner with
   their steps and the time left, and a firewall change can be rolled back

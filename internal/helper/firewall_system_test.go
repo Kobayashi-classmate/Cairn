@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"os/exec"
@@ -68,8 +69,10 @@ func sh(t *testing.T, name string, args ...string) string {
 	return string(out)
 }
 
-// rules shows what the backend enforces now.
+// rules shows what the backend enforces now, with the port forwards' NAT
+// table of ufw and firewalld.
 func rules(t *testing.T) string {
+	nat, _ := exec.Command(nftBinary, "list", "table", "inet", forwardTable).CombinedOutput()
 	switch os.Getenv("CAIRN_FW_BACKEND") {
 	case helperapi.FirewallNftables:
 		out, _ := exec.Command(nftBinary, "list", "ruleset").CombinedOutput()
@@ -77,7 +80,10 @@ func rules(t *testing.T) string {
 	case helperapi.FirewallUFW:
 		out, _ := exec.Command(ufwBinary, "status", "verbose").CombinedOutput()
 		before, _ := os.ReadFile("/etc/ufw/before.rules")
-		return string(out) + "\n" + string(before)
+		return string(out) + "\n" + string(before) + "\n" + string(nat)
+	case helperapi.FirewallFirewalld:
+		out, _ := exec.Command(firewallCmd, "--info-policy=cairn").CombinedOutput()
+		return string(out) + "\n" + string(nat)
 	}
 	return ""
 }
@@ -115,6 +121,8 @@ func TestFirewallSystem(t *testing.T) {
 	admin := helperapi.Caller{Source: "web", Remote: "192.0.2.200"}
 	backend := os.Getenv("CAIRN_FW_BACKEND")
 	ufw := backend == helperapi.FirewallUFW
+	firewalld := backend == helperapi.FirewallFirewalld
+	client := os.Getenv("CAIRN_FW_CLIENT")
 	switch phase := os.Getenv("CAIRN_FW_PHASE"); phase {
 	case "setup":
 		plan, err := f.Plan(ctx, nil)
@@ -128,9 +136,12 @@ func TestFirewallSystem(t *testing.T) {
 		if !st.Enabled || !st.Loaded || st.Backend != backend || st.Pending != nil {
 			t.Fatalf("status %+v", st)
 		}
-		if ufw {
+		switch {
+		case ufw:
 			want(t, true, "Status: active", "Default: deny (incoming)", "22/tcp", "28443/tcp", "80,443/tcp")
-		} else {
+		case firewalld:
+			want(t, true, "ports: 22/tcp 28443/tcp 80/tcp 443/tcp")
+		default:
 			want(t, true, "table inet cairn", "policy drop", "tcp dport 22 accept", "tcp dport { 80, 443 } accept")
 		}
 	case "allow8081":
@@ -147,7 +158,6 @@ func TestFirewallSystem(t *testing.T) {
 			want(t, true, "tcp dport 8081 accept")
 		}
 	case "blockclient":
-		client := os.Getenv("CAIRN_FW_CLIENT")
 		ch, err := f.setAddress(ctx, admin, helperapi.FirewallAddress{Address: client, Action: "deny", Note: "test"})
 		if err != nil || ch.Pending == nil {
 			t.Fatalf("%+v %v", ch, err)
@@ -168,7 +178,7 @@ func TestFirewallSystem(t *testing.T) {
 		if st.Pending != nil || len(st.Addresses) != 0 || st.LastRollback == nil {
 			t.Fatalf("status %+v", st)
 		}
-		want(t, false, os.Getenv("CAIRN_FW_CLIENT"))
+		want(t, false, client)
 	case "unconfirmed":
 		// A change nobody confirms; the process that made it goes away with
 		// its timer, as a machine that is restarted does.
@@ -273,16 +283,85 @@ func TestFirewallSystem(t *testing.T) {
 		if st := f.Status(ctx); len(st.Forwards) != 2 || !st.IPForward {
 			t.Fatalf("status %+v", st)
 		}
-		if ufw {
-			out := sh(t, nftBinary, "list", "table", "inet", ufwForwardTable)
-			if !strings.Contains(out, "redirect to :80") || !strings.Contains(out, "dnat ip to "+target+":80") || !strings.Contains(out, "masquerade") {
-				t.Fatalf("NAT table:\n%s", out)
-			}
+		// Only what is addressed to this host is forwarded, and not for
+		// blocked addresses.
+		want(t, true, "redirect to :80", "dnat ip to "+target+":80", "ct status dnat masquerade",
+			"fib daddr type local tcp dport 8090", "ip saddr @deny4 return")
+		switch {
+		case ufw:
 			want(t, true, "-A ufw-before-input -p tcp --dport 80 -m conntrack --ctstate DNAT -j ACCEPT",
 				"-A ufw-before-forward -p tcp -d "+target+" --dport 80 -m conntrack --ctstate DNAT -j ACCEPT")
-		} else {
-			want(t, true, "redirect to :80", "dnat ip to "+target+":80", "ct status dnat masquerade", "ct status dnat tcp dport 80 accept")
+		case firewalld:
+			want(t, false, "toport=")
+		default:
+			// Forwarding was on before Cairn: Cairn does not filter it.
+			want(t, true, "ct status dnat tcp dport 80 accept")
+			want(t, false, "hook forward")
 		}
+	case "reapply":
+		// The forwards as 2b97189 wrote them (not limited to this host) are
+		// rewritten when the helper starts; once in this form, they are left
+		// alone.
+		file := nftRulesFile
+		if ufw || firewalld {
+			file = forwardTableFile
+		}
+		data, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(strings.ReplaceAll(string(data), "fib daddr type local ", "")), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sh(t, nftBinary, "-f", file)
+		want(t, false, "fib daddr type local")
+		f.Log = slog.New(slog.NewTextHandler(os.Stdout, nil))
+		f.Startup(ctx)
+		want(t, true, "fib daddr type local tcp dport 8090", "dnat ip to "+os.Getenv("CAIRN_FW_TARGET")+":80")
+		before, err := os.Stat(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.Startup(ctx)
+		if after, err := os.Stat(file); err != nil || !after.ModTime().Equal(before.ModTime()) {
+			t.Fatalf("rewritten again: %v", err)
+		}
+		if st := f.Status(ctx); st.Pending != nil || len(st.Forwards) != 2 {
+			t.Fatalf("status %+v", st)
+		}
+	case "forward-guard":
+		// In a container forwarding is on from the start (its /proc/sys is
+		// read-only), so Cairn never switched it on: the mark stands in for
+		// that, and goes again so that removing the forwards later does not
+		// try to switch forwarding off. The server's own interface is a veth
+		// here, which the forward chain would let through as a container's.
+		if err := os.WriteFile(f.stateDir(ipForwardMark), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fwVirtualKinds = []string{"bridge"}
+		if err := f.Refresh(ctx, os.Stdout); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(f.stateDir(ipForwardMark)); err != nil {
+			t.Fatal(err)
+		}
+		want(t, true, "hook forward", "ct status dnat accept", "meta nfproto ipv4 drop")
+	case "forward-block":
+		// The client is blocked: none of the forwards takes its connections.
+		ch, err := f.setAddress(ctx, admin, helperapi.FirewallAddress{Address: client, Action: "deny", Note: "test"})
+		if err != nil || ch.Pending == nil {
+			t.Fatalf("%+v %v", ch, err)
+		}
+		savePending(t, ch.Pending)
+		want(t, true, "elements = { "+client+" }")
+	case "forward-deny":
+		// A deny rule for the port of the forward to the other host.
+		ch, err := f.setRule(ctx, admin, helperapi.FirewallRule{Action: "deny", Protocol: "tcp", Ports: []string{"8091"}, Sources: []string{client}, Note: "test"})
+		if err != nil || ch.Pending == nil {
+			t.Fatalf("%+v %v", ch, err)
+		}
+		savePending(t, ch.Pending)
+		want(t, true, "ip saddr "+client+" tcp dport 8091 return")
 	case "forward-off":
 		for _, fw := range f.Status(ctx).Forwards {
 			ch, err := f.deleteForward(ctx, admin, helperapi.FirewallRef{ID: fw.ID})
@@ -293,10 +372,12 @@ func TestFirewallSystem(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if ufw {
-			if out, err := exec.Command(nftBinary, "list", "table", "inet", ufwForwardTable).CombinedOutput(); err == nil {
+		if ufw || firewalld {
+			if out, err := exec.Command(nftBinary, "list", "table", "inet", forwardTable).CombinedOutput(); err == nil {
 				t.Fatalf("NAT table still there:\n%s", out)
 			}
+		}
+		if ufw {
 			want(t, false, ufwForwardBegin)
 		} else {
 			want(t, false, "redirect", "dnat")
@@ -314,14 +395,11 @@ func TestFirewallSystem(t *testing.T) {
 			want(t, false, "table inet cairn")
 		}
 	case "firewalld-offline":
-		// firewalld does not run in a container: check the policy file.
+		// Before firewalld runs: check the policy file, and that this
+		// system's nft takes the port forwards' NAT table.
 		r := sampleRender()
 		r.Forwards = sampleForwards
 		data, err := renderFirewalld(r)
-		if err != nil {
-			t.Fatal(err)
-		}
-		forward, err := renderFirewalldForward(r.Forwards)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -331,26 +409,23 @@ func TestFirewallSystem(t *testing.T) {
 		if err := os.WriteFile(firewalldPolicyFile, data, 0o640); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(firewalldForwardPolicyFile, forward, 0o640); err != nil {
-			t.Fatal(err)
-		}
 		sh(t, firewallOfflineCmd, "--check-config")
-		fwd := sh(t, firewallOfflineCmd, "--info-policy=cairn-forward")
-		for _, w := range []string{"ingress-zones: ANY", "egress-zones: ANY", "port=5353:proto=udp:toport=53:toaddr=10.0.0.5",
-			`rule family="ipv4" destination address="10.0.0.5" masquerade`} {
-			if !strings.Contains(fwd, w) {
-				t.Fatalf("missing %q:\n%s", w, fwd)
-			}
-		}
 		info := sh(t, firewallOfflineCmd, "--info-policy=cairn")
 		for _, w := range []string{"priority: -100", "ingress-zones: ANY", "egress-zones: HOST", "ports: 22/tcp 28443/tcp 80/tcp 443/tcp",
-			"port=8090:proto=tcp:toport=80:toaddr=",
 			"icmp-blocks: echo-request", `rule priority="-300" family="ipv4" source address="198.51.100.0/24" drop`,
 			`rule family="ipv6" source address="2001:db8::/32" port port="8000-8100" protocol="udp" accept`} {
 			if !strings.Contains(info, w) {
 				t.Fatalf("missing %q:\n%s", w, info)
 			}
 		}
+		if strings.Contains(info, "toport=") {
+			t.Fatalf("forward-port in the policy:\n%s", info)
+		}
+		nat := t.TempDir() + "/forward.nft"
+		if err := os.WriteFile(nat, []byte(renderForwardTable(r)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sh(t, nftBinary, "-c", "-f", nat)
 	default:
 		t.Skip("CAIRN_FW_PHASE not set")
 	}

@@ -32,9 +32,9 @@ case "$1" in
 			# A pending firewall rollback would run the helper too.
 			systemctl stop 'cairn-fw-rollback-*.timer' 'cairn-ssh-port-*.timer' >/dev/null 2>&1 || true
 			# Cairn's nftables tables (its firewall, and the port forwards
-			# on ufw systems) stay loaded until the next boot; their unit
-			# files go away with the package. firewalld and ufw keep the
-			# rules made in the panel.
+			# on ufw and firewalld systems) stay loaded until the next boot;
+			# their unit files go away with the package. firewalld and ufw
+			# keep the other rules made in the panel.
 			systemctl disable cairn-firewall.service cairn-forward.service >/dev/null 2>&1 || true
 		fi
 		;;

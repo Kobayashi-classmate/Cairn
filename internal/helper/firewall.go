@@ -98,6 +98,9 @@ type fwRender struct {
 	Addresses []helperapi.FirewallAddress
 	BlockPing bool
 	Forwards  []helperapi.FirewallForward
+	// OwnForwarding is set (by fwForwarding) while IPv4 forwarding is on
+	// because of Cairn's forwards to other hosts.
+	OwnForwarding bool
 }
 
 // fwBackend is one way of enforcing the configuration.
@@ -113,6 +116,12 @@ type fwBackend interface {
 	disable(ctx context.Context, log io.Writer) error
 	// external lists rules on the system that Cairn did not make.
 	external(ctx context.Context) []string
+}
+
+// fwCurrent is a backend that can tell whether the rules in place are the
+// ones r renders to, so that applying r would change nothing.
+type fwCurrent interface {
+	current(ctx context.Context, r fwRender) bool
 }
 
 const (
@@ -1440,4 +1449,65 @@ func (f *Firewall) Refresh(ctx context.Context, log io.Writer) error {
 		return nil
 	}
 	return f.save(cfg)
+}
+
+// Reapply puts in place the rules this version writes for the stored
+// configuration when they differ from the rules in place, so that an
+// upgrade that changed how rules are written takes effect without waiting
+// for the next change. It does nothing while the firewall is off or a
+// change waits for confirmation. The configuration is the one already
+// confirmed: there is no rollback timer and nothing to confirm. When the
+// apply fails the error is returned and the configuration stays as it is
+// (the backends leave the rules in place as they were where they can).
+func (f *Firewall) Reapply(ctx context.Context) error {
+	ctx = context.WithoutCancel(ctx)
+	unlock, err := f.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	cfg, err := f.load()
+	if err != nil || cfg.Pending != nil {
+		return err
+	}
+	sys := f.detect(ctx, cfg)
+	if sys.conflict != "" || !f.active(ctx, &cfg, sys) {
+		return nil
+	}
+	b := f.backend(sys.backend)
+	c, ok := b.(fwCurrent)
+	if !ok || !b.installed() {
+		return nil
+	}
+	seen, keep := cfg.SSHSeen, cfg.SSHKeep
+	ssh := f.sshRemember(ctx, &cfg)
+	r := f.render(cfg, ssh.ports)
+	if c.current(ctx, r) {
+		return nil
+	}
+	var out bytes.Buffer
+	actx, cancel := detached(ctx, fwApplyLimit)
+	defer cancel()
+	if err := b.apply(actx, &out, r); err != nil {
+		return applyErr(err, out.String())
+	}
+	if f.Log != nil {
+		f.Log.Info("the firewall's rules were rewritten in this version's form", "backend", sys.backend)
+	}
+	if slices.Equal(seen, cfg.SSHSeen) && slices.Equal(keep, cfg.SSHKeep) {
+		return nil
+	}
+	return f.save(cfg)
+}
+
+// Startup is what the helper does for the firewall when it starts: take
+// over a change left pending (Recover), then bring the rules in place up to
+// this version (Reapply). Failures are logged; the helper carries on.
+func (f *Firewall) Startup(ctx context.Context) {
+	if err := f.Recover(ctx); err != nil && f.Log != nil {
+		f.Log.Error("taking over the pending firewall change failed", "err", err)
+	}
+	if err := f.Reapply(ctx); err != nil && f.Log != nil {
+		f.Log.Error("rewriting the firewall's rules in this version's form failed; the rules in place stay", "err", err)
+	}
 }

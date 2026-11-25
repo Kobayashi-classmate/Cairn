@@ -184,13 +184,10 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	// (after an upgrade), before any request can change them.
 	e.sites.StartRefresh(ctx, ops, log)
 	// A firewall change left pending by a restart of the machine or of the
-	// helper has lost its rollback timer; a pending SSH port change waits
-	// for a connection from outside. Neither holds up the first request.
-	go func() {
-		if err := e.firewall.Recover(ctx); err != nil {
-			log.Error("taking over the pending firewall change failed", "err", err)
-		}
-	}()
+	// helper has lost its rollback timer, and rules an earlier version wrote
+	// give way to this version's; a pending SSH port change waits for a
+	// connection from outside. Neither holds up the first request.
+	go e.firewall.Startup(ctx)
 	e.ssh.Resume()
 
 	srv := &helper.Server{

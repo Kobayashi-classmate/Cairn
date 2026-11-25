@@ -141,7 +141,7 @@ files-test:
 backups-test:
 	bash test/backups/run.sh
 
-## firewall-test: run the nftables and ufw backends for real and check reachability, firewalld's policy offline (containers)
+## firewall-test: run the nftables, ufw and firewalld backends for real and check reachability, port forwards included (containers)
 firewall-test:
 	bash test/firewall/run.sh
 
