@@ -3,7 +3,7 @@
 // Download size and time estimates from a source probe, for the install
 // dialog and the wizard. Parts that cannot be estimated are reported as
 // unknown rather than guessed.
-import type { ProbeResult, SourceSlot } from '@/api/software'
+import { SYSTEM_MAIN_SLOT, type ProbeResult, type SourceSlot } from '@/api/software'
 
 export interface DownloadEstimate {
   /** Some of the lines use the package manager. */
@@ -45,16 +45,18 @@ export function estimateDownload(
     if (packageBytes === null) {
       seconds = null
     } else if (packageBytes > 0) {
-      // The package manager downloads from the source the system uses.
-      const main = result.slots.find((slot) => slot.id === 'system:main')
-      const speed = main?.candidates.find((c) => c.inUse)?.speed ?? 0
+      // The package manager downloads from the chosen system source, else
+      // from the one the system uses.
+      const main = result.slots.find((slot) => slot.id === SYSTEM_MAIN_SLOT)
+      const chosen = main?.candidates.find((c) => c.id === selection[SYSTEM_MAIN_SLOT])
+      const speed = (chosen ?? main?.candidates.find((c) => c.inUse))?.speed ?? 0
       seconds = speed > 0 ? packageBytes / speed : null
     }
   }
 
   let runtimeBytes = 0
   let runtimeUnknown = false
-  const runtimes = result.slots.filter((slot) => slot.selectable)
+  const runtimes = result.slots.filter((slot) => slot.kind === 'runtime')
   for (const slot of runtimes) {
     const { speed, size } = selectedSpeedAndSize(slot, selection)
     if (size > 0) runtimeBytes += size

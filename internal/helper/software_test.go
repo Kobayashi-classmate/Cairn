@@ -45,6 +45,28 @@ type fakeSystem struct {
 	// isActive answers "systemctl is-active"; phpModules answers "php -m";
 	// removeSim answers "apt-get remove -s".
 	isActive, phpModules, removeSim string
+	// privateMadison and privateRepoquery answer the queries that carry a
+	// private source configuration (installsource.go), when set.
+	privateMadison, privateRepoquery string
+	// hook sees every command runCommand runs, before it "runs".
+	hook func(cmd string, log io.Writer)
+}
+
+// withoutConfig drops the private source configuration's options in front
+// of a package manager command, and says whether there were any.
+func withoutConfig(args []string) ([]string, bool) {
+	private := false
+	for len(args) > 0 {
+		switch {
+		case args[0] == "-o" && len(args) > 1 && strings.HasPrefix(args[1], "Dir::"):
+			args, private = args[2:], true
+		case strings.HasPrefix(args[0], "--setopt=") || strings.HasPrefix(args[0], "--disableplugin="):
+			args, private = args[1:], true
+		default:
+			return args, private
+		}
+	}
+	return args, private
 }
 
 func (f *fakeSystem) use(t *testing.T) {
@@ -62,6 +84,10 @@ func (f *fakeSystem) use(t *testing.T) {
 		cmd := name + " " + strings.Join(args, " ")
 		f.cmds = append(f.cmds, cmd)
 		_, _ = fmt.Fprintf(log, "$ %s\n", cmd)
+		if f.hook != nil {
+			f.hook(cmd, log)
+		}
+		args, _ = withoutConfig(args)
 		if f.failPrefix != "" && strings.HasPrefix(cmd, f.failPrefix) {
 			_, _ = fmt.Fprintf(log, "[emerg] test failure of %s\n", name)
 			return &helperapi.Error{Code: "exec.failed", Params: map[string]any{"command": name}}
@@ -99,8 +125,12 @@ func (f *fakeSystem) use(t *testing.T) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.cmds = append(f.cmds, "query "+name+" "+strings.Join(args, " "))
+		args, private := withoutConfig(args)
 		switch name {
 		case "apt-cache":
+			if private && f.privateMadison != "" {
+				return f.privateMadison, nil
+			}
 			return f.madison, nil
 		case "apt-get":
 			if args[0] == "remove" {
@@ -125,6 +155,9 @@ func (f *fakeSystem) use(t *testing.T) {
 		case "dnf":
 			if args[0] == "module" {
 				return f.modules, nil
+			}
+			if private && f.privateRepoquery != "" {
+				return f.privateRepoquery, nil
 			}
 			return f.repoquery, nil
 		case "dpkg-query", "rpm":

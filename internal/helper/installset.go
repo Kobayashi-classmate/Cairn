@@ -13,7 +13,6 @@ import (
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
-	"github.com/Kobayashi-classmate/Cairn/internal/sources"
 )
 
 // setLocks are the locks of a pkg.install_set operation: the package
@@ -49,19 +48,34 @@ func (s *Software) setLocks(req helperapi.InstallSetRequest) []string {
 // stop the others; each item of the result says how its line ended.
 func (s *Software) installSet(ctx context.Context, _ helperapi.Caller, req helperapi.InstallSetRequest, log io.Writer) (any, error) {
 	items := make([]lineItem, 0, len(req.Items))
-	for _, r := range req.Items {
+	var chosen *helperapi.SoftwareRequest // the item naming the system source
+	for i, r := range req.Items {
 		sw, o, err := s.installableOffer(r)
 		if err != nil {
 			return nil, err
 		}
-		if o.Method != catalog.MethodStandalone && r.Source != "" && r.Source != sources.IDOfficial {
+		switch {
+		case o.Method == catalog.MethodVendor && r.Source != "":
 			return nil, pkgErr(helperapi.CodePkgSourceUnknown, map[string]any{"source": r.Source, "software": r.Software})
+		case o.Method == catalog.MethodSystem && r.Source != "":
+			// One transaction, one main source.
+			if chosen != nil && chosen.Source != r.Source {
+				return nil, &helperapi.Error{Code: "validation.invalid", Params: map[string]any{"field": "source", "rule": "mismatch"}}
+			}
+			chosen = &req.Items[i]
 		}
 		items = append(items, lineItem{req: r, sw: sw, o: o})
 	}
 	var mu sync.Mutex
 	main := &lineWriter{mu: &mu, w: log}
 	defer main.Flush()
+	var src *chosenSource
+	if chosen != nil {
+		var err error
+		if src, err = s.chooseSystemSource(ctx, main, chosen.Source, chosen.Policy); err != nil {
+			return nil, err
+		}
+	}
 	var pkgItems []lineItem
 	var pkgIdx, rtIdx []int
 	var libs []string
@@ -107,7 +121,7 @@ func (s *Software) installSet(ctx context.Context, _ helperapi.Caller, req helpe
 	var libErr error
 	if len(pkgItems) > 0 || len(libs) > 0 {
 		var out []pkgOutcome
-		out, libErr = s.installPackages(ctx, main, pkgItems, libs)
+		out, libErr = s.installPackages(ctx, main, pkgItems, libs, src)
 		for k, i := range pkgIdx {
 			if out[k].err != nil {
 				errs[i] = out[k].err

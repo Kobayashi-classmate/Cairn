@@ -64,8 +64,11 @@ pattern = '^https://github\.com/adoptium/temurin([0-9]+)-binaries/releases/downl
 url = 'https://mirrors.tuna.tsinghua.edu.cn/Adoptium/$1/jdk/$3/linux/$2'
 
 # System repositories: each distribution's official address per role and
-# the official mirror network it publishes. They are probed and shown; the
-# panel does not change system sources yet (P1 batch 9).
+# the official mirror network it publishes. An install probes the main role
+# and may use another candidate for its own transaction only (a private
+# copy of the source configuration; the system's stays as it is). The Host
+# page probes every role and switches the system's sources on request,
+# after a backup.
 #
 # Templates: {codename}, {major}; dnf variables ($basearch...) as in .repo
 # files. arch limits an entry to Go architectures.
@@ -147,7 +150,9 @@ distro = "almalinux"
 role = "main"
 official = "https://repo.almalinux.org/almalinux/{major}/AppStream/$basearch/os/"
 section = "appstream"
-mirror_list = "https://mirrors.almalinux.org/mirrorlist/{major}/appstream"
+# HTTPS mirrors only: without it the list has HTTP ones only, which an
+# install or a switch cannot use on EL (see internal/helper/installsource.go).
+mirror_list = "https://mirrors.almalinux.org/mirrorlist/{major}/appstream?protocol=https"
 roots = ["https://repo.almalinux.org/almalinux/"]
 
 [[system]]

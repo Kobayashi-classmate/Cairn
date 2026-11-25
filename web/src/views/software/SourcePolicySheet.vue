@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { DOWNLOAD_POLICIES, fetchSoftwareSettings, saveSoftwareSettings, type DownloadPolicy } from '@/api/software'
+import { DOWNLOAD_POLICIES, type DownloadPolicy } from '@/api/software'
 import ErrorState from '@/components/common/ErrorState.vue'
 import FormSheet from '@/components/common/FormSheet.vue'
 import Notice from '@/components/common/Notice.vue'
@@ -12,13 +12,17 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { errorMessage } from '@/i18n/errors'
 import { notifySuccess } from '@/lib/notify'
 import { useSessionStore } from '@/stores/session'
+import { useSoftwareStore } from '@/stores/software'
 
-// Where prebuilt runtimes are downloaded from (the panel-wide download
-// policy). Every download is checked against the official checksum either way.
+// Which sources installations may download prebuilt runtimes and system
+// packages from (the panel-wide download policy; the install sheet changes
+// it too). Saved through the software store, so that kept source probes of
+// the other policy are dropped. Every download is checked either way.
 const open = defineModel<boolean>('open', { required: true })
 
 const { t } = useI18n()
 const session = useSessionStore()
+const store = useSoftwareStore()
 
 const canManage = computed(() => session.can('software.manage'))
 const saved = ref<DownloadPolicy | null>(null)
@@ -30,7 +34,7 @@ const error = ref<unknown>(null)
 async function load() {
   loadError.value = null
   try {
-    saved.value = (await fetchSoftwareSettings()).downloadPolicy
+    saved.value = await store.loadPolicy()
     policy.value = saved.value
   } catch (err) {
     loadError.value = err
@@ -60,7 +64,7 @@ async function submit() {
   saving.value = true
   error.value = null
   try {
-    saved.value = (await saveSoftwareSettings({ downloadPolicy: policy.value as DownloadPolicy })).downloadPolicy
+    saved.value = await store.savePolicy(policy.value as DownloadPolicy)
     notifySuccess(t('software.policy.saved'))
     open.value = false
   } catch (err) {

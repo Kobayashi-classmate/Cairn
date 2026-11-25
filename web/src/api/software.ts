@@ -23,21 +23,32 @@ export interface Offer {
   packages?: string[]
   /** Module stream on systems that use them. */
   stream?: string
-  /** Exactly one available line per product is recommended. */
+  /**
+   * Exactly one available line per product is recommended, never one past
+   * its upstream support.
+   */
   recommended: boolean
   lts: boolean
   /** End of upstream support, YYYY-MM-DD. */
   eol?: string
-  /** Upstream support has ended (never for a line from the system repositories). */
+  /**
+   * Upstream support has ended. Never for a line from the system
+   * repositories: the distribution keeps maintaining those past the
+   * upstream date. Such a line stays installable, but installing it must be
+   * acknowledged (`acceptEndOfLife`) after warning the user.
+   */
   endOfLife: boolean
   /**
-   * The line can be installed now. False when nobody builds it for this
-   * system, and for a line past its upstream support; that one keeps its
-   * method, packages, services and files, so that it stays manageable and
-   * removable where it is installed.
+   * The line can be installed now: somebody builds it for this system,
+   * whether or not upstream still supports it (see `endOfLife`). A line that
+   * is not installable keeps its method, packages, services and files, so
+   * that it stays manageable and removable where it is installed.
    */
   installable: boolean
-  /** Why the line is not installable: "end_of_life" or "not_built". */
+  /**
+   * Why the line is not installable: "not_built". ("end_of_life" comes only
+   * as the reason of an install refused for want of `acceptEndOfLife`.)
+   */
   reason?: string
   /** systemd units started after installation. */
   services?: string[]
@@ -142,13 +153,28 @@ export function providerName(provider: string): string {
   return PROVIDER_NAMES[provider] ?? provider
 }
 
-/**
- * Starts installing a line (`software.manage`); follow the returned job.
- * `source` is a candidate id of the line's runtime download slot (see
- * probeSources); leave it out for other lines or to use the recommended one.
- */
-export async function installSoftware(id: string, line: string, source?: string): Promise<Job> {
-  const body = source ? { line, source } : { line }
+export interface InstallOptions {
+  /**
+   * Candidate id from the probe: of the line's runtime download slot for a
+   * runtime line, of the `system:main` slot for a system-method line (used
+   * for this installation only; the server's package sources stay as they
+   * are). Vendor lines take none. Left out, a runtime uses the recommended
+   * source and packages the system's own configuration.
+   */
+  source?: string
+  /**
+   * Acknowledges that the line is past its upstream support; without it
+   * such a line is refused with 409 `pkg.not_available`, reason
+   * "end_of_life".
+   */
+  acceptEndOfLife?: boolean
+}
+
+/** Starts installing a line (`software.manage`); follow the returned job. */
+export async function installSoftware(id: string, line: string, options: InstallOptions = {}): Promise<Job> {
+  const body: { line: string; source?: string; acceptEndOfLife?: boolean } = { line }
+  if (options.source) body.source = options.source
+  if (options.acceptEndOfLife) body.acceptEndOfLife = true
   return (await api.post<{ job: Job }>(`/software/${encodeURIComponent(id)}/install`, body)).job
 }
 
@@ -276,8 +302,10 @@ export function runtimePaths(id: string, offer: Offer): { line: string; build: s
 }
 
 /**
- * True when the line can be installed on this system now. An installed
- * line stays manageable when this turns false (see isManageable).
+ * True when the line can be installed on this system now, also when its
+ * upstream support has ended (installing that one is acknowledged, see
+ * InstallOptions.acceptEndOfLife). An installed line stays manageable when
+ * this turns false (see isManageable).
  */
 export function isAvailable(offer: Offer): boolean {
   return offer.installable
@@ -306,7 +334,7 @@ export type CandidateStatus =
 
 /** One place a slot's download or index can come from. */
 export interface SourceCandidate {
-  /** Pass as `source` when installing (runtime slots only). */
+  /** Pass as `source` when installing (candidates of selectable slots only). */
   id: string
   kind: CandidateKind
   name: string
@@ -334,7 +362,12 @@ export interface SourceCandidate {
 
 export type SlotWarning = 'in_use_behind' | 'in_use_unusable' | 'official_unreachable' | 'no_eligible'
 
-/** A download (runtime) or package index (repository, system) the probed lines need. */
+/**
+ * A download (runtime) or package index (repository, system) the probed
+ * lines need. An install probe returns only the slots the lines come from:
+ * a runtime line its download, a system-method line `system:main`, a
+ * vendor line its repository.
+ */
 export interface SourceSlot {
   /** "runtime:<software>:<line>", "repo:<repo>" or "system:<role>". */
   id: string
@@ -342,7 +375,7 @@ export interface SourceSlot {
   /** Catalog ids of the probed entries that use this slot. */
   software: string[]
   repo?: string
-  /** System slots: "main" or "security". */
+  /** System slots: "main" or "security" (the host page has both). */
   role?: 'main' | 'security'
   /** Runtime slots: the exact version and file that would be downloaded. */
   version?: string
@@ -351,9 +384,18 @@ export interface SourceSlot {
   size?: number
   /** Repository slots: the compared suites. */
   suites?: string[]
-  /** Only runtime downloads can be pointed at another source. */
+  /**
+   * A candidate can be chosen: runtime downloads, and in an install probe
+   * the `system:main` slot (for that installation only). Vendor
+   * repositories have only their official address.
+   */
   selectable: boolean
-  /** Recommended (runtime) or in-use (repository) candidate id. */
+  /**
+   * The preselected candidate. Runtime slots: the fastest eligible one the
+   * download policy allows. The install probe's `system:main`: the one in
+   * use when it is eligible and allowed, else the fastest eligible allowed
+   * one. Otherwise (repositories, the host page): the one in use.
+   */
   selected?: string
   warning?: SlotWarning
   /** Set when the slot could not be checked at all. */
@@ -408,6 +450,9 @@ export function runtimeSlotId(software: string, line: string): string {
   return `runtime:${software}:${line}`
 }
 
+/** Slot id of the system repositories' main source. */
+export const SYSTEM_MAIN_SLOT = 'system:main'
+
 export interface ProbeItem {
   software: string
   line: string
@@ -460,8 +505,14 @@ export async function fetchSuites(): Promise<Suite[]> {
 export interface InstallSetItem {
   software: string
   line: string
-  /** Candidate id of the line's runtime download slot; runtime lines only. */
+  /**
+   * As InstallOptions.source, per item. Every system-method item that
+   * carries one carries the same (one transaction has one main source),
+   * otherwise the answer is 400 `validation.invalid`, rule "mismatch".
+   */
   source?: string
+  /** As InstallOptions.acceptEndOfLife; required for a line past its upstream support. */
+  acceptEndOfLife?: boolean
 }
 
 /**

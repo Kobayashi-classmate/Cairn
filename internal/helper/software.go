@@ -204,17 +204,30 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 		s.Log.Info("runtime installed", "software", sw.ID, "line", o.Line, "version", v)
 		return runtimeResult(sw, o, v), nil
 	}
-	if req.Source != "" && req.Source != sources.IDOfficial {
-		// Repositories are used as configured for now; only runtime
-		// downloads have a choice of source.
-		return nil, pkgErr(helperapi.CodePkgSourceUnknown, map[string]any{"source": req.Source})
+	src, err := s.lineSource(ctx, log, sw, o, req)
+	if err != nil {
+		return nil, err
 	}
 	logf("Installing %s %s (%s%s).\n", sw.Name, o.Line, o.Method, map[bool]string{true: ", repository " + o.Repo}[o.Repo != ""])
-	out, _ := s.installPackages(ctx, log, []lineItem{{req: req, sw: sw, o: o}}, nil)
+	out, _ := s.installPackages(ctx, log, []lineItem{{req: req, sw: sw, o: o}}, nil, src)
 	if out[0].err != nil {
 		return nil, out[0].err
 	}
 	return out[0].res, nil
+}
+
+// lineSource checks the source a request names for a line from the package
+// manager: a candidate of the system's main repositories for a system line
+// (nil: the system's own configuration), none for a vendor line, whose
+// repository has only its official address.
+func (s *Software) lineSource(ctx context.Context, log io.Writer, sw *catalog.Software, o catalog.Offer, req helperapi.SoftwareRequest) (*chosenSource, error) {
+	switch {
+	case req.Source == "":
+		return nil, nil
+	case o.Method != catalog.MethodSystem:
+		return nil, pkgErr(helperapi.CodePkgSourceUnknown, map[string]any{"source": req.Source, "software": sw.ID})
+	}
+	return s.chooseSystemSource(ctx, log, req.Source, req.Policy)
 }
 
 func runtimeResult(sw *catalog.Software, o catalog.Offer, version string) helperapi.InstallResult {
@@ -242,7 +255,12 @@ type pkgOutcome struct {
 // version chosen for the line. When the combined transaction fails, each
 // line is installed on its own so that one broken line does not fail the
 // others. The error is that of the extra packages.
-func (s *Software) installPackages(ctx context.Context, log io.Writer, items []lineItem, extra []string) ([]pkgOutcome, error) {
+//
+// src, when set, is the system source chosen for this transaction: every
+// package manager command of it then runs with a private copy of the
+// source configuration pointing the system repositories at it, removed
+// afterwards (installsource.go).
+func (s *Software) installPackages(ctx context.Context, log io.Writer, items []lineItem, extra []string, src *chosenSource) ([]pkgOutcome, error) {
 	logf := func(format string, a ...any) { _, _ = fmt.Fprintf(log, format, a...) }
 	out := make([]pkgOutcome, len(items))
 	seen := map[string]bool{}
@@ -263,16 +281,39 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 	if len(missing) > 0 {
 		logf("Installing the system libraries it needs: %s\n", strings.Join(missing, " "))
 	}
+	failAll := func(err error) ([]pkgOutcome, error) {
+		for _, i := range live {
+			out[i].err = err
+		}
+		return out, err
+	}
+	var pm *pkgConfig // nil: the system's own configuration
+	if src != nil {
+		var err error
+		if pm, err = s.privateConfig(src); err != nil {
+			return failAll(err)
+		}
+		defer pm.remove()
+		logf("Package source: %s (%s), for this installation only.\n", src.cand.Name, src.cand.URL)
+	}
 	var unreachable []string // hosts whose indexes apt could not fetch
 	if s.Manager == "apt" {
 		var upd strings.Builder
-		if err := runPackageManager(ctx, io.MultiWriter(log, &limitedBuilder{b: &upd, max: 1 << 20}), "apt-get", "update"); err != nil {
-			for _, i := range live {
-				out[i].err = err
-			}
-			return out, err
+		if err := runPackageManager(ctx, io.MultiWriter(log, &limitedBuilder{b: &upd, max: 1 << 20}), "apt-get", pm.args("update")...); err != nil {
+			return failAll(err)
 		}
 		unreachable = aptFailedHosts(upd.String())
+		// apt goes on without a source it cannot read: the chosen one
+		// must not silently be left out.
+		if src != nil && slices.Contains(unreachable, hostOf(src.cand.URL)) {
+			return failAll(sourceUnusable(src.cand.ID, unusableUpdate, map[string]any{"host": hostOf(src.cand.URL)}))
+		}
+	} else if pm != nil {
+		// The private cache: the moved repositories' metadata, from the
+		// chosen source.
+		if err := runPackageManager(ctx, log, "dnf", pm.args("makecache", "--assumeyes")...); err != nil {
+			return failAll(err)
+		}
 	}
 	versions := make([]map[string]string, len(items))
 	pinned := map[string]string{}
@@ -280,12 +321,15 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 	for _, i := range live {
 		o := items[i].o
 		if o.Stream != "" {
-			if err := s.enableStream(ctx, log, o.Stream); err != nil {
+			if err := s.enableStream(ctx, log, o.Stream, pm); err != nil {
 				out[i].err = err
 				continue
 			}
 		}
-		v, err := s.candidates(ctx, o, false)
+		v, err := s.candidates(ctx, o, false, pm)
+		if err == nil && pm != nil {
+			err = s.notOlder(ctx, pm, o, v)
+		}
 		if err != nil {
 			// apt keeps going when a repository does not answer; say so
 			// instead of "version unknown".
@@ -333,16 +377,16 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 		logf("Exact versions: %s\n", strings.Join(args(ready), " "))
 	}
 	var extraErr error
-	if err := s.pkgInstall(ctx, log, all); err != nil {
+	if err := s.pkgInstall(ctx, log, pm, all); err != nil {
 		if len(ready) > 1 || (len(ready) > 0 && len(missing) > 0) {
 			logf("The combined install failed; installing each line on its own.\n")
 			for _, i := range ready {
-				if err := s.pkgInstall(ctx, log, args([]int{i})); err != nil {
+				if err := s.pkgInstall(ctx, log, pm, args([]int{i})); err != nil {
 					out[i].err = err
 				}
 			}
 			if len(missing) > 0 {
-				extraErr = s.pkgInstall(ctx, log, missing)
+				extraErr = s.pkgInstall(ctx, log, pm, missing)
 			}
 		} else {
 			for _, i := range ready {
@@ -433,16 +477,17 @@ func (l *limitedBuilder) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// pkgInstall runs the package manager's install with exact arguments.
-func (s *Software) pkgInstall(ctx context.Context, log io.Writer, args []string) error {
+// pkgInstall runs the package manager's install with exact arguments, with
+// the transaction's configuration.
+func (s *Software) pkgInstall(ctx context.Context, log io.Writer, pm *pkgConfig, args []string) error {
 	if len(args) == 0 {
 		return nil
 	}
 	if s.Manager == "apt" {
-		return runPackageManager(ctx, log, "apt-get", append([]string{"install", "-y", "--no-install-recommends",
-			"-o", "Dpkg::Options::=--force-confold"}, args...)...)
+		return runPackageManager(ctx, log, "apt-get", pm.args(append([]string{"install", "-y", "--no-install-recommends",
+			"-o", "Dpkg::Options::=--force-confold"}, args...)...)...)
 	}
-	return runPackageManager(ctx, log, "dnf", append([]string{"install", "-y"}, args...)...)
+	return runPackageManager(ctx, log, "dnf", pm.args(append([]string{"install", "-y"}, args...)...)...)
 }
 
 // missing returns the packages of pkgs that are not installed.
@@ -460,7 +505,7 @@ func (s *Software) missing(ctx context.Context, pkgs []string) []string {
 // ensureLibraries installs the system packages a prebuilt runtime needs
 // (from the system repositories) unless they are present already.
 func (s *Software) ensureLibraries(ctx context.Context, log io.Writer, pkgs []string) error {
-	_, err := s.installPackages(ctx, log, nil, pkgs)
+	_, err := s.installPackages(ctx, log, nil, pkgs, nil)
 	return err
 }
 
@@ -696,11 +741,12 @@ func (s *Software) installed(ctx context.Context, names []string) map[string]str
 // candidates picks, per package, the newest version of the line that the
 // offer's source provides, so the installed version is exactly the one
 // chosen here whatever apt's own preferences say. cacheOnly keeps dnf from
-// refreshing its metadata (apt never does here).
-func (s *Software) candidates(ctx context.Context, o catalog.Offer, cacheOnly bool) (map[string]string, error) {
+// refreshing its metadata (apt never does here); pm is the transaction's
+// configuration (nil: the system's own).
+func (s *Software) candidates(ctx context.Context, o catalog.Offer, cacheOnly bool, pm *pkgConfig) (map[string]string, error) {
 	out := map[string]string{}
 	if s.Manager == "apt" {
-		text, err := queryCommand(ctx, "apt-cache", append([]string{"madison"}, o.Packages...)...)
+		text, err := queryCommand(ctx, "apt-cache", pm.args(append([]string{"madison"}, o.Packages...)...)...)
 		if err != nil {
 			return nil, err
 		}
@@ -735,7 +781,7 @@ func (s *Software) candidates(ctx context.Context, o catalog.Offer, cacheOnly bo
 		if o.Method == catalog.MethodVendor {
 			args = append(args, "--repo", instance(s.Catalog.Repos[o.Repo], o.Line))
 		}
-		text, err := queryCommand(ctx, "dnf", append(args, o.Packages...)...)
+		text, err := queryCommand(ctx, "dnf", pm.args(append(args, o.Packages...)...)...)
 		if err != nil {
 			return nil, err
 		}
@@ -772,16 +818,16 @@ func (s *Software) vendorHosts() []string {
 	return hosts
 }
 
-func (s *Software) enableStream(ctx context.Context, log io.Writer, stream string) error {
+func (s *Software) enableStream(ctx context.Context, log io.Writer, stream string, pm *pkgConfig) error {
 	module, want, _ := strings.Cut(stream, ":")
-	text, _ := queryCommand(ctx, "dnf", "module", "list", "--enabled", module)
+	text, _ := queryCommand(ctx, "dnf", pm.args("module", "list", "--enabled", module)...)
 	for _, line := range strings.Split(text, "\n") {
 		f := strings.Fields(line)
 		if len(f) >= 2 && f[0] == module && f[1] != want {
 			return pkgErr(helperapi.CodePkgStreamConflict, map[string]any{"module": module, "enabled": f[1], "wanted": want})
 		}
 	}
-	return runPackageManager(ctx, log, "dnf", "module", "enable", "-y", stream)
+	return runPackageManager(ctx, log, "dnf", pm.args("module", "enable", "-y", stream)...)
 }
 
 // ensureRepo adds a vendor repository (and the ones it requires) unless it

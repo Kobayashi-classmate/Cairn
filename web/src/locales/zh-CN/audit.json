@@ -66,6 +66,7 @@
     "enabled": "已启用",
     "channel": "通道：{channel}",
     "source": "来源：{source}",
+    "endOfLife": "上游已停止支持（已确认）",
     "filesDeleted": "已删除文件和用户",
     "filesKept": "保留了文件和用户",
     "healthRestart": "因健康检查失败",

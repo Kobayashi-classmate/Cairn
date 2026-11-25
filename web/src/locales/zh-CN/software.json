@@ -18,7 +18,7 @@
     "standaloneFrom": "预编译版本：{provider}"
   },
   "reason": {
-    "end_of_life": "上游已停止支持，后续版本将以容器方式提供。",
+    "end_of_life": "上游已停止支持，需要先确认才能安装。",
     "not_built": "没有适用于此系统的软件包。",
     "unknown": "此系统上不可用。"
   },
@@ -29,6 +29,7 @@
     "stream": "模块流",
     "eol": "上游支持结束",
     "eolEnded": "{date}（已结束）",
+    "eolDistribution": "{date}（上游），发行版仍在维护",
     "unofficialRepo": "{repo} 不是 {software} 的官方软件源，已经过审核并被批准用于此用途。",
     "installedPackages": "已安装的软件包",
     "services": "服务",
@@ -56,7 +57,6 @@
     "runtimeContent": "将删除 {name} {line} 的文件。运行环境没有需要保留的配置或数据；使用它的项目在重新安装之前将无法运行。"
   },
   "install": {
-    "policy": "下载源：{policy}",
     "probing": "正在检测下载源…",
     "probeFailed": "无法检测下载源",
     "checkAgain": "重新检测",
@@ -66,15 +66,17 @@
     "sheetTitle": "安装 {name}",
     "line": "版本",
     "sources": "下载来源",
-    "endOfLife": "{line} 的上游支持已于 {date} 结束，不再提供安全修复。"
+    "policyLabel": "允许的来源（全局设置）",
+    "checkedAt": "{time}检测",
+    "installAnyway": "仍然安装"
   },
   "policy": {
     "title": "下载源",
-    "intro": "面板下载预编译运行环境时使用的来源。每次下载都会按官方校验值进行校验。",
+    "intro": "安装时下载预编译运行环境和系统软件包可以使用的来源。每次下载都会按官方校验值或签名进行校验。",
     "readOnly": "你的角色可以查看此设置，但不能修改。",
     "recommended": {
       "short": "推荐",
-      "description": "选择提供与官方完全相同文件的最快来源：官方地址、上游的官方镜像以及少数经过批准的镜像。"
+      "description": "选择提供与官方完全相同文件的最快来源：官方地址、上游的官方镜像、少数经过批准的镜像，以及服务器当前使用的源。"
     },
     "official": {
       "short": "仅官方",
@@ -118,6 +120,8 @@
       "speed": "速度"
     },
     "systemNote": "可以在“系统”页面切换系统软件源。",
+    "thisInstallOnly": "仅用于本次安装，不会修改服务器的软件源。",
+    "repoOnly": "只使用官方地址：{source}",
     "warning": {
       "in_use_behind": "当前使用的源比官方落后 {duration}，此次安装可能拿不到最新的软件包。",
       "in_use_unusable": "当前使用的源没有响应，或缺少软件包索引。",
@@ -188,12 +192,14 @@
   },
   "eol": {
     "until": "支持到 {date}",
-    "ended": "已于 {date} 停止支持"
+    "ended": "已于 {date} 停止支持",
+    "distribution": "由发行版维护（上游已于 {date} 停止支持）"
   },
   "endOfLife": {
     "badge": "已停止维护",
     "openLine": "{name} {line}，{state}，上游已停止维护：打开设置",
-    "installed": "{name} {line} 的上游支持已于 {date} 结束，不再有安全更新。请把使用它的网站和数据迁移到仍受支持的版本，然后卸载它。"
+    "installed": "{name} {line} 的上游支持已于 {date} 结束，不再有安全更新。请把使用它的网站和数据迁移到仍受支持的版本，然后卸载它。",
+    "notInstalled": "{name} {line} 的上游支持已于 {date} 结束，不再有安全更新。只有确实需要这个版本时才安装它，否则请选择仍受支持的版本。"
   },
   "steps": {
     "separator": "、",
@@ -206,6 +212,7 @@
     "packages": "安装软件包：{packages}",
     "packageVersion": "{name} {version}",
     "packageNewest": "{name}（该版本线的最新版）",
+    "packageSource": "从 {source} 下载软件包（仅用于本次安装）",
     "packageTotal": "（{count} 个软件包，需下载 {size}） | （{count} 个软件包，需下载 {size}）",
     "libraries": "安装系统依赖库：{libraries}",
     "services": "启用并启动 {services}"

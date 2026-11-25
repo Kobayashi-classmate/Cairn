@@ -84,7 +84,7 @@ export function installedOffers(entry: SoftwareEntry): Offer[] {
   return entry.offers.filter((offer) => offer.installed)
 }
 
-/** Lines that can be installed here and are not installed yet. */
+/** Lines that can be installed here and are not installed yet, ended ones included. */
 export function installableOffers(entry: SoftwareEntry): Offer[] {
   return entry.offers.filter((offer) => isAvailable(offer) && !offer.installed)
 }
@@ -134,11 +134,44 @@ export function reasonText(offer: Offer): string {
 }
 
 /**
- * What to tell about an installed line past its upstream support: when
- * that ended, that it gets no more security updates, and what to do.
+ * What to tell about a line past its upstream support: when that ended,
+ * that it gets no more security updates, and what to do. Installed, that is
+ * to move away from it; not installed yet, to prefer a supported line.
  */
 export function endOfLifeNotice(name: string, offer: Offer): string {
-  return i18n.global.t('software.endOfLife.installed', { name, line: offer.line, date: offer.eol ? formatIsoDate(offer.eol) : '' })
+  const key = offer.installed ? 'software.endOfLife.installed' : 'software.endOfLife.notInstalled'
+  return i18n.global.t(key, { name, line: offer.line, date: offer.eol ? formatIsoDate(offer.eol) : '' })
+}
+
+/** Today in the browser's time zone as YYYY-MM-DD, comparable with catalog dates as text. */
+function today(): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+}
+
+/**
+ * Where a line stands with its upstream support (null without a date):
+ * - "until": supported until its date;
+ * - "ended": support has ended (installable with a warning);
+ * - "distribution": a line from the system repositories past the upstream
+ *   date, which the distribution keeps maintaining (never "ended").
+ */
+export type SupportState = 'until' | 'ended' | 'distribution'
+
+export function supportState(offer: Offer): SupportState | null {
+  if (!offer.eol) return null
+  if (offer.endOfLife) return 'ended'
+  if (offer.method === 'system' && offer.eol < today()) return 'distribution'
+  return 'until'
+}
+
+/** The support facts of a line: "Supported until …", "Support ended on …", or that the distribution maintains it. */
+export function supportText(offer: Offer): string {
+  const { t } = i18n.global
+  const state = supportState(offer)
+  if (!state || !offer.eol) return ''
+  return t(`software.eol.${state}`, { date: formatIsoDate(offer.eol) })
 }
 
 /** Facts about a line for choosing it: "Recommended · LTS · Supported until 2028-12-31". */
@@ -154,13 +187,8 @@ export function lineFacts(offer: Offer): string {
   }
   if (offer.recommended) parts.push(t('software.recommended'))
   if (offer.lts) parts.push(t('software.lts'))
-  if (offer.eol) {
-    parts.push(
-      offer.endOfLife
-        ? t('software.eol.ended', { date: formatIsoDate(offer.eol) })
-        : t('software.eol.until', { date: formatIsoDate(offer.eol) }),
-    )
-  }
+  const support = supportText(offer)
+  if (support) parts.push(support)
   return parts.join(' · ')
 }
 

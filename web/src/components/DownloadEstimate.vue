@@ -10,7 +10,7 @@ import { estimateDownload } from '@/software/estimate'
 // that cannot be estimated say so instead of guessing.
 const props = defineProps<{
   result: ProbeResult
-  /** Chosen candidate per runtime slot id. */
+  /** Chosen candidate per selectable slot id. */
   selection: Record<string, string>
 }>()
 

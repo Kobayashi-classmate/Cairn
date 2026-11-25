@@ -204,11 +204,15 @@ func TestProbeSlots(t *testing.T) {
 			t.Errorf("runtime candidate: %+v", c)
 		}
 	}
-	if sys.ID != "system:main" || sys.Selectable || sys.Warning != helperapi.WarnInUseBehind || len(sys.Candidates) != 3 {
+	// The system's main repositories can be chosen for this install. The
+	// source in use lags, so the fastest eligible candidate is preselected
+	// (the official one: nothing is fast enough here to measure).
+	if sys.ID != "system:main" || !sys.Selectable || sys.Warning != helperapi.WarnInUseBehind || len(sys.Candidates) != 3 ||
+		sys.Selected != sources.IDOfficial || !sys.Candidates[0].Recommended {
 		t.Fatalf("system slot: %+v", sys)
 	}
-	inUse := sys.Candidates[candidateIndex(sys.Candidates, sys.Selected)]
-	if !inUse.InUse || inUse.Status != sources.StatusBehind || inUse.LagSeconds != 6*3600 || inUse.Kind != sources.KindOther {
+	inUse := sys.Candidates[1]
+	if !inUse.InUse || inUse.Status != sources.StatusBehind || inUse.LagSeconds != 6*3600 || inUse.Kind != sources.KindOther || inUse.Recommended {
 		t.Errorf("in-use candidate: %+v", inUse)
 	}
 	if alias := sys.Candidates[2]; alias.Kind != sources.KindOfficialMirror || alias.Status != sources.StatusInSync {
@@ -221,7 +225,8 @@ func TestProbeSlots(t *testing.T) {
 	if err != nil || len(res.Slots) != 1 || len(res.Slots[0].Candidates) != 1 || res.Slots[0].Selected != sources.IDOfficial {
 		t.Fatalf("official policy: %+v %v", res, err)
 	}
-	// Repositories have no choice of source yet.
+	// A source that is not a candidate of the system repositories is
+	// refused before anything runs.
 	if _, err := s.install(context.Background(), helperapi.Caller{}, helperapi.SoftwareRequest{Software: "nginx", Line: "1.26", Source: "mirr"}, &strings.Builder{}); code(err) != helperapi.CodePkgSourceUnknown {
 		t.Fatalf("source for a repository install: %v", err)
 	}

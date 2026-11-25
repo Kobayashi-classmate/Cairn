@@ -66,6 +66,7 @@
     "enabled": "Enabled",
     "channel": "Channel: {channel}",
     "source": "Source: {source}",
+    "endOfLife": "Past its upstream support (acknowledged)",
     "filesDeleted": "Files and users deleted",
     "filesKept": "Files and users kept",
     "healthRestart": "After failed health checks",

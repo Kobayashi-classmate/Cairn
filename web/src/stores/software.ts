@@ -5,11 +5,24 @@
 // and the install sheet. Jobs that change what is installed or how it runs
 // lock the buttons of their software until they end, including jobs started
 // elsewhere (another tab or user), and reload the catalog when they end.
+// Also the download policy and recent source probes, so that reopening the
+// install sheet does not measure every source again.
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { isApiError, type ErrorParams } from '@/api/client'
 import { fetchJob, fetchJobs, type Job } from '@/api/jobs'
-import { fetchSoftware, type Repository, type SoftwareCatalog, type SoftwareEntry } from '@/api/software'
+import {
+  fetchSoftware,
+  fetchSoftwareSettings,
+  probeSources,
+  saveSoftwareSettings,
+  type DownloadPolicy,
+  type ProbeItem,
+  type ProbeResult,
+  type Repository,
+  type SoftwareCatalog,
+  type SoftwareEntry,
+} from '@/api/software'
 import { launchJob } from '@/jobs/dock'
 import { isFinalState } from '@/jobs/labels'
 import { onAccountReset } from './accountReset'
@@ -23,6 +36,30 @@ const SOFTWARE_KINDS: ReadonlySet<string> = new Set([
   'software.config',
 ])
 const POLL_MS = 3000
+
+/**
+ * How long a probe result is reused. Mirrors fall behind and speeds change,
+ * so an older result is measured again.
+ */
+export const PROBE_TTL_MS = 10 * 60_000
+
+/** A source probe as kept by the store. */
+export interface CachedProbe {
+  result: ProbeResult
+  /** When the probe answered, Unix milliseconds. */
+  at: number
+}
+
+export interface ProbeOptions {
+  /** Measure again even when a recent result is kept. */
+  force?: boolean
+  signal?: AbortSignal
+}
+
+/** Cache key of a probe: its lines, each once and sorted, so the order of the items does not matter. */
+function probeKey(items: readonly ProbeItem[]): string {
+  return JSON.stringify([...new Set(items.map((item) => JSON.stringify([item.software, item.line])))].sort())
+}
 
 export interface RunningSoftwareJob {
   id: string
@@ -46,11 +83,18 @@ export const useSoftwareStore = defineStore('software', () => {
   const installOpen = ref(false)
   const installTarget = ref<{ software: string; line?: string } | null>(null)
 
+  /** The panel-wide download policy as last read, saved or named by a probe; null until known. */
+  const downloadPolicy = ref<DownloadPolicy | null>(null)
+  /** Recent probe results by probeKey, each made under `result.policy`. */
+  const probes = new Map<string, CachedProbe>()
+
   let timer: ReturnType<typeof setTimeout> | undefined
   let loadPromise: Promise<void> | null = null
   let loadAgain = false
   /** Bumped on reset, so answers read for the previous account are dropped. */
   let epoch = 0
+  /** Bumped when the policy changes, so probes started under the old one are not kept. */
+  let policyEpoch = 0
 
   const software = computed<SoftwareEntry[]>(() => catalog.value?.software ?? [])
   const repos = computed<ReadonlyMap<string, Repository>>(
@@ -134,7 +178,10 @@ export const useSoftwareStore = defineStore('software', () => {
         if (isApiError(err) && err.status === 404) ended = untrack(item.id) || ended
       }
     }
-    if (ended) void load()
+    if (ended) {
+      invalidateProbes()
+      void load()
+    }
     schedule()
   }
 
@@ -159,6 +206,7 @@ export const useSoftwareStore = defineStore('software', () => {
       rethrow: options.rethrow,
       onFinished: (done) => {
         untrack(done.id)
+        invalidateProbes()
         void load()
         options.onFinished?.(done)
       },
@@ -179,6 +227,79 @@ export const useSoftwareStore = defineStore('software', () => {
     installOpen.value = true
   }
 
+  /** Records the policy in force; a change drops every kept probe (candidates and choices depend on it). */
+  function notePolicy(policy: DownloadPolicy) {
+    if (downloadPolicy.value === policy) return
+    probes.clear()
+    policyEpoch++
+    downloadPolicy.value = policy
+  }
+
+  /** Reads the download policy (`software.read`). */
+  async function loadPolicy(): Promise<DownloadPolicy> {
+    const mine = epoch
+    const policy = (await fetchSoftwareSettings()).downloadPolicy
+    if (mine === epoch) notePolicy(policy)
+    return policy
+  }
+
+  /** Saves the download policy (`software.manage`); kept probes are dropped when it changes. */
+  async function savePolicy(policy: DownloadPolicy): Promise<DownloadPolicy> {
+    const mine = epoch
+    const saved = (await saveSoftwareSettings({ downloadPolicy: policy })).downloadPolicy
+    if (mine === epoch) notePolicy(saved)
+    return saved
+  }
+
+  /**
+   * A kept probe of exactly these lines that is younger than PROBE_TTL_MS
+   * and was made under the policy in force, if any.
+   */
+  function peekProbe(items: readonly ProbeItem[]): CachedProbe | null {
+    const key = probeKey(items)
+    const kept = probes.get(key)
+    if (!kept) return null
+    const stale = Date.now() - kept.at >= PROBE_TTL_MS
+    if (stale || (downloadPolicy.value !== null && kept.result.policy !== downloadPolicy.value)) {
+      probes.delete(key)
+      return null
+    }
+    return kept
+  }
+
+  /**
+   * Checks where the lines would be downloaded from (`software.manage`),
+   * reusing a kept result of the same lines under the same policy unless
+   * `force` asks for a new measurement. A new probe takes a few seconds,
+   * up to about 45. Shared by the install sheet and the wizard.
+   */
+  async function probeCached(items: readonly ProbeItem[], options: ProbeOptions = {}): Promise<CachedProbe> {
+    if (!options.force) {
+      const kept = peekProbe(items)
+      if (kept) return kept
+    }
+    const mine = epoch
+    const policyMark = policyEpoch
+    const result = await probeSources([...items], { signal: options.signal })
+    const probed: CachedProbe = { result, at: Date.now() }
+    // Not kept when the account changed or the policy was changed meanwhile:
+    // the result may describe the old policy.
+    if (mine === epoch && policyMark === policyEpoch) {
+      notePolicy(result.policy)
+      probes.set(probeKey(items), probed)
+    }
+    return probed
+  }
+
+  /**
+   * Drops every kept probe. A finished software job changes what is
+   * installed and which repositories are added, so earlier plans and
+   * download estimates no longer hold.
+   */
+  function invalidateProbes() {
+    probes.clear()
+  }
+
   /** Forgets everything (sign-out): the next account loads its own. */
   onAccountReset(() => {
     epoch++
@@ -190,6 +311,9 @@ export const useSoftwareStore = defineStore('software', () => {
     serviceFailures.value = {}
     installOpen.value = false
     installTarget.value = null
+    downloadPolicy.value = null
+    policyEpoch++
+    probes.clear()
   })
 
   return {
@@ -211,5 +335,11 @@ export const useSoftwareStore = defineStore('software', () => {
     discover,
     runJob,
     openInstall,
+    downloadPolicy,
+    loadPolicy,
+    savePolicy,
+    peekProbe,
+    probeCached,
+    invalidateProbes,
   }
 })

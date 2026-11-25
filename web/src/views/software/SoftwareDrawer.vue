@@ -3,7 +3,7 @@
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Blocks, Download, FileCog, Play, RotateCw, ScrollText, Server, Square, Tag, Trash2 } from '@lucide/vue'
-import { isAvailable, isEndOfLifeInstalled, isManageable } from '@/api/software'
+import { isAvailable, isManageable } from '@/api/software'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Notice from '@/components/common/Notice.vue'
 import SegmentedControl from '@/components/common/SegmentedControl.vue'
@@ -197,7 +197,8 @@ function install() {
         :text="offer.method ? reasonText(offer) : t('software.reason.unknown')"
       />
       <template v-else>
-        <Notice v-if="isEndOfLifeInstalled(offer)" tone="warning">{{ endOfLifeNotice(entry.name, offer) }}</Notice>
+        <!-- Installed or not: an ended line warns before it is installed too. -->
+        <Notice v-if="offer.endOfLife" tone="warning">{{ endOfLifeNotice(entry.name, offer) }}</Notice>
         <EmptyState
           v-if="!installed"
           :icon="Download"

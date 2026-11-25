@@ -5,8 +5,10 @@
 // installed), probes the download sources of lines before they are
 // installed, and starts package jobs: refreshing the indexes, installing and
 // removing a line. The root helper resolves every request against its own
-// copy of the catalog; this module only names an entry, a line and, for
-// runtime downloads, one of the sources the probe offered.
+// copy of the catalog; this module only names an entry, a line and one of
+// the sources the probe offered: a runtime's download, or for a line from
+// the system repositories a candidate of the system's main repositories,
+// used for that one installation without changing the system's sources.
 package software
 
 import (
@@ -91,20 +93,20 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("POST /api/v1/software/refresh", m.refresh, api.Require(Manage), api.NoBody(),
 		doc("Refresh the system package indexes (starts a job)"), api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/software/probe", m.probe, api.Require(Manage), api.Body(probeRequest{}),
-		doc("Check the download sources of lines before installing them: which candidates serve exactly the official file or index, how far behind they are, how fast they are from this machine (a few seconds)"),
+		doc("Check the download sources of lines before installing them: which candidates serve exactly the official file or index, how far behind they are, how fast they are from this machine (a few seconds). Each line gets only the slot it is installed from: its runtime download, the system's main repositories, or its vendor repository"),
 		api.Returns(200, probeResponse{}))
 	r.Handle("GET /api/v1/software/suites", m.suites, api.Require(Read),
 		doc("Suites of the first-login wizard, resolved for this system: each item's software and recommended line"),
 		api.Returns(200, suitesResponse{}))
 	r.Handle("POST /api/v1/software/install", m.installSet, api.Require(Manage), api.Body(installSetRequest{}),
-		doc("Install several lines as one job: the lines from the package manager in one transaction, prebuilt runtimes downloading meanwhile (starts a job)"),
+		doc("Install several lines as one job: the lines from the package manager in one transaction, prebuilt runtimes downloading meanwhile (starts a job). Items take sources as in the single install; the system lines that name one must name the same, the transaction's main source"),
 		api.Returns(202, jobResponse{}))
 	r.Handle("GET /api/v1/software/settings", m.getSettings, api.Require(Read),
 		doc("Software settings: the download source policy"), api.Returns(200, settingsBody{}))
 	r.Handle("PUT /api/v1/software/settings", m.putSettings, api.Require(Manage), api.Body(settingsBody{}),
 		doc("Change the download source policy"), api.Returns(200, settingsBody{}))
 	r.Handle("POST /api/v1/software/{id}/install", m.install, api.Require(Manage), api.Body(lineRequest{}),
-		doc("Install a line: the exact newest version of the line from its source (starts a job). source picks a candidate of the line's runtime download slot (see probe); empty picks the recommended one"),
+		doc("Install a line: the exact newest version of the line from its source (starts a job). source picks a candidate of the line's slot (see probe): of a runtime's download, or of the system's main repositories for a system line, used for this installation only without changing the system's sources; a vendor line takes none. Empty picks the recommended download and keeps the system's own repositories"),
 		api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/software/{id}/remove", m.remove, api.Require(Manage), api.StepUp(), api.Body(lineRequest{}),
 		doc("Remove an installed line; configuration and data are kept (starts a job)"), api.Returns(202, jobResponse{}))
@@ -144,7 +146,9 @@ type listResponse struct {
 
 type lineRequest struct {
 	Line string `json:"line"`
-	// Source is a candidate ID of the line's runtime download slot.
+	// Source is a candidate ID of the line's slot in the probe: its runtime
+	// download, or the system's main repositories (system lines only, for
+	// this installation only). Vendor lines take none.
 	Source string `json:"source,omitempty"`
 	// AcceptEndOfLife acknowledges that the line is past its upstream
 	// support; installing such a line is refused without it.
@@ -309,10 +313,22 @@ func (m *Module) installSet(w http.ResponseWriter, r *http.Request) error {
 	hreq := helperapi.InstallSetRequest{}
 	var listed []map[string]any
 	names := map[string]string{}
+	systemSource := "" // the transaction's main source, when one is named
 	for _, it := range req.Items {
 		sw, o, err := m.installableLine(it.Software, it.Line, it.AcceptEndOfLife)
 		if err != nil {
 			return err
+		}
+		if err := checkSource(o, it.Source); err != nil {
+			return err
+		}
+		if o.Method == catalog.MethodSystem && it.Source != "" {
+			// The system lines share one package manager transaction, which
+			// has one main source.
+			if systemSource != "" && systemSource != it.Source {
+				return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "source", "rule": "mismatch"})
+			}
+			systemSource = it.Source
 		}
 		names[it.Software+" "+it.Line] = sw.Name + " " + it.Line
 		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line, Source: it.Source, Policy: policy})
@@ -454,6 +470,16 @@ func (m *Module) installableLine(id, line string, acceptEnded bool) (*catalog.So
 	return sw, o, nil
 }
 
+// checkSource refuses a source for a line that takes none: a vendor
+// repository has only its official address. Whether a source is one of the
+// line's candidates the helper checks at install time.
+func checkSource(o catalog.Offer, source string) error {
+	if source != "" && o.Method == catalog.MethodVendor {
+		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "source", "rule": "unexpected"})
+	}
+	return nil
+}
+
 // startLineJob checks that the line can be handled on this system and
 // starts the job that runs the helper operation.
 func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, action string) error {
@@ -479,6 +505,9 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 		params["endOfLife"] = true
 	}
 	if action == helperapi.ActionPkgInstall {
+		if err := checkSource(o, req.Source); err != nil {
+			return err
+		}
 		hreq.Source, hreq.Policy = req.Source, helperPolicy(m.policy(r.Context()))
 		if req.Source != "" {
 			params["source"] = req.Source

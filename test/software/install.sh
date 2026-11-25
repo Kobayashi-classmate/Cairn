@@ -7,7 +7,9 @@
 # through the API (from the given source, for runtimes) and checks the exact
 # installed version; the last entry is removed again. "ext:php@8.4:a,b"
 # installs PHP extensions and removes the first again; "cfg:sw@line" edits
-# every configuration file of a line through the API.
+# every configuration file of a line through the API; "src:sw@line"
+# installs a system line from an official mirror chosen for that one
+# installation and checks the system's sources and indexes are unchanged.
 set -euo pipefail
 # grep_q is "grep -q" that reads all of its input: with pipefail, grep -q
 # stopping at the first match can kill the writer with SIGPIPE and fail the
@@ -201,6 +203,57 @@ for c in o.get("configs", []):
 		step "$sw $line $id ($path): $result"
 	done </tmp/configs.txt
 }
+# system_state: the system's source files and package indexes, byte for
+# byte (content, mode, the set of files).
+system_state() {
+	local dirs
+	if command -v apt-get >/dev/null; then
+		dirs="/etc/apt /var/lib/apt/lists"
+	else
+		dirs="/etc/yum.repos.d /var/cache/dnf"
+	fi
+	# shellcheck disable=SC2086
+	find $dirs \( -type f -o -type l \) -printf '%p %m %l\n' | sort
+	# shellcheck disable=SC2086
+	find $dirs -type f -exec sha256sum {} + | sort
+}
+# src_case SW LINE: probes the line, picks an eligible official mirror of
+# the system's main repositories that is not the one in use (or the
+# official address), installs from it and checks that nothing of the
+# system's configuration changed.
+src_case() {
+	local sw=$1 line=$2 pick t0
+	t0=$(date +%s)
+	probe "$sw@$line"
+	check_plan
+	pick=$(python3 - /tmp/probe.json <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+s = [s for s in d["slots"] if s["id"] == "system:main"]
+if len(d["slots"]) != 1 or not s or not s[0]["selectable"]:
+    sys.exit("expected one selectable system:main slot, got %s" % [x["id"] for x in d["slots"]])
+# An official mirror, the fastest first; the official address when the
+# network offers none this system can use (EL needs HTTPS mirrors).
+c = [c for c in s[0]["candidates"] if c["eligible"] and not c["inUse"] and c["kind"] in ("official_mirror", "official")]
+c.sort(key=lambda c: (c["kind"] != "official_mirror", -(c.get("speed") or 0)))
+print(c[0]["id"] if c else "")
+PY
+) || fail "probe $sw $line: $(head -c 600 /tmp/probe.json)"
+	[ -n "$pick" ] || fail "$sw $line: no eligible official source other than the one in use (see the probe above)"
+	system_state >/tmp/state.before
+	run_job install "$sw" "$line" "$pick"
+	grep_q "for this installation only" /tmp/job.log || fail "$sw $line: the job log does not name the chosen source"
+	system_state >/tmp/state.after
+	if ! diff /tmp/state.before /tmp/state.after >/tmp/state.diff; then
+		head -20 /tmp/state.diff >&2
+		fail "$sw $line: the system's sources or indexes changed"
+	fi
+	if ls -d /var/tmp/cairn-pkgsrc-* >/dev/null 2>&1; then
+		fail "$sw $line: the private source configuration was left behind"
+	fi
+	check_line "$sw" "$line" "" "$(($(date +%s) - t0))"
+	step "$sw $line from $(grep -m1 'for this installation only' /tmp/job.log | sed 's/^Package source: //; s/\.$//'); sources and indexes unchanged"
+}
 # run_job ACTION SOFTWARE LINE [SOURCE]
 run_job() {
 	local body="{\"line\":\"$3\"}"
@@ -255,6 +308,11 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 	cfg:*)
 		spec=${c#cfg:}
 		cfg_case "${spec%@*}" "${spec#*@}"
+		continue
+		;;
+	src:*)
+		spec=${c#src:}
+		src_case "${spec%@*}" "${spec#*@}"
 		continue
 		;;
 	esac

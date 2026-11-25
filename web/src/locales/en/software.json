@@ -18,7 +18,7 @@
     "standaloneFrom": "Prebuilt build: {provider}"
   },
   "reason": {
-    "end_of_life": "Upstream support has ended; it will be offered as a container in a later version.",
+    "end_of_life": "Its upstream support has ended, so installing it must be confirmed first.",
     "not_built": "No package is available for this system.",
     "unknown": "Not available on this system."
   },
@@ -29,6 +29,7 @@
     "stream": "Module stream",
     "eol": "End of upstream support",
     "eolEnded": "{date} (ended)",
+    "eolDistribution": "{date} (upstream); the distribution keeps maintaining it",
     "unofficialRepo": "{repo} is not the official repository of {software}; it was reviewed and approved for this purpose.",
     "installedPackages": "Installed packages",
     "services": "Services",
@@ -56,7 +57,6 @@
     "runtimeContent": "The files of {name} {line} will be removed. A runtime has no configuration or data to keep; projects that use it will stop working until it is installed again."
   },
   "install": {
-    "policy": "Download sources: {policy}",
     "probing": "Checking download sources…",
     "probeFailed": "The download sources could not be checked",
     "checkAgain": "Check again",
@@ -66,15 +66,17 @@
     "sheetTitle": "Install {name}",
     "line": "Version",
     "sources": "Download sources",
-    "endOfLife": "Upstream support for {line} ended on {date}: it no longer gets security fixes."
+    "policyLabel": "Allowed sources (panel-wide)",
+    "checkedAt": "Checked {time}",
+    "installAnyway": "Install anyway"
   },
   "policy": {
     "title": "Download sources",
-    "intro": "Where the panel downloads prebuilt runtimes from. Every download is checked against the official checksum.",
+    "intro": "Which sources installations may download prebuilt runtimes and system packages from. Every download is checked against the official checksum or signature.",
     "readOnly": "Your role can view this setting but not change it.",
     "recommended": {
       "short": "Recommended",
-      "description": "The fastest source that serves exactly the official file: official addresses, the upstream's official mirrors and a few approved mirrors."
+      "description": "The fastest source that serves exactly the official files: official addresses, the upstream's official mirrors, a few approved mirrors and the source the server already uses."
     },
     "official": {
       "short": "Official only",
@@ -118,6 +120,8 @@
       "speed": "Speed"
     },
     "systemNote": "The system's sources can be switched on the System page.",
+    "thisInstallOnly": "Used for this installation only; the server's package sources are not changed.",
+    "repoOnly": "Official address only: {source}",
     "warning": {
       "in_use_behind": "The source in use is {duration} behind the official one, so this installation may not get the newest packages.",
       "in_use_unusable": "The source in use did not answer or does not have the package index.",
@@ -188,12 +192,14 @@
   },
   "eol": {
     "until": "Supported until {date}",
-    "ended": "Support ended {date}"
+    "ended": "Support ended on {date}",
+    "distribution": "Maintained by the distribution (upstream support ended on {date})"
   },
   "endOfLife": {
     "badge": "End of life",
     "openLine": "{name} {line}, {state}, upstream support has ended: open its settings",
-    "installed": "Upstream support for {name} {line} ended on {date}: it no longer gets security updates. Move the sites and data that use it to a supported version, then uninstall it."
+    "installed": "Upstream support for {name} {line} ended on {date}: it no longer gets security updates. Move the sites and data that use it to a supported version, then uninstall it.",
+    "notInstalled": "Upstream support for {name} {line} ended on {date}: it gets no more security updates. Install it only if something needs exactly this version; otherwise choose a supported one."
   },
   "steps": {
     "separator": ", ",
@@ -206,6 +212,7 @@
     "packages": "Install packages: {packages}",
     "packageVersion": "{name} {version}",
     "packageNewest": "{name} (newest of the line)",
+    "packageSource": "Download the packages from {source}, for this installation only",
     "packageTotal": "({count} package, {size} to download) | ({count} packages, {size} to download)",
     "libraries": "Install system libraries: {libraries}",
     "services": "Enable and start {services}"

@@ -17,7 +17,12 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - Notifications, official messages and signed online updates with rollback.
 - A software catalog that installs from the system's repositories first and
   from official upstream repositories otherwise, with download sources
-  probed at install time.
+  probed at install time. The install sheet shows only the sources the
+  chosen version comes from. System software can be installed from
+  another source that serves the same files as the official one, for that
+  installation only: the server's own package sources stay as they are.
+  The download policy can be changed in the sheet, and a source check is
+  reused for ten minutes unless you check again.
 - Web sites: static, PHP, reverse proxy, application sites and layer-4
   proxies.
 - TLS certificates from ACME (HTTP-01 and DNS-01) or uploaded, for sites and

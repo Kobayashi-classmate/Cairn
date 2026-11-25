@@ -19,11 +19,13 @@ import {
   lineState,
   lineStateText,
   methodText,
+  supportState,
 } from '@/software/display'
 import { useSoftwareStore } from '@/stores/software'
 
 // The line's exact version and where it comes from, then the other lines of
-// the same software with Install (or Open, when installed too).
+// the same software with Install (or Open, when installed too). Lines past
+// their upstream support say so; installing one warns in the install sheet.
 const props = defineProps<{ entry: SoftwareEntry; offer: Offer; canManage: boolean }>()
 
 const { t } = useI18n()
@@ -77,6 +79,9 @@ function openLine(line: string) {
       <KeyValueRow v-if="offer.services?.length" :label="t('software.advanced.services')" mono>{{ offer.services.join(', ') }}</KeyValueRow>
       <KeyValueRow v-if="offer.eol" :label="t('software.advanced.eol')">
         <StatusPill v-if="offer.endOfLife" tone="warning">{{ t('software.advanced.eolEnded', { date: formatIsoDate(offer.eol) }) }}</StatusPill>
+        <template v-else-if="supportState(offer) === 'distribution'">
+          {{ t('software.advanced.eolDistribution', { date: formatIsoDate(offer.eol) }) }}
+        </template>
         <template v-else>{{ formatIsoDate(offer.eol) }}</template>
       </KeyValueRow>
     </KeyValueList>
@@ -92,6 +97,7 @@ function openLine(line: string) {
           <span class="flex flex-wrap items-center gap-2">
             <span class="font-mono font-medium" dir="ltr">{{ other.line }}</span>
             <StatusPill v-if="other.installed" :tone="LINE_STATE_TONE[lineState(other)]" dot>{{ lineStateText(lineState(other)) }}</StatusPill>
+            <StatusPill v-if="other.endOfLife" tone="warning">{{ t('software.endOfLife.badge') }}</StatusPill>
           </span>
           <span class="text-xs text-muted-foreground">{{ lineFacts(other) }}</span>
           <span v-if="isAvailable(other) && !other.installed" class="text-xs text-muted-foreground">{{ methodText(other, store.repos) }}</span>

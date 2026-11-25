@@ -142,10 +142,14 @@ const (
 	CodePkgVersionUnknown  = "pkg.version_unknown"
 	CodePkgVersionMismatch = "pkg.version_mismatch"
 	CodePkgServiceFailed   = "pkg.service_failed"
-	// CodePkgSourceUnknown: the requested download source is not a
-	// candidate of the line (or not allowed by the policy).
+	// CodePkgSourceUnknown: the requested source is not a candidate of the
+	// line's selectable slot (or not allowed by the policy), or the line
+	// takes no choice of source (a vendor repository).
 	CodePkgSourceUnknown = "pkg.source_unknown"
-	// CodePkgSourceUnusable: no allowed source serves the official file.
+	// CodePkgSourceUnusable: no allowed source serves the official file of
+	// a runtime, or the system source chosen for an install fails its check
+	// again at install time (params: source, reason: status | older |
+	// https_required | mirror_layout | no_entry | mixed | update_failed).
 	CodePkgSourceUnusable = "pkg.source_unusable"
 	// CodePkgConflict: two lines of one install need different versions of
 	// the same package.
@@ -164,9 +168,12 @@ var (
 type SoftwareRequest struct {
 	Software string `json:"software"`
 	Line     string `json:"line"`
-	// Source is the download source chosen for an install (a candidate ID of
-	// the line's selectable slot, see ProbeResult); empty picks the
-	// recommended one. Policy restricts the candidates.
+	// Source is the source chosen for an install, a candidate ID of the
+	// line's selectable slot (see ProbeResult): of its runtime download, or
+	// of the system's main repositories for a system line, which the
+	// install then uses for its own transaction only. Empty picks the
+	// recommended runtime download and leaves the system's repositories as
+	// configured. Policy restricts the candidates.
 	Source string `json:"source,omitempty"`
 	Policy string `json:"policy,omitempty"`
 }
@@ -198,7 +205,10 @@ func (r SoftwareRequest) Validate() error {
 // transaction, the prebuilt runtimes downloading meanwhile.
 const ActionPkgInstallSet = "pkg.install_set"
 
-// InstallSetRequest names the lines of a pkg.install_set operation.
+// InstallSetRequest names the lines of a pkg.install_set operation. The
+// lines from the system repositories share one transaction, so those that
+// name a source must name the same one (checked by the helper, which knows
+// the lines' methods).
 type InstallSetRequest struct {
 	Items []SoftwareRequest `json:"items"`
 }
@@ -281,8 +291,13 @@ const (
 )
 
 // SourceSlot is one place the install downloads from, with its candidates.
-// Only runtime slots are selectable for now: the system repositories and
-// the vendor repositories are shown as they are configured.
+// A probe returns, per line, only the slot it is installed from. Runtime
+// slots and the system:main slot of an install probe are selectable: a
+// runtime downloads from the chosen candidate, a package transaction uses
+// a private copy of the system's source configuration pointing at it, the
+// system's own staying as it is. Vendor repositories have only their
+// official address. The Host page's slots (system:main and
+// system:security) are selectable for switching the system's sources.
 type SourceSlot struct {
 	// ID is "runtime:<software>:<line>", "repo:<repo>" or "system:<role>".
 	ID       string   `json:"id"`
@@ -297,9 +312,13 @@ type SourceSlot struct {
 	Size    int64    `json:"size,omitempty"`
 	Suites  []string `json:"suites,omitempty"`
 
-	Selectable bool   `json:"selectable"`
-	Selected   string `json:"selected,omitempty"` // recommended / in-use candidate ID
-	Warning    string `json:"warning,omitempty"`
+	Selectable bool `json:"selectable"`
+	// Selected is the preselected candidate ID: the fastest eligible one for
+	// a runtime; for the install probe's system:main slot the one in use
+	// while it is eligible and allowed, otherwise the fastest eligible one;
+	// for the Host page the one in use.
+	Selected string `json:"selected,omitempty"`
+	Warning  string `json:"warning,omitempty"`
 	// Error is set when the slot could not be probed at all (for example the
 	// official metadata of a runtime did not answer).
 	Error      *Error              `json:"error,omitempty"`

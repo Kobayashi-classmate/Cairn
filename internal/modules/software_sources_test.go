@@ -134,3 +134,63 @@ func TestWizardSuitesAndInstallSet(t *testing.T) {
 		{"software": "nginx", "line": "1.26"}, {"software": "nginx", "line": "1.26"}}}), 400, "validation.invalid")
 	admin.expect(admin.do("POST", "/api/v1/software/install", map[string]any{"items": []map[string]any{{"software": "php", "line": "7.4"}}}), 409, helperapi.CodePkgNotAvailable)
 }
+
+// A system line takes a candidate of the system's main repositories as its
+// source, for that installation only; a vendor line takes none; the system
+// lines of a set that name one name the same.
+func TestSoftwareSystemSourceChoice(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	e.helper.respond(helperapi.ActionPkgInstall, helperapi.OpRef{ID: opID})
+	e.helper.respond(helperapi.ActionPkgInstallSet, helperapi.OpRef{ID: opID})
+	result, _ := json.Marshal(helperapi.InstallSetResult{Items: []helperapi.InstallSetItem{
+		{Software: "nginx", Line: "1.26", Result: &helperapi.InstallResult{}}, {Software: "mariadb", Line: "11.8", Result: &helperapi.InstallResult{}},
+	}})
+	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpSucceeded, Result: result}})
+
+	// The source and the policy go to the helper; the job and the audit
+	// entry name the source.
+	job := admin.expect(admin.do("POST", "/api/v1/software/nginx/install", map[string]any{"line": "1.26", "source": "ftp.de.debian.org"}), 202, "").obj("job")
+	final, _ := waitJob(t, admin, job["id"].(string))
+	if got := e.helper.sent(helperapi.ActionPkgInstall); got != `{"software":"nginx","line":"1.26","source":"ftp.de.debian.org"}` {
+		t.Fatalf("install request: %s", got)
+	}
+	if p, _ := final["params"].(map[string]any); p["source"] != "ftp.de.debian.org" {
+		t.Fatalf("job params: %v", final)
+	}
+	var audited int
+	_ = e.db.QueryRow(`SELECT count(*) FROM audit_log WHERE action = 'software.install' AND params LIKE '%"source":"ftp.de.debian.org"%'`).Scan(&audited)
+	if audited != 1 {
+		t.Fatalf("audited installs with a source: %d", audited)
+	}
+
+	// A vendor line (PHP 8.3 comes from sury on Debian 13) takes none.
+	r := admin.expect(admin.do("POST", "/api/v1/software/php/install", map[string]any{"line": "8.3", "source": "official"}), 400, "validation.invalid")
+	if p := r.params(); p["field"] != "source" || p["rule"] != "unexpected" {
+		t.Fatalf("vendor line: %v", r.body)
+	}
+
+	set := func(items ...map[string]any) reply {
+		return admin.do("POST", "/api/v1/software/install", map[string]any{"items": items})
+	}
+	r = admin.expect(set(map[string]any{"software": "nginx", "line": "1.26", "source": "ftp.de.debian.org"},
+		map[string]any{"software": "mariadb", "line": "11.8", "source": "ftp.fr.debian.org"}), 400, "validation.invalid")
+	if p := r.params(); p["field"] != "source" || p["rule"] != "mismatch" {
+		t.Fatalf("two sources: %v", r.body)
+	}
+	r = admin.expect(set(map[string]any{"software": "nginx", "line": "1.26"},
+		map[string]any{"software": "php", "line": "8.3", "source": "official"}), 400, "validation.invalid")
+	if p := r.params(); p["rule"] != "unexpected" {
+		t.Fatalf("vendor item: %v", r.body)
+	}
+	// The same source, or one item naming it: accepted and passed on.
+	job = admin.expect(set(map[string]any{"software": "nginx", "line": "1.26", "source": "ftp.de.debian.org"},
+		map[string]any{"software": "mariadb", "line": "11.8", "source": "ftp.de.debian.org"}, map[string]any{"software": "nodejs", "line": "24", "source": "npmmirror"}), 202, "").obj("job")
+	waitJob(t, admin, job["id"].(string))
+	var sent helperapi.InstallSetRequest
+	if err := json.Unmarshal([]byte(e.helper.sent(helperapi.ActionPkgInstallSet)), &sent); err != nil || len(sent.Items) != 3 ||
+		sent.Items[0].Source != "ftp.de.debian.org" || sent.Items[1].Source != "ftp.de.debian.org" || sent.Items[2].Source != "npmmirror" {
+		t.Fatalf("sent: %+v %v", sent, err)
+	}
+	admin.expect(set(map[string]any{"software": "nginx", "line": "1.26", "source": "ftp.de.debian.org"}, map[string]any{"software": "mariadb", "line": "11.8"}), 202, "")
+}

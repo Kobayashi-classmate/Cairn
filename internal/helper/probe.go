@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -68,11 +69,12 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 		slots = append(slots, sl)
 		runs = append(runs, func() { run(sl) })
 	}
-	systemSlots := func(swID string) {
-		for _, role := range []string{catalog.RoleMain, catalog.RoleSecurity} {
-			if _, ok := s.systemRepo(role); ok {
-				add("system:"+role, helperapi.SlotSystem, swID, func(sl *helperapi.SourceSlot) { s.probeSystem(ctx, sl, role) })
-			}
+	// A line shows only the sources it is installed from: a runtime its
+	// download, a vendor line its repository, a system line the system's
+	// main repositories (an install can use another candidate for them).
+	mainSlot := func(swID string) {
+		if _, ok := s.systemRepo(catalog.RoleMain); ok {
+			add("system:"+catalog.RoleMain, helperapi.SlotSystem, swID, func(sl *helperapi.SourceSlot) { s.probeInstallSource(ctx, sl, req.Policy) })
 		}
 	}
 	var pkgItems []lineItem
@@ -98,9 +100,8 @@ func (s *Software) probe(ctx context.Context, _ helperapi.Caller, req helperapi.
 			if r := s.Catalog.Repos[o.Repo]; r.APT != nil && s.Manager == "apt" || r.DNF != nil && r.DNF.BaseURL != "" && s.Manager == "dnf" {
 				add("repo:"+o.Repo, helperapi.SlotRepo, sw.ID, func(sl *helperapi.SourceSlot) { s.probeRepo(ctx, sl, r, o.Line) })
 			}
-			systemSlots(sw.ID)
 		default:
-			systemSlots(sw.ID)
+			mainSlot(sw.ID)
 		}
 	}
 	var est *helperapi.PackageEstimate
@@ -136,7 +137,7 @@ func (s *Software) plan(ctx context.Context, sw *catalog.Software, o catalog.Off
 	}
 	var versions map[string]string
 	if p.RepoReady {
-		versions, _ = s.candidates(ctx, o, true) // unknown versions stay "": resolved after refreshing
+		versions, _ = s.candidates(ctx, o, true, nil) // unknown versions stay "": resolved after refreshing
 	}
 	for _, name := range o.Packages {
 		p.Packages = append(p.Packages, helperapi.InstalledPackage{Name: name, Version: versions[name]})
@@ -319,15 +320,13 @@ func (s *Software) readConfig(patterns ...string) map[string][]byte {
 	return out
 }
 
-// probeSystem compares the system repositories in use for a role with the
-// distribution's official address and its official mirror network. A
-// switch to one of the candidates happens only on the user's request
-// (syssrc.switch).
-//
-// only, when given, probes just those candidate IDs (with the official one
-// and the ones in use): a switch checks its target again without the
-// shortlist of a full probe skipping it.
-func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, role string, only ...string) {
+// systemCandidates lists the candidates of a role's system repositories:
+// the official address first, then the addresses the system uses now, then
+// the official mirror network. It fills in the slot's role and, for apt,
+// the suites the role covers. all lifts the cap on the number of
+// candidates: a check of one candidate must find it wherever the mirror
+// list put it this time.
+func (s *Software) systemCandidates(ctx context.Context, sl *helperapi.SourceSlot, role string, all bool) []sources.Candidate {
 	sys, _ := s.systemRepo(role)
 	sl.Role = role
 	vars := s.dnfVars()
@@ -341,20 +340,23 @@ func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, ro
 		}
 		return -1
 	}
-	addCand := func(u, kind string, inUse bool, note string) {
+	addCand := func(u, kind string, inUse bool) {
 		u = sources.ExpandVars(u, vars)
 		if i := have(u); i >= 0 {
 			cands[i].InUse = cands[i].InUse || inUse
 			return
 		}
-		if len(cands) >= maxCandidates || (!strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://")) {
+		if (!all && len(cands) >= maxCandidates) || (!strings.HasPrefix(u, "https://") && !strings.HasPrefix(u, "http://")) {
 			return
 		}
-		id := sources.Host(u)
+		// IDs are host names, so that the probe and the install name a
+		// candidate alike (validated as helperapi source IDs: lower case).
+		host := strings.ToLower(sources.Host(u))
+		id := host
 		for k := 2; candidateIndex(cands, id) >= 0; k++ {
-			id = sources.Host(u) + "-" + strconv.Itoa(k)
+			id = host + "-" + strconv.Itoa(k)
 		}
-		cands = append(cands, sources.Candidate{ID: id, Kind: kind, Name: sources.Host(u) + note, URL: u, InUse: inUse})
+		cands = append(cands, sources.Candidate{ID: id, Kind: kind, Name: sources.Host(u), URL: u, InUse: inUse})
 	}
 	var registry []string
 	if sys.MirrorList != "" {
@@ -387,55 +389,87 @@ func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, ro
 			suites[i] = s.expand(su, "")
 		}
 		sl.Suites = suites
-		entries := sources.ParseAPTSources(s.readConfig("/etc/apt/sources.list", "/etc/apt/sources.list.d/*.list", "/etc/apt/sources.list.d/*.sources"))
-		for _, e := range entries {
+		for _, e := range sources.ParseAPTSources(s.readConfig(aptSourceFiles...)) {
 			if contains(suites, e.Suite) {
 				u := s.resolveAPTURI(e.URI)
-				addCand(strings.TrimSuffix(u, "/"), kindOf(u), true, "")
+				addCand(strings.TrimSuffix(u, "/"), kindOf(u), true)
 			}
 		}
 		for _, u := range append(append([]string{}, sys.Mirrors...), registry...) {
-			addCand(strings.TrimSuffix(u, "/"), sources.KindOfficialMirror, false, "")
+			addCand(strings.TrimSuffix(u, "/"), sources.KindOfficialMirror, false)
 		}
-		cands = onlyCandidates(cands, only)
-		s.prober().ProbeAPT(ctx, cands, sources.APTTarget{Suites: suites, Components: []string{"main"}, Arch: dpkgArch(s.Arch)})
+		return cands
+	}
+	for _, sec := range sources.ParseRepoFiles(s.readConfig(dnfRepoFiles)) {
+		if sec.ID != sys.Section || !sec.Enabled {
+			continue
+		}
+		switch {
+		case len(sec.BaseURLs) > 0:
+			addCand(sec.BaseURLs[0], kindOf(sources.ExpandVars(sec.BaseURLs[0], vars)), true)
+		case sec.MirrorList != "" || sec.Metalink != "":
+			// dnf uses the list's mirrors in order: the first one is what
+			// the system downloads from.
+			var list []string
+			if sec.Metalink != "" {
+				if data, err := s.prober().FetchList(ctx, sources.ExpandVars(sec.Metalink, vars)); err == nil {
+					list = sources.ParseMetalink(data)
+				}
+			} else if data, err := s.prober().FetchList(ctx, sources.ExpandVars(sec.MirrorList, vars)); err == nil {
+				list = sources.ParseMirrorList(data)
+			}
+			if len(list) > 0 {
+				addCand(list[0], sources.KindOfficialMirror, true)
+			}
+		}
+	}
+	for _, u := range registry {
+		addCand(u, sources.KindOfficialMirror, false)
+	}
+	return cands
+}
+
+// The system's repository files.
+var (
+	aptSourceFiles = []string{"/etc/apt/sources.list", "/etc/apt/sources.list.d/*.list", "/etc/apt/sources.list.d/*.sources"}
+	dnfRepoFiles   = "/etc/yum.repos.d/*.repo"
+)
+
+// probeSystem compares the system repositories in use for a role with the
+// distribution's official address and its official mirror network (the
+// Host page's view: every candidate, the one in use selected). The
+// system's sources change only on the user's request (syssrc.switch); an
+// install can use another candidate for its own transaction only.
+//
+// only, when given, probes just those candidate IDs (with the official one
+// and the ones in use): a switch checks its target again without the
+// shortlist of a full probe skipping it.
+func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, role string, only ...string) {
+	cands := s.systemCandidates(ctx, sl, role, len(only) > 0)
+	s.measureSystem(ctx, sl, onlyCandidates(cands, only))
+	for _, c := range sl.Candidates {
+		if c.InUse && sl.Selected == "" {
+			sl.Selected = c.ID
+		}
+	}
+}
+
+// measureSystem probes the candidates of a system slot (the official one
+// first) and sets the slot's warnings about the source in use.
+func (s *Software) measureSystem(ctx context.Context, sl *helperapi.SourceSlot, cands []sources.Candidate) {
+	s.measureWith(ctx, s.prober(), sl, cands)
+}
+
+func (s *Software) measureWith(ctx context.Context, p *sources.Prober, sl *helperapi.SourceSlot, cands []sources.Candidate) {
+	if s.Manager == "apt" {
+		p.ProbeAPT(ctx, cands, sources.APTTarget{Suites: sl.Suites, Components: []string{"main"}, Arch: dpkgArch(s.Arch)})
 	} else {
-		for _, sec := range sources.ParseRepoFiles(s.readConfig("/etc/yum.repos.d/*.repo")) {
-			if sec.ID != sys.Section || !sec.Enabled {
-				continue
-			}
-			switch {
-			case len(sec.BaseURLs) > 0:
-				addCand(sec.BaseURLs[0], kindOf(sources.ExpandVars(sec.BaseURLs[0], vars)), true, "")
-			case sec.MirrorList != "" || sec.Metalink != "":
-				// dnf uses the list's mirrors in order: the first one is what
-				// the system downloads from.
-				var list []string
-				if sec.Metalink != "" {
-					if data, err := s.prober().FetchList(ctx, sources.ExpandVars(sec.Metalink, vars)); err == nil {
-						list = sources.ParseMetalink(data)
-					}
-				} else if data, err := s.prober().FetchList(ctx, sources.ExpandVars(sec.MirrorList, vars)); err == nil {
-					list = sources.ParseMirrorList(data)
-				}
-				if len(list) > 0 {
-					addCand(list[0], sources.KindOfficialMirror, true, "")
-				}
-			}
-		}
-		for _, u := range registry {
-			addCand(u, sources.KindOfficialMirror, false, "")
-		}
-		cands = onlyCandidates(cands, only)
-		s.prober().ProbeDNF(ctx, cands)
+		p.ProbeDNF(ctx, cands)
 	}
 	sl.Candidates = cands
 	for _, c := range cands {
 		if !c.InUse {
 			continue
-		}
-		if sl.Selected == "" {
-			sl.Selected = c.ID
 		}
 		switch c.Status {
 		case sources.StatusBehind:
@@ -446,9 +480,52 @@ func (s *Software) probeSystem(ctx context.Context, sl *helperapi.SourceSlot, ro
 			}
 		}
 	}
-	if sl.Warning == "" && !cands[0].Eligible {
+	if sl.Warning == "" && len(cands) > 0 && !cands[0].Eligible {
 		sl.Warning = helperapi.WarnOfficialUnverified
 	}
+}
+
+// installCandidate reports whether an install may use a system candidate
+// under a policy. On dnf a candidate other than the one in use must be
+// reached over HTTPS: the distributions' .repo files check the packages'
+// signatures but not the metadata's, which over HTTP could be swapped for
+// an older index (the Host page's switch has the same rule).
+func (s *Software) installCandidate(policy string) func(sources.Candidate) bool {
+	allowed := allowedBy(policy)
+	return func(c sources.Candidate) bool {
+		return allowed(c) && (s.Manager != "dnf" || c.InUse || strings.HasPrefix(c.URL, "https://"))
+	}
+}
+
+// probeInstallSource is the system:main slot of an install probe. Its
+// candidates are those the policy allows; an install may name any of them
+// and then uses it for its own transaction only (installsource.go). The
+// selected one is the source in use while it is eligible: a default
+// install keeps the system's own source and indexes. Only otherwise is it
+// the fastest eligible candidate.
+func (s *Software) probeInstallSource(ctx context.Context, sl *helperapi.SourceSlot, policy string) {
+	keep := s.installCandidate(policy)
+	cands := s.systemCandidates(ctx, sl, catalog.RoleMain, false)
+	kept := []sources.Candidate{cands[0]} // the official address: the reference
+	for _, c := range cands[1:] {
+		if keep(c) {
+			kept = append(kept, c)
+		}
+	}
+	s.measureSystem(ctx, sl, kept)
+	sl.Selectable = true
+	pick := slices.IndexFunc(kept, func(c sources.Candidate) bool { return c.InUse && c.Eligible })
+	if pick < 0 {
+		pick = sources.Fastest(kept, keep)
+	}
+	if pick < 0 {
+		if sl.Warning == "" {
+			sl.Warning = helperapi.WarnNoEligible
+		}
+		return
+	}
+	kept[pick].Recommended = true
+	sl.Selected = kept[pick].ID
 }
 
 // onlyCandidates keeps the official candidate, the ones in use and those

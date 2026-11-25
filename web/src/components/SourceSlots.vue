@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-only -->
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight } from '@lucide/vue'
 import { RadioGroupIndicator, RadioGroupItem, RadioGroupRoot, type AcceptableValue } from 'reka-ui'
@@ -13,10 +13,15 @@ import { useNow } from '@/composables/useNow'
 import { errorText } from '@/i18n/errors'
 import { formatBytes, formatDuration, formatNumber, formatRelativeTime } from '@/i18n/format'
 import { cn } from '@/lib/utils'
+import { candidateDisabled } from '@/software/sources'
 
 /**
- * The download sources of a probe: runtime downloads with a choice of
- * candidate each, then repository and system slots for information only.
+ * The download sources of a probe. Selectable slots (runtime downloads, and
+ * in an install probe the system's main source) offer a choice of candidate
+ * for that installation; vendor repositories, which use only their official
+ * address, take one line each. On the host page, whose system sources no
+ * line uses, they are a table, with "Use" (`switchable`) for switching the
+ * server's own sources.
  * Shared by the install sheet, the first-login wizard and the host page.
  */
 const props = defineProps<{
@@ -35,16 +40,37 @@ const props = defineProps<{
 const slotHeading = computed(() => (props.headingLevel === 3 ? 'h3' : 'h4'))
 const emit = defineEmits<{ switch: [slot: SourceSlot, candidate: SourceCandidate] }>()
 
-/** Chosen candidate id per runtime slot id. */
+/** Chosen candidate id per selectable slot id. */
 const selection = defineModel<Record<string, string>>('selection', { required: true })
 
 const { t, te } = useI18n()
 const now = useNow(60_000)
+const uid = useId()
 
-/** Runtime downloads, whose source can be chosen. */
-const downloadSlots = computed(() => props.slots.filter((slot) => slot.selectable))
-/** Repository and system slots, shown for information only. */
-const infoSlots = computed(() => props.slots.filter((slot) => !slot.selectable))
+/** Id of the note under a system source's choice, which the radio group points at. */
+function noteId(slot: SourceSlot): string {
+  return `${uid}-${slot.id.replace(/[^\w-]/g, '-')}-note`
+}
+
+/**
+ * A choice for this installation: a selectable slot the probed lines use.
+ * Not the system sources of the host page, which no line uses: there a
+ * choice would switch the server's own sources, which "Use" asks for.
+ */
+function isChoice(slot: SourceSlot): boolean {
+  return slot.selectable && slot.software.length > 0 && !(props.switchable && slot.kind === 'system')
+}
+
+/** Slots whose source can be chosen for this installation. */
+const choiceSlots = computed(() => props.slots.filter(isChoice))
+/** Vendor repositories: only their official address (it comes first), one line each. */
+const repoSlots = computed(() =>
+  props.slots
+    .filter((slot) => !isChoice(slot) && slot.kind === 'repo')
+    .map((slot) => ({ slot, candidate: slot.candidates.find((c) => c.status !== 'skipped') ?? null })),
+)
+/** System sources shown as a table: on the host page, or when an install probe offers no choice. */
+const infoSlots = computed(() => props.slots.filter((slot) => !isChoice(slot) && slot.kind !== 'repo'))
 
 function choose(slotId: string, value: AcceptableValue) {
   if (typeof value === 'string') selection.value = { ...selection.value, [slotId]: value }
@@ -116,10 +142,11 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
 
 <template>
   <div class="flex flex-col gap-5">
-    <!-- The runtime download: choose where the official file comes from. -->
-    <section v-for="slot in downloadSlots" :key="slot.id" class="flex flex-col gap-2.5">
+    <!-- A runtime download or the system's main source: choose where the official files come from. -->
+    <section v-for="slot in choiceSlots" :key="slot.id" class="flex flex-col gap-2.5">
       <component :is="slotHeading" class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</component>
-      <dl class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-detail">
+      <p v-if="slot.kind === 'system'" :id="noteId(slot)" class="m-0 text-xs text-muted-foreground">{{ t('software.probe.thisInstallOnly') }}</p>
+      <dl v-if="slot.kind === 'runtime'" class="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-detail">
         <template v-if="slot.version">
           <dt class="text-muted-foreground">{{ t('software.install.version') }}</dt>
           <dd class="m-0 font-mono text-[12.5px]" dir="ltr">{{ slot.version }}</dd>
@@ -143,6 +170,7 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
       <RadioGroupRoot
         :model-value="selection[slot.id]"
         :aria-label="slotTitle(slot)"
+        :aria-describedby="slot.kind === 'system' ? noteId(slot) : undefined"
         class="flex flex-col gap-2"
         @update:model-value="(value: AcceptableValue) => choose(slot.id, value)"
       >
@@ -150,7 +178,7 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
           v-for="candidate in split(slot).compared"
           :key="candidate.id"
           :value="candidate.id"
-          :disabled="!candidate.eligible"
+          :disabled="candidateDisabled(slot, candidate)"
           class="group flex w-full items-start gap-2.5 rounded-md border bg-card px-3 py-2.5 text-start outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-60 data-[state=checked]:border-primary data-[state=checked]:bg-primary-soft"
         >
           <span
@@ -161,8 +189,9 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
           </span>
           <span class="flex min-w-0 flex-1 flex-col gap-0.5">
             <span class="flex flex-wrap items-center gap-1.5">
-              <span class="font-medium">{{ candidate.name }}</span>
+              <span class="font-medium [overflow-wrap:anywhere]">{{ candidate.name }}</span>
               <StatusPill>{{ label('software.probe.kind', candidate.kind) }}</StatusPill>
+              <StatusPill v-if="candidate.inUse" tone="progress">{{ t('software.probe.inUse') }}</StatusPill>
               <StatusPill v-if="candidate.recommended" tone="success">{{ t('software.recommended') }}</StatusPill>
             </span>
             <span class="flex flex-wrap gap-x-4 gap-y-0.5 text-xs tabular-nums">
@@ -188,7 +217,32 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
       </details>
     </section>
 
-    <!-- Repositories and system sources: shown for information only. -->
+    <!-- Vendor repositories: their official address only, so one line each. -->
+    <section v-for="{ slot, candidate } in repoSlots" :key="slot.id" class="flex flex-col gap-1.5">
+      <div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-detail">
+        <component :is="slotHeading" class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</component>
+        <template v-if="candidate">
+          <span class="text-muted-foreground [overflow-wrap:anywhere]">{{ t('software.probe.repoOnly', { source: candidate.name }) }}</span>
+          <span
+            class="text-xs tabular-nums"
+            :class="statusClass(candidate)"
+            :title="candidate.status === 'unreachable' ? candidate.error : undefined"
+          >
+            {{ statusText(candidate) }}
+          </span>
+          <span class="text-xs tabular-nums text-muted-foreground">{{ latency(candidate) }}</span>
+        </template>
+      </div>
+      <Notice v-if="slot.error" tone="destructive">
+        {{ slotErrorText(slot) }}
+        <code v-if="slotErrorReason(slot)" class="mt-1 block font-mono text-xs font-normal whitespace-pre-wrap [overflow-wrap:anywhere]" dir="ltr">
+          {{ slotErrorReason(slot) }}
+        </code>
+      </Notice>
+      <Notice v-if="slot.warning" :tone="slot.warning === 'no_eligible' ? 'destructive' : 'warning'">{{ warningText(slot) }}</Notice>
+    </section>
+
+    <!-- System sources: the host page's table with "Use", else for information only. -->
     <section v-for="slot in infoSlots" :key="slot.id" class="flex flex-col gap-2.5">
       <component :is="slotHeading" class="m-0 text-detail font-semibold">{{ slotTitle(slot) }}</component>
       <Notice v-if="slot.error" tone="destructive">
@@ -262,7 +316,7 @@ const statusClass = (candidate: SourceCandidate) => (candidate.eligible ? 'text-
           </li>
         </ul>
       </details>
-      <p v-if="slot.kind === 'system' && !switchable" class="m-0 text-xs text-muted-foreground">
+      <p v-if="slot.kind === 'system' && !switchable && slot.software.length > 0" class="m-0 text-xs text-muted-foreground">
         {{ t('software.probe.systemNote') }}
       </p>
     </section>

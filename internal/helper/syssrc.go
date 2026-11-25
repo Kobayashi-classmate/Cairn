@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,23 +44,12 @@ func registerSysSources(r *Registry, o *Ops, h *Host) {
 		Locks: func(q helperapi.SysSourceRef) []string { return pkg(q) }, Run: h.restoreSource})
 }
 
-// systemRoles are the roles the catalog describes for this distribution.
-func (h *Host) systemRoles() []string {
-	var roles []string
-	for _, role := range []string{"main", "security"} {
-		if _, ok := h.Software.systemRepo(role); ok {
-			roles = append(roles, role)
-		}
-	}
-	return roles
-}
-
 func (h *Host) probeSystemSources(ctx context.Context) []helperapi.SourceSlot {
 	slots := []helperapi.SourceSlot{}
 	if h.Software == nil {
 		return slots
 	}
-	for _, role := range h.systemRoles() {
+	for _, role := range h.Software.systemRoles() {
 		sl := helperapi.SourceSlot{ID: "system:" + role, Kind: "system", Software: []string{}, Selectable: true}
 		h.Software.probeSystem(ctx, &sl, role)
 		slots = append(slots, sl)
@@ -138,7 +126,7 @@ func (h *Host) writeAll(files map[string][]byte, modes map[string]uint32) error 
 }
 
 func (h *Host) switchSource(ctx context.Context, _ helperapi.Caller, q helperapi.SysSourceSwitchRequest, log io.Writer) (any, error) {
-	if h.Software == nil || h.manager() == "" || !slices.Contains(h.systemRoles(), q.Role) {
+	if h.Software == nil || h.manager() == "" || !slices.Contains(h.Software.systemRoles(), q.Role) {
 		return nil, hostErr(helperapi.CodeSysSrcUnsupported, map[string]any{"role": q.Role})
 	}
 	_, _ = fmt.Fprintf(log, "Checking the candidates of the %s source again.\n", q.Role)
@@ -152,77 +140,25 @@ func (h *Host) switchSource(ctx context.Context, _ helperapi.Caller, q helperapi
 	if to.InUse {
 		return nil, hostErr(helperapi.CodeSysSrcInUse, map[string]any{"candidate": q.Candidate})
 	}
-	var from []string
-	for _, c := range sl.Candidates {
-		if c.InUse {
-			from = append(from, c.URL)
-		}
-	}
-	if len(from) == 0 {
+	mv, err := h.Software.planMove(sl, q.Role, to)
+	var mixed *sources.MixedError
+	switch {
+	case errors.As(err, &mixed):
+		return nil, hostErr(helperapi.CodeSysSrcMixed, map[string]any{"file": mixed.File})
+	case errors.Is(err, errNoSourceInUse):
 		return nil, hostErr(helperapi.CodeSysSrcUnsupported, map[string]any{"reason": "no_source_in_use"})
-	}
-	var orig map[string][]byte
-	changed := map[string][]byte{}
-	count := 0
-	if h.manager() == "apt" {
-		orig = h.Software.readConfig("/etc/apt/sources.list", "/etc/apt/sources.list.d/*.list", "/etc/apt/sources.list.d/*.sources")
-		// Entries written as "mirror+file:" lists name the mirror in use
-		// indirectly: they move too.
-		for _, e := range sources.ParseAPTSources(orig) {
-			if r := h.Software.resolveAPTURI(e.URI); r != e.URI && slices.ContainsFunc(from, func(f string) bool { return sources.SameBase(f, r) }) &&
-				!slices.Contains(from, e.URI) {
-				from = append(from, e.URI)
-			}
-		}
-		var exclude []string
-		for _, role := range h.systemRoles() {
-			if role == q.Role {
-				continue
-			}
-			sys, _ := h.Software.systemRepo(role)
-			for _, su := range sys.Suites {
-				exclude = append(exclude, h.Software.expand(su, ""))
-			}
-		}
-		work := maps.Clone(orig)
-		for _, f := range from {
-			out, n, err := sources.RewriteAPT(work, sl.Suites, exclude, f, strings.TrimSuffix(to.URL, "/"))
-			var mixed *sources.MixedError
-			if errors.As(err, &mixed) {
-				return nil, hostErr(helperapi.CodeSysSrcMixed, map[string]any{"file": mixed.File})
-			}
-			if err != nil {
-				return nil, err
-			}
-			for p, d := range out {
-				changed[p] = d
-				work[p] = d
-			}
-			count += n
-		}
-	} else {
-		if !strings.HasPrefix(to.URL, "https://") {
-			// The panel's .repo files check package signatures but not
-			// the metadata, so a mirror must be reached over HTTPS.
-			return nil, hostErr(helperapi.CodeSysSrcHTTPSRequired, map[string]any{"candidate": q.Candidate})
-		}
-		mirror := sources.MirrorRoot(to.URL)
-		if mirror == "" {
-			return nil, hostErr(helperapi.CodeSysSrcUnsupported, map[string]any{"reason": "mirror_layout"})
-		}
-		sys, _ := h.Software.systemRepo(q.Role)
-		roots := slices.Clone(sys.Roots)
-		for _, f := range from {
-			if r := sources.MirrorRoot(f); r != "" {
-				roots = append(roots, r)
-			}
-		}
-		orig = h.Software.readConfig("/etc/yum.repos.d/*.repo")
-		changed, count = sources.RewriteDNF(orig, roots, mirror)
-	}
-	if count == 0 {
+	case errors.Is(err, errHTTPSRequired):
+		// The panel's .repo files check package signatures but not the
+		// metadata, so a mirror must be reached over HTTPS.
+		return nil, hostErr(helperapi.CodeSysSrcHTTPSRequired, map[string]any{"candidate": q.Candidate})
+	case errors.Is(err, errMirrorLayout):
+		return nil, hostErr(helperapi.CodeSysSrcUnsupported, map[string]any{"reason": "mirror_layout"})
+	case errors.Is(err, errNoEntry):
 		return nil, hostErr(helperapi.CodeSysSrcUnsupported, map[string]any{"reason": "no_entry"})
+	case err != nil:
+		return nil, err
 	}
+	orig, changed, from, count := mv.orig, mv.changed, mv.from, mv.count
 	// Back up exactly the files that change.
 	b := sourceBackup{SysSourceBackup: helperapi.SysSourceBackup{ID: h.newBackupID(), At: h.clock().Unix(), Role: q.Role,
 		From: sources.Host(from[0]), To: sources.Host(to.URL), Files: []string{}}, Contents: map[string]string{}, Modes: map[string]uint32{}}

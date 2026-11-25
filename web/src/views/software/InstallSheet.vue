@@ -5,10 +5,10 @@ import { useI18n } from 'vue-i18n'
 import { RefreshCw } from '@lucide/vue'
 import { isAbortError, isStepUpRequired } from '@/api/client'
 import {
-  fetchSoftwareSettings,
+  DOWNLOAD_POLICIES,
+  SYSTEM_MAIN_SLOT,
   installSoftware,
   isAvailable,
-  probeSources,
   runtimeSlotId,
   type DownloadPolicy,
   type LinePlan,
@@ -19,21 +19,31 @@ import DownloadEstimate from '@/components/DownloadEstimate.vue'
 import FormSheet from '@/components/common/FormSheet.vue'
 import Notice from '@/components/common/Notice.vue'
 import OptionGroup from '@/components/common/OptionGroup.vue'
+import SegmentedControl from '@/components/common/SegmentedControl.vue'
+import type { SegmentedOption } from '@/components/common/segmented'
 import type { OptionItem } from '@/components/common/types'
 import SourceSlots from '@/components/SourceSlots.vue'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useClock } from '@/composables/useClock'
 import { errorMessage } from '@/i18n/errors'
-import { formatBytes, formatIsoDate } from '@/i18n/format'
-import { categoryText, lineFacts } from '@/software/display'
-import { useSoftwareStore } from '@/stores/software'
+import { formatBytes, formatWhen } from '@/i18n/format'
+import { categoryText, endOfLifeNotice, lineFacts } from '@/software/display'
+import { chosenSource, defaultSelection } from '@/software/sources'
+import { useSessionStore } from '@/stores/session'
+import { useSoftwareStore, type CachedProbe } from '@/stores/software'
 
 // "Install <software>" (interface spec, section 6: form sheet with "Will
 // do"): pick the line, see where it would be downloaded from (measured, the
-// recommended source preselected) and the exact steps, then install as a
-// job. Changing the line probes again; a probe in flight is abandoned.
-const { t, te } = useI18n()
+// recommended source preselected; the choice holds for this installation
+// only) and the exact steps, then install as a job. A probe of the last
+// 10 minutes is shown again when the sheet reopens or the line changes back;
+// "Check again" measures anew. A probe in flight is abandoned when the line
+// changes. A line past its upstream support can be chosen with a warning.
+const { t } = useI18n()
 const store = useSoftwareStore()
+const session = useSessionStore()
+const clock = useClock()
 
 const open = computed({
   get: () => store.installOpen,
@@ -44,15 +54,17 @@ const entry = computed(() => (store.installTarget ? store.entry(store.installTar
 const line = ref('')
 const offer = computed<Offer | null>(() => entry.value?.offers.find((o) => o.line === line.value) ?? null)
 
-/** The download policy, shown before the probe answers (which repeats it). */
-const policy = ref<DownloadPolicy | null>(null)
 const probing = ref(false)
 const result = ref<ProbeResult | null>(null)
+/** When the shown result was measured, Unix milliseconds. */
+const testedAt = ref<number | null>(null)
 const probeError = ref<unknown>(null)
-/** Chosen candidate per runtime slot id. */
+/** Chosen candidate per selectable slot id. */
 const selection = ref<Record<string, string>>({})
 const submitting = ref(false)
 const error = ref<unknown>(null)
+const savingPolicy = ref(false)
+const policyError = ref<unknown>(null)
 let controller: AbortController | null = null
 /** The line the last probe was started for. */
 let probedLine = ''
@@ -61,12 +73,14 @@ function installable(o: Offer): boolean {
   return isAvailable(o) && !o.installed
 }
 
+/** The line asked for, else the recommended one, else a supported one before one past its support. */
 function firstLine(): string {
   const offers = entry.value?.offers ?? []
   const wanted = store.installTarget?.line
   const pick =
     offers.find((o) => o.line === wanted && installable(o)) ??
     offers.find((o) => o.recommended && installable(o)) ??
+    offers.find((o) => installable(o) && !o.endOfLife) ??
     offers.find(installable)
   return pick?.line ?? ''
 }
@@ -80,7 +94,8 @@ watch(
       return
     }
     error.value = null
-    void loadPolicy()
+    policyError.value = null
+    void refreshPolicy()
     line.value = firstLine()
     void probe()
   },
@@ -93,38 +108,78 @@ watch(line, (value) => {
 
 onBeforeUnmount(() => controller?.abort())
 
-async function loadPolicy() {
+/** The download policy: as last known, else as the probe names it. */
+const policy = computed<DownloadPolicy | null>(() => store.downloadPolicy ?? result.value?.policy ?? null)
+const canSetPolicy = computed(() => session.can('software.manage'))
+
+async function refreshPolicy() {
   try {
-    policy.value = (await fetchSoftwareSettings()).downloadPolicy
+    const current = await store.loadPolicy()
+    // A kept result from before the policy was changed elsewhere: measure again.
+    if (open.value && result.value && result.value.policy !== current) void probe(true)
   } catch {
     // The probe result names the policy as well.
   }
 }
 
-/** Checks the download sources of the chosen line; takes a few seconds, up to about 45. */
-async function probe() {
+/** Saves the panel-wide policy, then measures again: candidates and the recommended source depend on it. */
+async function changePolicy(value: DownloadPolicy) {
+  if (value === policy.value || savingPolicy.value) return
+  savingPolicy.value = true
+  policyError.value = null
+  try {
+    await store.savePolicy(value)
+  } catch (err) {
+    policyError.value = err
+    return
+  } finally {
+    savingPolicy.value = false
+  }
+  if (open.value) void probe(true)
+}
+
+const policyOptions = computed<SegmentedOption<DownloadPolicy>[]>(() =>
+  DOWNLOAD_POLICIES.map((value) => ({ value, label: t(`software.policy.${value}.short`) })),
+)
+
+/** Shows a probe result with the recommended candidates chosen. */
+function show(probed: CachedProbe) {
+  result.value = probed.result
+  testedAt.value = probed.at
+  selection.value = defaultSelection(probed.result.slots)
+}
+
+/**
+ * Checks the download sources of the chosen line. A kept result of the
+ * same line is shown at once unless `force`; a new probe takes a few
+ * seconds, up to about 45.
+ */
+async function probe(force = false) {
   controller?.abort()
+  controller = null
   probedLine = line.value
-  result.value = null
   probeError.value = null
-  selection.value = {}
   const current = entry.value
-  if (!current || !line.value) {
-    probing.value = false
+  const items = current && line.value ? [{ software: current.id, line: line.value }] : null
+  const kept = items && !force ? store.peekProbe(items) : null
+  probing.value = false
+  if (kept) {
+    show(kept)
     return
   }
+  result.value = null
+  testedAt.value = null
+  selection.value = {}
+  if (!items) return
   const request = new AbortController()
   controller = request
   probing.value = true
   try {
-    const probed = await probeSources([{ software: current.id, line: line.value }], { signal: request.signal })
-    result.value = probed
-    policy.value = probed.policy
-    selection.value = Object.fromEntries(
-      probed.slots.filter((slot) => slot.selectable && slot.selected).map((slot) => [slot.id, slot.selected!]),
-    )
+    const probed = await store.probeCached(items, { force, signal: request.signal })
+    // Superseded meanwhile (another line, a kept result shown).
+    if (controller === request) show(probed)
   } catch (err) {
-    if (isAbortError(err)) return
+    if (isAbortError(err) || controller !== request) return
     probeError.value = err
   } finally {
     if (controller === request) {
@@ -133,6 +188,10 @@ async function probe() {
     }
   }
 }
+
+const checkedText = computed(() =>
+  testedAt.value === null ? '' : t('software.install.checkedAt', { time: formatWhen(Math.floor(testedAt.value / 1000), clock.value) }),
+)
 
 const lineOptions = computed<OptionItem[]>(() =>
   (entry.value?.offers ?? []).map((o) => ({
@@ -145,17 +204,19 @@ const lineOptions = computed<OptionItem[]>(() =>
 
 const names = computed(() => (entry.value ? { [entry.value.id]: entry.value.name } : {}))
 
-const policyLabel = computed(() => {
-  const key = `software.policy.${policy.value}.short`
-  return policy.value && te(key) ? t(key) : (policy.value ?? '')
-})
-
 const repo = computed(() => (offer.value?.repo ? (store.repos.get(offer.value.repo) ?? null) : null))
 
 /** The plan of the chosen line, from the probe. */
 const plan = computed<LinePlan | null>(
   () => result.value?.plan?.find((p) => p.software === entry.value?.id && p.line === line.value) ?? null,
 )
+
+/** The chosen system source when it is not the one in use: the packages come from it this time. */
+const otherSystemSource = computed(() => {
+  const slot = result.value?.slots.find((s) => s.id === SYSTEM_MAIN_SLOT && s.selectable)
+  const candidate = slot?.candidates.find((c) => c.id === selection.value[SYSTEM_MAIN_SLOT])
+  return candidate && !candidate.inUse ? candidate.name : ''
+})
 
 function join(list: readonly string[]): string {
   return list.join(t('software.steps.separator'))
@@ -192,6 +253,9 @@ const steps = computed<string[]>(() => {
     )
     list.push(t('software.steps.unpack', { dir: `/opt/cairn/runtimes/${current.id}/${version}` }))
   } else if (p.packages.length > 0) {
+    if (p.method === 'system' && otherSystemSource.value) {
+      list.push(t('software.steps.packageSource', { source: otherSystemSource.value }))
+    }
     const packages = p.packages.map((pkg) =>
       pkg.version ? t('software.steps.packageVersion', { name: pkg.name, version: pkg.version }) : t('software.steps.packageNewest', { name: pkg.name }),
     )
@@ -214,9 +278,11 @@ async function submit() {
   submitting.value = true
   error.value = null
   try {
-    // Only a runtime download can be pointed at a source; other lines use their repositories.
-    const source = selection.value[runtimeSlotId(current.id, chosen.line)]
-    await store.runJob(() => installSoftware(current.id, chosen.line, source), { rethrow: true })
+    // Runtime and system-method lines use the chosen source; vendor lines their repository.
+    const source = chosenSource(result.value, selection.value, current.id, chosen.line, chosen.method)
+    // An ended line is chosen with the warning in view and "Install anyway": that acknowledges it.
+    const acceptEndOfLife = chosen.endOfLife
+    await store.runJob(() => installSoftware(current.id, chosen.line, { source, acceptEndOfLife }), { rethrow: true })
     open.value = false
   } catch (err) {
     if (!isStepUpRequired(err)) error.value = err
@@ -231,7 +297,7 @@ async function submit() {
     v-model:open="open"
     :title="entry ? t('software.install.sheetTitle', { name: entry.name }) : t('software.action.install')"
     :description="entry ? categoryText(entry.category) : undefined"
-    :submit-label="t('software.action.install')"
+    :submit-label="offer?.endOfLife ? t('software.install.installAnyway') : t('software.action.install')"
     :submitting="submitting"
     :submit-disabled="!offer || !installable(offer) || (entry !== null && store.runningFor(entry.id) !== null)"
     :steps="steps"
@@ -243,9 +309,7 @@ async function submit() {
         <OptionGroup v-model="line" :options="lineOptions" aria-labelledby="install-line-label" />
       </div>
 
-      <Notice v-if="offer?.endOfLife && offer.eol" tone="warning">
-        {{ t('software.install.endOfLife', { line: offer.line, date: formatIsoDate(offer.eol) }) }}
-      </Notice>
+      <Notice v-if="offer?.endOfLife" tone="warning">{{ endOfLifeNotice(entry.name, offer) }}</Notice>
       <p v-if="offer && repo && !repo.official" class="m-0 text-xs text-muted-foreground">
         {{ t('software.advanced.unofficialRepo', { repo: repo.name, software: entry.name }) }}
       </p>
@@ -253,8 +317,19 @@ async function submit() {
       <section class="flex flex-col gap-3" :aria-busy="probing || undefined">
         <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <h3 class="m-0 text-detail font-semibold">{{ t('software.install.sources') }}</h3>
-          <span v-if="policyLabel" class="text-xs text-muted-foreground">{{ t('software.install.policy', { policy: policyLabel }) }}</span>
+          <span v-if="checkedText && !probing" class="text-xs text-muted-foreground">{{ checkedText }}</span>
         </div>
+        <div v-if="policy" class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span class="text-xs text-muted-foreground" aria-hidden="true">{{ t('software.install.policyLabel') }}</span>
+          <SegmentedControl
+            :model-value="policy"
+            :options="policyOptions"
+            :label="t('software.install.policyLabel')"
+            :disabled="!canSetPolicy || savingPolicy"
+            @update:model-value="changePolicy"
+          />
+        </div>
+        <Notice v-if="policyError" tone="destructive">{{ errorMessage(policyError) }}</Notice>
         <div v-if="probing" class="flex flex-col gap-2" role="status">
           <span class="text-detail text-muted-foreground">{{ t('software.install.probing') }}</span>
           <Skeleton class="h-14 w-full rounded-md" />
@@ -267,7 +342,7 @@ async function submit() {
         <Notice v-else-if="probeError" tone="warning">
           {{ t('software.install.probeFailed') }} {{ errorMessage(probeError) }}
           <template #action>
-            <button type="button" class="underline underline-offset-2 hover:no-underline" @click="probe">
+            <button type="button" class="underline underline-offset-2 hover:no-underline" @click="probe(true)">
               {{ t('common.action.retry') }}
             </button>
           </template>
@@ -278,7 +353,7 @@ async function submit() {
     </template>
 
     <template #footer-start>
-      <Button type="button" variant="ghost" class="me-auto max-md:h-11" :disabled="probing || !offer" @click="probe">
+      <Button type="button" variant="ghost" class="me-auto max-md:h-11" :disabled="probing || !offer" @click="probe(true)">
         <RefreshCw aria-hidden="true" />
         {{ t('software.install.checkAgain') }}
       </Button>

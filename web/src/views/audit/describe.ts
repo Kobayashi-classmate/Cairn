@@ -154,9 +154,13 @@ export function actionDetails(entry: AuditEntry): string[] {
     }
     return list
   }
-  // The download source chosen for a runtime, as its candidate id.
-  if (entry.action === 'software.install' && typeof entry.params.source === 'string') {
-    return [t('audit.detail.source', { source: entry.params.source })]
+  // The download source chosen for a runtime or the system packages, as its
+  // candidate id, and whether a line past its upstream support was acknowledged.
+  if (entry.action === 'software.install') {
+    const list: string[] = []
+    if (typeof entry.params.source === 'string') list.push(t('audit.detail.source', { source: entry.params.source }))
+    if (entry.params.endOfLife === true) list.push(t('audit.detail.endOfLife'))
+    return list
   }
   if (entry.action !== 'users.update') return []
   const list: string[] = []
