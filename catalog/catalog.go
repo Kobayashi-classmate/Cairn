@@ -781,8 +781,10 @@ func (c *Catalog) Find(id string) (*Software, bool) {
 
 // Reasons a line cannot be installed on a system.
 const (
-	ReasonEndOfLife = "end_of_life" // upstream support ended: no new installations
-	ReasonNotBuilt  = "not_built"   // nobody builds it for this release
+	// ReasonEndOfLife is not the catalog's: the web API gives it when an
+	// install of a line past its upstream support was not acknowledged.
+	ReasonEndOfLife = "end_of_life"
+	ReasonNotBuilt  = "not_built" // nobody builds it for this release
 )
 
 // Offer is one line as offered on a given system.
@@ -807,13 +809,13 @@ type Offer struct {
 	LTS         bool         `json:"lts"`
 	EOL         string       `json:"eol,omitempty"`
 	// EndOfLife is true when upstream support has ended (system packages
-	// stay maintained by the distribution and are still offered).
+	// stay maintained by the distribution and do not count as ended). Such
+	// a line can still be installed, with a warning, but is never the
+	// recommended one.
 	EndOfLife bool `json:"endOfLife"`
-	// Installable is true when the line can be installed here now. A line
-	// past its upstream support is not, yet its Method, packages, services
-	// and files are still given: where it was installed earlier it must
-	// stay manageable and removable. Whether a line is installed is not
-	// the catalog's to know; only new installations look at this field.
+	// Installable is true when the line can be installed here now: when
+	// somebody builds it for this system. Whether a line is installed is
+	// not the catalog's to know; only new installations look at this field.
 	Installable bool `json:"installable"`
 	// Reason says why a line is not installable.
 	Reason string `json:"reason,omitempty"`
@@ -857,13 +859,13 @@ func (sw *Software) source(line string, sys System) *Source {
 }
 
 // Offers resolves every line of sw for sys, newest first as in the catalog,
-// and marks the recommended one among those that can be installed: the
-// system repositories' line if there is one (the newest of them), else the
-// newest LTS line, else the newest line.
+// and marks the recommended one among those that can be installed and are
+// still supported upstream: the system repositories' line if there is one
+// (the newest of them), else the newest LTS line, else the newest line.
 //
 // A line past its upstream support that the distribution does not maintain
-// is described like any other but is not installable: the date decides
-// about new installations only, never about what is on the machine.
+// is marked EndOfLife. It stays installable: the user is warned and asked
+// to acknowledge it, and nothing recommends it.
 func (sw *Software) Offers(sys System) []Offer {
 	today := sys.Now.Format(time.DateOnly)
 	offers := make([]Offer, 0, len(sw.Lines))
@@ -889,16 +891,13 @@ func (sw *Software) Offers(sys System) []Offer {
 				o.Configs = append(o.Configs, cf.expand(l.Version, o.Services))
 			}
 			o.EndOfLife = ended && src.Method != MethodSystem
-			o.Installable, o.Reason = !o.EndOfLife, ""
-			if o.EndOfLife {
-				o.Reason = ReasonEndOfLife
-			}
+			o.Installable, o.Reason = true, ""
 		}
 		offers = append(offers, o)
 	}
 	pick := func(ok func(Offer) bool) bool {
 		for i := range offers {
-			if offers[i].Installable && ok(offers[i]) {
+			if offers[i].Installable && !offers[i].EndOfLife && ok(offers[i]) {
 				offers[i].Recommended = true
 				return true
 			}

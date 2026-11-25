@@ -127,6 +127,9 @@ func TestSourceRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// ended marks a line past its upstream support: installable all the
+	// same, with no reason given, but never recommended.
+	const ended = "ended"
 	cases := []struct {
 		id, release, line, method, repo, reason string
 		recommended                             bool
@@ -138,9 +141,8 @@ func TestSourceRules(t *testing.T) {
 		{"php", "debian-13", "8.3", "vendor", "sury", "", false, "php8.3-fpm,php8.3-cli"},
 		{"php", "el-9", "8.3", "system", "", "", true, "php-fpm,php-cli"},
 		{"php", "el-9", "8.2", "vendor", "remi", "", false, "php82-php-fpm,php82-php-cli"},
-		// Upstream support ended: not installed any more, but still known
-		// (where it is installed already it stays managed).
-		{"php", "debian-12", "7.4", "vendor", "sury", ReasonEndOfLife, false, "php7.4-fpm,php7.4-cli"},
+		// Upstream support ended: still installable, with a warning.
+		{"php", "debian-12", "7.4", "vendor", "sury", ended, false, "php7.4-fpm,php7.4-cli"},
 		// ondrej does not build for Ubuntu 26.04 yet.
 		{"php", "ubuntu-26.04", "8.4", "", "", ReasonNotBuilt, false, ""},
 		{"php", "ubuntu-26.04", "8.5", "system", "", "", true, "php8.5-fpm,php8.5-cli"},
@@ -150,17 +152,22 @@ func TestSourceRules(t *testing.T) {
 		// newest LTS line.
 		{"mysql", "debian-13", "8.4", "vendor", "mysql", "", true, "mysql-server"},
 		{"postgresql", "el-10", "18", "vendor", "pgdg", "", false, "postgresql18-server"},
-		{"postgresql", "debian-12", "14", "vendor", "pgdg", ReasonEndOfLife, false, "postgresql-14"},
+		{"postgresql", "debian-12", "14", "vendor", "pgdg", ended, false, "postgresql-14"},
 		{"nodejs", "el-10", "24", "standalone", "", "", false, "libatomic"},
 		{"nodejs", "el-10", "26", "standalone", "", "", true, "libatomic"},
-		{"nodejs", "debian-13", "20", "standalone", "", ReasonEndOfLife, false, "libatomic1"},
+		{"nodejs", "debian-13", "20", "standalone", "", ended, false, "libatomic1"},
 		{"valkey", "el-10", "8.1", "system", "", "", true, "valkey"},
 	}
 	for _, tc := range cases {
 		o := offer(t, c, tc.id, tc.release, tc.line)
-		// A line can be installed exactly when nothing speaks against it.
-		if o.Method != tc.method || o.Repo != tc.repo || o.Reason != tc.reason || o.Recommended != tc.recommended ||
-			strings.Join(o.Packages, ",") != tc.packages || o.Installable != (tc.reason == "") {
+		reason := tc.reason
+		if reason == ended {
+			reason = ""
+		}
+		// A line can be installed exactly when somebody builds it here.
+		if o.Method != tc.method || o.Repo != tc.repo || o.Reason != reason || o.Recommended != tc.recommended ||
+			strings.Join(o.Packages, ",") != tc.packages || o.Installable != (tc.reason != ReasonNotBuilt) ||
+			o.EndOfLife != (tc.reason == ended) {
 			t.Errorf("%s %s on %s: %+v", tc.id, tc.line, tc.release, o)
 		}
 	}
@@ -179,9 +186,10 @@ func TestSourceRules(t *testing.T) {
 }
 
 // The day after a line's upstream support ends, a vendor or prebuilt line
-// is no longer installable, but everything that describes it where it is
-// installed already (packages, services, FPM, configuration files) stays.
-func TestEndOfLifeKeepsTheLineKnown(t *testing.T) {
+// is marked as ended and loses its recommendation; it stays installable,
+// and everything that describes it (packages, services, FPM, configuration
+// files) stays as it was.
+func TestEndOfLifeKeepsTheLineInstallable(t *testing.T) {
 	c, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -202,12 +210,12 @@ func TestEndOfLifeKeepsTheLineKnown(t *testing.T) {
 			if before.Method != tc.method || !before.Installable || before.EndOfLife || before.Reason != "" {
 				t.Errorf("%s %s on %s, last supported day: %+v", tc.id, tc.line, rel, before)
 			}
-			if after.Installable || !after.EndOfLife || after.Reason != ReasonEndOfLife || after.Recommended || after.EOL != tc.eol {
+			if !after.Installable || !after.EndOfLife || after.Reason != "" || after.Recommended || after.EOL != tc.eol {
 				t.Errorf("%s %s on %s, the day after: %+v", tc.id, tc.line, rel, after)
 			}
 			// Apart from that, nothing about the line changes.
 			want := before
-			want.Installable, want.EndOfLife, want.Reason, want.Recommended = false, true, ReasonEndOfLife, false
+			want.EndOfLife, want.Recommended = true, false
 			if !reflect.DeepEqual(after, want) {
 				t.Errorf("%s %s on %s: the offer changed with the date:\n before %+v\n after  %+v", tc.id, tc.line, rel, before, after)
 			}
@@ -234,8 +242,9 @@ func TestEndOfLifeKeepsTheLineKnown(t *testing.T) {
 	}
 }
 
-// The recommended line is always one that can be installed, whatever the
-// date: exactly one while any line is installable, none afterwards.
+// The recommended line is always one that can be installed and is still
+// supported upstream, whatever the date: exactly one while any line is,
+// none afterwards.
 func TestRecommendedLineIsInstallable(t *testing.T) {
 	c, err := Load()
 	if err != nil {
@@ -255,23 +264,23 @@ func TestRecommendedLineIsInstallable(t *testing.T) {
 			for _, now := range dates {
 				sys := system(t, rel)
 				sys.Now = now
-				var installable, recommended int
+				var supported, recommended int
 				for _, o := range sw.Offers(sys) {
-					if o.Installable {
-						installable++
+					if o.Installable && !o.EndOfLife {
+						supported++
 					}
 					if o.Installable && o.Method == "" {
 						t.Errorf("%s %s on %s (%s): installable without a method", sw.ID, o.Line, rel, now.Format(time.DateOnly))
 					}
 					if o.Recommended {
 						recommended++
-						if !o.Installable {
-							t.Errorf("%s %s on %s (%s): recommended but not installable: %+v", sw.ID, o.Line, rel, now.Format(time.DateOnly), o)
+						if !o.Installable || o.EndOfLife {
+							t.Errorf("%s %s on %s (%s): recommended but not installable or ended: %+v", sw.ID, o.Line, rel, now.Format(time.DateOnly), o)
 						}
 					}
 				}
-				if want := min(installable, 1); recommended != want {
-					t.Errorf("%s on %s (%s): %d installable, %d recommended", sw.ID, rel, now.Format(time.DateOnly), installable, recommended)
+				if want := min(supported, 1); recommended != want {
+					t.Errorf("%s on %s (%s): %d supported, %d recommended", sw.ID, rel, now.Format(time.DateOnly), supported, recommended)
 				}
 			}
 		}
@@ -363,9 +372,9 @@ func TestSystemSourceComesFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	sys := System{Chain: []string{"debian-13", "debian"}, Arch: "amd64"}
-	for day, installable := range map[string]bool{"2026-06-30": true, "2026-07-01": false} {
+	for day, ended := range map[string]bool{"2026-06-30": false, "2026-07-01": true} {
 		sys.Now = date(t, day)
-		if o := cat.Software[0].Offers(sys)[0]; o.Method != MethodVendor || o.Packages[0] != "x-vendor" || o.Installable != installable {
+		if o := cat.Software[0].Offers(sys)[0]; o.Method != MethodVendor || o.Packages[0] != "x-vendor" || !o.Installable || o.EndOfLife != ended {
 			t.Errorf("%s: %+v", day, o)
 		}
 	}

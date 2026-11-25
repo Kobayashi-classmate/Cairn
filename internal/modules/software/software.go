@@ -146,6 +146,9 @@ type lineRequest struct {
 	Line string `json:"line"`
 	// Source is a candidate ID of the line's runtime download slot.
 	Source string `json:"source,omitempty"`
+	// AcceptEndOfLife acknowledges that the line is past its upstream
+	// support; installing such a line is refused without it.
+	AcceptEndOfLife bool `json:"acceptEndOfLife,omitempty"`
 }
 
 type suiteView struct {
@@ -158,9 +161,10 @@ type suitesResponse struct {
 }
 
 type installSetItem struct {
-	Software string `json:"software"`
-	Line     string `json:"line"`
-	Source   string `json:"source,omitempty"`
+	Software        string `json:"software"`
+	Line            string `json:"line"`
+	Source          string `json:"source,omitempty"`
+	AcceptEndOfLife bool   `json:"acceptEndOfLife,omitempty"`
 }
 
 type installSetRequest struct {
@@ -306,7 +310,7 @@ func (m *Module) installSet(w http.ResponseWriter, r *http.Request) error {
 	var listed []map[string]any
 	names := map[string]string{}
 	for _, it := range req.Items {
-		sw, err := m.installableLine(it.Software, it.Line)
+		sw, o, err := m.installableLine(it.Software, it.Line, it.AcceptEndOfLife)
 		if err != nil {
 			return err
 		}
@@ -315,6 +319,9 @@ func (m *Module) installSet(w http.ResponseWriter, r *http.Request) error {
 		entry := map[string]any{"software": it.Software, "name": sw.Name, "line": it.Line}
 		if it.Source != "" {
 			entry["source"] = it.Source
+		}
+		if o.EndOfLife {
+			entry["endOfLife"] = true
 		}
 		listed = append(listed, entry)
 	}
@@ -375,7 +382,8 @@ func (m *Module) probe(w http.ResponseWriter, r *http.Request) error {
 	policy := m.policy(r.Context())
 	hreq := helperapi.ProbeRequest{Policy: helperPolicy(policy)}
 	for _, it := range req.Items {
-		if _, err := m.installableLine(it.Software, it.Line); err != nil {
+		// Checking the sources installs nothing: no acknowledgement needed.
+		if _, _, err := m.installableLine(it.Software, it.Line, true); err != nil {
 			return err
 		}
 		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line})
@@ -427,18 +435,23 @@ func (m *Module) knownLine(id, line string) (*catalog.Software, catalog.Offer, e
 }
 
 // installableLine resolves a line that can be installed here now. Only
-// what installs asks it (install, install set, probe): a line past its
-// upstream support is refused here and nowhere else.
-func (m *Module) installableLine(id, line string) (*catalog.Software, error) {
+// what installs asks it (install, install set, probe). A line past its
+// upstream support is installed only when the request acknowledges it
+// (acceptEnded): the panel warns about it, an API client must say so.
+func (m *Module) installableLine(id, line string, acceptEnded bool) (*catalog.Software, catalog.Offer, error) {
 	sw, o, err := m.knownLine(id, line)
 	if err != nil {
-		return nil, err
+		return nil, catalog.Offer{}, err
 	}
 	if !o.Installable {
-		return nil, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable,
+		return nil, catalog.Offer{}, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable,
 			map[string]any{"software": id, "line": line, "reason": o.Reason, "eol": o.EOL})
 	}
-	return sw, nil
+	if o.EndOfLife && !acceptEnded {
+		return nil, catalog.Offer{}, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable,
+			map[string]any{"software": id, "line": line, "reason": catalog.ReasonEndOfLife, "eol": o.EOL})
+	}
+	return sw, o, nil
 }
 
 // startLineJob checks that the line can be handled on this system and
@@ -450,9 +463,10 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 	}
 	id := r.PathValue("id")
 	var sw *catalog.Software
+	var o catalog.Offer
 	var err error
 	if action == helperapi.ActionPkgInstall {
-		sw, err = m.installableLine(id, req.Line)
+		sw, o, err = m.installableLine(id, req.Line, req.AcceptEndOfLife)
 	} else {
 		sw, _, err = m.knownLine(id, req.Line)
 	}
@@ -461,6 +475,9 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 	}
 	hreq := helperapi.SoftwareRequest{Software: id, Line: req.Line}
 	params := map[string]any{"software": id, "line": req.Line, "name": sw.Name}
+	if o.EndOfLife {
+		params["endOfLife"] = true
+	}
 	if action == helperapi.ActionPkgInstall {
 		hreq.Source, hreq.Policy = req.Source, helperPolicy(m.policy(r.Context()))
 		if req.Source != "" {

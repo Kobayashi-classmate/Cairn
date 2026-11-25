@@ -144,7 +144,8 @@ func TestSoftwareLineManagement(t *testing.T) {
 }
 
 // A line that is installed stays managed after its upstream support has
-// ended; only installing it anew is refused. Debian 13 on 2027-01-01: PHP
+// ended, and installing it anew needs an explicit acknowledgement. Debian
+// 13 on 2027-01-01: PHP
 // 8.2 (sury) ended the day before, PostgreSQL 14 (PGDG) weeks earlier, PHP
 // 8.3 (sury) is still supported and 8.4 is Debian's own.
 func TestSoftwareEndOfLifeLines(t *testing.T) {
@@ -160,11 +161,11 @@ func TestSoftwareEndOfLifeLines(t *testing.T) {
 		Services: map[string]string{"php8.2-fpm": "active", "php8.4-fpm": "active", "postgresql": "active"},
 	})
 
-	// The list: installed, with its services and files, not installable.
+	// The list: installed, with its services and files, installable but ended.
 	list := admin.expect(admin.do("GET", "/api/v1/software", nil), 200, "")
 	for _, ref := range [][2]string{{"php", "8.2"}, {"postgresql", "14"}} {
 		o := findOffer(t, list.body, ref[0], ref[1])
-		if o["method"] != "vendor" || o["installed"] != true || o["installable"] != false || o["endOfLife"] != true || o["reason"] != "end_of_life" ||
+		if o["method"] != "vendor" || o["installed"] != true || o["installable"] != true || o["endOfLife"] != true || o["reason"] != nil ||
 			o["eol"] == nil || o["recommended"] != false || o["units"] == nil || o["configs"] == nil {
 			t.Errorf("%s %s: %v", ref[0], ref[1], o)
 		}
@@ -180,7 +181,8 @@ func TestSoftwareEndOfLifeLines(t *testing.T) {
 	if o := findOffer(t, list.body, "php", "8.4"); o["method"] != "system" || o["installable"] != true || o["recommended"] != true || o["endOfLife"] != false {
 		t.Errorf("php 8.4: %v", o)
 	}
-	if o := findOffer(t, list.body, "php", "7.4"); o["installable"] != false || o["reason"] != "end_of_life" || o["installed"] != false || o["units"] != nil {
+	if o := findOffer(t, list.body, "php", "7.4"); o["installable"] != true || o["endOfLife"] != true || o["reason"] != nil || o["recommended"] != false ||
+		o["installed"] != false || o["units"] != nil {
 		t.Errorf("php 7.4: %v", o)
 	}
 
@@ -216,8 +218,8 @@ func TestSoftwareEndOfLifeLines(t *testing.T) {
 		t.Errorf("remove sent to the helper: %+v", q)
 	}
 
-	// Installing an ended line is refused before the helper is asked: on
-	// its own, in a set and in a probe.
+	// Installing an ended line without acknowledging it is refused before
+	// the helper is asked, on its own and in a set.
 	installs := func() int {
 		n := 0
 		for _, a := range e.helper.callsOf() {
@@ -236,7 +238,7 @@ func TestSoftwareEndOfLifeLines(t *testing.T) {
 		{"/api/v1/software/php/install", map[string]any{"line": "8.2"}, "2026-12-31"},
 		{"/api/v1/software/postgresql/install", map[string]any{"line": "14"}, "2026-11-12"},
 		{"/api/v1/software/install", map[string]any{"items": []map[string]any{{"software": "nginx", "line": "1.26"}, {"software": "php", "line": "8.2"}}}, "2026-12-31"},
-		{"/api/v1/software/probe", map[string]any{"items": []map[string]any{{"software": "php", "line": "8.2"}}}, "2026-12-31"},
+		{"/api/v1/software/install", map[string]any{"items": []map[string]any{{"software": "nginx", "line": "1.26"}, {"software": "php", "line": "8.2", "acceptEndOfLife": false}}}, "2026-12-31"},
 	} {
 		r := admin.expect(admin.do("POST", tc.path, tc.body), 409, helperapi.CodePkgNotAvailable)
 		if r.params()["reason"] != "end_of_life" || r.params()["eol"] != tc.eol {
@@ -244,8 +246,18 @@ func TestSoftwareEndOfLifeLines(t *testing.T) {
 		}
 	}
 	if installs() != asked {
-		t.Error("the helper was asked to install or probe an ended line")
+		t.Error("the helper was asked to install an ended line without an acknowledgement")
 	}
+	// Acknowledged, it installs, and the audit entry says it was ended.
+	admin.runJob(admin.expect(admin.do("POST", "/api/v1/software/php/install", map[string]any{"line": "8.2", "acceptEndOfLife": true}), 202, ""))
+	if q := sentAs[helperapi.SoftwareRequest](t, e, helperapi.ActionPkgInstall); q.Software != "php" || q.Line != "8.2" {
+		t.Errorf("install sent to the helper: %+v", q)
+	}
+	admin.runJob(admin.expect(admin.do("POST", "/api/v1/software/install", map[string]any{"items": []map[string]any{
+		{"software": "nginx", "line": "1.26"}, {"software": "postgresql", "line": "14", "acceptEndOfLife": true}}}), 202, ""))
+	// Checking the sources of an ended line needs no acknowledgement.
+	e.helper.respond(helperapi.ActionPkgProbe, helperapi.ProbeResult{})
+	admin.expect(admin.do("POST", "/api/v1/software/probe", map[string]any{"items": []map[string]any{{"software": "php", "line": "8.2"}}}), 200, "")
 	// A supported line from the same repository still installs.
 	admin.runJob(admin.expect(admin.do("POST", "/api/v1/software/php/install", map[string]any{"line": "8.3"}), 202, ""))
 	// A line nobody builds here stays unknown to every route.

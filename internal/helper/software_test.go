@@ -254,9 +254,9 @@ func TestInstallSystemLineAndStatus(t *testing.T) {
 	}
 
 	// Lines that are not offered here, and malformed requests, are refused.
-	op, _ = runSoftwareOp(t, o, r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "php", Line: "7.4"})
+	op, _ = runSoftwareOp(t, o, r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "valkey", Line: "7.2"})
 	if op.Error == nil || op.Error.Code != helperapi.CodePkgNotAvailable {
-		t.Fatalf("end-of-life line: %+v", op.Error)
+		t.Fatalf("a line nobody builds here: %+v", op.Error)
 	}
 	if _, err := call[helperapi.OpRef](t, r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "php; rm -rf /", Line: "8.4"}); code(err) != "validation.invalid" {
 		t.Fatalf("bad request: %v", err)

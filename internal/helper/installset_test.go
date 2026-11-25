@@ -128,7 +128,7 @@ func TestInstallSetRefusals(t *testing.T) {
 	// A line not offered here, or a source for a repository line, fails
 	// the whole set before anything is installed.
 	for _, items := range [][]helperapi.SoftwareRequest{
-		{{Software: "nginx", Line: "1.26"}, {Software: "php", Line: "7.4"}},
+		{{Software: "nginx", Line: "1.26"}, {Software: "valkey", Line: "7.2"}},
 		{{Software: "nginx", Line: "1.26", Source: "tuna"}},
 	} {
 		if op, _, _ := runSetOp(t, o, r, items...); op.State != helperapi.OpFailed {

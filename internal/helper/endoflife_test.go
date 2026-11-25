@@ -20,8 +20,9 @@ import (
 )
 
 // A line that is installed stays managed once its upstream support has
-// ended; only installing it anew is refused. The tests set the date the
-// catalog's end-of-life dates are compared with.
+// ended, and it can still be installed anew: the web API asks for an
+// acknowledgement, the helper resolves the line like any other. The tests
+// set the date the catalog's end-of-life dates are compared with.
 
 // testClock is a clock tests move between operations.
 type testClock struct {
@@ -74,11 +75,12 @@ func installedLinesOf(st helperapi.SoftwareStatus, sw string) []string {
 	return out
 }
 
-// refusedAsEnded reports whether an operation was refused because the
-// line's upstream support has ended.
-func refusedAsEnded(op helperapi.Op, eol string) bool {
-	return op.State == helperapi.OpFailed && op.Error != nil && op.Error.Code == helperapi.CodePkgNotAvailable &&
-		op.Error.Params["reason"] == catalog.ReasonEndOfLife && op.Error.Params["eol"] == eol
+// installableEnded reports whether an ended line resolves for installing.
+func installableEnded(t *testing.T, s *Software, software, line string) {
+	t.Helper()
+	if _, o, err := s.installableOffer(helperapi.SoftwareRequest{Software: software, Line: line}); err != nil || !o.EndOfLife || !o.Installable {
+		t.Errorf("install %s %s: %+v %v", software, line, o, err)
+	}
 }
 
 func TestEndOfLifeVendorPHPStaysManaged(t *testing.T) {
@@ -214,25 +216,9 @@ func TestEndOfLifeVendorPHPStaysManaged(t *testing.T) {
 		t.Errorf("delete a site: %s; pool left: %v; userdel ran: %v\n%s", opOutcome(op), e.exists(pool("8.2", "old")), e.f.ran("userdel cw-old-run"), log)
 	}
 
-	// Installing the line anew is refused, alone, in a set and in a probe.
-	aptRuns := e.f.count("apt-get")
+	// The line, and an older ended one, can still be installed anew.
 	for _, line := range []string{"8.2", "8.1"} {
-		eol := map[string]string{"8.2": "2026-12-31", "8.1": "2025-12-31"}[line]
-		op, _ := runSoftwareOp(t, e.o, e.r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "php", Line: line})
-		if !refusedAsEnded(op, eol) {
-			t.Errorf("install %s: %s %+v", line, opOutcome(op), op.Error)
-		}
-		op, _, _ = runSetOp(t, e.o, e.r, helperapi.SoftwareRequest{Software: "mariadb", Line: "11.8"}, helperapi.SoftwareRequest{Software: "php", Line: line})
-		if !refusedAsEnded(op, eol) {
-			t.Errorf("install set with %s: %s %+v", line, opOutcome(op), op.Error)
-		}
-		_, err := call[helperapi.ProbeResult](t, e.r, helperapi.ActionPkgProbe, helperapi.ProbeRequest{Items: []helperapi.SoftwareRequest{{Software: "php", Line: line}}})
-		if he, ok := helperapi.AsError(err); !ok || he.Code != helperapi.CodePkgNotAvailable || he.Params["reason"] != catalog.ReasonEndOfLife {
-			t.Errorf("probe %s: %v", line, err)
-		}
-	}
-	if e.f.count("apt-get") != aptRuns {
-		t.Errorf("a refused install ran the package manager: %v", e.f.cmds)
+		installableEnded(t, s, "php", line)
 	}
 
 	// With no site left on it, the line can be removed.
@@ -282,11 +268,8 @@ func TestEndOfLifeVendorPostgreSQLStaysAnEngine(t *testing.T) {
 		!strings.Contains(e.script(), `CREATE DATABASE "blog"`) {
 		t.Errorf("create a database: %s\n%s", opOutcome(op), log)
 	}
-	// The line cannot be installed anew.
-	op, _ := runSoftwareOp(t, e.o, e.r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "postgresql", Line: "14"})
-	if !refusedAsEnded(op, "2026-11-12") {
-		t.Errorf("install: %s %+v", opOutcome(op), op.Error)
-	}
+	// The line can still be installed anew.
+	installableEnded(t, e.d.Software, "postgresql", "14")
 }
 
 func TestEndOfLifeRuntimeStaysManaged(t *testing.T) {
@@ -319,15 +302,9 @@ func TestEndOfLifeRuntimeStaysManaged(t *testing.T) {
 	if !slices.Equal(installedLinesOf(st, "nodejs"), []string{"22"}) || st.Installed["nodejs"]["22"][0].Version != "22.21.1" {
 		t.Errorf("installed lines %v", installedLinesOf(st, "nodejs"))
 	}
-	// Not installable any more: refused before anything is downloaded.
-	op, _ := runSoftwareOp(t, o, r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "nodejs", Line: "22"})
-	if !refusedAsEnded(op, "2027-04-30") || f.ran("apt-get") {
-		t.Errorf("install: %s %+v %v", opOutcome(op), op.Error, f.cmds)
-	}
-	if got := s.Runtimes.Installed("nodejs", "22"); got != "22.21.1" {
-		t.Errorf("the refused install touched the runtime: %q", got)
-	}
-	op, _ = runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "nodejs", Line: "22"})
+	// Still installable.
+	installableEnded(t, s, "nodejs", "22")
+	op, _ := runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "nodejs", Line: "22"})
 	if op.State != helperapi.OpSucceeded || s.Runtimes.Installed("nodejs", "22") != "" {
 		t.Errorf("remove: %s %+v", opOutcome(op), op.Error)
 	}
@@ -353,18 +330,16 @@ func TestEndOfLifeRemiPHPStaysManaged(t *testing.T) {
 	if st, _ := s.Status(ctx); !slices.Equal(installedLinesOf(st, "php"), []string{"8.2"}) {
 		t.Errorf("installed lines %v", installedLinesOf(st, "php"))
 	}
-	op, _ := runSoftwareOp(t, o, r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "php", Line: "8.2"})
-	if !refusedAsEnded(op, "2026-12-31") || f.ran("dnf install") {
-		t.Errorf("install: %s %+v", opOutcome(op), op.Error)
-	}
+	installableEnded(t, s, "php", "8.2")
 	op, log := runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "php", Line: "8.2"})
 	if op.State != helperapi.OpSucceeded || !f.ran("dnf remove -y php82-php-fpm php82-php-cli") {
 		t.Errorf("remove: %s %+v\n%s", opOutcome(op), op.Error, log)
 	}
 }
 
-// Lines the date does not concern keep installing: a vendor line still in
-// upstream support, and a system line whatever its upstream says.
+// Every line keeps installing whatever the date: a vendor line still in
+// upstream support, one past it, and a system line whatever its upstream
+// says.
 func TestEndOfLifeLeavesOtherLinesInstallable(t *testing.T) {
 	cat, err := catalog.Load()
 	if err != nil {
@@ -378,7 +353,7 @@ func TestEndOfLifeLeavesOtherLinesInstallable(t *testing.T) {
 		day, software, line, method, reason string
 	}{
 		{"2026-12-31", "php", "8.2", catalog.MethodVendor, ""},
-		{"2027-01-01", "php", "8.2", catalog.MethodVendor, catalog.ReasonEndOfLife},
+		{"2027-01-01", "php", "8.2", catalog.MethodVendor, ""},
 		{"2027-01-01", "php", "8.3", catalog.MethodVendor, ""},
 		{"2027-01-01", "php", "8.4", catalog.MethodSystem, ""},
 		// Debian maintains its own 8.4 after upstream stops.

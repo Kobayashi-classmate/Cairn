@@ -129,10 +129,12 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   database dumps in `/var/lib/cairn/backups`, which may be the only copy;
   `CAIRN_PURGE_BACKUPS=1` deletes those too. The README lists what each
   way of uninstalling leaves behind.
-- A version whose upstream support has ended cannot be installed, unless
-  the distribution itself maintains it. One that is installed already
-  stays on the Software page, marked "End of life", and can still be
-  started, configured, used by sites and uninstalled.
+- A version whose upstream support has ended is marked "End of life" and
+  is never the recommended one. It can still be installed after a warning;
+  an API client has to acknowledge it with `acceptEndOfLife`. Versions the
+  distribution itself maintains do not count as ended. One that is
+  installed can still be started, configured, used by sites and
+  uninstalled.
 - Re-authentication before sensitive operations can be turned off in the
   panel settings; it is on by default. Turning it off asks for the
   password, every change is recorded in the audit log, and API tokens stay

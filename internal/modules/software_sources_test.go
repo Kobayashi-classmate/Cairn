@@ -45,7 +45,8 @@ func TestSoftwareProbeAndSourcePolicy(t *testing.T) {
 	}
 	admin.expect(admin.do("POST", "/api/v1/software/probe", map[string]any{"items": []map[string]any{}}), 400, "validation.invalid")
 	admin.expect(admin.do("POST", "/api/v1/software/probe", map[string]any{"items": []map[string]any{{"software": "nope", "line": "1"}}}), 404, "request.not_found")
-	admin.expect(admin.do("POST", "/api/v1/software/probe", map[string]any{"items": []map[string]any{{"software": "php", "line": "7.4"}}}), 409, helperapi.CodePkgNotAvailable)
+	// A line nobody builds here; an ended line is probed like any other.
+	admin.expect(admin.do("POST", "/api/v1/software/probe", map[string]any{"items": []map[string]any{{"software": "valkey", "line": "7.2"}}}), 409, helperapi.CodePkgNotAvailable)
 
 	// The chosen source and the policy go to the helper with the install.
 	e.helper.respond(helperapi.ActionPkgInstall, helperapi.OpRef{ID: opID})
