@@ -54,7 +54,7 @@ func dumpReaderIdentity() (*execx.RunAs, error) {
 	if uid <= 0 || gid <= 0 {
 		return nil, fmt.Errorf("the %s account is privileged (%d:%d)", dumpReader, uid, gid)
 	}
-	return &execx.RunAs{Uid: uint32(uid), Gid: uint32(gid)}, nil //nolint:gosec // G115: positive ids from the passwd database.
+	return &execx.RunAs{Uid: uint32(uid), Gid: uint32(gid)}, nil //nolint:gosec // G115: positive 31-bit ids (lookupUser, parseID).
 }
 
 const (

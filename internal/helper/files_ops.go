@@ -13,7 +13,6 @@ import (
 	"os/user"
 	"path"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -905,14 +904,20 @@ func (f *Files) chownOp(ctx context.Context, _ helperapi.Caller, req helperapi.F
 		if err != nil {
 			return nil, fileErr(helperapi.CodeFileUserUnknown, map[string]any{"user": req.User})
 		}
-		uid, _ = strconv.Atoi(u.Uid)
+		// An ID that cannot be read is no owner to give files to: it must
+		// not become 0.
+		if uid, err = parseID(u.Uid); err != nil {
+			return nil, fileErr(helperapi.CodeFileUserUnknown, map[string]any{"user": req.User})
+		}
 	}
 	if req.Group != "" {
 		g, err := user.LookupGroup(req.Group)
 		if err != nil {
 			return nil, fileErr(helperapi.CodeFileUserUnknown, map[string]any{"group": req.Group})
 		}
-		gid, _ = strconv.Atoi(g.Gid)
+		if gid, err = parseID(g.Gid); err != nil {
+			return nil, fileErr(helperapi.CodeFileUserUnknown, map[string]any{"group": req.Group})
+		}
 	}
 	root, err := f.openRoot(req.Root)
 	if err != nil {

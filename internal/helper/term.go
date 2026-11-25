@@ -59,8 +59,9 @@ func (f *Files) passwd() []passwdEntry {
 		if len(p) < 7 {
 			continue
 		}
-		uid, err1 := strconv.Atoi(p[2])
-		gid, err2 := strconv.Atoi(p[3])
+		// A line whose IDs are not IDs names no user (see parseID).
+		uid, err1 := parseID(p[2])
+		gid, err2 := parseID(p[3])
 		if err1 != nil || err2 != nil {
 			continue
 		}
@@ -173,7 +174,7 @@ func (f *Files) termOpen(ctx context.Context, c helperapi.Caller, req helperapi.
 		home = "/"
 	}
 	term := execx.Terminal{
-		Shell: shell, Uid: uint32(e.uid), Gid: uint32(e.gid), Groups: groups, Home: home, //nolint:gosec // G115: ids fit.
+		Shell: shell, Uid: uint32(e.uid), Gid: uint32(e.gid), Groups: groups, Home: home, //nolint:gosec // G115: 31-bit ids (parseID).
 		Env:  []string{"HOME=" + home, "USER=" + e.name, "LOGNAME=" + e.name, "SHELL=" + shell, "TERM=xterm-256color", "COLORTERM=truecolor"},
 		Cols: uint16(req.Cols), Rows: uint16(req.Rows), TTYGroup: tty, //nolint:gosec // G115: validated sizes.
 	}

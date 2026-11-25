@@ -36,8 +36,8 @@ var (
 		if err != nil {
 			return 0, 0, err
 		}
-		uid, err1 := strconv.Atoi(u.Uid)
-		gid, err2 := strconv.Atoi(u.Gid)
+		uid, err1 := parseID(u.Uid)
+		gid, err2 := parseID(u.Gid)
 		return uid, gid, errors.Join(err1, err2)
 	}
 	lookupGroup = func(name string) (int, error) {
@@ -45,7 +45,7 @@ var (
 		if err != nil {
 			return 0, err
 		}
-		return strconv.Atoi(g.Gid)
+		return parseID(g.Gid)
 	}
 	// processAlive reports whether the process in a pid file runs.
 	processAlive = func(pidFile string) (int, bool) {
