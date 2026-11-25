@@ -133,8 +133,14 @@ function jobOf(request: Promise<{ job: Job }>): Promise<Job> {
 
 export async function fetchFirewall(signal?: AbortSignal): Promise<FirewallView> {
   const view = await api.get<FirewallView>('/firewall', { signal })
-  // The server leaves "sources" out of rules that apply to every address.
-  for (const rule of view.rules ?? []) rule.sources ??= []
+  // The server leaves out what is empty: the sources of a rule that applies
+  // to every address, a missing note, and the owner of the user's own rules.
+  for (const rule of view.rules ?? []) {
+    rule.sources ??= []
+    rule.note ??= ''
+    rule.owner ??= ''
+  }
+  for (const entry of view.addresses ?? []) entry.note ??= ''
   view.forwards ??= []
   return view
 }
