@@ -12,9 +12,11 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 ls dist/cairn_*_amd64.deb dist/cairn-*.x86_64.rpm >/dev/null
 
-# image|software@line[#source] list; the last entry is removed again. The
-# runtime rows prove the prebuilt builds start on each glibc generation and
-# that every approved mirror serves the official files. "ext:" rows install
+# image|software@line[~origin][#source] list; the last entry is removed
+# again. The runtime rows prove the prebuilt builds start on each glibc
+# generation and that every approved mirror serves the official files.
+# "~origin" installs from that source of the line. "pin:sw@line" checks
+# that updates keep to the line. "ext:" rows install
 # and remove PHP extensions, "cfg:" rows edit every configuration file of a
 # line (see install.sh). "src:sw@line" installs a system line from an
 # official mirror chosen for that installation only. "set:a@1,b@2"
@@ -29,6 +31,14 @@ runs=(
 	"ubuntu:26.04|nginx@1.28 php@8.5 postgresql@16 valkey@9.0 ext:php@8.5:intl,redis cfg:php@8.5 cfg:valkey@9.0 cfg:postgresql@16 valkey@9.0"
 	"rockylinux:9|src:nginx@1.26 php@8.2 postgresql@17 mariadb@11.8 nodejs@22 python@3.13 ext:php@8.2:redis,intl cfg:php@8.2 cfg:nginx@1.26 cfg:mariadb@11.8 php@8.2"
 	"almalinux:10|php@8.4 valkey@8.1 mysql@8.4 set:nginx@1.26,php@8.3,nodejs@24 ext:php@8.3:redis,zip ext:php@8.4:imagick cfg:php@8.3 cfg:mysql@8.4 cfg:valkey@8.1 php@8.4"
+	# The official repositories: nginx.org, MariaDB, Redis (pinned to the
+	# installed line), MySQL 9.7, PGDG's newest; "~origin" installs a line
+	# the system has from the official repository instead.
+	"debian:trixie|nginx@1.30 cfg:nginx@1.30 mariadb@12.3 cfg:mariadb@12.3 redis@8.10 cfg:redis@8.10 pin:redis@8.10 redis@8.10"
+	"debian:trixie|mariadb@11.8~mariadb cfg:mariadb@11.8 mariadb@11.8"
+	"ubuntu:24.04|nginx@1.31 cfg:nginx@1.31 mysql@9.7 cfg:mysql@9.7 nginx@1.31"
+	"rockylinux:9|nginx@1.30 cfg:nginx@1.30 redis@8.12 cfg:redis@8.12 pin:redis@8.12 mariadb@12.3 cfg:mariadb@12.3 mariadb@12.3"
+	"almalinux:10|redis@8.10 pin:redis@8.10 mariadb@11.4 cfg:mariadb@11.4 postgresql@19 redis@8.10"
 )
 targets=${SOFTWARE_TARGETS:-"debian:trixie debian:bookworm ubuntu:22.04 ubuntu:24.04 ubuntu:26.04 rockylinux:9 almalinux:10"}
 failed=()

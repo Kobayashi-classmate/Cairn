@@ -3,9 +3,13 @@
 #
 # Runs inside one throwaway container (see run.sh): installs the panel,
 # starts the helper and the web process by hand (no systemd), then probes the
-# download sources of every software@line[#source] of $CASES, installs it
-# through the API (from the given source, for runtimes) and checks the exact
-# installed version; the last entry is removed again. "ext:php@8.4:a,b"
+# download sources of every software@line[~origin][#source] of $CASES,
+# installs it through the API (from the given origin, else the line's
+# default one, and from the given download source, for runtimes) and checks
+# the exact installed version and its origin; the last entry is removed
+# again, with its repository once no installed line comes from it.
+# "pin:sw@line" checks that the package manager's updates keep to the
+# installed line of a repository serving several. "ext:php@8.4:a,b"
 # installs PHP extensions and removes the first again; "cfg:sw@line" edits
 # every configuration file of a line through the API; "src:sw@line"
 # installs a system line from an official mirror chosen for that one
@@ -35,7 +39,7 @@ if command -v apt-get >/dev/null; then
 	version_of() { dpkg-query -W -f '${Version}' "$1" 2>/dev/null; }
 else
 	command -v curl >/dev/null || dnf install -y -q curl >/dev/null
-	dnf install -y -q procps-ng util-linux python3 >/dev/null
+	dnf install -y -q procps-ng util-linux python3 diffutils >/dev/null
 	dnf install -y /pkgs/cairn-*.x86_64.rpm >/tmp/install.log 2>&1 || fail "install cairn"
 	version_of() { rpm -q --qf '%{EVR}' "$1" 2>/dev/null; }
 fi
@@ -62,15 +66,22 @@ api -X POST "$base/api/v1/setup" -d "{\"token\":\"$token\",\"username\":\"admin\
 api -X POST "$base/api/v1/auth/elevate" -d "{\"password\":\"$pw\"}" | grep_q '"elevatedUntil"' || fail "elevate"
 
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
-# items_json "sw@line[#source] ...": the items of a probe or set install.
+# items_json "sw@line[~origin][#source] ...": the items of a probe or set
+# install.
 items_json() {
 	python3 -c '
 import json, sys
 out = []
 for c in sys.argv[1:]:
     c, _, src = c.partition("#")
+    c, _, origin = c.partition("~")
     sw, _, line = c.partition("@")
-    out.append(dict(software=sw, line=line, **({"source": src} if src else {})))
+    item = dict(software=sw, line=line)
+    if origin:
+        item["origin"] = origin
+    if src:
+        item["source"] = src
+    out.append(item)
 print(json.dumps({"items": out}))' "$@"
 }
 # probe ENTRY...: checks the download sources of the entries in one probe,
@@ -84,7 +95,9 @@ probe() {
 # sets job_state and job_error (the error code, "" when none).
 run_api_job() {
 	local r id offset=0
-	r=$(api -X "$1" "$base$2" -d "$3")
+	# The body goes through stdin: a configuration file (Redis 8's is over
+	# 100 KB) does not fit in one command-line argument.
+	r=$(printf '%s' "$3" | api -X "$1" "$base$2" --data-binary @-)
 	id=$(printf '%s' "$r" | json 'd.get("job",{}).get("id","")')
 	[ -n "$id" ] || fail "$2 not started: $(printf '%s' "$r" | head -c 600)"
 	: >/tmp/job.log
@@ -254,10 +267,17 @@ PY
 	check_line "$sw" "$line" "" "$(($(date +%s) - t0))"
 	step "$sw $line from $(grep -m1 'for this installation only' /tmp/job.log | sed 's/^Package source: //; s/\.$//'); sources and indexes unchanged"
 }
-# run_job ACTION SOFTWARE LINE [SOURCE]
+# run_job ACTION SOFTWARE LINE [SOURCE [ORIGIN]]
 run_job() {
-	local body="{\"line\":\"$3\"}"
-	[ -n "${4:-}" ] && body="{\"line\":\"$3\",\"source\":\"$4\"}"
+	local body
+	body=$(python3 -c '
+import json, sys
+b = {"line": sys.argv[1]}
+if sys.argv[2]:
+    b["source"] = sys.argv[2]
+if sys.argv[3]:
+    b["origin"] = sys.argv[3]
+print(json.dumps(b))' "$3" "${4:-}" "${5:-}")
 	follow_job "/api/v1/software/$2/$1" "$body"
 }
 # offer SOFTWARE LINE FIELD: a field of the offer (the first item of a list).
@@ -269,11 +289,14 @@ o = [o for s in d["software"] if s["id"] == sys.argv[1] for o in s["offers"] if 
 v = o.get(sys.argv[3])
 print(v[0] if isinstance(v, list) else ("" if v is None else v))' "$1" "$2" "$3"
 }
-# check_line SOFTWARE LINE SOURCE SECONDS: the line is installed in its
-# exact version (from SOURCE, for a runtime); prints one step.
+# check_line SOFTWARE LINE SOURCE SECONDS [ORIGIN]: the line is installed
+# in its exact version (from SOURCE, for a runtime; from ORIGIN when given);
+# prints one step.
 check_line() {
-	local sw=$1 line=$2 src=$3 took=$4 method pkg v used repo keyinfo="" from=""
+	local sw=$1 line=$2 src=$3 took=$4 want=${5:-} method pkg v used repo keyinfo="" from="" origin
 	[ "$(offer "$sw" "$line" installed)" = True ] || fail "$sw $line not reported installed"
+	origin=$(offer "$sw" "$line" origin)
+	[ -z "$want" ] || [ "$origin" = "$want" ] || fail "$sw $line: installed from $origin, not $want"
 	method=$(offer "$sw" "$line" method)
 	if [ "$method" = standalone ]; then
 		# The line path points at the exact build; the job already ran it.
@@ -292,6 +315,37 @@ check_line() {
 	grep -q "Key verified" /tmp/job.log && keyinfo=", key verified"
 	[ "$method" = standalone ] && grep -q "checksum matches" /tmp/job.log && keyinfo=", checksum verified"
 	step "$sw $line: $pkg $v ($method${repo:+ $repo}$keyinfo$from)${took:+ in ${took}s}"
+}
+# pin_case SOFTWARE LINE: the line comes from a repository serving several
+# lines; the package manager's candidates for its packages stay on it.
+pin_case() {
+	local sw=$1 line=$2 repo pkgs p cand others
+	repo=$(offer "$sw" "$line" repo)
+	pkgs=$(api "$base/api/v1/software" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+o = [o for s in d["software"] if s["id"] == sys.argv[1] for o in s["offers"] if o["line"] == sys.argv[2]][0]
+print(" ".join(o.get("packages", [])))' "$sw" "$line")
+	# off_line LINE: prints the versions on stdin (one per line) that are not of LINE.
+	off_line() { python3 -c 'import re, sys; [print(v.strip()) for v in sys.stdin if v.strip() and not re.match(r"(\d+:)?" + re.escape(sys.argv[1]) + r"\.", v.strip())]' "$1"; }
+	if command -v apt-get >/dev/null; then
+		apt-get update -qq >/dev/null
+		for p in $pkgs; do
+			cand=$(apt-cache policy "$p" | sed -n 's/^ *Candidate: //p')
+			[ -z "$(printf '%s\n' "$cand" | off_line "$line")" ] || fail "$sw $line: apt's candidate for $p is $cand"
+		done
+		others=$(apt-cache madison "${pkgs%% *}" | cut -d'|' -f2 | off_line "$line" | wc -l)
+		step "$sw $line: apt keeps to the line ($pkgs: $cand; $others versions of other lines offered)"
+	else
+		# shellcheck disable=SC2086
+		cand=$(dnf -q repoquery --qf '%{evr}\n' --repo "cairn-$repo-${line//./}" $pkgs 2>/dev/null | sort -u)
+		[ -n "$cand" ] || fail "$sw $line: nothing visible in its repository"
+		[ -z "$(printf '%s\n' "$cand" | off_line "$line")" ] || fail "$sw $line: other lines visible in its repository: $cand"
+		# shellcheck disable=SC2086
+		dnf -q check-update $pkgs >/tmp/upd.txt 2>&1 || true
+		[ -z "$(awk 'NF >= 3 {print $2}' /tmp/upd.txt | off_line "$line")" ] || fail "$sw $line: an update leaves the line: $(cat /tmp/upd.txt)"
+		step "$sw $line: dnf sees only the line in its repository ($(printf '%s' "$cand" | tr '\n' ' '))"
+	fi
 }
 
 entries=($CASES)
@@ -315,6 +369,11 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 		src_case "${spec%@*}" "${spec#*@}"
 		continue
 		;;
+	pin:*)
+		spec=${c#pin:}
+		pin_case "${spec%@*}" "${spec#*@}"
+		continue
+		;;
 	esac
 	if [[ $c == set:* ]]; then
 		# set:a@1,b@2#source: the wizard's way, one probe and one job.
@@ -329,17 +388,32 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 		done
 		continue
 	fi
-	src=""
+	src="" origin=""
 	case $c in *"#"*) src=${c#*#} c=${c%%#*} ;; esac
+	case $c in *"~"*) origin=${c#*~} c=${c%%~*} ;; esac
 	sw=${c%@*} line=${c#*@}
-	probe "$c${src:+#$src}"
+	probe "$c${origin:+~$origin}${src:+#$src}"
 	check_plan
-	run_job install "$sw" "$line" "$src"
-	check_line "$sw" "$line" "$src" "$(($(date +%s) - t0))"
+	run_job install "$sw" "$line" "$src" "$origin"
+	check_line "$sw" "$line" "$src" "$(($(date +%s) - t0))" "$origin"
 done
+last=${last%%~*}
 sw=${last%@*} line=${last#*@}
+repo=$(offer "$sw" "$line" repo)
 run_job remove "$sw" "$line"
 [ "$(offer "$sw" "$line" installed)" = False ] || fail "$sw $line still reported installed"
 [ ! -e "/opt/cairn/runtimes/$sw/$line" ] || fail "$sw $line: runtime files left"
-step "$sw $line removed (configuration kept)"
+gone=""
+if [ -n "$repo" ]; then
+	# The repository goes once no installed line comes from it.
+	used=$(api "$base/api/v1/software" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(sum(1 for s in d["software"] for o in s["offers"] if o["installed"] and o.get("repo") == sys.argv[1]))' "$repo")
+	left=$(ls /etc/apt/sources.list.d/cairn-"$repo"* /etc/yum.repos.d/cairn-"$repo"* 2>/dev/null || true)
+	if [ "$used" = 0 ] && [ -n "$left" ]; then fail "$sw $line: repository files left: $left"; fi
+	if [ "$used" != 0 ] && [ -z "$left" ]; then fail "$sw $line: repository removed while $used line(s) still come from it"; fi
+	[ "$used" = 0 ] && gone=", its repository $repo with it"
+fi
+step "$sw $line removed (configuration kept$gone)"
 echo "== PASS: ${PRETTY_NAME}"
