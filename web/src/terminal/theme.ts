@@ -126,5 +126,12 @@ export function terminalTheme(dark: boolean): ITheme {
   }
 }
 
-/** The bundled monospace font first (interface spec, section 4). */
-export const TERMINAL_FONT = "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+/**
+ * The bundled monospace font first (interface spec, section 4), as
+ * --font-mono in styles/main.css. It has no Chinese, Japanese or Korean
+ * characters; for those the browser takes the first font of the list that
+ * has them, so the usual system CJK fonts come before the generic family.
+ */
+export const TERMINAL_FONT =
+  "'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, " +
+  "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans Mono CJK SC', 'Noto Sans SC', monospace"

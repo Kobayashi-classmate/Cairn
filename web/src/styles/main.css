@@ -188,8 +188,10 @@
   --font-sans:
     'Inter Variable', Inter, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans SC',
     system-ui, sans-serif;
+  /* As TERMINAL_FONT (terminal/theme.ts): system CJK fonts before the generic family. */
   --font-mono:
     'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas,
+    'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans Mono CJK SC', 'Noto Sans SC',
     monospace;
 
   /* 4 Type scale. xs and sm keep their Tailwind names with the spec's line heights. */

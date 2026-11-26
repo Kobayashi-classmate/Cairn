@@ -4,14 +4,17 @@
 // messages carry input and output, text messages control ({"type":"resize"}
 // from here, {"type":"exit"} from the server). On every (re)connection the
 // server first replays recent output, so the screen is cleared first. The
-// colours follow the panel's light and dark mode as it changes. The server
-// also ends sessions itself, for example when the account's role or
-// password changes: the terminal then shows that it ended.
+// colours follow the panel's light and dark mode as it changes. Character
+// widths follow Unicode 11, as the server's C library counts them (emoji
+// take two cells). The server also ends sessions itself, for example when
+// the account's role or password changes: the terminal then shows that it
+// ended.
 // Loaded on demand, so xterm.js stays out of the main bundle.
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { isApiError } from '@/api/client'
 import { fetchTermSessions, termSocketUrl, type TermConnection } from '@/api/terminal'
@@ -195,6 +198,8 @@ onMounted(async () => {
   await fontReady()
   if (disposed || !host.value) return
   term = new Terminal({
+    // The Unicode version switch below is still a proposed API.
+    allowProposedApi: true,
     cursorBlink: true,
     fontFamily: TERMINAL_FONT,
     fontSize: 14,
@@ -204,6 +209,10 @@ onMounted(async () => {
   })
   fit = new FitAddon()
   term.loadAddon(fit)
+  // xterm.js measures characters by Unicode 6 unless told otherwise, and so
+  // gives emoji one cell where programs count two.
+  term.loadAddon(new Unicode11Addon())
+  term.unicode.activeVersion = '11'
   term.open(host.value)
   // Tab belongs to the shell, so it cannot leave the terminal. Esc and then
   // Tab within a second moves keyboard focus on instead (as in the code
