@@ -12,6 +12,9 @@ homepage = "https://www.mysql.com/"
 provides = ["mysql-protocol"]
 single = true
 conflicts = ["mariadb"]
+# The data directory is the same for every line and for MariaDB, on every
+# system; it records the version that used it last.
+data = { path = "/var/lib/mysql", format = "mysql", product = "MySQL" }
 
 lines = [
   { version = "9.7", lts = true },
@@ -19,11 +22,14 @@ lines = [
   { version = "8.0", eol = "2026-04-30" },
 ]
 
+# mysql-server is a metapackage here: the server and its service are in
+# mysql-server-8.0 (checked 2026-11-26).
 [[sources]]
 method = "system"
 releases = ["ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.0"]
 packages = ["mysql-server"]
+companions = ["mysql-server-{line}"]
 services = ["mysql"]
 configs = [
   { id = "mysqld.cnf", path = "/etc/mysql/mysql.conf.d/mysqld.cnf", check = ["/usr/sbin/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
@@ -70,6 +76,8 @@ configs = [
   { id = "mysql-server.cnf", path = "/etc/my.cnf.d/mysql-server.cnf", check = ["/usr/libexec/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },
 ]
 
+# Its mysql-server is a metapackage: the server and its service are in
+# mysql-community-server (checked 2026-11-26).
 [[sources]]
 method = "vendor"
 repo = "mysql"
@@ -77,6 +85,7 @@ releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26
 arch = ["amd64"]
 lines = ["9.7", "8.4"]
 packages = ["mysql-server"]
+companions = ["mysql-community-server"]
 services = ["mysql"]
 configs = [
   { id = "mysqld.cnf", path = "/etc/mysql/mysql.conf.d/mysqld.cnf", check = ["/usr/sbin/mysqld", "--validate-config", "--user=mysql"], apply = "restart" },

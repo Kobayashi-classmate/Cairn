@@ -2,6 +2,10 @@
 # One nginx per system: nginx.org's stable and mainline branches on every
 # release, and the system's own version (with its stream module, for TCP/UDP
 # proxying). System versions checked 2026-11-14, nginx.org 2026-11-25.
+# The system's nginx has its service in nginx-common, which goes with it
+# (its configuration files are kept). On Ubuntu 22.04 nginx is a
+# metapackage: the binary is in nginx-core, which depends on these modules,
+# and they depend on nginx-common (checked 2026-11-26).
 id = "nginx"
 name = "nginx"
 category = "web"
@@ -25,6 +29,7 @@ method = "system"
 releases = ["debian-12"]
 lines = ["1.22"]
 packages = ["nginx", "libnginx-mod-stream"]
+companions = ["nginx-common"]
 services = ["nginx"]
 configs = [
   { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },
@@ -35,6 +40,7 @@ method = "system"
 releases = ["debian-13"]
 lines = ["1.26"]
 packages = ["nginx", "libnginx-mod-stream"]
+companions = ["nginx-common"]
 services = ["nginx"]
 configs = [
   { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },
@@ -55,6 +61,8 @@ method = "system"
 releases = ["ubuntu-22.04"]
 lines = ["1.18"]
 packages = ["nginx", "libnginx-mod-stream"]
+companions = ["nginx-core", "nginx-common", "libnginx-mod-http-geoip2", "libnginx-mod-http-image-filter",
+  "libnginx-mod-http-xslt-filter", "libnginx-mod-mail", "libnginx-mod-stream-geoip2"]
 services = ["nginx"]
 configs = [
   { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },
@@ -65,6 +73,7 @@ method = "system"
 releases = ["ubuntu-24.04"]
 lines = ["1.24"]
 packages = ["nginx", "libnginx-mod-stream"]
+companions = ["nginx-common"]
 services = ["nginx"]
 configs = [
   { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },
@@ -75,6 +84,7 @@ method = "system"
 releases = ["ubuntu-26.04"]
 lines = ["1.28"]
 packages = ["nginx", "libnginx-mod-stream"]
+companions = ["nginx-common"]
 services = ["nginx"]
 configs = [
   { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },

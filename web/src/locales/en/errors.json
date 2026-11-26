@@ -186,6 +186,8 @@
     "other_line": "This software has one version at a time, and another one is installed. Remove it first.",
     "other_origin": "This version is installed from another source. Remove it before installing it from this one.",
     "conflicts_with": "This software cannot be installed next to other software that is installed.",
+    "data_newer": "The data directory was last used by a newer version, which this one cannot read. Nothing was installed.",
+    "data_other": "The data directory holds another product's data, which this software cannot read. Nothing was installed.",
     "config_unknown": "This version has no such configuration file.",
     "config_changed": "The file was changed since you opened it. Reload it to see the current version; your edits would replace it.",
     "config_locked": "Editing configuration files is turned off on this server (root access is set to \"never\").",
@@ -206,6 +208,8 @@
     "service_no_systemd": "Services cannot be controlled: this system does not run systemd.",
     "service_no_reload": "The service cannot reload its configuration; restart it instead.",
     "remove_takes": "Removing this version would also remove other installed packages that depend on it; nothing was removed.",
+    "remove_incomplete": "The version's packages were removed, but another package still provides its service. Its repository was kept so that the service keeps getting updates.",
+    "repair_failed": "An earlier package operation was interrupted, and finishing it failed. Nothing else was done; the task log says why.",
     "in_use": "Sites still use this version; move them to another version first."
   },
   "module": {
@@ -233,6 +237,8 @@
       "other_line": "{software} {installed} is installed, and it has one version at a time. Remove it before installing {line}.",
       "other_origin": "{software} {line} is installed from {installed}. Remove it before installing it from another source.",
       "conflicts_with": "{software} cannot be installed next to {other}.",
+      "data_newer": "{path} was last used by {product} {version}, which is newer than {software} {line}: an older version cannot read its data and may damage it. Nothing was installed. Install the version line of {version} or a newer one again, or back up the directory and move it away to start with an empty one.",
+      "data_other": "{path} holds {product} data, which {software} cannot use. Nothing was installed. Install {product} again, or back up the directory and move it away to start with an empty one.",
       "config_too_large": "The file is larger than {size} and is not shown here.",
       "config_invalid": "The check of the new file ({check}) failed; nothing was changed.",
       "config_apply_failed": "{service} failed with the new file; the previous file was put back.",
@@ -247,6 +253,8 @@
       "ext_needed": "Removing it would also remove {packages}, which {by} needs; nothing was removed.",
       "service_no_reload": "{service} cannot reload its configuration; restart it instead.",
       "remove_takes": "Removing {packages} would also remove other installed packages that depend on them: {by}. Nothing was removed.",
+      "remove_incomplete": "The packages of {software} {line} were removed, but {packages} is still installed and provides the service {units}. Its repository was kept so that it keeps getting updates. Remove {packages} with the package manager.",
+      "repair_failed": "An earlier package operation was interrupted, and finishing it ({command}) failed: {detail}. Nothing else was done. Run {command} on the command line and check its output.",
       "in_use": "{software} {line} is still used by these sites: {sites}. Move them to another version first."
     },
     "software": {
@@ -582,7 +590,8 @@
     "swap_no_space": "There is not enough free disk space for this swap file.",
     "swap_not_managed": "This swap was not made by the panel.",
     "updates_unavailable": "Automatic updates are not available on this system.",
-    "reboot_failed": "The server could not be restarted."
+    "reboot_failed": "The server could not be restarted.",
+    "reboot_busy": "The server was not restarted: the package manager is installing, removing or updating software. Restart it when that has finished."
   },
   "syssrc": {
     "not_eligible": "This source does not serve the official package index.",

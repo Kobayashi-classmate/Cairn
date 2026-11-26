@@ -11,6 +11,9 @@ provides = ["mysql-protocol"]
 # MariaDB and MySQL share the data directory, the port and package names.
 single = true
 conflicts = ["mysql"]
+# The data directory is the same for every line and for MySQL, on every
+# system; it records the version that used it last.
+data = { path = "/var/lib/mysql", format = "mysql", product = "MariaDB" }
 
 lines = [
   { version = "12.3", lts = true, eol = "2029-06-12" },
@@ -51,11 +54,14 @@ configs = [
   { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
 ]
 
+# mariadb-server is a metapackage here: the server and its service are in
+# mariadb-server-10.6 (checked 2026-11-26).
 [[sources]]
 method = "system"
 releases = ["ubuntu-22.04"]
 lines = ["10.6"]
 packages = ["mariadb-server"]
+companions = ["mariadb-server-{line}"]
 services = ["mariadb"]
 configs = [
   { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
@@ -113,8 +119,23 @@ configs = [
 method = "vendor"
 repo = "mariadb"
 releases = ["ubuntu-22.04"]
-lines = ["12.3", "11.8", "11.4", "10.11", "10.6"]
+lines = ["12.3", "11.8", "11.4", "10.11"]
 packages = ["mariadb-server"]
+services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+# Its 10.6 is packaged as Ubuntu's: mariadb-server depends on
+# mariadb-server-10.6, which has the server and its service (checked
+# 2026-11-26).
+[[sources]]
+method = "vendor"
+repo = "mariadb"
+releases = ["ubuntu-22.04"]
+lines = ["10.6"]
+packages = ["mariadb-server"]
+companions = ["mariadb-server-{line}"]
 services = ["mariadb"]
 configs = [
   { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },

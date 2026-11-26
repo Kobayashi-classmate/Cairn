@@ -53,9 +53,15 @@ type Candidate struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	Name string `json:"name"`
-	// URL is the file (downloads) or the repository base address.
-	URL   string `json:"url"`
-	InUse bool   `json:"inUse"`
+	// URL is the file (downloads) or the repository base address, without
+	// the user name and password a system source may be configured with:
+	// candidates are shown to every account that may read the host.
+	URL string `json:"url"`
+	// FullURL is the address as configured, credentials included, when it
+	// differs from URL. It is what the candidate is fetched from and written
+	// back into the system's files with (Addr), and never leaves the helper.
+	FullURL string `json:"-"`
+	InUse   bool   `json:"inUse"`
 
 	Status   string `json:"status"`
 	Eligible bool   `json:"eligible"`
@@ -349,7 +355,7 @@ func all(n int) []int {
 // (the installer verifies the official checksum after the download).
 func (p *Prober) ProbeFiles(ctx context.Context, cands []Candidate) {
 	ms := make([]measure, len(cands))
-	parallel(all(len(cands)), func(i int) { ms[i] = p.sampleURL(ctx, cands[i].URL, p.sample()) })
+	parallel(all(len(cands)), func(i int) { ms[i] = p.sampleURL(ctx, cands[i].Addr(), p.sample()) })
 	officialSize := ms[0].total
 	if ms[0].err != nil {
 		officialSize = 0
@@ -447,11 +453,47 @@ func Fastest(cands []Candidate, allowed func(Candidate) bool) int {
 	return best
 }
 
+// Addr is the address to fetch the candidate from: the configured one,
+// credentials included.
+func (c *Candidate) Addr() string {
+	if c.FullURL != "" {
+		return c.FullURL
+	}
+	return c.URL
+}
+
+// SetURL sets the candidate's address: URL without credentials, FullURL as
+// given when it carries some.
+func (c *Candidate) SetURL(u string) {
+	c.URL, c.FullURL = WithoutUserinfo(u), ""
+	if c.URL != u {
+		c.FullURL = u
+	}
+}
+
+// WithoutUserinfo returns an address without the user name and password it
+// may carry ("https://user:token@host/debian" -> "https://host/debian").
+// Anything else is kept byte for byte, dnf variables included.
+func WithoutUserinfo(u string) string {
+	scheme, rest, ok := strings.Cut(u, "://")
+	if !ok {
+		return u
+	}
+	end := strings.IndexAny(rest, "/?#")
+	if end < 0 {
+		end = len(rest)
+	}
+	if at := strings.LastIndexByte(rest[:end], '@'); at >= 0 {
+		return scheme + "://" + rest[at+1:]
+	}
+	return u
+}
+
 // SameBase reports whether two repository addresses are the same, ignoring
-// the scheme and a trailing slash.
+// the scheme, credentials and a trailing slash.
 func SameBase(a, b string) bool {
 	norm := func(s string) string {
-		s = strings.TrimSuffix(s, "/")
+		s = strings.TrimSuffix(WithoutUserinfo(s), "/")
 		if _, rest, ok := strings.Cut(s, "://"); ok {
 			return strings.ToLower(rest)
 		}

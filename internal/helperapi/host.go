@@ -38,6 +38,7 @@ const (
 	CodeHostSwapNotManaged     = "host.swap_not_managed"
 	CodeHostUpdatesUnavailable = "host.updates_unavailable"
 	CodeHostRebootFailed       = "host.reboot_failed"
+	CodeHostRebootBusy         = "host.reboot_busy" // the package manager is changing packages
 	CodeSysSrcNotEligible      = "syssrc.not_eligible"
 	CodeSysSrcInUse            = "syssrc.in_use"
 	CodeSysSrcMixed            = "syssrc.mixed"

@@ -22,6 +22,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/Kobayashi-classmate/Cairn/internal/execx"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 )
@@ -34,7 +36,13 @@ func init() {
 		return execx.Result{}, fmt.Errorf("a test tried to run %s", c.Name)
 	}
 	pkgUnitExec, pkgJobExec = refuse, refuse
+	// Nor does one look at the host's package database before a
+	// transaction: the tests of that bring their own (realInterruptedPkg).
+	interruptedPkg = func(context.Context, string) (string, []string) { return "", nil }
 }
+
+// realInterruptedPkg is the check the init above replaces.
+var realInterruptedPkg = interruptedPkg
 
 // stubPackageManager sends the package manager to the test's stand-in for
 // runCommand, whether or not the host runs systemd.
@@ -254,16 +262,17 @@ func TestPackageManagerRunsInItsOwnUnit(t *testing.T) {
 	start := starts[0]
 	id := start[len(start)-1]
 	want := []string{"--quiet", "--collect", "--unit=cairn-pkg.service", "--description=Cairn: package manager transaction",
-		"--property=RuntimeMaxSec=" + strconv.Itoa(int((pkgTimeout+pkgUnitStopWait)/time.Second)),
+		"--property=RuntimeMaxSec=" + strconv.Itoa(int((pkgTransactionTimeout+pkgUnitStopWait)/time.Second)),
 		"--", "/usr/lib/cairn/cairn-helper", "run-pkg", id}
 	if !slices.Equal(start, want) || !regexp.MustCompile(`^[0-9a-f]{15}$`).MatchString(id) {
 		t.Fatalf("systemd-run %q\nwant        %q", start, want)
 	}
 	// Inside the unit: the command as given, with the environment and the
-	// time limit it has when the helper runs it itself.
+	// time limit it has when the helper runs it itself: a transaction's,
+	// which only one that hangs reaches.
 	job := jobs[0]
 	if job.Name != "apt-get" || !slices.Equal(job.Args, args) || !slices.Equal(job.Env, []string{"DEBIAN_FRONTEND=noninteractive"}) ||
-		job.Timeout != pkgTimeout || job.Stdin != nil {
+		job.Timeout != pkgTransactionTimeout || job.Stdin != nil {
 		t.Fatalf("command in the unit: %+v", job)
 	}
 	if got := log.String(); got != "$ apt-get "+strings.Join(args, " ")+"\n"+f.output {
@@ -713,5 +722,145 @@ func TestPackageManagerNeverRunsInTheHelperUnit(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Fatal("found no package manager command at all")
+	}
+}
+
+// A transaction has no time limit short enough to cut a slow one off half
+// way (dpkg killed while it configures packages); refreshing the indexes,
+// which may stop anywhere, keeps its limit.
+func TestPackageTransactionTimeLimits(t *testing.T) {
+	f := &fakePkgUnit{}
+	f.use(t)
+	for _, tc := range []struct {
+		name  string
+		args  []string
+		short bool
+	}{
+		{"apt-get", []string{"update"}, true},
+		{"apt-get", []string{"-o", "Dir::Etc::SourceList=/var/tmp/x/sources.list", "update"}, true},
+		{"dnf", []string{"--setopt=reposdir=/var/tmp/x/repos", "makecache", "--assumeyes"}, true},
+		{"apt-get", []string{"install", "-y", "--only-upgrade", "linux-image-amd64"}, false},
+		{"apt-get", []string{"-o", "Dir::Etc::SourceList=/var/tmp/x/sources.list", "install", "-y", "nginx=1.26.3-3"}, false},
+		{"dnf", []string{"upgrade", "-y", "--exclude=cairn"}, false},
+		{"dnf", []string{"module", "enable", "-y", "php:8.3"}, false},
+		{"dpkg", []string{"--configure", "-a"}, false},
+	} {
+		f.mu.Lock()
+		f.starts, f.jobs = nil, nil
+		f.mu.Unlock()
+		if err := runPackageManager(t.Context(), io.Discard, tc.name, tc.args...); err != nil {
+			t.Fatal(err)
+		}
+		starts, _, jobs := f.snapshot()
+		limit := jobs[0].Timeout
+		backstop := starts[0][4]
+		if tc.short != (limit == 30*time.Minute) || !tc.short && limit < 12*time.Hour ||
+			backstop != "--property=RuntimeMaxSec="+strconv.Itoa(int((limit+pkgUnitStopWait)/time.Second)) {
+			t.Errorf("%s %v: limit %v, unit %s", tc.name, tc.args, limit, backstop)
+		}
+	}
+	// Commands of an operation that are not the package manager's keep
+	// theirs too.
+	if got := commandTimeout("systemctl", []string{"enable", "--now", "nginx"}); got != 30*time.Minute {
+		t.Errorf("systemctl: %v", got)
+	}
+}
+
+// Before a transaction, one an earlier run left half done is finished,
+// and that is in the log; nothing is done while another process holds the
+// package manager (it is running, not interrupted).
+func TestInterruptedTransactionIsFinishedFirst(t *testing.T) {
+	f := &fakePkgUnit{}
+	f.use(t)
+	old, oldQuery, oldRoot := interruptedPkg, queryCommand, pkgLockRoot
+	t.Cleanup(func() { interruptedPkg, queryCommand, pkgLockRoot = old, oldQuery, oldRoot })
+	interruptedPkg, pkgLockRoot = realInterruptedPkg, t.TempDir()
+	var audit, duplicates string
+	var queries []string
+	queryCommand = func(_ context.Context, name string, args ...string) (string, error) {
+		queries = append(queries, name+" "+strings.Join(args, " "))
+		switch name + " " + strings.Join(args, " ") {
+		case "dpkg --audit":
+			return audit, nil
+		case "dnf -q check --duplicates":
+			return duplicates, &execx.ExitError{Name: "dnf", ExitCode: 1}
+		}
+		return "", fmt.Errorf("unexpected query %s", name)
+	}
+	jobs := func() []string {
+		_, _, js := f.snapshot()
+		var out []string
+		for _, j := range js {
+			out = append(out, j.Name+" "+strings.Join(j.Args, " "))
+		}
+		f.mu.Lock()
+		f.jobs = nil
+		f.mu.Unlock()
+		return out
+	}
+	halfConfigured := "The following packages are only half configured, probably due to problems\nconfiguring them the first time.\n m4-slow              t\n"
+
+	audit = halfConfigured
+	var log bytes.Buffer
+	if err := runPackageManager(t.Context(), &log, "apt-get", "install", "-y", "nginx"); err != nil {
+		t.Fatal(err)
+	}
+	if got := jobs(); !slices.Equal(got, []string{"dpkg --configure -a", "apt-get install -y nginx"}) ||
+		!strings.Contains(log.String(), "did not finish:\n"+strings.TrimSpace(halfConfigured)) {
+		t.Fatalf("jobs %q\n%s", got, log.String())
+	}
+	// A clean database; an index refresh, which does not look.
+	audit = ""
+	if err := runPackageManager(t.Context(), io.Discard, "apt-get", "remove", "-y", "nginx"); err != nil {
+		t.Fatal(err)
+	}
+	queries = nil
+	audit = halfConfigured
+	if err := runPackageManager(t.Context(), io.Discard, "apt-get", "update"); err != nil {
+		t.Fatal(err)
+	}
+	if got := jobs(); !slices.Equal(got, []string{"apt-get remove -y nginx", "apt-get update"}) || len(queries) != 0 {
+		t.Fatalf("jobs %q, queries %q", got, queries)
+	}
+
+	// Another process runs a transaction: its lock is held.
+	lockFile := filepath.Join(pkgLockRoot, "var/lib/dpkg/lock-frontend")
+	writeSystemFile(t, pkgLockRoot, "/var/lib/dpkg/lock-frontend", "")
+	lf, err := os.OpenFile(lockFile, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := unix.Flock_t{Type: unix.F_WRLCK, Whence: io.SeekStart}
+	if err := unix.FcntlFlock(lf.Fd(), unix.F_SETLK, &lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := runPackageManager(t.Context(), io.Discard, "apt-get", "install", "-y", "nginx"); err != nil {
+		t.Fatal(err)
+	}
+	_ = lf.Close() // releases the lock
+	if got := jobs(); !slices.Equal(got, []string{"apt-get install -y nginx"}) {
+		t.Fatalf("while locked: %q", got)
+	}
+
+	// dnf: an upgrade left the packages twice.
+	duplicates = "openssl-libs-1:3.2.2-6.el9_5.1.x86_64 is a duplicate with openssl-libs-1:3.0.7-27.el9.x86_64\n"
+	if err := runPackageManager(t.Context(), io.Discard, "dnf", "install", "-y", "nginx"); err != nil {
+		t.Fatal(err)
+	}
+	if got := jobs(); !slices.Equal(got, []string{"dnf remove --duplicates -y", "dnf install -y nginx"}) {
+		t.Fatalf("dnf: %q", got)
+	}
+
+	// The repair fails: the transaction asked for does not run.
+	f.mu.Lock()
+	f.exit = &execx.ExitError{Name: "dpkg", ExitCode: 1, Stderr: "dpkg: error processing package m4-slow (--configure)"}
+	f.mu.Unlock()
+	err = runPackageManager(t.Context(), io.Discard, "apt-get", "install", "-y", "nginx")
+	var he *helperapi.Error
+	if !errors.As(err, &he) || he.Code != helperapi.CodePkgRepairFailed || he.Params["command"] != "dpkg --configure -a" {
+		t.Fatalf("failed repair: %v", err)
+	}
+	if got := jobs(); !slices.Equal(got, []string{"dpkg --configure -a"}) {
+		t.Fatalf("after a failed repair: %q", got)
 	}
 }

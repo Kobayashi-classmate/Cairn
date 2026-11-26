@@ -97,7 +97,25 @@ type Software struct {
 	// cannot be installed next to it for the same reasons.
 	Single    bool     `toml:"single" json:"single"`
 	Conflicts []string `toml:"conflicts" json:"conflicts,omitempty"`
+	// Data is the data directory its lines share, and software that
+	// conflicts with it may use too: removing a line keeps it, and the next
+	// line installed starts on it.
+	Data *DataDir `toml:"data" json:"-"`
 }
+
+// DataDir is a data directory that records which server used it last.
+type DataDir struct {
+	Path string `toml:"path"`
+	// Format is how the directory records the server (DataMySQL).
+	Format string `toml:"format"`
+	// Product is the name that record gives this software.
+	Product string `toml:"product"`
+}
+
+// DataMySQL is the data directory of MariaDB and MySQL: the version in
+// mariadb_upgrade_info or mysql_upgrade_info ("11.8.9-MariaDB"), else the
+// creator of the InnoDB redo log ("MySQL 8.4.13").
+const DataMySQL = "mysql"
 
 // RecommendSystem recommends the system's own line first.
 const RecommendSystem = "system"
@@ -217,10 +235,13 @@ type Source struct {
 	// libraries the prebuilt build needs, installed from the system
 	// repositories first.
 	Packages []string `toml:"packages"`
-	// Companions are packages (templates) that come with the line's own as
-	// their weak dependencies and depend on them (MariaDB-server-compat):
-	// they are removed with the line when installed, and play no part in
-	// whether it is.
+	// Companions are packages (templates) that come with the line's own and
+	// go with it: the package with the server and its service when the
+	// line's own is a metapackage depending on it (mysql-server ->
+	// mysql-server-8.0), one holding the service of the line's binary
+	// (nginx-common), or a weak dependency that depends on them
+	// (MariaDB-server-compat). They are removed with the line when
+	// installed, and play no part in whether it is.
 	Companions []string `toml:"companions"`
 	// Stream is an EL module stream template such as "php:{line}".
 	Stream string `toml:"stream"`
@@ -737,6 +758,9 @@ func (c *Catalog) check(s *Software) error {
 	}
 	if s.Recommend != "" && s.Recommend != RecommendSystem {
 		return fmt.Errorf("unknown recommendation rule %q", s.Recommend)
+	}
+	if d := s.Data; d != nil && (!strings.HasPrefix(d.Path, "/") || strings.Contains(d.Path, "..") || d.Format != DataMySQL || d.Product == "") {
+		return fmt.Errorf("data needs an absolute path, a known format and the product name")
 	}
 	for i, p := range s.Provides {
 		if !idPattern.MatchString(p) || slices.Contains(s.Provides[:i], p) {

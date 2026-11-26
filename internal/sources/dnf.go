@@ -182,12 +182,12 @@ func (p *Prober) ProbeDNF(ctx context.Context, cands []Candidate) {
 	if len(cands) == 0 {
 		return
 	}
-	full := p.rank(ctx, cands, func(c *Candidate) string { return repoBase(c.URL) + "repodata/repomd.xml" })
+	full := p.rank(ctx, cands, func(c *Candidate) string { return repoBase(c.Addr()) + "repodata/repomd.xml" })
 	mds := make([]Repomd, len(cands))
 	errs := make([]error, len(cands))
 	latency := make([]time.Duration, len(cands))
 	parallel(full, func(i int) {
-		data, lat, err := p.fetch(ctx, repoBase(cands[i].URL)+"repodata/repomd.xml", maxIndex)
+		data, lat, err := p.fetch(ctx, repoBase(cands[i].Addr())+"repodata/repomd.xml", maxIndex)
 		latency[i] = lat
 		if err == nil {
 			mds[i], err = ParseRepomd(data)
@@ -220,7 +220,7 @@ func (p *Prober) ProbeDNF(ctx context.Context, cands []Candidate) {
 		if errs[i] != nil {
 			return
 		}
-		if m := p.sampleURL(ctx, repoBase(cands[i].URL)+mds[i].PrimaryLocation, p.sample()); m.err == nil {
+		if m := p.sampleURL(ctx, repoBase(cands[i].Addr())+mds[i].PrimaryLocation, p.sample()); m.err == nil {
 			cands[i].Speed = m.speed
 		}
 	})

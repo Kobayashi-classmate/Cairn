@@ -641,11 +641,102 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 	if err := s.setOrigin(sw.ID, o.Line, ""); err != nil {
 		s.Log.Warn("software origin not dropped", "software", sw.ID, "line", o.Line, "err", err)
 	}
+	// The package manager removed what it was asked to; a service of the
+	// line that is still there means the server is in another package (the
+	// line's own is a metapackage). Its repository then stays, so that it
+	// keeps getting updates.
+	if left := s.servicesLeft(ctx, o); len(left) > 0 {
+		var units, pkgs []string
+		for _, l := range left {
+			units, pkgs = append(units, l.unit), append(pkgs, l.pkg)
+		}
+		_, _ = fmt.Fprintf(log, "Still installed: %s, with the service %s.\n", strings.Join(pkgs, ", "), strings.Join(units, ", "))
+		s.Log.Warn("software removal left its service", "software", sw.ID, "line", o.Line, "units", units, "packages", pkgs)
+		return nil, pkgErr(helperapi.CodePkgRemoveIncomplete, map[string]any{"software": sw.ID, "line": o.Line,
+			"units": strings.Join(units, ", "), "packages": strings.Join(pkgs, ", ")})
+	}
 	if o.Method == catalog.MethodVendor {
 		s.dropRepoIfUnused(ctx, log, o)
 	}
 	s.Log.Info("software removed", "software", sw.ID, "line", o.Line, "origin", o.Origin)
 	return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Origin: o.Origin, Packages: res}, nil
+}
+
+// unitDirs are where packages put their systemd units (/lib for those that
+// predate the merged /usr).
+var unitDirs = []string{"/usr/lib/systemd/system", "/lib/systemd/system"}
+
+// leftService is a service of a removed line that a package of the line
+// still provides.
+type leftService struct{ unit, pkg string }
+
+// servicesLeft returns the services of line o whose unit file an installed
+// package of the line (one whose version belongs to it) still provides. A
+// unit the line shares with the software's other lines comes from a
+// package versioned on its own (Debian's postgresql.service, in
+// postgresql-common) and does not count; neither does one the removal
+// masked (a link to /dev/null in /etc).
+func (s *Software) servicesLeft(ctx context.Context, o catalog.Offer) []leftService {
+	var left []leftService
+	for _, svc := range o.Services {
+		unit := svc
+		if !strings.Contains(unit, ".") {
+			unit += ".service"
+		}
+		var paths []string
+		for _, d := range unitDirs {
+			if _, err := os.Stat(s.path(d + "/" + unit)); err == nil {
+				paths = append(paths, d+"/"+unit)
+			}
+		}
+		if len(paths) == 0 {
+			continue
+		}
+		owners := s.fileOwners(ctx, paths)
+		installed := s.installed(ctx, owners)
+		for _, p := range owners {
+			if v := installed[p]; v != "" && lineMatches(v, o.Line) {
+				left = append(left, leftService{unit: unit, pkg: p})
+				break
+			}
+		}
+	}
+	return left
+}
+
+// fileOwners returns the installed packages that own any of paths.
+func (s *Software) fileOwners(ctx context.Context, paths []string) []string {
+	var owners []string
+	add := func(name string) {
+		if name != "" && !slices.Contains(owners, name) {
+			owners = append(owners, name)
+		}
+	}
+	if s.Manager == "apt" {
+		// "nginx-common: /usr/lib/systemd/system/nginx.service", several
+		// packages separated by commas, an architecture after a colon;
+		// paths nobody owns go to standard error.
+		text, _ := queryCommand(ctx, "dpkg-query", append([]string{"-S"}, paths...)...)
+		for _, line := range strings.Split(text, "\n") {
+			names, _, ok := strings.Cut(line, ": ")
+			if !ok || strings.HasPrefix(line, "diversion ") {
+				continue
+			}
+			for _, n := range strings.Split(names, ",") {
+				n, _, _ = strings.Cut(strings.TrimSpace(n), ":")
+				add(n)
+			}
+		}
+		return owners
+	}
+	text, _ := queryCommand(ctx, "rpm", append([]string{"-qf", "--qf", "%{NAME}\n"}, paths...)...)
+	for _, line := range strings.Split(text, "\n") {
+		// "file ... is not owned by any package" for the others.
+		if f := strings.Fields(line); len(f) == 1 {
+			add(f[0])
+		}
+	}
+	return owners
 }
 
 // Status reports the installed lines of every catalog entry.
@@ -817,7 +908,9 @@ func (s *Software) installedLines(ctx context.Context) (helperapi.SoftwareStatus
 // already, or next to the other items of the same install: another line of
 // software that has one line at a time, the same line from another origin
 // (it has to be removed first; a package manager would replace one build by
-// the other without migrating anything), and software that conflicts.
+// the other without migrating anything), and software that conflicts. A
+// line that is not installed yet must also be able to start on the data
+// the removed ones left (checkData).
 func (s *Software) checkInstall(ctx context.Context, items []lineItem) error {
 	st, err := s.installedLines(ctx)
 	if err != nil {
@@ -853,6 +946,12 @@ func (s *Software) checkInstall(ctx context.Context, items []lineItem) error {
 			if len(st.Installed[c]) > 0 {
 				params["other"] = c
 				return pkgErr(helperapi.CodePkgConflictsWith, params)
+			}
+		}
+		// An installed line runs on its data already.
+		if _, ok := st.Installed[sw.ID][o.Line]; !ok {
+			if err := s.checkData(sw, o); err != nil {
+				return err
 			}
 		}
 	}

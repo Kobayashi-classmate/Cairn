@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/sys/unix"
+
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/platform"
 	"github.com/Kobayashi-classmate/Cairn/internal/sources"
@@ -303,5 +305,63 @@ func TestSetSwapKeepsSwapOnFailure(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(root, "etc/fstab")); strings.Contains(string(data), "/swapfile") {
 		t.Fatalf("stale fstab line:\n%s", data)
+	}
+}
+
+// The machine is not restarted while the package manager changes packages:
+// the panel's own operations and transactions, or anyone else's.
+func TestRebootWaitsForThePackageManager(t *testing.T) {
+	oldSystemd, oldQuery := systemdRunning, queryCommand
+	t.Cleanup(func() { systemdRunning, queryCommand = oldSystemd, oldQuery })
+	systemdRunning = func() bool { return true }
+	var started []string
+	queryCommand = func(_ context.Context, name string, args ...string) (string, error) {
+		started = append(started, name+" "+strings.Join(args, " "))
+		return "", nil
+	}
+	root := t.TempDir()
+	h := &Host{StateDir: t.TempDir(), Root: root, Software: &Software{Manager: "apt"}, Log: slog.New(slog.DiscardHandler)}
+	o, r := newTestOps(t)
+	RegisterHost(r, o, h)
+	reboot := func() error {
+		t.Helper()
+		started = nil
+		_, err := call[helperapi.RebootResult](t, r, helperapi.ActionHostReboot, helperapi.Empty{})
+		return err
+	}
+
+	// An operation of the panel holds the package manager.
+	release, ok := o.TryLock(LockPkg)
+	if !ok {
+		t.Fatal("lock")
+	}
+	if err := reboot(); !hasCode(err, helperapi.CodeHostRebootBusy) || len(started) != 0 {
+		t.Fatalf("operation running: %v %v", err, started)
+	}
+	release()
+	// A transaction left running by an earlier helper process, or the
+	// panel's own update.
+	o.Busy = map[string]func() bool{LockPkg: func() bool { return true }}
+	if err := reboot(); !hasCode(err, helperapi.CodeHostRebootBusy) {
+		t.Fatalf("unit running: %v", err)
+	}
+	o.Busy = nil
+	// apt or dpkg run by someone else.
+	writeSystemFile(t, root, "/var/lib/dpkg/lock-frontend", "")
+	lf, err := os.OpenFile(filepath.Join(root, "var/lib/dpkg/lock-frontend"), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := unix.Flock_t{Type: unix.F_WRLCK, Whence: io.SeekStart}
+	if err := unix.FcntlFlock(lf.Fd(), unix.F_SETLK, &lock); err != nil {
+		t.Fatal(err)
+	}
+	if err := reboot(); !hasCode(err, helperapi.CodeHostRebootBusy) || len(started) != 0 {
+		t.Fatalf("dpkg locked: %v %v", err, started)
+	}
+	_ = lf.Close()
+	// Otherwise the reboot is scheduled.
+	if err := reboot(); err != nil || len(started) != 1 || !strings.HasPrefix(started[0], "systemd-run --unit=cairn-reboot") {
+		t.Fatalf("reboot: %v %v", err, started)
 	}
 }

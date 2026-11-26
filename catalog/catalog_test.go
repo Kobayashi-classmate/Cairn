@@ -438,6 +438,52 @@ func TestSystemSourceIsTheDefault(t *testing.T) {
 	}
 }
 
+// Where the line's own package is a metapackage, or another package holds
+// its service, that package goes with the line (checked in containers
+// 2026-11-26); where the line's package holds the server, nothing else
+// does.
+func TestServerPackagesGoWithTheLine(t *testing.T) {
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	jammyNginx := "nginx-core,nginx-common,libnginx-mod-http-geoip2,libnginx-mod-http-image-filter,libnginx-mod-http-xslt-filter,libnginx-mod-mail,libnginx-mod-stream-geoip2"
+	for _, tc := range []struct{ id, release, line, origin, companions string }{
+		{"mysql", "ubuntu-22.04", "8.0", "", "mysql-server-8.0"},
+		{"mysql", "ubuntu-24.04", "8.0", "", "mysql-server-8.0"},
+		{"mysql", "ubuntu-26.04", "8.4", "", ""},
+		{"mysql", "ubuntu-26.04", "8.4", "mysql", "mysql-community-server"},
+		{"mysql", "debian-13", "9.7", "", "mysql-community-server"},
+		{"mysql", "el-9", "8.0", "", ""},
+		{"mariadb", "ubuntu-22.04", "10.6", "", "mariadb-server-10.6"},
+		{"mariadb", "ubuntu-22.04", "10.6", "mariadb", "mariadb-server-10.6"},
+		{"mariadb", "ubuntu-22.04", "11.8", "", ""},
+		{"mariadb", "ubuntu-24.04", "10.11", "", ""},
+		{"mariadb", "el-9", "12.3", "", "MariaDB-server-compat"},
+		{"nginx", "debian-12", "1.22", "", "nginx-common"},
+		{"nginx", "debian-13", "1.26", "", "nginx-common"},
+		{"nginx", "ubuntu-24.04", "1.24", "", "nginx-common"},
+		{"nginx", "ubuntu-26.04", "1.28", "", "nginx-common"},
+		{"nginx", "ubuntu-22.04", "1.18", "", jammyNginx},
+		{"nginx", "debian-13", "1.30", "", ""},
+		{"nginx", "el-9", "1.26", "", ""},
+	} {
+		sw, _ := c.Find(tc.id)
+		o, ok := sw.OfferFrom(system(t, tc.release), tc.line, tc.origin)
+		if !ok || !o.Installable || strings.Join(o.Companions, ",") != tc.companions {
+			t.Errorf("%s %s on %s from %q: %v %v", tc.id, tc.line, tc.release, tc.origin, ok, o.Companions)
+		}
+	}
+	// MariaDB and MySQL say where their shared data is, and how it records
+	// the server that used it last.
+	for id, product := range map[string]string{"mariadb": "MariaDB", "mysql": "MySQL"} {
+		sw, _ := c.Find(id)
+		if d := sw.Data; d == nil || d.Path != "/var/lib/mysql" || d.Format != DataMySQL || d.Product != product {
+			t.Errorf("%s data: %+v", id, d)
+		}
+	}
+}
+
 func TestConfigsAndExtensions(t *testing.T) {
 	c, err := Load()
 	if err != nil {
@@ -558,6 +604,12 @@ lines = [{ version = "1" }]
 		},
 		"no capability": {
 			"software/x.toml": strings.Replace(base, "provides = [\"x\"]\n", "", 1),
+		},
+		"data with a relative path": {
+			"software/x.toml": strings.Replace(base, "lines = ", "data = { path = \"var/lib/x\", format = \"mysql\", product = \"X\" }\nlines = ", 1),
+		},
+		"data in an unknown format": {
+			"software/x.toml": strings.Replace(base, "lines = ", "data = { path = \"/var/lib/x\", format = \"x\", product = \"X\" }\nlines = ", 1),
 		},
 		"unknown index format": {
 			"index.toml":      "format = 2\nserial = 1\n",

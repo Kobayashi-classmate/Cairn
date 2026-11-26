@@ -334,7 +334,7 @@ func (s *Software) systemCandidates(ctx context.Context, sl *helperapi.SourceSlo
 	cands := []sources.Candidate{{ID: sources.IDOfficial, Kind: sources.KindOfficial, Name: sources.Host(official), URL: official}}
 	have := func(u string) int {
 		for i, c := range cands {
-			if sources.SameBase(c.URL, u) {
+			if sources.SameBase(c.Addr(), u) {
 				return i
 			}
 		}
@@ -356,7 +356,11 @@ func (s *Software) systemCandidates(ctx context.Context, sl *helperapi.SourceSlo
 		for k := 2; candidateIndex(cands, id) >= 0; k++ {
 			id = host + "-" + strconv.Itoa(k)
 		}
-		cands = append(cands, sources.Candidate{ID: id, Kind: kind, Name: sources.Host(u), URL: u, InUse: inUse})
+		c := sources.Candidate{ID: id, Kind: kind, Name: sources.Host(u), InUse: inUse}
+		// A source in use may carry credentials (a company mirror): they stay
+		// in FullURL, which the probe and a switch use and nothing outputs.
+		c.SetURL(u)
+		cands = append(cands, c)
 	}
 	var registry []string
 	if sys.MirrorList != "" {

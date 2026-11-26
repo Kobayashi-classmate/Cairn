@@ -211,7 +211,7 @@ func (p *Prober) ProbeAPT(ctx context.Context, cands []Candidate, t APTTarget) {
 	if len(cands) == 0 || len(t.Suites) == 0 {
 		return
 	}
-	full := p.rank(ctx, cands, func(c *Candidate) string { return distsURL(c.URL, t.Suites[0]) + "InRelease" })
+	full := p.rank(ctx, cands, func(c *Candidate) string { return distsURL(c.Addr(), t.Suites[0]) + "InRelease" })
 	releases := make([][]*Release, len(cands)) // [candidate][suite]
 	errs := make([]error, len(cands))
 	latency := make([]time.Duration, len(cands))
@@ -219,7 +219,7 @@ func (p *Prober) ProbeAPT(ctx context.Context, cands []Candidate, t APTTarget) {
 		c := &cands[i]
 		releases[i] = make([]*Release, len(t.Suites))
 		for s, suite := range t.Suites {
-			data, lat, err := p.fetch(ctx, distsURL(c.URL, suite)+"InRelease", maxIndex)
+			data, lat, err := p.fetch(ctx, distsURL(c.Addr(), suite)+"InRelease", maxIndex)
 			if s == 0 {
 				latency[i] = lat
 			}
@@ -264,7 +264,7 @@ func (p *Prober) ProbeAPT(ctx context.Context, cands []Candidate, t APTTarget) {
 		if errs[i] != nil {
 			return
 		}
-		u := distsURL(cands[i].URL, t.Suites[0]) + sampleIndex(releases[i][0], t)
+		u := distsURL(cands[i].Addr(), t.Suites[0]) + sampleIndex(releases[i][0], t)
 		if m := p.sampleURL(ctx, u, p.sample()); m.err == nil {
 			cands[i].Speed = m.speed
 		}

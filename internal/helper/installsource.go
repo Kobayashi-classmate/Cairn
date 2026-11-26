@@ -63,9 +63,11 @@ var (
 // candidates in use are what moves). Nothing is written.
 func (s *Software) planMove(sl helperapi.SourceSlot, role string, to sources.Candidate) (sourceMove, error) {
 	var mv sourceMove
+	// The addresses as configured: a source's credentials stay where they
+	// are, and the target's are written with it.
 	for _, c := range sl.Candidates {
 		if c.InUse {
-			mv.from = append(mv.from, c.URL)
+			mv.from = append(mv.from, c.Addr())
 		}
 	}
 	if len(mv.from) == 0 {
@@ -94,7 +96,7 @@ func (s *Software) planMove(sl helperapi.SourceSlot, role string, to sources.Can
 		}
 		work := maps.Clone(mv.orig)
 		for _, f := range mv.from {
-			out, n, err := sources.RewriteAPT(work, sl.Suites, exclude, f, strings.TrimSuffix(to.URL, "/"))
+			out, n, err := sources.RewriteAPT(work, sl.Suites, exclude, f, strings.TrimSuffix(to.Addr(), "/"))
 			if err != nil {
 				return mv, err
 			}
@@ -108,7 +110,7 @@ func (s *Software) planMove(sl helperapi.SourceSlot, role string, to sources.Can
 		if !strings.HasPrefix(to.URL, "https://") {
 			return mv, errHTTPSRequired
 		}
-		mirror := sources.MirrorRoot(to.URL)
+		mirror := sources.MirrorRoot(to.Addr())
 		if mirror == "" {
 			return mv, errMirrorLayout
 		}

@@ -169,6 +169,17 @@ const (
 	// CodePkgConflictsWith: software that cannot run next to this one
 	// (param other) is installed, or asked for in the same install set.
 	CodePkgConflictsWith = "pkg.conflicts_with"
+	// CodePkgDataNewer: the line's data directory (param path) was last
+	// used by a newer version (params product, version), which an older
+	// server cannot read.
+	CodePkgDataNewer = "pkg.data_newer"
+	// CodePkgDataOther: the line's data directory (param path) holds
+	// another product's data (params product, version).
+	CodePkgDataOther = "pkg.data_other"
+	// CodePkgRepairFailed: an earlier transaction was left interrupted,
+	// and finishing it (param command) failed (param detail); the
+	// transaction asked for did not run.
+	CodePkgRepairFailed = "pkg.repair_failed"
 )
 
 var (

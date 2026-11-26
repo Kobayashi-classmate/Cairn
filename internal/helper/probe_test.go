@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -231,5 +232,91 @@ func TestProbeSlots(t *testing.T) {
 	// refused before anything runs.
 	if _, err := s.install(context.Background(), helperapi.Caller{}, helperapi.SoftwareRequest{Software: "nginx", Line: "1.26", Source: "mirr"}, &strings.Builder{}); code(err) != helperapi.CodePkgSourceUnknown {
 		t.Fatalf("source for a repository install: %v", err)
+	}
+}
+
+// A system source configured with credentials in its address is probed
+// and switched with them, and shown without them: the install probe and
+// the Host page answer accounts that may not see them.
+func TestProbeKeepsSourceCredentials(t *testing.T) {
+	p := newProviderServer(t)
+	cat := mirrorCatalog(t, p)
+	const now = "Sat, 14 Nov 2026 20:03:59 UTC"
+	for _, base := range []string{"/debian", "/alias/debian", "/inuse/debian"} {
+		for _, suite := range []string{"trixie", "trixie-updates"} {
+			p.files[base+"/dists/"+suite+"/InRelease"] = release(now, "same")
+			p.files[base+"/dists/"+suite+"/main/binary-amd64/Packages.xz"] = []byte(strings.Repeat("p", 900))
+		}
+	}
+	const user, secret = "mirroruser", "T0ken-In-Url"
+	p.auth["/inuse/"] = user + ":" + secret
+	root := t.TempDir()
+	withCreds := strings.Replace(p.URL, "://", "://"+user+":"+secret+"@", 1) + "/inuse/debian"
+	orig := "Types: deb\nURIs: " + withCreds + "/\nSuites: trixie trixie-updates\nComponents: main\n"
+	writeSystemFile(t, root, "/etc/apt/sources.list.d/debian.sources", orig)
+
+	prober := &sources.Prober{HTTP: p.Client(), Sample: 512}
+	s := &Software{Catalog: cat, Manager: "apt", OS: platform.OSRelease{ID: "debian", VersionID: "13", Codename: "trixie"},
+		Chain: []string{"debian-13", "debian"}, Arch: "amd64", Root: root, Log: slog.New(slog.DiscardHandler), Sources: prober}
+	h := &Host{StateDir: t.TempDir(), Software: s, Root: root}
+	inUse := func(what string, slots []helperapi.SourceSlot) sources.Candidate {
+		t.Helper()
+		data, err := json.Marshal(slots)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), secret) || strings.Contains(string(data), user) {
+			t.Fatalf("%s gives out the credentials: %s", what, data)
+		}
+		for _, sl := range slots {
+			for _, c := range sl.Candidates {
+				if c.InUse {
+					// Fetched with the credentials: the server refuses it otherwise.
+					if c.URL != p.URL+"/inuse/debian" || c.Status != sources.StatusInSync {
+						t.Fatalf("%s: source in use %+v", what, c)
+					}
+					return c
+				}
+			}
+		}
+		t.Fatalf("%s: no source in use: %+v", what, slots)
+		return sources.Candidate{}
+	}
+	res, err := s.probe(context.Background(), helperapi.Caller{}, helperapi.ProbeRequest{Items: []helperapi.SoftwareRequest{{Software: "nginx", Line: "1.26"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inUse("software probe", res.Slots)
+	slots := h.probeSystemSources(context.Background())
+	inUse("host sources", slots)
+
+	// Switching away finds the entry by its full address; switching back
+	// (restoring the backup) brings the credentials back.
+	stubPackageManager(t)
+	oldRun := runCommand
+	t.Cleanup(func() { runCommand = oldRun })
+	runCommand = func(context.Context, io.Writer, string, ...string) error { return nil }
+	var alias string
+	for _, c := range slots[0].Candidates {
+		if strings.Contains(c.URL, "/alias/") {
+			alias = c.ID
+		}
+	}
+	out, err := h.switchSource(context.Background(), helperapi.Caller{}, helperapi.SysSourceSwitchRequest{Role: "main", Candidate: alias}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(root, "etc/apt/sources.list.d/debian.sources"))
+	if !strings.Contains(string(data), "URIs: "+p.URL+"/alias/debian\n") {
+		t.Fatalf("switched:\n%s", data)
+	}
+	if b, _ := json.Marshal(out); strings.Contains(string(b), secret) || strings.Contains(string(b), user) {
+		t.Fatalf("switch result gives out the credentials: %s", b)
+	}
+	if _, err := h.restoreSource(context.Background(), helperapi.Caller{}, helperapi.SysSourceRef{ID: out.(helperapi.SysSourceBackup).ID}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(root, "etc/apt/sources.list.d/debian.sources")); string(data) != orig {
+		t.Fatalf("restored:\n%s", data)
 	}
 }

@@ -48,6 +48,10 @@ const (
 	// CodePkgRemoveTakes: removing the line would remove other installed
 	// packages with it (params: packages, by).
 	CodePkgRemoveTakes = "pkg.remove_takes"
+	// CodePkgRemoveIncomplete: the line's packages were removed, but
+	// packages of the line still provide its service (params: software,
+	// line, units, packages); its repository is kept.
+	CodePkgRemoveIncomplete = "pkg.remove_incomplete"
 	// CodePkgInUse: sites use the line (params: software, line, sites).
 	CodePkgInUse = "pkg.in_use"
 )

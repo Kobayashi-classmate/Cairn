@@ -49,9 +49,10 @@ const (
 	// SIGTERM and SIGKILL.
 	pkgUnitStopWait = 2 * time.Minute
 	// pkgUnitKeep is how long a transaction's files stay, to be read after
-	// a helper restart. No transaction runs that long, so pruning older
-	// files never takes those of one that another process started.
-	pkgUnitKeep = 24 * time.Hour
+	// a helper restart. No transaction runs that long (its time limit is
+	// pkgTransactionTimeout), so pruning older files never takes those of
+	// one that another process started.
+	pkgUnitKeep = 2 * pkgTransactionTimeout
 )
 
 // Replaceable in tests, which must never start a unit or a package manager.
@@ -200,9 +201,10 @@ func runInPkgUnit(ctx context.Context, log io.Writer, name string, args []string
 	}
 
 	_, _ = fmt.Fprintf(log, "$ %s %s\n", name, strings.Join(args, " "))
+	timeout := commandTimeout(name, args)
 	start := []string{"--quiet", "--collect", "--unit=" + pkgUnit, "--description=Cairn: package manager transaction",
 		// A backstop: the command has its own time limit inside the unit.
-		fmt.Sprintf("--property=RuntimeMaxSec=%d", int((pkgTimeout+pkgUnitStopWait)/time.Second)),
+		fmt.Sprintf("--property=RuntimeMaxSec=%d", int((timeout+pkgUnitStopWait)/time.Second)),
 		"--", pkgUnitBinary(), "run-pkg", job.ID}
 	// Not canceled half-way: afterwards the unit either runs this job or
 	// was never started, and only a unit known to run this job is stopped.
@@ -210,7 +212,7 @@ func runInPkgUnit(ctx context.Context, log io.Writer, name string, args []string
 		return err
 	}
 
-	limit := time.NewTimer(pkgTimeout + pkgUnitStopWait)
+	limit := time.NewTimer(timeout + pkgUnitStopWait)
 	defer limit.Stop()
 	tick := time.NewTicker(pkgUnitPoll)
 	defer tick.Stop()
@@ -390,7 +392,7 @@ func (j pkgJob) run() error {
 		return err
 	}
 	_, err = pkgJobExec(context.Background(), execx.Cmd{
-		Name: job.Name, Args: job.Args, Timeout: pkgTimeout, Output: &cappedLog{w: out, limit: maxOpLog}, MaxOutput: 64 << 10,
+		Name: job.Name, Args: job.Args, Timeout: commandTimeout(job.Name, job.Args), Output: &cappedLog{w: out, limit: maxOpLog}, MaxOutput: 64 << 10,
 		Env: pkgEnv,
 	})
 	if cerr := out.Close(); err == nil {

@@ -48,6 +48,9 @@ type fakeSystem struct {
 	// privateMadison and privateRepoquery answer the queries that carry a
 	// private source configuration (installsource.go), when set.
 	privateMadison, privateRepoquery string
+	// owners answers "dpkg-query -S" and "rpm -qf": the package that owns
+	// a file, by path.
+	owners map[string]string
 	// hook sees every command runCommand runs, before it "runs".
 	hook func(cmd string, log io.Writer)
 }
@@ -162,6 +165,23 @@ func (f *fakeSystem) use(t *testing.T) {
 			return f.repoquery, nil
 		case "dpkg-query", "rpm":
 			var b strings.Builder
+			if args[0] == "-S" || args[0] == "-qf" {
+				paths := args[1:]
+				if args[0] == "-qf" {
+					paths = args[3:] // after --qf and its format
+				}
+				for _, p := range paths {
+					switch o := f.owners[p]; {
+					case o == "" && name == "rpm":
+						fmt.Fprintf(&b, "file %s is not owned by any package\n", p)
+					case name == "rpm":
+						fmt.Fprintf(&b, "%s\n", o)
+					case o != "":
+						fmt.Fprintf(&b, "%s: %s\n", o, p)
+					}
+				}
+				return b.String(), nil
+			}
 			for _, a := range args[3:] {
 				if v, ok := f.installed[a]; ok {
 					fmt.Fprintf(&b, "%s\t%s\tii \n", a, v)

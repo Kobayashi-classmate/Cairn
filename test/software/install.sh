@@ -9,7 +9,10 @@
 # the exact installed version and its origin; the last entry is removed
 # again, with its repository once no installed line comes from it.
 # "pin:sw@line" checks that the package manager's updates keep to the
-# installed line of a repository serving several. "ext:php@8.4:a,b"
+# installed line of a repository serving several. "rm:sw@line" removes a
+# line (its packages and services gone) and "deny:sw@line=code" checks an
+# install is refused with that code (the data a removed line left).
+# "ext:php@8.4:a,b"
 # installs PHP extensions and removes the first again; "cfg:sw@line" edits
 # every configuration file of a line through the API; "src:sw@line"
 # installs a system line from an official mirror chosen for that one
@@ -289,6 +292,66 @@ o = [o for s in d["software"] if s["id"] == sys.argv[1] for o in s["offers"] if 
 v = o.get(sys.argv[3])
 print(v[0] if isinstance(v, list) else ("" if v is None else v))' "$1" "$2" "$3"
 }
+# services_of SOFTWARE LINE: the services of the line, space-separated.
+services_of() {
+	api "$base/api/v1/software" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+o = [o for s in d["software"] if s["id"] == sys.argv[1] for o in s["offers"] if o["line"] == sys.argv[2]][0]
+print(" ".join(o.get("services") or []))' "$1" "$2"
+}
+# services_gone SOFTWARE LINE SERVICES: no installed package of the line
+# still provides one of its services (the server left behind when the
+# line's own package is a metapackage). A unit the lines share comes from
+# a package versioned on its own (Debian's postgresql.service).
+services_gone() {
+	local line=$2 svc p owner v
+	for svc in $3; do
+		for p in "/usr/lib/systemd/system/$svc.service" "/lib/systemd/system/$svc.service"; do
+			[ -e "$p" ] || continue
+			if command -v dpkg-query >/dev/null; then
+				owner=$(dpkg-query -S "$p" 2>/dev/null | cut -d: -f1 | cut -d, -f1) || owner=""
+			else
+				owner=$(rpm -qf --qf '%{NAME}' "$p" 2>/dev/null) || owner=""
+			fi
+			[ -n "$owner" ] || continue
+			v=$(version_of "$owner") || v=""
+			case "${v#*:}" in "$line".*) fail "$1 $line: $p is still installed, by $owner $v" ;; esac
+		done
+	done
+}
+# remove_case SOFTWARE LINE: removes the line, checks that its packages
+# and services are gone, and its repository once no installed line comes
+# from it.
+remove_case() {
+	local sw=$1 line=$2 repo services used left gone=""
+	repo=$(offer "$sw" "$line" repo)
+	services=$(services_of "$sw" "$line")
+	run_job remove "$sw" "$line"
+	[ "$(offer "$sw" "$line" installed)" = False ] || fail "$sw $line still reported installed"
+	[ ! -e "/opt/cairn/runtimes/$sw/$line" ] || fail "$sw $line: runtime files left"
+	services_gone "$sw" "$line" "$services"
+	if [ -n "$repo" ]; then
+		# The repository goes once no installed line comes from it.
+		used=$(api "$base/api/v1/software" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+print(sum(1 for s in d["software"] for o in s["offers"] if o["installed"] and o.get("repo") == sys.argv[1]))' "$repo")
+		left=$(ls /etc/apt/sources.list.d/cairn-"$repo"* /etc/yum.repos.d/cairn-"$repo"* 2>/dev/null || true)
+		if [ "$used" = 0 ] && [ -n "$left" ]; then fail "$sw $line: repository files left: $left"; fi
+		if [ "$used" != 0 ] && [ -z "$left" ]; then fail "$sw $line: repository removed while $used line(s) still come from it"; fi
+		[ "$used" = 0 ] && gone=", its repository $repo with it"
+	fi
+	step "$sw $line removed (configuration kept${services:+, service $services gone}$gone)"
+}
+# deny_case SOFTWARE LINE CODE: installing the line is refused with CODE
+# (the data a removed line left) and nothing is installed.
+deny_case() {
+	run_api_job POST "/api/v1/software/$1/install" "{\"line\":\"$2\"}"
+	{ [ "$job_state" = failed ] && [ "$job_error" = "$3" ]; } || fail "$1 $2: install ended $job_state $job_error, not refused with $3"
+	[ "$(offer "$1" "$2" installed)" = False ] || fail "$1 $2: installed although refused"
+	step "$1 $2 refused: $3"
+}
 # check_line SOFTWARE LINE SOURCE SECONDS [ORIGIN]: the line is installed
 # in its exact version (from SOURCE, for a runtime; from ORIGIN when given);
 # prints one step.
@@ -374,6 +437,18 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 		pin_case "${spec%@*}" "${spec#*@}"
 		continue
 		;;
+	rm:*)
+		spec=${c#rm:}
+		remove_case "${spec%@*}" "${spec#*@}"
+		continue
+		;;
+	deny:*)
+		# deny:mariadb@11.8=pkg.data_newer
+		spec=${c#deny:}
+		code=${spec#*=} spec=${spec%%=*}
+		deny_case "${spec%@*}" "${spec#*@}" "$code"
+		continue
+		;;
 	esac
 	if [[ $c == set:* ]]; then
 		# set:a@1,b@2#source: the wizard's way, one probe and one job.
@@ -398,22 +473,5 @@ for c in "${entries[@]::${#entries[@]}-1}"; do
 	check_line "$sw" "$line" "$src" "$(($(date +%s) - t0))" "$origin"
 done
 last=${last%%~*}
-sw=${last%@*} line=${last#*@}
-repo=$(offer "$sw" "$line" repo)
-run_job remove "$sw" "$line"
-[ "$(offer "$sw" "$line" installed)" = False ] || fail "$sw $line still reported installed"
-[ ! -e "/opt/cairn/runtimes/$sw/$line" ] || fail "$sw $line: runtime files left"
-gone=""
-if [ -n "$repo" ]; then
-	# The repository goes once no installed line comes from it.
-	used=$(api "$base/api/v1/software" | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-print(sum(1 for s in d["software"] for o in s["offers"] if o["installed"] and o.get("repo") == sys.argv[1]))' "$repo")
-	left=$(ls /etc/apt/sources.list.d/cairn-"$repo"* /etc/yum.repos.d/cairn-"$repo"* 2>/dev/null || true)
-	if [ "$used" = 0 ] && [ -n "$left" ]; then fail "$sw $line: repository files left: $left"; fi
-	if [ "$used" != 0 ] && [ -z "$left" ]; then fail "$sw $line: repository removed while $used line(s) still come from it"; fi
-	[ "$used" = 0 ] && gone=", its repository $repo with it"
-fi
-step "$sw $line removed (configuration kept$gone)"
+remove_case "${last%@*}" "${last#*@}"
 echo "== PASS: ${PRETTY_NAME}"

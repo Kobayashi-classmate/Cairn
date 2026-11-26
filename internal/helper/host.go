@@ -32,6 +32,9 @@ type Host struct {
 	Root     string
 	Log      *slog.Logger
 	now      func() time.Time
+	// pkgBusy reports the panel's own package work: an operation holding
+	// the package manager, or a transaction still running in its unit.
+	pkgBusy func() bool
 }
 
 const (
@@ -58,6 +61,10 @@ func RegisterHost(r *Registry, o *Ops, h *Host) {
 	Register(r, helperapi.ActionHostTimezone, h.setTimezone)
 	Register(r, helperapi.ActionHostNTP, h.setNTP)
 	Register(r, helperapi.ActionHostSwappiness, h.setSwappiness)
+	h.pkgBusy = func() bool {
+		busy := o.Busy[LockPkg] // set once the helper has its updater
+		return o.Held(LockPkg) || busy != nil && busy()
+	}
 	Register(r, helperapi.ActionHostReboot, h.reboot)
 	RegisterOp(r, o, helperapi.ActionHostSwap, OpSpec[helperapi.SwapRequest]{
 		Locks: func(helperapi.SwapRequest) []string { return []string{"swap"} }, Run: h.setSwap})
@@ -493,6 +500,11 @@ func (h *Host) reboot(ctx context.Context, _ helperapi.Caller, _ helperapi.Empty
 	if !systemdRunning() {
 		return helperapi.RebootResult{}, hostErr(helperapi.CodeHostRebootFailed, map[string]any{"detail": "systemd"})
 	}
+	// A reboot in the middle of a transaction leaves packages half
+	// configured, and the next boot may need them (a kernel, an initramfs).
+	if h.pkgBusy != nil && h.pkgBusy() || pkgLocked(h.Root, h.manager()) {
+		return helperapi.RebootResult{}, hostErr(helperapi.CodeHostRebootBusy, nil)
+	}
 	at := h.clock().Add(5 * time.Second)
 	// A timer of its own, so the answer reaches the panel first.
 	if _, err := queryCommand(ctx, "systemd-run", "--unit=cairn-reboot", "--description=Cairn: reboot", "--on-active=5",
@@ -503,6 +515,34 @@ func (h *Host) reboot(ctx context.Context, _ helperapi.Caller, _ helperapi.Empty
 		h.Log.Warn("reboot requested from the panel")
 	}
 	return helperapi.RebootResult{At: at.Unix()}, nil
+}
+
+// pkgLockFiles are the locks the package manager holds while it changes
+// packages, whoever runs it: apt's and dpkg's, rpm's (EL 10 keeps its
+// database in /usr/lib/sysimage).
+var pkgLockFiles = map[string][]string{
+	"apt": {"/var/lib/dpkg/lock-frontend", "/var/lib/dpkg/lock"},
+	"dnf": {"/var/lib/rpm/.rpm.lock", "/usr/lib/sysimage/rpm/.rpm.lock"},
+}
+
+// pkgLocked reports whether a process holds a lock of the package manager:
+// apt, dpkg or rpm at work, started by the panel or not (unattended
+// upgrades, an administrator). An open file description lock conflicts
+// with the record locks they take, this process's own included.
+func pkgLocked(root, manager string) bool {
+	for _, p := range pkgLockFiles[manager] {
+		f, err := os.OpenFile(filepath.Join(root, p), os.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0) //nolint:gosec // G304: fixed system paths.
+		if err != nil {
+			continue
+		}
+		lk := unix.Flock_t{Type: unix.F_WRLCK, Whence: io.SeekStart}
+		err = unix.FcntlFlock(f.Fd(), unix.F_OFD_GETLK, &lk)
+		_ = f.Close()
+		if err == nil && lk.Type != unix.F_UNLCK {
+			return true
+		}
+	}
+	return false
 }
 
 // Updates -----------------------------------------------------------------

@@ -186,6 +186,8 @@
     "other_line": "这个软件一次只能装一个版本，而另一个版本已经安装。请先卸载它。",
     "other_origin": "这个版本已经从另一个来源安装。要换来源，请先卸载它。",
     "conflicts_with": "这个软件不能和已安装的另一个软件同时安装。",
+    "data_newer": "数据目录上次由更新的版本使用，这个版本读不了其中的数据。未安装任何内容。",
+    "data_other": "数据目录里是另一个产品的数据，这个软件读不了。未安装任何内容。",
     "config_unknown": "此版本没有这个配置文件。",
     "config_changed": "打开后文件已被修改。请重新读取以查看当前内容；直接保存会覆盖它。",
     "config_locked": "这台服务器关闭了配置文件编辑（root 访问设置为“never”）。",
@@ -206,6 +208,8 @@
     "service_no_systemd": "无法控制服务：此系统没有运行 systemd。",
     "service_no_reload": "该服务不支持重新加载配置，请改为重启。",
     "remove_takes": "卸载此版本会同时卸载依赖它的其他已安装软件包，未卸载任何内容。",
+    "remove_incomplete": "此版本的软件包已卸载，但它的服务仍由另一个软件包提供。已保留它的软件源，以便这个服务继续获得更新。",
+    "repair_failed": "之前有一次软件包操作被打断，把它补完时失败了。没有做别的操作，任务日志里有原因。",
     "in_use": "仍有网站在使用此版本，请先把它们切换到其他版本。"
   },
   "module": {
@@ -233,6 +237,8 @@
       "other_line": "已安装 {software} {installed}，它一次只能装一个版本。请先卸载它，再安装 {line}。",
       "other_origin": "{software} {line} 是从 {installed} 安装的。要换来源，请先卸载它。",
       "conflicts_with": "{software} 不能和 {other} 同时安装。",
+      "data_newer": "{path} 上次由 {product} {version} 使用，比 {software} {line} 新：旧版本读不了其中的数据，还可能损坏它。未安装任何内容。请重新安装 {version} 所在的版本线或更新的版本线；或者先备份这个目录，再把它移走，从空目录开始。",
+      "data_other": "{path} 里是 {product} 的数据，{software} 用不了。未安装任何内容。请重新安装 {product}；或者先备份这个目录，再把它移走，从空目录开始。",
       "config_too_large": "文件超过 {size}，无法在这里显示。",
       "config_invalid": "新文件未通过检查（{check}），未做任何更改。",
       "config_apply_failed": "{service} 使用新文件时出错，已还原为原来的文件。",
@@ -247,6 +253,8 @@
       "ext_needed": "卸载它会同时卸载 {packages}（{by} 需要它们），未卸载任何内容。",
       "service_no_reload": "{service} 不支持重新加载配置，请改为重启。",
       "remove_takes": "卸载 {packages} 会同时卸载依赖它们的其他已安装软件包：{by}。未卸载任何内容。",
+      "remove_incomplete": "{software} {line} 的软件包已卸载，但 {packages} 仍然安装着，并提供服务 {units}。已保留它的软件源，以便继续获得更新。请用包管理器卸载 {packages}。",
+      "repair_failed": "之前有一次软件包操作被打断，把它补完（{command}）时失败了：{detail}。没有做别的操作。请在命令行运行 {command} 并查看输出。",
       "in_use": "{software} {line} 仍被以下网站使用：{sites}。请先把它们切换到其他版本。"
     },
     "software": {
@@ -582,7 +590,8 @@
     "swap_no_space": "磁盘剩余空间不足以创建此交换文件。",
     "swap_not_managed": "此交换空间不是面板创建的。",
     "updates_unavailable": "此系统上不能使用自动更新。",
-    "reboot_failed": "无法重启服务器。"
+    "reboot_failed": "无法重启服务器。",
+    "reboot_busy": "没有重启服务器：包管理器正在安装、卸载或更新软件。请等它完成后再重启。"
   },
   "syssrc": {
     "not_eligible": "此软件源没有提供官方的软件包索引。",

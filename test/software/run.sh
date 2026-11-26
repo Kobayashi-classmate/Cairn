@@ -39,6 +39,14 @@ runs=(
 	"ubuntu:24.04|nginx@1.31 cfg:nginx@1.31 mysql@9.7 cfg:mysql@9.7 nginx@1.31"
 	"rockylinux:9|nginx@1.30 cfg:nginx@1.30 redis@8.12 cfg:redis@8.12 pin:redis@8.12 mariadb@12.3 cfg:mariadb@12.3 mariadb@12.3"
 	"almalinux:10|redis@8.10 pin:redis@8.10 mariadb@11.4 cfg:mariadb@11.4 postgresql@19 redis@8.10"
+	# A line whose own package is a metapackage takes the server with it
+	# (Ubuntu's and Oracle's mysql-server, Ubuntu 22.04's mariadb-server and
+	# nginx); the data a removed line leaves keeps an older version and the
+	# other product from starting on it, the same line starts again.
+	"ubuntu:24.04|mysql@8.0 rm:mysql@8.0 deny:mariadb@10.11=pkg.data_other mysql@8.0 mysql@8.0"
+	"debian:trixie|mariadb@12.3 rm:mariadb@12.3 deny:mariadb@11.8=pkg.data_newer deny:mysql@8.4=pkg.data_other mariadb@12.3 mariadb@12.3"
+	"debian:trixie|mysql@8.4 mysql@8.4"
+	"ubuntu:22.04|mariadb@10.6 rm:mariadb@10.6 nginx@1.18 nginx@1.18"
 )
 targets=${SOFTWARE_TARGETS:-"debian:trixie debian:bookworm ubuntu:22.04 ubuntu:24.04 ubuntu:26.04 rockylinux:9 almalinux:10"}
 failed=()

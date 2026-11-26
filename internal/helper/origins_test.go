@@ -243,3 +243,98 @@ companions = ["db-compat", "db-absent"]
 		t.Fatalf("remove: %+v %v\n%s", op.Error, f.cmds, log)
 	}
 }
+
+// metaCatalog has a database whose line's package is a metapackage: the
+// server and its service are in db-server-2.1, which the line names as its
+// companion when withServer is set; and a database whose service is shared
+// by all its lines (Debian's postgresql.service).
+func metaCatalog(t *testing.T, fpr string, withServer bool) *catalog.Catalog {
+	t.Helper()
+	companions := ""
+	if withServer {
+		companions = "companions = [\"db-server-{line}\"]\n"
+	}
+	files := fstest.MapFS{
+		"repos/vend.toml": {Data: []byte(fmt.Sprintf(`id = "vend"
+name = "Vendor"
+official = true
+releases = ["debian-13"]
+[apt]
+uri = "https://repo.vendor.example/{distro}"
+suite = "{codename}"
+components = ["main"]
+key = { url = "https://repo.vendor.example/key.asc", fingerprints = ["%s"] }
+`, fpr))},
+		"software/db.toml": {Data: []byte(`id = "db"
+name = "DB"
+category = "database"
+provides = ["x"]
+lines = [{ version = "2.1" }]
+[[sources]]
+method = "vendor"
+repo = "vend"
+releases = ["debian-13"]
+lines = ["2.1"]
+packages = ["db"]
+` + companions + `services = ["db"]
+`)},
+		"software/pg.toml": {Data: []byte(`id = "pg"
+name = "PG"
+category = "database"
+provides = ["y"]
+lines = [{ version = "16" }]
+[[sources]]
+method = "system"
+releases = ["debian-13"]
+lines = ["16"]
+packages = ["pg-{line}"]
+services = ["pg"]
+`)},
+	}
+	cat, err := catalog.LoadFS(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cat
+}
+
+// Removing a line checks that its service went with it: a server left in
+// a package the line does not name keeps running, and is reported, with
+// its repository kept for its updates.
+func TestRemoveChecksTheServiceIsGone(t *testing.T) {
+	key, fpr := testKey(t, 1)
+	for _, withServer := range []bool{false, true} {
+		f := &fakeSystem{madison: " db | 2.1.9-1 | https://repo.vendor.example/debian trixie/main amd64 Packages\n",
+			owners: map[string]string{"/usr/lib/systemd/system/db.service": "db-server-2.1", "/lib/systemd/system/pg.service": "pg-common"}}
+		f.use(t)
+		s, o, r := softwareFor(t, metaCatalog(t, fpr, withServer), "debian-13", trixie, "apt")
+		s.HTTP = &http.Client{Transport: keyServer{"https://repo.vendor.example/key.asc": key}}
+		op, log := runSoftwareOp(t, o, r, helperapi.ActionPkgInstall, helperapi.SoftwareRequest{Software: "db", Line: "2.1"})
+		if op.State != helperapi.OpSucceeded {
+			t.Fatalf("install: %+v\n%s", op.Error, log)
+		}
+		// What the metapackage brought: the server and its unit.
+		f.installed["db-server-2.1"] = "2.1.9-1"
+		writeSystemFile(t, s.Root, "/usr/lib/systemd/system/db.service", "[Service]\n")
+		op, log = runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "db", Line: "2.1"})
+		repoLeft := fileExists(filepath.Join(s.Root, "etc/apt/sources.list.d/cairn-vend.sources"))
+		if !withServer {
+			if op.State != helperapi.OpFailed || op.Error.Code != "pkg.remove_incomplete" || op.Error.Params["units"] != "db.service" ||
+				op.Error.Params["packages"] != "db-server-2.1" || !repoLeft || !f.ran("apt-get remove -y db") {
+				t.Fatalf("server left: %+v repository kept %v\n%s", op.Error, repoLeft, log)
+			}
+			continue
+		}
+		if op.State != helperapi.OpSucceeded || !f.ran("apt-get remove -y db db-server-2.1") || repoLeft {
+			t.Fatalf("with the server: %+v repository kept %v\n%s", op.Error, repoLeft, log)
+		}
+
+		// A unit all lines share comes from a package of its own version.
+		f.installed["pg-16"], f.installed["pg-common"] = "16.4-1", "283"
+		writeSystemFile(t, s.Root, "/lib/systemd/system/pg.service", "[Service]\n")
+		op, log = runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "pg", Line: "16"})
+		if op.State != helperapi.OpSucceeded || f.installed["pg-common"] == "" {
+			t.Fatalf("shared unit: %+v\n%s", op.Error, log)
+		}
+	}
+}

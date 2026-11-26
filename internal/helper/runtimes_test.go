@@ -63,12 +63,20 @@ func sum512(b []byte) string { s := sha512.Sum512(b); return hex.EncodeToString(
 type providerServer struct {
 	*httptest.Server
 	files map[string][]byte
+	// auth maps a path prefix to the "user:password" its files need.
+	auth map[string]string
 }
 
 func newProviderServer(t *testing.T) *providerServer {
 	t.Helper()
-	p := &providerServer{files: map[string][]byte{}}
+	p := &providerServer{files: map[string][]byte{}, auth: map[string]string{}}
 	p.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for prefix, want := range p.auth {
+			if user, pass, _ := r.BasicAuth(); strings.HasPrefix(r.URL.Path, prefix) && user+":"+pass != want {
+				http.Error(w, "credentials needed", http.StatusUnauthorized)
+				return
+			}
+		}
 		key := r.URL.Path
 		if r.URL.RawQuery != "" {
 			key += "?" + r.URL.RawQuery

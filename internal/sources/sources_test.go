@@ -5,6 +5,7 @@ package sources
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -325,7 +326,37 @@ func TestSameBase(t *testing.T) {
 	if !SameBase("http://deb.debian.org/debian/", "https://deb.debian.org/debian") || SameBase("http://deb.debian.org/debian", "http://deb.debian.org/debian-security") {
 		t.Fatal("SameBase")
 	}
+	// Credentials do not make another source.
+	if !SameBase("https://user:T0ken@mirror.corp/debian/", "https://mirror.corp/debian") || SameBase("https://user@mirror.corp/debian", "https://mirror.corp/ubuntu") {
+		t.Fatal("SameBase with credentials")
+	}
 	if rangeTotal("bytes 0-1023/31234567") != 31234567 || rangeTotal("bytes */0") != 0 || rangeTotal("") != 0 {
 		t.Fatal("rangeTotal")
+	}
+}
+
+func TestWithoutUserinfo(t *testing.T) {
+	for in, want := range map[string]string{
+		"https://user:T0ken@mirror.corp/debian":            "https://mirror.corp/debian",
+		"https://T0ken@mirror.corp:8443/debian/":           "https://mirror.corp:8443/debian/",
+		"http://u:p%40ss@mirror.corp":                      "http://mirror.corp",
+		"https://mirror.corp/a@b/debian":                   "https://mirror.corp/a@b/debian",
+		"https://mirror.corp/rocky/$releasever/BaseOS/os/": "https://mirror.corp/rocky/$releasever/BaseOS/os/",
+		"mirror+file:///etc/apt/mirrors/debian.list":       "mirror+file:///etc/apt/mirrors/debian.list",
+	} {
+		if got := WithoutUserinfo(in); got != want {
+			t.Errorf("%s: %s", in, got)
+		}
+	}
+	var c Candidate
+	if c.SetURL("https://user:T0ken@mirror.corp/debian"); c.URL != "https://mirror.corp/debian" || c.Addr() != "https://user:T0ken@mirror.corp/debian" {
+		t.Fatalf("with credentials: %+v", c)
+	}
+	if c.SetURL("https://mirror.corp/debian"); c.FullURL != "" || c.Addr() != c.URL {
+		t.Fatalf("without: %+v", c)
+	}
+	data, _ := json.Marshal(Candidate{URL: "https://mirror.corp/debian", FullURL: "https://user:T0ken@mirror.corp/debian"})
+	if strings.Contains(string(data), "T0ken") {
+		t.Fatalf("marshalled: %s", data)
 	}
 }
