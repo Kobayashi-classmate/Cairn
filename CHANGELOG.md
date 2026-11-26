@@ -189,3 +189,64 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   Terminals and downloads use one-time tickets, websites never receive
   the panel's cookies, and the panel warns when a site shares its host
   name. A new tab signs in through a tab that is already open.
+- An online update keeps a copy of the panel's database and waits for the
+  new version to start and answer; when it does not, the previous version
+  and its database are put back. An update cut short by a restart or a
+  power cut shows as interrupted, with a way to try again, and the panel
+  refuses to start on a database that a newer version already migrated.
+  Releases are built and tested apart from the step that signs and
+  publishes them, which needs an approval.
+- Files the panel writes for the system, such as `/etc/fstab`, SSH
+  settings, authorized keys and the firewall's rules, are on disk before
+  they replace the old ones, so a power cut cannot leave them empty.
+- The panel serves its self-signed certificate, and says why, when the
+  certificate set for it does not load, and takes only certificates
+  browsers accept from a server (RSA from 2048 bits, P-256, P-384) that
+  are valid now. `sudo cairn reset-panel-cert` goes back to the
+  self-signed one.
+- The firewall shows as off when ufw or firewalld was switched off
+  outside the panel, and the panel never switches its own nftables rules
+  back on without the rollback window.
+- SSH changes and key removals are refused when nobody could log in
+  afterwards, judged by the SSH server's actual configuration and by
+  which passwords are usable. The SSH sign-in history and its
+  notifications take only what the SSH server's own service wrote.
+- Sign-in records stay clean: impossible user names fail like wrong
+  passwords, tried names are recorded shortened, the first-run setup is
+  rate-limited, lockout notices come once per address, and a failed
+  sign-in is recorded even when the client hangs up. Downloads from a URL
+  keep only scheme, host and path in the audit, jobs and logs, URL tasks
+  log only scheme and host, and the audit masks values named like
+  passwords, tokens or secrets.
+- Removing software removes the whole server, not only a metapackage
+  (MySQL from Ubuntu or Oracle, MariaDB 10.6 on Ubuntu 22.04, the
+  system's nginx), and checks that its service is gone. MariaDB and MySQL
+  are not installed on a data directory that a newer version or the other
+  product left. Package transactions are no longer cut off after 30
+  minutes, one left unfinished is completed first, and the server is not
+  restarted while the package manager is busy. Source addresses are shown
+  without the user name and password in them.
+- Database users the panel did not create are changed and removed by
+  administrators only, and the panel never acts on an account with more
+  than single-database rights. A restore first keeps a copy of the
+  database, MySQL dumps restore whichever user made them, a failed MySQL
+  restore goes back to the copy, and PostgreSQL restores are one
+  transaction. Remote access to MySQL works on Ubuntu and is checked
+  after the restart. Creating a user with grants or for other hosts,
+  listing Redis keys and reading Redis values ask for the password again;
+  read-only accounts see how many keys each Redis database holds.
+- Each PHP version has its own socket for a site, so moving a site to
+  another version no longer stops PHP for the sites already on it. Site
+  and layer-4 proxy logs keep being written after the daily rotation.
+  Layer-4 proxies set up without the firewall permission cannot forward
+  to the server's own addresses or to cloud metadata services, and an
+  app can listen only on its own port, which other sites cannot take
+  while it restarts (this needs cgroup v2, the default everywhere
+  supported).
+- Extracting an archive never leaves files writable by group or others,
+  and a move to another file system keeps whatever it could not copy
+  intact where it was. Closing a terminal ends its shell, also one that
+  ignores the hang-up, and a terminal stops after 13 hours at the latest.
+- Reading the whole system journal needs the new `logs.system`
+  permission, held by administrators; `logs.read` covers the panel, the
+  installed software, app sites and tasks that do not run as root.
