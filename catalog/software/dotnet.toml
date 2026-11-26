@@ -5,6 +5,7 @@ id = "dotnet"
 name = ".NET"
 category = "runtime"
 homepage = "https://dotnet.microsoft.com/"
+provides = ["dotnet"]
 
 lines = [
   { version = "10", lts = true, eol = "2028-11-14" },

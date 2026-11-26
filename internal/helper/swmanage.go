@@ -58,28 +58,36 @@ func registerLineActions(r *Registry, o *Ops, s *Software) {
 	Register(r, helperapi.ActionPkgExtStatus, s.extStatus)
 	Register(r, helperapi.ActionPkgConfigRead, s.configRead)
 	RegisterOp(r, o, helperapi.ActionPkgService, OpSpec[helperapi.ServiceRequest]{
-		Locks: func(q helperapi.ServiceRequest) []string { return lineLocks(q.Software, q.Line) }, Run: s.service})
+		Locks: func(q helperapi.ServiceRequest) []string { return s.lineLocks(q.Software, q.Line) }, Run: s.service})
 	RegisterOp(r, o, helperapi.ActionPkgExtApply, OpSpec[helperapi.ExtApplyRequest]{
 		Locks: func(helperapi.ExtApplyRequest) []string { return []string{LockPkg, LockWeb} }, Run: s.extApply})
 	RegisterOp(r, o, helperapi.ActionPkgConfigWrite, OpSpec[helperapi.ConfigWriteRequest]{
-		Locks: func(q helperapi.ConfigWriteRequest) []string { return lineLocks(q.Software, q.Line) }, Run: s.configWrite})
+		Locks: func(q helperapi.ConfigWriteRequest) []string { return s.lineLocks(q.Software, q.Line) }, Run: s.configWrite})
 }
 
 // lineLocks are the locks of the other operations that touch the same
-// services: sites reload nginx and PHP-FPM, databases restart their
-// servers.
-func lineLocks(software, line string) []string {
-	switch software {
-	case "nginx", "php":
+// services: sites reload the web server and PHP-FPM, databases restart
+// their servers.
+func (s *Software) lineLocks(software, line string) []string {
+	sw, ok := s.Catalog.Find(software)
+	switch {
+	case !ok:
+	case sw.ProvidesCap(catalog.CapWebServer), sw.ProvidesCap(catalog.CapPHPFPM):
 		return []string{LockWeb}
-	case "mariadb", "mysql":
+	case sw.ProvidesCap(catalog.CapMySQL):
 		return []string{"db-" + helperapi.DBMySQL}
-	case "postgresql":
+	case sw.ProvidesCap(catalog.CapPostgreSQL):
 		return []string{"db-" + helperapi.DBPostgreSQL + "-" + line}
-	case "redis", "valkey":
+	case sw.ProvidesCap(catalog.CapRedis):
 		return []string{"db-" + helperapi.DBRedis}
 	}
 	return []string{"line-" + software + "-" + line}
+}
+
+// servesSites reports whether sites run on the software: changing its lines
+// must not overlap a site change.
+func servesSites(sw *catalog.Software) bool {
+	return sw.ProvidesCap(catalog.CapWebServer) || sw.ProvidesCap(catalog.CapPHPFPM)
 }
 
 // installedOffer resolves a request to a line that is installed here.
@@ -204,7 +212,7 @@ func (s *Software) unitStates(ctx context.Context, units []string) (map[string]s
 // ("" where the line's source does not build one).
 func extPackages(sw *catalog.Software, o catalog.Offer) map[string]string {
 	out := map[string]string{}
-	for _, e := range sw.Extensions {
+	for _, e := range sw.Extensions() {
 		out[e.ID] = e.ExtensionPackage(o)
 	}
 	return out
@@ -249,7 +257,7 @@ func (s *Software) extStatus(ctx context.Context, _ helperapi.Caller, req helper
 		s.Log.Warn("php modules unavailable", "line", o.Line, "err", err)
 	}
 	st := helperapi.ExtStatus{Extensions: []helperapi.ExtensionInfo{}, Modules: mods}
-	for _, e := range sw.Extensions {
+	for _, e := range sw.Extensions() {
 		info := helperapi.ExtensionInfo{ID: e.ID, Name: e.Name, Modules: e.Modules}
 		p := pkgs[e.ID]
 		info.Installed = p != "" && installed[p] != ""

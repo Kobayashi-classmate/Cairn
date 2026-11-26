@@ -4,6 +4,7 @@ id = "java"
 name = "Java (Eclipse Temurin)"
 category = "runtime"
 homepage = "https://adoptium.net/"
+provides = ["java"]
 
 lines = [
   { version = "25", lts = true },

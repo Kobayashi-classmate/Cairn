@@ -5,6 +5,7 @@ id = "nginx"
 name = "nginx"
 category = "web"
 homepage = "https://nginx.org/"
+provides = ["web-server"]
 
 lines = [
   { version = "1.28" },

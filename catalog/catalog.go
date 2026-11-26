@@ -31,8 +31,21 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-//go:embed software/*.toml repos/*.toml mirrors.toml suites.toml rewrites.toml
+//go:embed index.toml software/*.toml repos/*.toml mirrors.toml suites.toml rewrites.toml
 var files embed.FS
+
+// Format is the index format this panel reads (index.toml). A change that
+// an older panel would misread raises it; such an index is refused.
+const Format = 1
+
+// Index describes the catalog as a whole (index.toml).
+type Index struct {
+	// Format is the index format (Format).
+	Format int `toml:"format"`
+	// Serial numbers the published indexes: an update only ever replaces
+	// an index with one of a higher serial.
+	Serial int64 `toml:"serial"`
+}
 
 // Methods, in order of preference.
 const (
@@ -45,17 +58,48 @@ const (
 // Categories group software in the UI.
 var Categories = []string{"web", "runtime", "database", "cache", "tool"}
 
+// Capabilities the panel itself looks software up by (Provides). Sites,
+// databases and extensions ask for a capability, never for a software ID.
+const (
+	CapWebServer  = "web-server"     // serves the sites (nginx)
+	CapPHPFPM     = "php-fpm"        // runs the PHP of sites
+	CapMySQL      = "mysql-protocol" // MariaDB, MySQL
+	CapPostgreSQL = "postgresql"
+	CapRedis      = "redis-protocol" // Redis, Valkey
+)
+
 // Software is one installable product.
 type Software struct {
-	ID       string   `toml:"id" json:"id"`
-	Name     string   `toml:"name" json:"name"` // product name, not translated
-	Category string   `toml:"category" json:"category"`
-	Homepage string   `toml:"homepage" json:"homepage"`
+	ID       string `toml:"id" json:"id"`
+	Name     string `toml:"name" json:"name"` // product name, not translated
+	Category string `toml:"category" json:"category"`
+	Homepage string `toml:"homepage" json:"homepage"`
+	// Provides lists the capabilities it offers (CapWebServer, ...).
+	Provides []string `toml:"provides" json:"provides"`
 	Lines    []Line   `toml:"lines" json:"-"`
 	Sources  []Source `toml:"sources" json:"-"`
-	// Extensions are the PHP extensions the panel installs and removes
-	// (PHP only); a source's Ext picks their package names.
-	Extensions []Extension `toml:"extensions" json:"-"`
+	// PHP holds what only PHP has.
+	PHP *PHPSoftware `toml:"php" json:"-"`
+}
+
+// PHPSoftware is the PHP part of a software entry.
+type PHPSoftware struct {
+	// Extensions are the PHP extensions the panel installs and removes; a
+	// source's extension family picks their package names.
+	Extensions []Extension `toml:"extensions"`
+}
+
+// Extensions returns the PHP extensions of sw (none for other software).
+func (s *Software) Extensions() []Extension {
+	if s.PHP == nil {
+		return nil
+	}
+	return s.PHP.Extensions
+}
+
+// ProvidesCap reports whether sw offers the capability.
+func (s *Software) ProvidesCap(capability string) bool {
+	return slices.Contains(s.Provides, capability)
 }
 
 // Extension families: how a PHP source names its extension packages.
@@ -157,15 +201,21 @@ type Source struct {
 	Arch []string `toml:"arch"`
 	// Services are the systemd units (templates) started after install.
 	Services []string `toml:"services"`
+	// Configs are the line's editable configuration files.
+	Configs []ConfigFile `toml:"configs"`
+	// PHP holds what only a PHP source has.
+	PHP *PHPSource `toml:"php"`
+}
+
+// PHPSource is the PHP part of a source.
+type PHPSource struct {
 	// FPM describes the line's PHP-FPM (templates), for per-site pools.
 	FPM *FPM `toml:"fpm"`
 	// CLI is the line's command-line PHP (template), which lists the
 	// loaded modules.
 	CLI string `toml:"cli"`
-	// Ext is the extension family of a PHP source (ExtDebian, ...).
+	// Ext is the extension family (ExtDebian, ...).
 	Ext string `toml:"ext"`
-	// Configs are the line's editable configuration files.
-	Configs []ConfigFile `toml:"configs"`
 }
 
 // FPM is where a PHP line's FastCGI process manager keeps its pools.
@@ -244,11 +294,23 @@ type Key struct {
 
 // Catalog is the loaded catalog.
 type Catalog struct {
+	Index    Index
 	Software []Software
 	Repos    map[string]Repo
 	Mirrors  Mirrors
 	Suites   []Suite
 	Rewrites []RewriteRule
+}
+
+// Providing returns the software offering the capability, in catalog order.
+func (c *Catalog) Providing(capability string) []*Software {
+	var out []*Software
+	for i := range c.Software {
+		if c.Software[i].ProvidesCap(capability) {
+			out = append(out, &c.Software[i])
+		}
+	}
+	return out
 }
 
 // Rewrite returns the rewrite rule with id.
@@ -395,12 +457,21 @@ var (
 func Load() (*Catalog, error) { return load(files) }
 
 // LoadFS parses and checks a catalog laid out like the embedded one
-// (software/*.toml, repos/*.toml, optionally mirrors.toml and suites.toml);
-// tests use it.
+// (software/*.toml, repos/*.toml, optionally index.toml, mirrors.toml and
+// suites.toml); tests use it.
 func LoadFS(fsys fs.FS) (*Catalog, error) { return load(fsys) }
 
 func load(fsys fs.FS) (*Catalog, error) {
-	c := &Catalog{Repos: map[string]Repo{}}
+	c := &Catalog{Repos: map[string]Repo{}, Index: Index{Format: Format}}
+	// index.toml is optional in test catalogs.
+	if _, err := fs.Stat(fsys, "index.toml"); err == nil {
+		if err := decode(fsys, "index.toml", &c.Index); err != nil {
+			return nil, err
+		}
+		if c.Index.Format != Format || c.Index.Serial <= 0 {
+			return nil, fmt.Errorf("catalog: index format %d (this panel reads %d) or serial %d", c.Index.Format, Format, c.Index.Serial)
+		}
+	}
 	repoFiles, err := fs.Glob(fsys, "repos/*.toml")
 	if err != nil {
 		return nil, err
@@ -619,6 +690,14 @@ func (c *Catalog) check(s *Software) error {
 	if !idPattern.MatchString(s.ID) || s.Name == "" || !slices.Contains(Categories, s.Category) {
 		return fmt.Errorf("bad id, name or category")
 	}
+	if len(s.Provides) == 0 {
+		return fmt.Errorf("provides nothing")
+	}
+	for i, p := range s.Provides {
+		if !idPattern.MatchString(p) || slices.Contains(s.Provides[:i], p) {
+			return fmt.Errorf("bad or duplicate capability %q", p)
+		}
+	}
 	if len(s.Lines) == 0 {
 		return fmt.Errorf("no version lines")
 	}
@@ -636,12 +715,12 @@ func (c *Catalog) check(s *Software) error {
 		if err := c.checkSource(src, versions); err != nil {
 			return fmt.Errorf("source %d: %w", i, err)
 		}
-		if src.Ext != "" && len(s.Extensions) == 0 {
+		if src.PHP != nil && src.PHP.Ext != "" && len(s.Extensions()) == 0 {
 			return fmt.Errorf("source %d: extension family without extensions", i)
 		}
 	}
 	var extIDs []string
-	for _, e := range s.Extensions {
+	for _, e := range s.Extensions() {
 		if !extPattern.MatchString(e.ID) || e.Name == "" || len(e.Modules) == 0 || slices.Contains(extIDs, e.ID) {
 			return fmt.Errorf("extension %q: bad or duplicate id, or no name or modules", e.ID)
 		}
@@ -724,18 +803,19 @@ func (c *Catalog) checkSource(src Source, versions []string) error {
 	if err := checkConfigs(src); err != nil {
 		return err
 	}
-	if src.Ext != "" && (!slices.Contains(ExtFamilies, src.Ext) || src.CLI == "" || src.FPM == nil) {
-		return fmt.Errorf("extension family %q needs a known family, cli and fpm", src.Ext)
-	}
-	if src.CLI != "" && !strings.HasPrefix(src.CLI, "/") {
-		return fmt.Errorf("cli must be an absolute path")
-	}
-	templates := append(append(slices.Clone(src.Packages), src.Services...), src.Stream, src.CLI)
-	if f := src.FPM; f != nil {
+	templates := append(append(slices.Clone(src.Packages), src.Services...), src.Stream)
+	if p := src.PHP; p != nil {
+		if p.FPM == nil || !strings.HasPrefix(p.CLI, "/") {
+			return fmt.Errorf("php needs fpm and an absolute cli path")
+		}
+		if p.Ext != "" && !slices.Contains(ExtFamilies, p.Ext) {
+			return fmt.Errorf("unknown extension family %q", p.Ext)
+		}
+		f := p.FPM
 		if !strings.HasPrefix(f.PoolDir, "/") || !strings.HasPrefix(f.Binary, "/") || f.Service == "" || !strings.HasPrefix(f.PidFile, "/") || !strings.HasPrefix(f.SocketDir, "/") {
 			return fmt.Errorf("fpm needs absolute paths and a service")
 		}
-		templates = append(templates, f.PoolDir, f.Binary, f.Service, f.PidFile, f.SocketDir)
+		templates = append(templates, p.CLI, f.PoolDir, f.Binary, f.Service, f.PidFile, f.SocketDir)
 	}
 	for _, p := range templates {
 		for _, ph := range placeholder.FindAllString(p, -1) {
@@ -883,10 +963,12 @@ func (sw *Software) Offers(sys System) []Offer {
 			for _, u := range src.Services {
 				o.Services = append(o.Services, expand(u, l.Version))
 			}
-			o.FPM = src.FPM.expand(l.Version)
-			o.CLI = expand(src.CLI, l.Version)
-			o.Ext = src.Ext
-			o.Extensions = src.Ext != "" && len(sw.Extensions) > 0
+			if p := src.PHP; p != nil {
+				o.FPM = p.FPM.expand(l.Version)
+				o.CLI = expand(p.CLI, l.Version)
+				o.Ext = p.Ext
+				o.Extensions = p.Ext != "" && len(sw.Extensions()) > 0
+			}
 			for _, cf := range src.Configs {
 				o.Configs = append(o.Configs, cf.expand(l.Version, o.Services))
 			}

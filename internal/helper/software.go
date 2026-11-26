@@ -93,11 +93,11 @@ func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 	}
 	RegisterOp(r, o, helperapi.ActionPkgInstall, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.install})
 	RegisterOp(r, o, helperapi.ActionPkgInstallSet, OpSpec[helperapi.InstallSetRequest]{Locks: s.setLocks, Run: s.installSet})
-	// Removing nginx or a PHP line changes what sites run on: no site
-	// change may run meanwhile (and see a line that is going away).
+	// Removing the web server or a PHP line changes what sites run on: no
+	// site change may run meanwhile (and see a line that is going away).
 	removeLocks := func(req helperapi.SoftwareRequest) []string {
 		l := locks(req)
-		if req.Software == "nginx" || req.Software == "php" {
+		if sw, ok := s.Catalog.Find(req.Software); ok && servesSites(sw) {
 			l = append(l, LockWeb)
 		}
 		return l
@@ -536,7 +536,7 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 	if len(present) == 0 || !lineMatches(installed[o.Packages[0]], o.Line) {
 		return nil, pkgErr(helperapi.CodePkgNotInstalled, map[string]any{"software": req.Software, "line": req.Line})
 	}
-	if sw.ID == "php" {
+	if sw.ProvidesCap(catalog.CapPHPFPM) {
 		states, err := siteStatesAt(s.Root)
 		if err != nil {
 			return nil, err

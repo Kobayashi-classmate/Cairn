@@ -32,6 +32,7 @@ func sourceCatalog(t *testing.T, p *providerServer) *catalog.Catalog {
 		"software/nodejs.toml": {Data: []byte(`id = "nodejs"
 name = "Node.js"
 category = "runtime"
+provides = ["x"]
 lines = [{ version = "24", lts = true }]
 [[sources]]
 method = "standalone"
@@ -42,6 +43,7 @@ lines = ["24"]
 		"software/nginx.toml": {Data: []byte(`id = "nginx"
 name = "nginx"
 category = "web"
+provides = ["x"]
 lines = [{ version = "1.26" }]
 [[sources]]
 method = "system"
@@ -52,6 +54,7 @@ packages = ["nginx"]
 		"software/kv.toml": {Data: []byte(`id = "kv"
 name = "KV"
 category = "database"
+provides = ["x"]
 lines = [{ version = "7.0" }]
 [[sources]]
 method = "system"
@@ -62,6 +65,7 @@ packages = ["kv-server"]
 		"software/db.toml": {Data: []byte(`id = "db"
 name = "DB"
 category = "database"
+provides = ["x"]
 lines = [{ version = "2.1" }]
 [[sources]]
 method = "vendor"

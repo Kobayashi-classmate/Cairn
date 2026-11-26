@@ -5,6 +5,7 @@ id = "redis"
 name = "Redis"
 category = "cache"
 homepage = "https://redis.io/"
+provides = ["redis-protocol"]
 
 lines = [
   { version = "8.0" },

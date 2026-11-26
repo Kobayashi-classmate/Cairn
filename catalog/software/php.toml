@@ -6,10 +6,13 @@ id = "php"
 name = "PHP"
 category = "runtime"
 homepage = "https://www.php.net/"
+provides = ["php-fpm"]
 
-# fpm: where the line's PHP-FPM keeps its pools, for per-site pools: the
-# Debian layout (system packages, sury, ondrej), EL's own php-fpm, and
-# Remi's software collection layout under /opt/remi.
+# Each source's [sources.php] says where the line's PHP-FPM keeps its pools
+# (fpm, for per-site pools), its command-line PHP (cli) and how its
+# extension packages are named (ext): the Debian layout (system packages,
+# sury, ondrej), EL's own php-fpm, and Remi's software collection layout
+# under /opt/remi.
 lines = [
   { version = "8.5", eol = "2029-12-31" },
   { version = "8.4", eol = "2028-12-31" },
@@ -26,14 +29,15 @@ releases = ["debian-12"]
 lines = ["8.2"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
-fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
-cli = "/usr/bin/php{line}"
-ext = "deb"
 configs = [
   { id = "php.ini", path = "/etc/php/{line}/fpm/php.ini", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php/{line}/fpm/php-fpm.conf", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-cli.ini", path = "/etc/php/{line}/cli/php.ini", check = ["/usr/bin/php{line}", "-v"], apply = "none" },
 ]
+[sources.php]
+cli = "/usr/bin/php{line}"
+ext = "deb"
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -41,14 +45,15 @@ releases = ["debian-13"]
 lines = ["8.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
-fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
-cli = "/usr/bin/php{line}"
-ext = "deb"
 configs = [
   { id = "php.ini", path = "/etc/php/{line}/fpm/php.ini", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php/{line}/fpm/php-fpm.conf", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-cli.ini", path = "/etc/php/{line}/cli/php.ini", check = ["/usr/bin/php{line}", "-v"], apply = "none" },
 ]
+[sources.php]
+cli = "/usr/bin/php{line}"
+ext = "deb"
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -56,14 +61,15 @@ releases = ["ubuntu-22.04"]
 lines = ["8.1"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
-fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
-cli = "/usr/bin/php{line}"
-ext = "deb"
 configs = [
   { id = "php.ini", path = "/etc/php/{line}/fpm/php.ini", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php/{line}/fpm/php-fpm.conf", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-cli.ini", path = "/etc/php/{line}/cli/php.ini", check = ["/usr/bin/php{line}", "-v"], apply = "none" },
 ]
+[sources.php]
+cli = "/usr/bin/php{line}"
+ext = "deb"
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -71,14 +77,15 @@ releases = ["ubuntu-24.04"]
 lines = ["8.3"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
-fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
-cli = "/usr/bin/php{line}"
-ext = "deb"
 configs = [
   { id = "php.ini", path = "/etc/php/{line}/fpm/php.ini", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php/{line}/fpm/php-fpm.conf", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-cli.ini", path = "/etc/php/{line}/cli/php.ini", check = ["/usr/bin/php{line}", "-v"], apply = "none" },
 ]
+[sources.php]
+cli = "/usr/bin/php{line}"
+ext = "deb"
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "system"
@@ -86,17 +93,18 @@ releases = ["ubuntu-26.04"]
 lines = ["8.5"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
-fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
-
-# EL 9: the php:8.3 module stream is the system version; other lines come
-# from Remi's parallel-installable packages instead of further streams.
-cli = "/usr/bin/php{line}"
-ext = "deb"
 configs = [
   { id = "php.ini", path = "/etc/php/{line}/fpm/php.ini", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php/{line}/fpm/php-fpm.conf", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-cli.ini", path = "/etc/php/{line}/cli/php.ini", check = ["/usr/bin/php{line}", "-v"], apply = "none" },
 ]
+[sources.php]
+cli = "/usr/bin/php{line}"
+ext = "deb"
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
+
+# EL 9: the php:8.3 module stream is the system version; other lines come
+# from Remi's parallel-installable packages instead of further streams.
 [[sources]]
 method = "system"
 releases = ["el-9"]
@@ -104,13 +112,14 @@ lines = ["8.3"]
 packages = ["php-fpm", "php-cli"]
 stream = "php:{line}"
 services = ["php-fpm"]
-fpm = { pool_dir = "/etc/php-fpm.d", binary = "/usr/sbin/php-fpm", service = "php-fpm", pid_file = "/run/php-fpm/php-fpm.pid", socket_dir = "/run/php-fpm" }
-cli = "/usr/bin/php"
-ext = "el"
 configs = [
   { id = "php.ini", path = "/etc/php.ini", check = ["/usr/sbin/php-fpm", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php-fpm.conf", check = ["/usr/sbin/php-fpm", "-t"], apply = "reload" },
 ]
+[sources.php]
+cli = "/usr/bin/php"
+ext = "el"
+fpm = { pool_dir = "/etc/php-fpm.d", binary = "/usr/sbin/php-fpm", service = "php-fpm", pid_file = "/run/php-fpm/php-fpm.pid", socket_dir = "/run/php-fpm" }
 
 [[sources]]
 method = "system"
@@ -118,13 +127,14 @@ releases = ["el-10"]
 lines = ["8.3"]
 packages = ["php-fpm", "php-cli"]
 services = ["php-fpm"]
-fpm = { pool_dir = "/etc/php-fpm.d", binary = "/usr/sbin/php-fpm", service = "php-fpm", pid_file = "/run/php-fpm/php-fpm.pid", socket_dir = "/run/php-fpm" }
-cli = "/usr/bin/php"
-ext = "el"
 configs = [
   { id = "php.ini", path = "/etc/php.ini", check = ["/usr/sbin/php-fpm", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php-fpm.conf", check = ["/usr/sbin/php-fpm", "-t"], apply = "reload" },
 ]
+[sources.php]
+cli = "/usr/bin/php"
+ext = "el"
+fpm = { pool_dir = "/etc/php-fpm.d", binary = "/usr/sbin/php-fpm", service = "php-fpm", pid_file = "/run/php-fpm/php-fpm.pid", socket_dir = "/run/php-fpm" }
 
 [[sources]]
 method = "vendor"
@@ -133,14 +143,15 @@ releases = ["debian-12", "debian-13"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
-fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
-cli = "/usr/bin/php{line}"
-ext = "deb"
 configs = [
   { id = "php.ini", path = "/etc/php/{line}/fpm/php.ini", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php/{line}/fpm/php-fpm.conf", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-cli.ini", path = "/etc/php/{line}/cli/php.ini", check = ["/usr/bin/php{line}", "-v"], apply = "none" },
 ]
+[sources.php]
+cli = "/usr/bin/php{line}"
+ext = "deb"
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "vendor"
@@ -149,14 +160,15 @@ releases = ["ubuntu-22.04", "ubuntu-24.04"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line}-fpm", "php{line}-cli"]
 services = ["php{line}-fpm"]
-fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
-cli = "/usr/bin/php{line}"
-ext = "deb"
 configs = [
   { id = "php.ini", path = "/etc/php/{line}/fpm/php.ini", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/php/{line}/fpm/php-fpm.conf", check = ["/usr/sbin/php-fpm{line}", "-t"], apply = "reload" },
   { id = "php-cli.ini", path = "/etc/php/{line}/cli/php.ini", check = ["/usr/bin/php{line}", "-v"], apply = "none" },
 ]
+[sources.php]
+cli = "/usr/bin/php{line}"
+ext = "deb"
+fpm = { pool_dir = "/etc/php/{line}/fpm/pool.d", binary = "/usr/sbin/php-fpm{line}", service = "php{line}-fpm", pid_file = "/run/php/php{line}-fpm.pid", socket_dir = "/run/php" }
 
 [[sources]]
 method = "vendor"
@@ -165,13 +177,14 @@ releases = ["el-9", "el-10"]
 lines = ["8.5", "8.4", "8.3", "8.2", "8.1", "8.0", "7.4"]
 packages = ["php{line_nodot}-php-fpm", "php{line_nodot}-php-cli"]
 services = ["php{line_nodot}-php-fpm"]
-fpm = { pool_dir = "/etc/opt/remi/php{line_nodot}/php-fpm.d", binary = "/opt/remi/php{line_nodot}/root/usr/sbin/php-fpm", service = "php{line_nodot}-php-fpm", pid_file = "/var/opt/remi/php{line_nodot}/run/php-fpm/php-fpm.pid", socket_dir = "/var/opt/remi/php{line_nodot}/run/php-fpm" }
-cli = "/opt/remi/php{line_nodot}/root/usr/bin/php"
-ext = "remi"
 configs = [
   { id = "php.ini", path = "/etc/opt/remi/php{line_nodot}/php.ini", check = ["/opt/remi/php{line_nodot}/root/usr/sbin/php-fpm", "-t"], apply = "reload" },
   { id = "php-fpm.conf", path = "/etc/opt/remi/php{line_nodot}/php-fpm.conf", check = ["/opt/remi/php{line_nodot}/root/usr/sbin/php-fpm", "-t"], apply = "reload" },
 ]
+[sources.php]
+cli = "/opt/remi/php{line_nodot}/root/usr/bin/php"
+ext = "remi"
+fpm = { pool_dir = "/etc/opt/remi/php{line_nodot}/php-fpm.d", binary = "/opt/remi/php{line_nodot}/root/usr/sbin/php-fpm", service = "php{line_nodot}-php-fpm", pid_file = "/var/opt/remi/php{line_nodot}/run/php-fpm/php-fpm.pid", socket_dir = "/var/opt/remi/php{line_nodot}/run/php-fpm" }
 
 # Extensions the panel installs and removes, by extension family: "deb" is
 # Debian and Ubuntu's own PHP and the sury and ondrej builds (all name them
@@ -179,145 +192,145 @@ configs = [
 # Remi's parallel builds. A family without an entry does not build it; an
 # extension that is loaded without a package of its own is built in.
 # Checked against the repositories 2026-11-21: PHP 8.5 has OPcache built in.
-[[extensions]]
+[[php.extensions]]
 id = "opcache"
 name = "OPcache"
 modules = ["zend opcache"]
 packages = { deb = "php{line}-opcache", el = "php-opcache", remi = "php{line_nodot}-php-opcache" }
 
-[[extensions]]
+[[php.extensions]]
 id = "mysql"
 name = "MySQL / MariaDB (mysqli, PDO)"
 modules = ["mysqli", "mysqlnd", "pdo_mysql"]
 packages = { deb = "php{line}-mysql", el = "php-mysqlnd", remi = "php{line_nodot}-php-mysqlnd" }
 
-[[extensions]]
+[[php.extensions]]
 id = "pgsql"
 name = "PostgreSQL (pgsql, PDO)"
 modules = ["pgsql", "pdo_pgsql"]
 packages = { deb = "php{line}-pgsql", el = "php-pgsql", remi = "php{line_nodot}-php-pgsql" }
 
-[[extensions]]
+[[php.extensions]]
 id = "sqlite3"
 name = "SQLite (sqlite3, PDO)"
 modules = ["sqlite3", "pdo_sqlite"]
 packages = { deb = "php{line}-sqlite3", el = "php-pdo", remi = "php{line_nodot}-php-pdo" }
 
-[[extensions]]
+[[php.extensions]]
 id = "redis"
 name = "Redis"
 modules = ["redis"]
 packages = { deb = "php{line}-redis", el = "php-pecl-redis6", remi = "php{line_nodot}-php-pecl-redis6" }
 
-[[extensions]]
+[[php.extensions]]
 id = "memcached"
 name = "Memcached"
 modules = ["memcached"]
 packages = { deb = "php{line}-memcached", remi = "php{line_nodot}-php-pecl-memcached" }
 
-[[extensions]]
+[[php.extensions]]
 id = "mongodb"
 name = "MongoDB"
 modules = ["mongodb"]
 packages = { deb = "php{line}-mongodb", remi = "php{line_nodot}-php-pecl-mongodb2" }
 
-[[extensions]]
+[[php.extensions]]
 id = "apcu"
 name = "APCu"
 modules = ["apcu"]
 packages = { deb = "php{line}-apcu", el = "php-pecl-apcu", remi = "php{line_nodot}-php-pecl-apcu" }
 
-[[extensions]]
+[[php.extensions]]
 id = "igbinary"
 name = "igbinary"
 modules = ["igbinary"]
 packages = { deb = "php{line}-igbinary", remi = "php{line_nodot}-php-pecl-igbinary" }
 
-[[extensions]]
+[[php.extensions]]
 id = "curl"
 name = "cURL"
 modules = ["curl"]
 packages = { deb = "php{line}-curl" }
 
-[[extensions]]
+[[php.extensions]]
 id = "gd"
 name = "GD"
 modules = ["gd"]
 packages = { deb = "php{line}-gd", el = "php-gd", remi = "php{line_nodot}-php-gd" }
 
-[[extensions]]
+[[php.extensions]]
 id = "imagick"
 name = "ImageMagick (imagick)"
 modules = ["imagick"]
 packages = { deb = "php{line}-imagick", remi = "php{line_nodot}-php-pecl-imagick" }
 
-[[extensions]]
+[[php.extensions]]
 id = "mbstring"
 name = "mbstring"
 modules = ["mbstring"]
 packages = { deb = "php{line}-mbstring", el = "php-mbstring", remi = "php{line_nodot}-php-mbstring" }
 
-[[extensions]]
+[[php.extensions]]
 id = "intl"
 name = "intl"
 modules = ["intl"]
 packages = { deb = "php{line}-intl", el = "php-intl", remi = "php{line_nodot}-php-intl" }
 
-[[extensions]]
+[[php.extensions]]
 id = "xml"
 name = "XML (DOM, SimpleXML, XSL)"
 modules = ["dom", "simplexml", "xml", "xmlreader", "xmlwriter", "xsl"]
 packages = { deb = "php{line}-xml", el = "php-xml", remi = "php{line_nodot}-php-xml" }
 
-[[extensions]]
+[[php.extensions]]
 id = "zip"
 name = "Zip"
 modules = ["zip"]
 packages = { deb = "php{line}-zip", el = "php-pecl-zip", remi = "php{line_nodot}-php-pecl-zip" }
 
-[[extensions]]
+[[php.extensions]]
 id = "bz2"
 name = "bzip2"
 modules = ["bz2"]
 packages = { deb = "php{line}-bz2" }
 
-[[extensions]]
+[[php.extensions]]
 id = "bcmath"
 name = "BCMath"
 modules = ["bcmath"]
 packages = { deb = "php{line}-bcmath", el = "php-bcmath", remi = "php{line_nodot}-php-bcmath" }
 
-[[extensions]]
+[[php.extensions]]
 id = "gmp"
 name = "GMP"
 modules = ["gmp"]
 packages = { deb = "php{line}-gmp", el = "php-gmp", remi = "php{line_nodot}-php-gmp" }
 
-[[extensions]]
+[[php.extensions]]
 id = "soap"
 name = "SOAP"
 modules = ["soap"]
 packages = { deb = "php{line}-soap", el = "php-soap", remi = "php{line_nodot}-php-soap" }
 
-[[extensions]]
+[[php.extensions]]
 id = "ldap"
 name = "LDAP"
 modules = ["ldap"]
 packages = { deb = "php{line}-ldap", el = "php-ldap", remi = "php{line_nodot}-php-ldap" }
 
-[[extensions]]
+[[php.extensions]]
 id = "sodium"
 name = "Sodium"
 modules = ["sodium"]
 packages = { remi = "php{line_nodot}-php-sodium" }
 
-[[extensions]]
+[[php.extensions]]
 id = "fileinfo"
 name = "fileinfo"
 modules = ["fileinfo"]
 packages = {}
 
-[[extensions]]
+[[php.extensions]]
 id = "exif"
 name = "EXIF"
 modules = ["exif"]

@@ -336,6 +336,7 @@ prefer = ["db-common"]
 		"software/db.toml": {Data: []byte(`id = "db"
 name = "DB"
 category = "database"
+provides = ["x"]
 lines = [{ version = "2.1" }]
 [[sources]]
 method = "vendor"

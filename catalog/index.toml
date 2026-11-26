@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The software index: what the panel installs, from where, and how it
+# manages it. format is the layout of these files (a panel refuses one it
+# does not know); serial grows with every published index, and an update
+# never replaces an index with one of a lower serial.
+format = 1
+serial = 2026112601

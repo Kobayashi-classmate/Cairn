@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/execx"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 )
@@ -161,15 +162,17 @@ func (d *DBs) engines(ctx context.Context) ([]dbEngine, error) {
 			}
 		}
 	}
-	for _, sw := range []string{"mariadb", "mysql"} {
-		if !slices.ContainsFunc(out, func(e dbEngine) bool { return e.kind == helperapi.DBMySQL }) {
-			add(helperapi.DBMySQL, helperapi.DBMySQL, sw, true)
-		}
-	}
-	add("", helperapi.DBPostgreSQL, "postgresql", true)
-	for _, sw := range []string{"redis", "valkey"} {
-		if !slices.ContainsFunc(out, func(e dbEngine) bool { return e.kind == helperapi.DBRedis }) {
-			add(helperapi.DBRedis, helperapi.DBRedis, sw, true)
+	// One engine of each kind, the first installed in catalog order, except
+	// PostgreSQL, whose lines each have a cluster of their own.
+	for _, k := range []struct{ kind, capability string }{
+		{helperapi.DBMySQL, catalog.CapMySQL}, {helperapi.DBPostgreSQL, catalog.CapPostgreSQL}, {helperapi.DBRedis, catalog.CapRedis},
+	} {
+		for _, sw := range d.Software.Catalog.Providing(k.capability) {
+			if k.kind == helperapi.DBPostgreSQL {
+				add("", k.kind, sw.ID, true)
+			} else if !slices.ContainsFunc(out, func(e dbEngine) bool { return e.kind == k.kind }) {
+				add(k.kind, k.kind, sw.ID, true)
+			}
 		}
 	}
 	return out, nil
@@ -232,9 +235,11 @@ func (d *DBs) Status(ctx context.Context) helperapi.DBStatus {
 	}
 	if d.OnlySoftware != nil {
 		if st, err := d.Software.Status(ctx); err == nil {
-			for _, sw := range []string{"mysql", "postgresql"} {
-				if len(st.Installed[sw]) > 0 && !slices.Contains(d.OnlySoftware, sw) {
-					s.Unmanaged = append(s.Unmanaged, sw)
+			for _, capability := range []string{catalog.CapMySQL, catalog.CapPostgreSQL, catalog.CapRedis} {
+				for _, sw := range d.Software.Catalog.Providing(capability) {
+					if len(st.Installed[sw.ID]) > 0 && !slices.Contains(d.OnlySoftware, sw.ID) {
+						s.Unmanaged = append(s.Unmanaged, sw.ID)
+					}
 				}
 			}
 		}

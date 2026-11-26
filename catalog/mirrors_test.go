@@ -50,6 +50,7 @@ func TestMirrorsRejectBadData(t *testing.T) {
 	base := `id = "x"
 name = "X"
 category = "runtime"
+provides = ["x"]
 lines = [{ version = "1" }]
 [[sources]]
 method = "standalone"

@@ -68,6 +68,16 @@ func TestCatalogLoads(t *testing.T) {
 	if len(c.Software) < 12 {
 		t.Fatalf("only %d entries", len(c.Software))
 	}
+	if c.Index.Format != Format || c.Index.Serial <= 0 {
+		t.Errorf("index: %+v", c.Index)
+	}
+	// What the panel looks up by capability is there, once each where the
+	// code expects one.
+	for cap, want := range map[string]int{CapWebServer: 1, CapPHPFPM: 1, CapMySQL: 2, CapPostgreSQL: 1, CapRedis: 2} {
+		if got := len(c.Providing(cap)); got != want {
+			t.Errorf("%d entries provide %s, want %d", got, cap, want)
+		}
+	}
 	known := platform.Names()
 	for _, sw := range c.Software {
 		for _, src := range sw.Sources {
@@ -298,7 +308,7 @@ func TestRecommendedLineIsInstallable(t *testing.T) {
 
 	// An ended long-term line is not preferred over a newer supported one,
 	// and an ended line is no fallback either.
-	base := "id = \"x\"\nname = \"X\"\ncategory = \"runtime\"\n"
+	base := "id = \"x\"\nname = \"X\"\ncategory = \"runtime\"\nprovides = [\"x\"]\n"
 	source := "[[sources]]\nmethod = \"standalone\"\nprovider = \"x\"\nreleases = [\"*\"]\nlines = [\"3\", \"2\"]\n"
 	for name, tc := range map[string]struct{ lines, want string }{
 		"ended LTS, newer line supported": {`lines = [{ version = "3", eol = "2030-01-01" }, { version = "2", lts = true, eol = "2026-01-01" }]`, "3"},
@@ -364,7 +374,7 @@ func TestSystemSourceComesFirst(t *testing.T) {
 		"repos/r.toml": {Data: []byte("id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"debian-13\"]\n" +
 			"[apt]\nuri = \"https://r.example/\"\nsuite = \"s\"\ncomponents = [\"main\"]\n" +
 			"key = { url = \"https://r.example/key\", fingerprints = [\"B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8\"] }\n")},
-		"software/x.toml": {Data: []byte("id = \"x\"\nname = \"X\"\ncategory = \"runtime\"\nlines = [{ version = \"1\", eol = \"2026-06-30\" }]\n" +
+		"software/x.toml": {Data: []byte("id = \"x\"\nname = \"X\"\ncategory = \"runtime\"\nprovides = [\"x\"]\nlines = [{ version = \"1\", eol = \"2026-06-30\" }]\n" +
 			"[[sources]]\nmethod = \"vendor\"\nrepo = \"r\"\nreleases = [\"debian-13\"]\nlines = [\"1\"]\npackages = [\"x-vendor\"]\n" +
 			"[[sources]]\nmethod = \"system\"\nreleases = [\"debian-13\"]\nlines = [\"1\"]\npackages = [\"x\"]\n")},
 	})
@@ -387,7 +397,7 @@ func TestConfigsAndExtensions(t *testing.T) {
 	}
 	php, _ := c.Find("php")
 	pkg := func(o Offer, ext string) string {
-		for _, e := range php.Extensions {
+		for _, e := range php.Extensions() {
 			if e.ID == ext {
 				return e.ExtensionPackage(o)
 			}
@@ -445,6 +455,7 @@ func TestCatalogRejectsBadData(t *testing.T) {
 	base := `id = "x"
 name = "X"
 category = "runtime"
+provides = ["x"]
 lines = [{ version = "1" }]
 `
 	for name, files := range map[string]map[string]string{
@@ -485,10 +496,24 @@ lines = [{ version = "1" }]
 				"configs = [{ id = \"x.conf\", path = \"/etc/x.conf\", check = [\"x\", \"-t\"], apply = \"reload\" }]\n",
 		},
 		"extension family without extensions": {
-			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"1\"]\npackages = [\"x\"]\next = \"el\"\n",
+			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"1\"]\npackages = [\"x\"]\n[sources.php]\next = \"el\"\n",
+		},
+		"no capability": {
+			"software/x.toml": strings.Replace(base, "provides = [\"x\"]\n", "", 1),
+		},
+		"unknown index format": {
+			"index.toml":      "format = 2\nserial = 1\n",
+			"software/x.toml": base,
+		},
+		"index without a serial": {
+			"index.toml":      "format = 1\n",
+			"software/x.toml": base,
+		},
+		"php part without fpm": {
+			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"1\"]\npackages = [\"x\"]\n[sources.php]\ncli = \"/usr/bin/php\"\n",
 		},
 		"extension with an unknown family": {
-			"software/x.toml": base + "[[extensions]]\nid = \"e\"\nname = \"E\"\nmodules = [\"e\"]\npackages = { apk = \"php-e\" }\n",
+			"software/x.toml": base + "[[php.extensions]]\nid = \"e\"\nname = \"E\"\nmodules = [\"e\"]\npackages = { apk = \"php-e\" }\n",
 		},
 		"repository without install details": {
 			"repos/r.toml":    "id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"el-9\"]\n",

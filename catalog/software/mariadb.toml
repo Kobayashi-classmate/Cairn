@@ -6,6 +6,7 @@ id = "mariadb"
 name = "MariaDB"
 category = "database"
 homepage = "https://mariadb.org/"
+provides = ["mysql-protocol"]
 
 lines = [
   { version = "11.8", lts = true },

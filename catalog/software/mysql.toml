@@ -5,6 +5,7 @@ id = "mysql"
 name = "MySQL"
 category = "database"
 homepage = "https://www.mysql.com/"
+provides = ["mysql-protocol"]
 
 lines = [
   { version = "8.4", lts = true },

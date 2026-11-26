@@ -6,6 +6,7 @@ id = "python"
 name = "Python"
 category = "runtime"
 homepage = "https://www.python.org/"
+provides = ["python"]
 
 lines = [
   { version = "3.14", eol = "2030-10-31" },

@@ -5,6 +5,7 @@ id = "go"
 name = "Go"
 category = "runtime"
 homepage = "https://go.dev/"
+provides = ["go"]
 
 lines = [
   { version = "1.27" },

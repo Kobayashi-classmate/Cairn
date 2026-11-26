@@ -5,6 +5,7 @@ id = "postgresql"
 name = "PostgreSQL"
 category = "database"
 homepage = "https://www.postgresql.org/"
+provides = ["postgresql"]
 
 lines = [
   { version = "18", eol = "2030-11-14" },

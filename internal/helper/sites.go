@@ -141,12 +141,20 @@ func siteDirOf(code string) string {
 	return path.Join(sitesDir, code)
 }
 
+// phpSoftware is the catalog entry that runs the PHP of sites.
+func phpSoftware(c *catalog.Catalog) (*catalog.Software, bool) {
+	if p := c.Providing(catalog.CapPHPFPM); len(p) > 0 {
+		return p[0], true
+	}
+	return nil, false
+}
+
 // phpFPM says where a PHP line's FPM keeps its pools on this system (nil
 // when the catalog has no such line with an FPM here) and whether that FPM
 // is installed. Whether the line can still be installed plays no part: a
 // site stays on an installed line past its upstream support.
 func (st *Sites) phpFPM(line string) (fpm *catalog.FPM, installed bool) {
-	sw, ok := st.Software.Catalog.Find("php")
+	sw, ok := phpSoftware(st.Software.Catalog)
 	if !ok {
 		return nil, false
 	}
@@ -189,7 +197,7 @@ func (st *Sites) Status(_ context.Context) helperapi.SiteStatus {
 		s.Nginx.Installed = true
 	}
 	_, s.Nginx.Running = processAlive(st.path(nginxPidFile))
-	if sw, ok := st.Software.Catalog.Find("php"); ok {
+	if sw, ok := phpSoftware(st.Software.Catalog); ok {
 		for _, o := range sw.Offers(st.Software.system()) {
 			if _, installed := st.phpFPM(o.Line); installed {
 				s.PHP = append(s.PHP, o.Line)

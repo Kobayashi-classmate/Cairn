@@ -5,6 +5,7 @@ id = "valkey"
 name = "Valkey"
 category = "cache"
 homepage = "https://valkey.io/"
+provides = ["redis-protocol"]
 
 lines = [
   { version = "9.0" },

@@ -6,6 +6,7 @@ id = "nodejs"
 name = "Node.js"
 category = "runtime"
 homepage = "https://nodejs.org/"
+provides = ["nodejs"]
 
 lines = [
   { version = "26", lts = true, eol = "2029-04-30" },
