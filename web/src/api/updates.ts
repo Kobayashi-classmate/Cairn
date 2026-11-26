@@ -23,7 +23,11 @@ export interface ReleaseInfo {
   notes: LocalizedText
 }
 
-export type UpdateJobState = 'idle' | 'running' | 'succeeded' | 'failed'
+/**
+ * `interrupted`: the run ended without finishing (the server restarted, or its
+ * unit was stopped); the package manager may need a look before a retry.
+ */
+export type UpdateJobState = 'idle' | 'running' | 'succeeded' | 'failed' | 'interrupted'
 
 export interface UpdateJob {
   state: UpdateJobState
@@ -33,6 +37,7 @@ export interface UpdateJob {
   startedAt: number
   /** Unix seconds. */
   finishedAt: number
+  /** Technical outcome of a failed or interrupted run, in English. */
   error: string
   /** Output of the update run, shown when it fails. */
   log: string

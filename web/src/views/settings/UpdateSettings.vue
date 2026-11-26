@@ -24,13 +24,17 @@ import { formatDate } from '@/i18n/format'
 import { useSessionStore } from '@/stores/session'
 
 // Online update of the panel itself. Installing is not a regular job: the
-// panel restarts while it runs, so this page asks for progress until the
+// panel is stopped while it runs, so this page asks for progress until the
 // new version answers (and gives up after a few minutes of silence).
 
 /** How often to ask for progress while an update runs. */
 const POLL_INTERVAL_MS = 3000
-/** Give up when the panel has not answered for this long (it restarts during updates). */
-const GIVE_UP_MS = 3 * 60_000
+/**
+ * Give up when the panel has not answered for this long. It is stopped while
+ * the package installs, and a version that does not start is given two
+ * minutes before the previous one is installed and started again.
+ */
+const GIVE_UP_MS = 6 * 60_000
 
 const { t, te } = useI18n()
 const session = useSessionStore()
@@ -164,6 +168,11 @@ function channelText(channel: string): string {
   return te(`updates.channel.${channel}`) ? t(`updates.channel.${channel}`) : channel
 }
 
+/** An interrupted update can be tried again unless its version got installed after all. */
+const canRetry = computed(
+  () => canManage.value && job.value?.state === 'interrupted' && !!job.value.version && job.value.version !== status.value?.current,
+)
+
 /** The running panel is newer than the code loaded in this tab. */
 const staleAssets = computed(() => !!status.value && !!session.meta && session.meta.version !== status.value.current)
 
@@ -226,14 +235,18 @@ function reload() {
       {{ restarting ? t('updates.job.restarting') : t('updates.job.running', { version: job?.version || target || '' }) }}
     </div>
     <Card v-else-if="gaveUp" :title="t('updates.job.timeoutTitle')" :level="3">
-      <p class="m-0 mb-3 text-muted-foreground">{{ t('updates.job.timeout') }}</p>
+      <p class="m-0 mb-3 text-muted-foreground">{{ t('updates.job.timeout', { minutes: GIVE_UP_MS / 60_000 }) }}</p>
       <Button variant="outline" size="sm" class="max-md:h-11" @click="startPolling">{{ t('updates.job.checkAgain') }}</Button>
     </Card>
-    <Card v-else-if="job?.state === 'failed'" :level="3">
+    <Card v-else-if="job?.state === 'failed' || job?.state === 'interrupted'" :level="3">
       <template #title>
-        <span class="text-destructive">{{ t('updates.job.failedTitle', { version: job.version }) }}</span>
+        <span class="text-destructive">
+          {{ t(job.state === 'interrupted' ? 'updates.job.interruptedTitle' : 'updates.job.failedTitle', { version: job.version }) }}
+        </span>
       </template>
-      <p class="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]">{{ job.error }}</p>
+      <p v-if="job.state === 'interrupted'" class="m-0 mb-2">{{ t('updates.job.interrupted') }}</p>
+      <!-- The helper's own words (English): the command to check is in them. -->
+      <p class="m-0 whitespace-pre-wrap [overflow-wrap:anywhere]" :class="{ 'text-detail text-muted-foreground': job.state === 'interrupted' }">{{ job.error }}</p>
       <details v-if="job.log" class="group mt-3">
         <summary class="cursor-pointer text-detail font-medium text-link">{{ t('updates.job.log') }}</summary>
         <!-- On the card's background, which the log colours are checked against. -->
@@ -244,6 +257,10 @@ function reload() {
           class="mt-2 max-h-80 overflow-auto rounded-md border bg-card px-3 py-2 font-mono text-xs leading-relaxed"
         />
       </details>
+      <Button v-if="canRetry" variant="outline" size="sm" class="mt-3 max-md:h-11" :disabled="running" @click="askInstall(job.version)">
+        <RefreshCw aria-hidden="true" />
+        {{ t('updates.job.retry', { version: job.version }) }}
+      </Button>
     </Card>
     <Notice v-else-if="succeeded && job" tone="success">
       {{ t('updates.job.succeeded', { version: job.version }) }}

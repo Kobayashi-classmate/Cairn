@@ -11,7 +11,7 @@
   "install": "安装 {version}",
   "confirm": {
     "title": "安装版本 {version}？",
-    "content": "更新期间面板会重启，短时间内无法访问。如果更新失败，会尽可能自动恢复到之前的版本。"
+    "content": "更新期间面板会停止运行，短时间内无法访问。如果新版本装不上或启动不了，会尽可能自动恢复到之前的版本，连同它的数据库。"
   },
   "reason": {
     "dev_build": "这是开发版本，无法在线更新。",
@@ -29,9 +29,12 @@
     "running": "正在安装版本 {version}…",
     "restarting": "面板正在重启…",
     "timeoutTitle": "面板没有恢复响应",
-    "timeout": "3 分钟内没有响应。请检查服务器上的 Cairn 服务，然后重新检查。",
+    "timeout": "{minutes} 分钟内没有响应。请检查服务器上的 Cairn 服务，然后重新检查。",
     "checkAgain": "重新检查",
     "failedTitle": "更新到版本 {version} 失败",
+    "interruptedTitle": "更新到版本 {version} 的过程被中断",
+    "interrupted": "更新在完成之前停止了，例如服务器重启了。重试之前，请在服务器上确认包管理器没有停在半途：Debian 和 Ubuntu 上运行 dpkg --configure -a，Rocky Linux、AlmaLinux 和 RHEL 上运行 dnf check。",
+    "retry": "重新安装 {version}",
     "log": "更新日志",
     "succeeded": "Cairn 已更新到版本 {version}。",
     "reloadHint": "请刷新页面以加载新版本的界面。",

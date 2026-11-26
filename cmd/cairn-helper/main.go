@@ -85,14 +85,17 @@ func main() {
 func runUpdate(args []string, log *slog.Logger) error {
 	set := flag.NewFlagSet("run-update", flag.ExitOnError)
 	dir := set.String("state-dir", stateDir, "helper state directory")
+	cfgPath := set.String("config", config.DefaultPath, "configuration file")
 	file := set.String("file", "", "verified package file to install")
 	version := set.String("version", "", "version being installed")
 	previous := set.String("previous", "", "package file of the running version, for rollback")
+	from := set.String("from", buildinfo.Version, "running version, which a rollback must bring back")
 	_ = set.Parse(args)
 	if os.Geteuid() != 0 || *file == "" {
 		return errors.New("run-update must run as root with --file")
 	}
-	return helper.RunUpdate(*dir, *file, *version, *previous, log)
+	return helper.RunUpdate(helper.UpdateRun{StateDir: *dir, ConfigPath: *cfgPath, File: *file, Version: *version,
+		Previous: *previous, From: *from, Log: log})
 }
 
 // runPkg is the body of cairn-pkg.service, the transient unit the package
@@ -172,6 +175,9 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	// Both hold the package manager outside this process: the panel's own
 	// update, and a transaction an earlier helper process left running.
 	ops.Busy = map[string]func() bool{helper.LockPkg: func() bool { return updater.Running() || helper.PkgUnitBusy() }}
+	// An update a restart ended half-way would otherwise stay "running"
+	// and hold back every update and package operation.
+	updater.Recover()
 	helper.RegisterUpdate(reg, updater)
 
 	l, err := helper.Listen(cfg.Paths.HelperSocket, gid)

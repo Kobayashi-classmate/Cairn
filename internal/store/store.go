@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -43,9 +44,16 @@ func Open(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+// ErrNewerSchema reports a database that a newer version of Cairn has
+// migrated: this program does not know its tables and must not use them.
+var ErrNewerSchema = errors.New("store: the database was migrated by a newer version of Cairn")
+
 // Migrate applies every embedded migration that has not run yet. Migration
 // files are named NNNN_description.sql and run in order, each in its own
-// transaction.
+// transaction. A database that a newer version migrated further than this
+// one knows is refused (ErrNewerSchema) and left as it is: after a
+// downgrade without the database of the time, an older program would
+// otherwise read and write tables whose meaning has changed.
 func Migrate(ctx context.Context, db *sql.DB) error {
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version INTEGER PRIMARY KEY,
@@ -57,18 +65,30 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 	sort.Strings(files)
-	for _, f := range files {
+	versions := make([]int, len(files))
+	known := 0
+	for i, f := range files {
 		base := strings.TrimPrefix(f, "migrations/")
 		num, _, ok := strings.Cut(base, "_")
 		if !ok {
 			return fmt.Errorf("store: bad migration name %s", base)
 		}
-		version, err := strconv.Atoi(num)
-		if err != nil {
+		if versions[i], err = strconv.Atoi(num); err != nil {
 			return fmt.Errorf("store: bad migration version in %s", base)
 		}
-		if err := apply(ctx, db, version, f); err != nil {
-			return fmt.Errorf("store: migration %s: %w", base, err)
+		known = max(known, versions[i])
+	}
+	var applied int
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&applied); err != nil {
+		return err
+	}
+	if applied > known {
+		return fmt.Errorf("%w (schema version %d, this version knows up to %d): install that version again, or put back the database from before it",
+			ErrNewerSchema, applied, known)
+	}
+	for i, f := range files {
+		if err := apply(ctx, db, versions[i], f); err != nil {
+			return fmt.Errorf("store: migration %s: %w", strings.TrimPrefix(f, "migrations/"), err)
 		}
 	}
 	return nil

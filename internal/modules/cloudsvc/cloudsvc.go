@@ -420,7 +420,7 @@ func (m *Module) updates(r *http.Request) updatesResponse {
 // auditFinished records the outcome of an update once, after the fact: the
 // runner works in its own unit and cannot write the panel's audit log.
 func (m *Module) auditFinished(r *http.Request, job helperapi.UpdateJob) {
-	if job.State != "succeeded" && job.State != "failed" {
+	if job.State != "succeeded" && job.State != "failed" && job.State != "interrupted" {
 		return
 	}
 	// Inserting the marker is the check: of concurrent requests, only the
@@ -436,8 +436,11 @@ func (m *Module) auditFinished(r *http.Request, job helperapi.UpdateJob) {
 	}
 	who := modutil.Actor{Username: m.kvGet(r.Context(), "update.requested_by")}
 	result := "ok"
-	if job.State == "failed" {
+	switch job.State {
+	case "failed":
 		result = "update.install_failed"
+	case "interrupted":
+		result = "update.interrupted"
 	}
 	modutil.Audit(r, m.DB, m.Log, who, "update.finish", result, map[string]any{"version": job.Version})
 }

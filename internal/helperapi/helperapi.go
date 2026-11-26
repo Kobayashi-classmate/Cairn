@@ -153,7 +153,7 @@ type UpdateRequest struct {
 
 // UpdateJob describes the last update attempt.
 type UpdateJob struct {
-	State      string `json:"state"` // idle | running | succeeded | failed
+	State      string `json:"state"` // idle | running | succeeded | failed | interrupted (its run ended without finishing)
 	Version    string `json:"version"`
 	StartedAt  int64  `json:"startedAt"`
 	FinishedAt int64  `json:"finishedAt"`

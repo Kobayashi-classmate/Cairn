@@ -146,7 +146,8 @@
     "in_progress": "An update is already running.",
     "verification_failed": "The update package failed signature verification and was not installed.",
     "download_failed": "The update package could not be downloaded.",
-    "install_failed": "The update could not be installed. See the update log in Settings → Updates."
+    "install_failed": "The update could not be installed. See the update log in Settings → Updates.",
+    "interrupted": "The update was interrupted before it finished."
   },
   "job": {
     "not_cancelable": "This task can no longer be canceled.",

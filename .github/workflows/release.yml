@@ -5,6 +5,25 @@
 # the CAIRN_RELEASE_KEY secret, creates the GitHub release and adds it to the
 # signed release index that every panel reads (the "feed" release).
 #
+# The tests and the build run code that is not ours: Go and npm dependencies,
+# their install scripts and tests, the build images. So they run in jobs that
+# can only read the repository and see no secret, each in a checkout of its
+# own: "check", and "build", which hands on nothing but the packages and
+# their checksums. "publish" runs in the "release" environment, the only
+# place the signing key is kept (an environment secret), after the approval
+# that environment asks for. It checks the tag out afresh, so nothing either
+# job could have changed runs there, checks the packages against the
+# checksums the build job reported, and builds and runs only the release
+# tool, which needs nothing but the standard library. The token that can
+# write releases is given to the steps that call gh, never to the signing
+# step, and the checkouts keep no credentials.
+#
+# It relies on these repository settings: an environment named "release"
+# with required reviewers, a deployment rule that admits only v* tags, and
+# CAIRN_RELEASE_KEY as its secret (not as a repository secret, which every
+# workflow of every branch could read); and a tag ruleset that lets only the
+# maintainers create, move or delete v* tags.
+#
 # Release notes are the annotated tag's message. A line "Security: yes" in it
 # marks a release that fixes a security problem; panels then highlight it.
 name: release
@@ -14,23 +33,86 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 # The feed must be updated by one release at a time.
 concurrency:
   group: release
   cancel-in-progress: false
 
+env:
+  GOPROXY: https://proxy.golang.org,direct
+
 jobs:
-  release:
+  check:
     runs-on: ubuntu-24.04
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GOPROXY: https://proxy.golang.org,direct
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check
+        run: make check GOPROXY="$GOPROXY"
+
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      sums: ${{ steps.sums.outputs.sums }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Version
+        id: version
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' ||
+            { echo "::error::tag $GITHUB_REF_NAME is not vX.Y.Z[-pre]"; exit 1; }
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          make web
+          for arch in amd64 arm64; do
+            make go package ARCH=$arch VERSION="$VERSION" GOPROXY="$GOPROXY"
+          done
+
+      # The checksums travel as a job output, apart from the files: whatever
+      # could replace the uploaded files cannot change both.
+      - name: Checksums
+        id: sums
+        working-directory: dist
+        run: |
+          sha256sum cairn_*.deb cairn-*.rpm | tee "$RUNNER_TEMP/packages.sha256"
+          echo "sums=$(base64 -w0 "$RUNNER_TEMP/packages.sha256")" >>"$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: packages
+          path: |
+            dist/cairn_*.deb
+            dist/cairn-*.rpm
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [check, build]
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Version and notes
         id: meta
@@ -38,7 +120,8 @@ jobs:
           version=${GITHUB_REF_NAME#v}
           printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' ||
             { echo "::error::tag $GITHUB_REF_NAME is not vX.Y.Z[-pre]"; exit 1; }
-          # actions/checkout may store the tag as a lightweight one.
+          # actions/checkout may store the tag as a lightweight one. The
+          # repository is public: the fetch needs no credentials.
           git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ] ||
             { echo "::error::use an annotated tag; its message becomes the release notes"; exit 1; }
@@ -54,17 +137,33 @@ jobs:
             echo "prerelease=$prerelease"
           } >>"$GITHUB_OUTPUT"
 
-      - name: Check
-        run: make check GOPROXY="$GOPROXY"
+      - uses: actions/download-artifact@v8
+        with:
+          name: packages
+          path: dist
 
-      - name: Build
+      - name: Check the packages
+        env:
+          SUMS: ${{ needs.build.outputs.sums }}
+          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          make web
-          for arch in amd64 arm64; do
-            make go package ARCH=$arch VERSION=${{ steps.meta.outputs.version }} GOPROXY="$GOPROXY"
+          printf '%s' "$SUMS" | base64 -d >"$RUNNER_TEMP/packages.sha256"
+          # Exactly the four packages of this version, as the Makefile names
+          # them (a pre-release with "~"), and nothing else.
+          v=$(printf '%s' "$VERSION" | sed -E 's/-(alpha|beta|rc)\./~\1./')
+          printf '%s\n' "cairn_$v-1_amd64.deb" "cairn_$v-1_arm64.deb" "cairn-$v-1.x86_64.rpm" "cairn-$v-1.aarch64.rpm" |
+            sort >"$RUNNER_TEMP/expected"
+          awk '{ sub(/^\*/, "", $2); print $2 }' "$RUNNER_TEMP/packages.sha256" | sort >"$RUNNER_TEMP/listed"
+          (cd dist && find . -mindepth 1 -printf '%P\n' | sort) >"$RUNNER_TEMP/present"
+          for f in listed present; do
+            cmp -s "$RUNNER_TEMP/expected" "$RUNNER_TEMP/$f" ||
+              { echo "::error::$f packages differ from the expected ones"; diff "$RUNNER_TEMP/expected" "$RUNNER_TEMP/$f" || true; exit 1; }
           done
+          (cd dist && sha256sum --strict --check "$RUNNER_TEMP/packages.sha256")
 
       - name: Current release index
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p "$RUNNER_TEMP/feed"
           if gh release view feed >/dev/null 2>&1; then
@@ -72,29 +171,39 @@ jobs:
           fi
           ls -l "$RUNNER_TEMP/feed"
 
+      # No token here: the key is the only secret this step sees. scripts/
+      # release.sh comes from this job's checkout and checks the current
+      # index's signature before it adds to it.
       - name: Sign
         env:
           RELEASE_KEY: ${{ secrets.CAIRN_RELEASE_KEY }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          SECURITY: ${{ steps.meta.outputs.security }}
         run: |
-          [ -n "$RELEASE_KEY" ] || { echo "::error::the CAIRN_RELEASE_KEY secret is not set"; exit 1; }
+          [ -n "$RELEASE_KEY" ] || { echo "::error::the CAIRN_RELEASE_KEY secret of the release environment is not set"; exit 1; }
           install -d -m 0700 "$RUNNER_TEMP/key"
           printf '%s\n' "$RELEASE_KEY" >"$RUNNER_TEMP/key/release.key"
           chmod 0600 "$RUNNER_TEMP/key/release.key"
+          unset RELEASE_KEY
           if [ -f "$RUNNER_TEMP/feed/releases.json" ]; then export FEED_IN="$RUNNER_TEMP/feed/releases.json"; fi
           status=0
-          VERSION=${{ steps.meta.outputs.version }} SECURITY=${{ steps.meta.outputs.security }} \
-            NOTES_EN="$RUNNER_TEMP/notes.en" CAIRN_RELEASE_KEY="$RUNNER_TEMP/key/release.key" \
+          NOTES_EN="$RUNNER_TEMP/notes.en" CAIRN_RELEASE_KEY="$RUNNER_TEMP/key/release.key" \
             sh scripts/release.sh || status=$?
           rm -f "$RUNNER_TEMP/key/release.key"
           exit $status
 
       - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ steps.meta.outputs.prerelease }}
         run: |
           set -- --verify-tag --title "Cairn $GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.en"
-          if [ "${{ steps.meta.outputs.prerelease }}" = true ]; then set -- "$@" --prerelease; else set -- "$@" --latest; fi
+          if [ "$PRERELEASE" = true ]; then set -- "$@" --prerelease; else set -- "$@" --latest; fi
           gh release create "$GITHUB_REF_NAME" "$@" dist/release/*
 
       - name: Update the feed
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view feed >/dev/null 2>&1; then
             gh release create feed --prerelease --target "$GITHUB_SHA" --title "Cairn feed" \

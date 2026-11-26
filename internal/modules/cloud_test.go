@@ -152,6 +152,18 @@ func TestCloudMessagesAndUpdates(t *testing.T) {
 	if finished != 1 {
 		t.Fatalf("update.finish audited %d times", finished)
 	}
+	// A later run that a restart cut short is an outcome of its own.
+	e.helper.responses[helperapi.ActionUpdateStatus] = helperapi.UpdateJob{State: "interrupted", Version: "0.2.0", StartedAt: now + 60, FinishedAt: now + 90}
+	for i := 0; i < 2; i++ {
+		if r := admin.expect(admin.do("GET", "/api/v1/updates", nil), 200, ""); r.body["job"].(map[string]any)["state"] != "interrupted" {
+			t.Fatalf("interrupted job not passed on: %v", r.body["job"])
+		}
+	}
+	var interrupted int
+	_ = e.db.QueryRow(`SELECT COUNT(*) FROM audit_log WHERE action = 'update.finish' AND result = 'update.interrupted'`).Scan(&interrupted)
+	if interrupted != 1 {
+		t.Fatalf("interrupted update audited %d times", interrupted)
+	}
 
 	// Helper refusals map to conflict.
 	e.helper.err = &helperapi.Error{Code: helperapi.CodeUpdateInProgress}

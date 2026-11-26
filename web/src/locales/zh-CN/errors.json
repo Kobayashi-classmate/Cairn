@@ -146,7 +146,8 @@
     "in_progress": "已有更新正在进行。",
     "verification_failed": "更新包未通过签名校验，未安装。",
     "download_failed": "无法下载更新包。",
-    "install_failed": "更新安装失败。请在 设置 → 更新 中查看更新日志。"
+    "install_failed": "更新安装失败。请在 设置 → 更新 中查看更新日志。",
+    "interrupted": "更新在完成之前被中断。"
   },
   "job": {
     "not_cancelable": "该任务已无法取消。",

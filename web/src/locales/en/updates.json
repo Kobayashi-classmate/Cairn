@@ -11,7 +11,7 @@
   "install": "Install {version}",
   "confirm": {
     "title": "Install version {version}?",
-    "content": "The panel restarts during the update and is unreachable for a short time. If the update fails, the previous version is restored automatically where possible."
+    "content": "The panel stops during the update and is unreachable for a short time. If the new version does not install or does not start, the previous version is restored automatically where possible, together with its database."
   },
   "reason": {
     "dev_build": "This is a development build, which cannot be updated online.",
@@ -29,9 +29,12 @@
     "running": "Installing version {version}…",
     "restarting": "The panel is restarting…",
     "timeoutTitle": "The panel did not come back",
-    "timeout": "There was no answer for 3 minutes. Check the Cairn service on the server, then check again.",
+    "timeout": "There was no answer for {minutes} minutes. Check the Cairn service on the server, then check again.",
     "checkAgain": "Check again",
     "failedTitle": "The update to version {version} failed",
+    "interruptedTitle": "The update to version {version} was interrupted",
+    "interrupted": "The update stopped before it finished, for example because the server restarted. Before trying again, check on the server that the package manager is not left half-way: on Debian and Ubuntu run dpkg --configure -a, on Rocky Linux, AlmaLinux and RHEL run dnf check.",
+    "retry": "Try {version} again",
     "log": "Update log",
     "succeeded": "Cairn was updated to version {version}.",
     "reloadHint": "Reload the page to load the new version of the interface.",

@@ -215,7 +215,13 @@ func run(cfgPath string, log *slog.Logger) error {
 	}
 
 	go purgeSessions(ctx, db, log)
+	// The database stays open until the requests in flight have ended:
+	// ListenAndServeTLS returns as soon as Shutdown begins, and the deferred
+	// Close would cut off what they still write (an update request records
+	// who asked for it right before the update stops this service).
+	stopped := make(chan struct{})
 	go func() {
+		defer close(stopped)
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 		defer cancel()
@@ -225,6 +231,7 @@ func run(cfgPath string, log *slog.Logger) error {
 	log.Info("cairn-web listening", "addr", cfg.Server.Listen, "version", buildinfo.Version)
 	err = srv.ListenAndServeTLS("", "")
 	if errors.Is(err, http.ErrServerClosed) {
+		<-stopped
 		return nil
 	}
 	return err

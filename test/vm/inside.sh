@@ -314,7 +314,7 @@ code=$(api -o /root/apply.json -w '%{http_code}' -X POST "$base/api/v1/updates/a
 wait_update() {
 	for _ in $(seq 300); do
 		s=$(api "$base/api/v1/updates" 2>/dev/null | sed -n 's/.*"job":{"state":"\([a-z]*\)".*/\1/p' || true)
-		case "$s" in succeeded | failed) echo "$s"; return ;; esac
+		case "$s" in succeeded | failed | interrupted) echo "$s"; return ;; esac
 		sleep 2
 	done
 	echo timeout

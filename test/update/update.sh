@@ -104,7 +104,7 @@ login() {
 wait_job() {
 	for _ in $(seq 300); do
 		s=$(api "$base/api/v1/updates" | sed -n 's/.*"job":{"state":"\([a-z]*\)".*/\1/p')
-		case "$s" in succeeded | failed) echo "$s"; return ;; esac
+		case "$s" in succeeded | failed | interrupted) echo "$s"; return ;; esac
 		sleep 1
 	done
 	echo timeout
