@@ -25,13 +25,13 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
   upstream's newest long-term support one; for PHP, the system's own.
   Versions the server cannot install are listed apart with the reason,
   such as no packages for its processor architecture.
-- nginx, MariaDB, MySQL, Redis and Valkey have one version installed at a
-  time, and MariaDB and MySQL, or Redis and Valkey, are not installed side
-  by side: the other has to be removed first. System updates keep a
-  version from a repository that serves several (Redis, nginx.org) on that
-  version, and a repository is removed with the last version installed
-  from it. Sites and layer-4 proxies work with nginx.org's nginx as with
-  the system's.
+- Only one version each of nginx, MariaDB, MySQL, Redis and Valkey is
+  installed at a time, and MariaDB and MySQL, or Redis and Valkey, are
+  not installed side by side: the other has to be removed first. System
+  updates keep a version from a repository that serves several (Redis,
+  nginx.org) on that version, and a repository is removed with the last
+  version installed from it. Sites and layer-4 proxies work with
+  nginx.org's nginx as with the system's.
 - Download sources probed at install time. The install sheet shows only
   the sources the chosen version comes from. System software can be
   installed from another source that serves the same files as the
