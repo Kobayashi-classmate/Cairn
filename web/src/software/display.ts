@@ -9,6 +9,7 @@ import {
   isEndOfLifeInstalled,
   providerName,
   type Offer,
+  type OfferSource,
   type Repository,
   type SoftwareEntry,
   type UnitState,
@@ -127,6 +128,27 @@ export function sourceText(offer: Offer, repos: ReadonlyMap<string, Repository>)
   }
 }
 
+/** A source of a line in a few words: "System", "MariaDB repository", "nodejs.org". */
+export function originText(source: Pick<OfferSource, 'method' | 'repo' | 'provider'>, repos: ReadonlyMap<string, Repository>): string {
+  return sourceText({ ...source, line: '', recommended: false, lts: false, endOfLife: false, installable: true, installed: false }, repos)
+}
+
+/**
+ * Why no further line of an entry can be installed now, "" when one can:
+ * it has one line at a time and one is installed, or software it conflicts
+ * with is installed.
+ */
+export function blockedText(entry: SoftwareEntry, all: readonly SoftwareEntry[]): string {
+  const { t } = i18n.global
+  const installed = entry.offers.find((offer) => offer.installed)
+  if (entry.single && installed) return t('software.install.blockedLine', { name: entry.name, line: installed.line })
+  for (const id of entry.conflicts ?? []) {
+    const other = all.find((e) => e.id === id)
+    if (other?.offers.some((offer) => offer.installed)) return t('software.install.blockedConflict', { name: entry.name, other: other.name })
+  }
+  return ''
+}
+
 /** Why a line cannot be installed here. */
 export function reasonText(offer: Offer): string {
   const { t, te } = i18n.global
@@ -187,6 +209,7 @@ export function lineFacts(offer: Offer): string {
   }
   if (offer.recommended) parts.push(t('software.recommended'))
   if (offer.lts) parts.push(t('software.lts'))
+  if (offer.mainline) parts.push(t('software.mainline'))
   const support = supportText(offer)
   if (support) parts.push(support)
   return parts.join(' · ')

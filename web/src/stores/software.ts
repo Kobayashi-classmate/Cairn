@@ -58,7 +58,7 @@ export interface ProbeOptions {
 
 /** Cache key of a probe: its lines, each once and sorted, so the order of the items does not matter. */
 function probeKey(items: readonly ProbeItem[]): string {
-  return JSON.stringify([...new Set(items.map((item) => JSON.stringify([item.software, item.line])))].sort())
+  return JSON.stringify([...new Set(items.map((item) => JSON.stringify([item.software, item.line, item.origin ?? ''])))].sort())
 }
 
 export interface RunningSoftwareJob {

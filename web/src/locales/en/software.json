@@ -20,6 +20,7 @@
   "reason": {
     "end_of_life": "Its upstream support has ended, so installing it must be confirmed first.",
     "not_built": "No package is available for this system.",
+    "arch": "No packages for this processor architecture.",
     "unknown": "Not available on this system."
   },
   "advanced": {
@@ -68,7 +69,16 @@
     "sources": "Download sources",
     "policyLabel": "Allowed sources (panel-wide)",
     "checkedAt": "Checked {time}",
-    "installAnyway": "Install anyway"
+    "installAnyway": "Install anyway",
+    "origin": "Source",
+    "originDefault": "Default",
+    "originOfficial": "Official repository",
+    "originApproved": "Approved third-party repository",
+    "originEnded": "No more updates",
+    "originEndedNotice": "{source} no longer updates {name} {line}: installed from there it gets no more security fixes. {other} still maintains this version.",
+    "unavailable": "{count} version not available on this system | {count} versions not available on this system",
+    "blockedLine": "{name} has one version at a time, and {line} is installed. To install another version, or this one from another source, remove it first.",
+    "blockedConflict": "{name} cannot be installed next to {other}, which is installed."
   },
   "policy": {
     "title": "Download sources",
@@ -159,6 +169,7 @@
   "settingsOf": "Settings of {name}",
   "openLine": "{name} {line}, {state}: open its settings",
   "lts": "LTS",
+  "mainline": "Mainline",
   "notInstalled": "Not installed",
   "notAvailable": "Not available here",
   "column": {

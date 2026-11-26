@@ -20,6 +20,7 @@
   "reason": {
     "end_of_life": "上游已停止支持，需要先确认才能安装。",
     "not_built": "没有适用于此系统的软件包。",
+    "arch": "没有适用于这种处理器架构的软件包。",
     "unknown": "此系统上不可用。"
   },
   "advanced": {
@@ -68,7 +69,16 @@
     "sources": "下载来源",
     "policyLabel": "允许的来源（全局设置）",
     "checkedAt": "{time}检测",
-    "installAnyway": "仍然安装"
+    "installAnyway": "仍然安装",
+    "origin": "来源",
+    "originDefault": "默认",
+    "originOfficial": "官方源",
+    "originApproved": "已批准的第三方源",
+    "originEnded": "已停止更新",
+    "originEndedNotice": "{source} 已不再更新 {name} {line}，从这里安装将收不到安全修复。{other} 仍在维护这个版本。",
+    "unavailable": "此系统装不了的版本（{count}）",
+    "blockedLine": "{name} 一次只能装一个版本，已经装了 {line}。要换版本，或换个来源装这个版本，请先卸载它。",
+    "blockedConflict": "{name} 不能和已安装的 {other} 同时安装。"
   },
   "policy": {
     "title": "下载源",
@@ -159,6 +169,7 @@
   "settingsOf": "{name} 的设置",
   "openLine": "{name} {line}，{state}：打开设置",
   "lts": "长期支持",
+  "mainline": "主线版",
   "notInstalled": "未安装",
   "notAvailable": "此系统不可用",
   "column": {

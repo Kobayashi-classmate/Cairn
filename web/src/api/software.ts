@@ -7,6 +7,25 @@ import type { Job } from './jobs'
 
 export type InstallMethod = 'system' | 'vendor' | 'standalone'
 
+/** The origin of a line from the system repositories. */
+export const ORIGIN_SYSTEM = 'system'
+
+/** One of the sources a line can be installed from on this system. */
+export interface OfferSource {
+  /** "system", a vendor repository id or a download provider. */
+  origin: string
+  method: InstallMethod
+  repo?: string
+  provider?: string
+  /**
+   * The line gets no more updates from this source: upstream support
+   * ended, and it is not the distribution's own package.
+   */
+  endOfLife: boolean
+  /** The source used unless another is chosen; listed first. */
+  default: boolean
+}
+
 /** One version line of a software product on this system. */
 export interface Offer {
   /** Version line, for example "8.4". */
@@ -20,6 +39,13 @@ export interface Offer {
   /** Repository id for method "vendor". */
   repo?: string
   provider?: string
+  /**
+   * Which of `sources` this offer describes: the one the line is installed
+   * from, else its default one.
+   */
+  origin?: string
+  /** Every source the line can come from here, the default one first. */
+  sources?: OfferSource[]
   packages?: string[]
   /** Module stream on systems that use them. */
   stream?: string
@@ -29,6 +55,8 @@ export interface Offer {
    */
   recommended: boolean
   lts: boolean
+  /** Upstream's development branch (nginx mainline): never recommended. */
+  mainline?: boolean
   /** End of upstream support, YYYY-MM-DD. */
   eol?: string
   /**
@@ -46,8 +74,10 @@ export interface Offer {
    */
   installable: boolean
   /**
-   * Why the line is not installable: "not_built". ("end_of_life" comes only
-   * as the reason of an install refused for want of `acceptEndOfLife`.)
+   * Why the line is not installable: "not_built" (nobody builds it for this
+   * system) or "arch" (only for other architectures). ("end_of_life" comes
+   * only as the reason of an install refused for want of
+   * `acceptEndOfLife`.)
    */
   reason?: string
   /** systemd units started after installation. */
@@ -106,6 +136,12 @@ export interface SoftwareEntry {
   name: string
   category: string
   homepage: string
+  /** Capabilities it offers ("web-server", "mysql-protocol", ...). */
+  provides: string[]
+  /** One line at a time: another line is installed only once this one is removed. */
+  single: boolean
+  /** Software that cannot be installed next to it. */
+  conflicts?: string[]
   offers: Offer[]
 }
 
@@ -163,8 +199,13 @@ export interface InstallOptions {
    */
   source?: string
   /**
-   * Acknowledges that the line is past its upstream support; without it
-   * such a line is refused with 409 `pkg.not_available`, reason
+   * One of the offer's `sources` (its origin); left out, the line's default
+   * source.
+   */
+  origin?: string
+  /**
+   * Acknowledges that the line gets no more updates from the chosen source;
+   * without it such a line is refused with 409 `pkg.not_available`, reason
    * "end_of_life".
    */
   acceptEndOfLife?: boolean
@@ -172,7 +213,8 @@ export interface InstallOptions {
 
 /** Starts installing a line (`software.manage`); follow the returned job. */
 export async function installSoftware(id: string, line: string, options: InstallOptions = {}): Promise<Job> {
-  const body: { line: string; source?: string; acceptEndOfLife?: boolean } = { line }
+  const body: { line: string; origin?: string; source?: string; acceptEndOfLife?: boolean } = { line }
+  if (options.origin) body.origin = options.origin
   if (options.source) body.source = options.source
   if (options.acceptEndOfLife) body.acceptEndOfLife = true
   return (await api.post<{ job: Job }>(`/software/${encodeURIComponent(id)}/install`, body)).job
@@ -456,6 +498,8 @@ export const SYSTEM_MAIN_SLOT = 'system:main'
 export interface ProbeItem {
   software: string
   line: string
+  /** One of the line's sources; left out, its default one. */
+  origin?: string
 }
 
 /** Most lines one probe can check. */

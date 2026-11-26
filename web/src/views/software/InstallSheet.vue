@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { RefreshCw } from '@lucide/vue'
+import { ChevronRight, RefreshCw } from '@lucide/vue'
 import { isAbortError, isStepUpRequired } from '@/api/client'
 import {
   DOWNLOAD_POLICIES,
@@ -13,6 +13,8 @@ import {
   type DownloadPolicy,
   type LinePlan,
   type Offer,
+  type OfferSource,
+  type ProbeItem,
   type ProbeResult,
 } from '@/api/software'
 import DownloadEstimate from '@/components/DownloadEstimate.vue'
@@ -28,18 +30,22 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useClock } from '@/composables/useClock'
 import { errorMessage } from '@/i18n/errors'
 import { formatBytes, formatWhen } from '@/i18n/format'
-import { categoryText, endOfLifeNotice, lineFacts } from '@/software/display'
+import { blockedText, categoryText, endOfLifeNotice, lineFacts, originText, reasonText } from '@/software/display'
 import { chosenSource, defaultSelection } from '@/software/sources'
 import { useSessionStore } from '@/stores/session'
 import { useSoftwareStore, type CachedProbe } from '@/stores/software'
 
 // "Install <software>" (interface spec, section 6: form sheet with "Will
-// do"): pick the line, see where it would be downloaded from (measured, the
-// recommended source preselected; the choice holds for this installation
-// only) and the exact steps, then install as a job. A probe of the last
-// 10 minutes is shown again when the sheet reopens or the line changes back;
-// "Check again" measures anew. A probe in flight is abandoned when the line
-// changes. A line past its upstream support can be chosen with a warning.
+// do"): pick the line and, where it has several, its source (the system's
+// own packages or the official repository, the default preselected), see
+// where it would be downloaded from (measured, the recommended source
+// preselected; the choice holds for this installation only) and the exact
+// steps, then install as a job. A probe of the last 10 minutes is shown
+// again when the sheet reopens or the line changes back; "Check again"
+// measures anew. A probe in flight is abandoned when the line or source
+// changes. A line, or a source of it, that no longer gets updates can be
+// chosen with a warning. Lines this system cannot install are listed
+// apart, folded, with the reason.
 const { t } = useI18n()
 const store = useSoftwareStore()
 const session = useSessionStore()
@@ -53,6 +59,14 @@ const open = computed({
 const entry = computed(() => (store.installTarget ? store.entry(store.installTarget.software) : null))
 const line = ref('')
 const offer = computed<Offer | null>(() => entry.value?.offers.find((o) => o.line === line.value) ?? null)
+/** The chosen source of the line (an origin of its sources); "" before one is known. */
+const origin = ref('')
+const sources = computed<OfferSource[]>(() => offer.value?.sources ?? [])
+const source = computed<OfferSource | null>(() => sources.value.find((s) => s.origin === origin.value) ?? sources.value[0] ?? null)
+/** The line gets no more updates from the chosen source: installed only after the warning. */
+const ended = computed(() => source.value?.endOfLife ?? offer.value?.endOfLife ?? false)
+/** Why no line can be installed now (another line or conflicting software is installed), "" when one can. */
+const blocked = computed(() => (entry.value ? blockedText(entry.value, store.software) : ''))
 
 const probing = ref(false)
 const result = ref<ProbeResult | null>(null)
@@ -66,8 +80,9 @@ const error = ref<unknown>(null)
 const savingPolicy = ref(false)
 const policyError = ref<unknown>(null)
 let controller: AbortController | null = null
-/** The line the last probe was started for. */
+/** The line and source the last probe was started for. */
 let probedLine = ''
+let probedOrigin = ''
 
 function installable(o: Offer): boolean {
   return isAvailable(o) && !o.installed
@@ -97,13 +112,24 @@ watch(
     policyError.value = null
     void refreshPolicy()
     line.value = firstLine()
+    origin.value = defaultOrigin()
     void probe()
   },
   { immediate: true },
 )
 
+/** The default source of the chosen line. */
+function defaultOrigin(): string {
+  return offer.value?.sources?.[0]?.origin ?? offer.value?.origin ?? ''
+}
+
 watch(line, (value) => {
+  origin.value = defaultOrigin()
   if (open.value && value !== probedLine) void probe()
+})
+
+watch(origin, (value) => {
+  if (open.value && line.value === probedLine && value !== probedOrigin) void probe()
 })
 
 onBeforeUnmount(() => controller?.abort())
@@ -158,9 +184,12 @@ async function probe(force = false) {
   controller?.abort()
   controller = null
   probedLine = line.value
+  probedOrigin = origin.value
   probeError.value = null
   const current = entry.value
-  const items = current && line.value ? [{ software: current.id, line: line.value }] : null
+  const item: ProbeItem | null = current && line.value ? { software: current.id, line: line.value } : null
+  if (item && origin.value && origin.value !== defaultOrigin()) item.origin = origin.value
+  const items = item ? [item] : null
   const kept = items && !force ? store.peekProbe(items) : null
   probing.value = false
   if (kept) {
@@ -193,18 +222,38 @@ const checkedText = computed(() =>
   testedAt.value === null ? '' : t('software.install.checkedAt', { time: formatWhen(Math.floor(testedAt.value / 1000), clock.value) }),
 )
 
+/** Lines this system builds (installed ones shown, not choosable); the others are listed apart. */
 const lineOptions = computed<OptionItem[]>(() =>
-  (entry.value?.offers ?? []).map((o) => ({
-    value: o.line,
-    label: `${entry.value?.name ?? ''} ${o.line}`,
-    hint: lineFacts(o),
-    disabled: !installable(o),
-  })),
+  (entry.value?.offers ?? [])
+    .filter((o) => isAvailable(o) || o.installed)
+    .map((o) => ({
+      value: o.line,
+      label: `${entry.value?.name ?? ''} ${o.line}`,
+      hint: lineFacts(o),
+      disabled: !installable(o) || blocked.value !== '',
+    })),
 )
+
+/** Lines nobody builds for this system, with the reason. */
+const unavailable = computed(() => (entry.value?.offers ?? []).filter((o) => !isAvailable(o) && !o.installed))
+
+const sourceOptions = computed<OptionItem[]>(() =>
+  sources.value.map((s) => {
+    const repo = s.repo ? store.repos.get(s.repo) : undefined
+    const facts: string[] = []
+    if (s.default) facts.push(t('software.install.originDefault'))
+    if (s.method === 'vendor') facts.push(repo?.official ? t('software.install.originOfficial') : t('software.install.originApproved'))
+    if (s.endOfLife) facts.push(t('software.install.originEnded'))
+    return { value: s.origin, label: originText(s, store.repos), hint: facts.join(' · ') }
+  }),
+)
+
+/** The source still updating the line, when the chosen one no longer does. */
+const maintained = computed(() => (ended.value ? (sources.value.find((s) => !s.endOfLife) ?? null) : null))
 
 const names = computed(() => (entry.value ? { [entry.value.id]: entry.value.name } : {}))
 
-const repo = computed(() => (offer.value?.repo ? (store.repos.get(offer.value.repo) ?? null) : null))
+const repo = computed(() => (source.value?.repo ? (store.repos.get(source.value.repo) ?? null) : null))
 
 /** The plan of the chosen line, from the probe. */
 const plan = computed<LinePlan | null>(
@@ -229,6 +278,8 @@ const steps = computed<string[]>(() => {
   const p = plan.value
   const list: string[] = []
   const repoName = (id?: string) => store.repos.get(id ?? '')?.name ?? id ?? ''
+  // Without a plan the catalog's description is that of the default source.
+  if (!p && source.value && !source.value.default) return list
   if (!p) {
     // No plan (the probe failed or has not answered): what the catalog says.
     if (chosen.method === 'standalone') list.push(t('software.steps.downloadLine', { name: current.name, line: chosen.line }))
@@ -274,15 +325,19 @@ const steps = computed<string[]>(() => {
 async function submit() {
   const current = entry.value
   const chosen = offer.value
-  if (!current || !chosen || !installable(chosen)) return
+  if (!current || !chosen || !installable(chosen) || blocked.value) return
   submitting.value = true
   error.value = null
   try {
-    // Runtime and system-method lines use the chosen source; vendor lines their repository.
-    const source = chosenSource(result.value, selection.value, current.id, chosen.line, chosen.method)
-    // An ended line is chosen with the warning in view and "Install anyway": that acknowledges it.
-    const acceptEndOfLife = chosen.endOfLife
-    await store.runJob(() => installSoftware(current.id, chosen.line, { source, acceptEndOfLife }), { rethrow: true })
+    const from = source.value
+    // Runtime and system-method lines use the chosen download source; vendor lines their repository.
+    const download = chosenSource(result.value, selection.value, current.id, chosen.line, from?.method ?? chosen.method)
+    // An ended line or source is chosen with the warning in view and "Install anyway": that acknowledges it.
+    const acceptEndOfLife = ended.value
+    await store.runJob(
+      () => installSoftware(current.id, chosen.line, { origin: from?.origin, source: download, acceptEndOfLife }),
+      { rethrow: true },
+    )
     open.value = false
   } catch (err) {
     if (!isStepUpRequired(err)) error.value = err
@@ -297,19 +352,39 @@ async function submit() {
     v-model:open="open"
     :title="entry ? t('software.install.sheetTitle', { name: entry.name }) : t('software.action.install')"
     :description="entry ? categoryText(entry.category) : undefined"
-    :submit-label="offer?.endOfLife ? t('software.install.installAnyway') : t('software.action.install')"
+    :submit-label="ended ? t('software.install.installAnyway') : t('software.action.install')"
     :submitting="submitting"
-    :submit-disabled="!offer || !installable(offer) || (entry !== null && store.runningFor(entry.id) !== null)"
+    :submit-disabled="!offer || !installable(offer) || blocked !== '' || (entry !== null && store.runningFor(entry.id) !== null)"
     :steps="steps"
     @submit="submit"
   >
     <template v-if="entry">
+      <Notice v-if="blocked" tone="warning">{{ blocked }}</Notice>
       <div class="flex flex-col gap-1.5">
         <span id="install-line-label" class="text-detail font-medium">{{ t('software.install.line') }}</span>
         <OptionGroup v-model="line" :options="lineOptions" aria-labelledby="install-line-label" />
+        <details v-if="unavailable.length > 0" class="group text-detail">
+          <summary
+            class="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden"
+          >
+            <ChevronRight class="size-3.5 transition-transform group-open:rotate-90" aria-hidden="true" />
+            {{ t('software.install.unavailable', { count: unavailable.length }, unavailable.length) }}
+          </summary>
+          <ul class="m-0 mt-1.5 flex list-none flex-col gap-0.5 p-0 ps-5 text-xs text-muted-foreground">
+            <li v-for="o in unavailable" :key="o.line">{{ entry.name }} {{ o.line }} · {{ reasonText(o) }}</li>
+          </ul>
+        </details>
       </div>
 
-      <Notice v-if="offer?.endOfLife" tone="warning">{{ endOfLifeNotice(entry.name, offer) }}</Notice>
+      <div v-if="sources.length > 1" class="flex flex-col gap-1.5">
+        <span id="install-origin-label" class="text-detail font-medium">{{ t('software.install.origin') }}</span>
+        <OptionGroup v-model="origin" :options="sourceOptions" aria-labelledby="install-origin-label" />
+      </div>
+
+      <Notice v-if="ended && maintained" tone="warning">
+        {{ t('software.install.originEndedNotice', { name: entry.name, line: offer?.line ?? '', source: source ? originText(source, store.repos) : '', other: originText(maintained, store.repos) }) }}
+      </Notice>
+      <Notice v-else-if="offer && ended" tone="warning">{{ endOfLifeNotice(entry.name, offer) }}</Notice>
       <p v-if="offer && repo && !repo.official" class="m-0 text-xs text-muted-foreground">
         {{ t('software.advanced.unofficialRepo', { repo: repo.name, software: entry.name }) }}
       </p>
