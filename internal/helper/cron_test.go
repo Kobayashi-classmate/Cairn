@@ -60,7 +60,9 @@ func TestCronShellTasks(t *testing.T) {
 	unit := e.read("/etc/systemd/system/cairn-cron-t0123456789abcde.service")
 	for _, want := range []string{"Type=oneshot", "ExecStartPre=+/usr/lib/cairn/cairn-helper task start t0123456789abcde",
 		"ExecStart=/etc/cairn-cron/t0123456789abcde.sh", "ExecStopPost=+/usr/lib/cairn/cairn-helper task done t0123456789abcde",
-		"User=cw-shop", "WorkingDirectory=/srv/www/shop", "ProtectSystem=strict", "ReadWritePaths=/srv/www/shop", "NoNewPrivileges=yes", "TimeoutStartSec=60min"} {
+		"User=cw-shop", "WorkingDirectory=/srv/www/shop", "ProtectSystem=strict", "ReadWritePaths=/srv/www/shop", "NoNewPrivileges=yes", "TimeoutStartSec=60min",
+		// As a site's owner, it may not listen on a port (an app's among them).
+		"SocketBindDeny=any"} {
 		if !strings.Contains(unit, want) {
 			t.Errorf("service lacks %q:\n%s", want, unit)
 		}
@@ -107,6 +109,9 @@ func TestCronShellTasks(t *testing.T) {
 	spec.User = "alice"
 	if op, _ := e.run(helperapi.ActionCronApply, spec); op.State != helperapi.OpSucceeded {
 		t.Fatalf("alice: %+v", op)
+	}
+	if unit := e.read("/etc/systemd/system/cairn-cron-t0123456789abcde.service"); strings.Contains(unit, "SocketBind") {
+		t.Fatalf("a login user's task:\n%s", unit)
 	}
 	if op, _ := e.run(helperapi.ActionCronRun, helperapi.CronRef{ID: spec.ID}); op.State != helperapi.OpSucceeded || !e.f.ran("systemctl start --no-block cairn-cron-t0123456789abcde.service") {
 		t.Fatalf("run now: %+v", op)

@@ -170,8 +170,50 @@ func TestAppSitesAndStreams(t *testing.T) {
 		}
 	}
 	op.expect(op.do("PUT", "/api/v1/streams/tcp-3307", map[string]any{"protocol": "tcp", "port": 3307, "upstreams": []string{"127.0.0.1:3306"}}), 403, sitesmod.CodeStreamLocalUpstream)
+	// Nor a metadata service, nor an address of one of this host's
+	// interfaces (a database listening on every address, kept from the
+	// network by the firewall).
+	op.expect(op.do("POST", "/api/v1/streams", map[string]any{"code": "local", "protocol": "tcp", "port": 4406, "upstreams": []string{"169.254.169.254:80"}}), 403, sitesmod.CodeStreamMetadataUpstream)
+	if addrs, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range addrs {
+			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && !ipn.IP.IsLinkLocalUnicast() {
+				up := net.JoinHostPort(ipn.IP.String(), "3306")
+				op.expect(op.do("POST", "/api/v1/streams", map[string]any{"code": "local", "protocol": "tcp", "port": 4406, "upstreams": []string{up}}), 403, sitesmod.CodeStreamLocalUpstream)
+			}
+		}
+	}
+	sentStream := func() helperapi.StreamSpec {
+		var s helperapi.StreamSpec
+		_ = json.Unmarshal([]byte(e.helper.sent(helperapi.ActionStreamApply)), &s)
+		return s
+	}
+	// The helper checks the upstreams again unless the caller may forward
+	// anywhere.
 	waitJob(t, op, op.expect(op.do("PUT", "/api/v1/streams/tcp-3307", map[string]any{"protocol": "tcp", "port": 3307, "upstreams": []string{"10.0.0.8:3306"}}), 202, "").obj("job")["id"].(string))
+	if s := sentStream(); s.Code != "tcp-3307" || s.AnyUpstream {
+		t.Fatalf("an operator's stream: %+v", s)
+	}
 	waitJob(t, admin, admin.expect(admin.do("POST", "/api/v1/streams", map[string]any{"code": "local", "protocol": "tcp", "port": 4406, "upstreams": []string{"127.0.0.1:3306"}}), 202, "").obj("job")["id"].(string))
+	if s := sentStream(); s.Code != "local" || !s.AnyUpstream {
+		t.Fatalf("an administrator's stream: %+v", s)
+	}
+	// An operator stops and starts it again as it is.
+	for _, action := range []string{"stop", "start"} {
+		waitJob(t, op, op.expect(op.do("POST", "/api/v1/streams/local/"+action, nil), 202, "").obj("job")["id"].(string))
+	}
+	if s := sentStream(); !s.Enabled || !s.AnyUpstream {
+		t.Fatalf("started again by an operator: %+v", s)
+	}
+	// One saved by an earlier version, which did not record who set its
+	// upstreams: starting it takes the firewall permission.
+	if _, err := e.db.Exec(`UPDATE streams SET spec = ? WHERE code = 'local'`, `{"code":"local","protocol":"tcp","port":4406,"upstreams":["127.0.0.1:3306"],"enabled":false}`); err != nil {
+		t.Fatal(err)
+	}
+	op.expect(op.do("POST", "/api/v1/streams/local/start", nil), 403, sitesmod.CodeStreamLocalUpstream)
+	waitJob(t, admin, admin.expect(admin.do("POST", "/api/v1/streams/local/start", nil), 202, "").obj("job")["id"].(string))
+	if s := sentStream(); !s.Enabled || !s.AnyUpstream {
+		t.Fatalf("started by an administrator: %+v", s)
+	}
 	waitJob(t, admin, admin.expect(admin.do("DELETE", "/api/v1/streams/local", nil), 202, "").obj("job")["id"].(string))
 
 	waitJob(t, admin, admin.expect(admin.do("DELETE", "/api/v1/streams/dns", nil), 202, "").obj("job")["id"].(string))

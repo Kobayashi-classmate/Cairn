@@ -288,6 +288,7 @@
     "stream": {
       "port_taken": "Port {port} is already used by {owner}.",
       "local_upstream": "{upstream} is on this server itself: forwarding to it would make it reachable from the network, which needs the permission to change the firewall.",
+      "metadata_upstream": "{upstream} is a link-local address or a cloud metadata service: forwarding to it would make it reachable from the network, which needs the permission to change the firewall.",
       "upstream_name": "{upstream} is not an IP address written the usual way. Only accounts that may change the firewall can name upstreams by host name, since a name could point to this server.",
       "selinux_port": "A local SELinux rule on this server gives {protocol} port {port} to another service (type {type}); nginx may not listen on it. Choose another port."
     },
@@ -442,7 +443,8 @@
     "port_taken": "The port is already in use.",
     "not_found": "The layer-4 proxy does not exist.",
     "code_taken": "This code is already used by another layer-4 proxy.",
-    "local_upstream": "An upstream on this server itself (a loopback address) needs the permission to change the firewall: the proxy would make it reachable from the network.",
+    "local_upstream": "An upstream on this server itself (a loopback address or one of the server's own addresses) needs the permission to change the firewall: the proxy would make it reachable from the network.",
+    "metadata_upstream": "An upstream at a link-local address or a cloud metadata service needs the permission to change the firewall: the proxy would make it reachable from the network.",
     "port_listening": "Port {port} is already in use: another program on this server listens on it.",
     "upstream_name": "Without the permission to change the firewall, upstreams must be IP addresses written the usual way: a host name could point to this server.",
     "selinux_port": "A local SELinux rule on this server gives this port to another service; nginx may not listen on it. Choose another port."

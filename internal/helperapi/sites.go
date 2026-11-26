@@ -4,10 +4,13 @@ package helperapi
 
 import (
 	"net"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // Site actions. site.apply and site.remove are operations; the others are
@@ -565,6 +568,12 @@ const (
 	// CodeStreamSELinuxPort: SELinux reserves the port for another
 	// service (its type is given), so nginx may not listen on it.
 	CodeStreamSELinuxPort = "stream.selinux_port"
+	// Upstreams a stream may have only with AnyUpstream (CheckUpstreams):
+	// an address of this host; a link-local or cloud metadata address; a
+	// name, or an address not written the canonical way.
+	CodeStreamLocalUpstream    = "stream.local_upstream"
+	CodeStreamMetadataUpstream = "stream.metadata_upstream"
+	CodeStreamUpstreamName     = "stream.upstream_name"
 )
 
 // Stream protocols.
@@ -586,6 +595,39 @@ type StreamSpec struct {
 	// Balance "hash" keeps a client on one upstream; "" is round robin.
 	Balance string `json:"balance,omitempty"`
 	Enabled bool   `json:"enabled"`
+	// AnyUpstream: whoever set the upstreams may change the firewall, and
+	// so forward to anything Validate takes. Without it, the upstreams are
+	// those CheckUpstreams lets through: a stream publishes its upstream
+	// on a public port, and the helper opens the firewall for it.
+	AnyUpstream bool `json:"anyUpstream,omitempty"`
+}
+
+// CheckUpstreams refuses the first upstream that a stream may have only
+// with AnyUpstream: a name, or an address not written the canonical way
+// (nginx resolves names itself, when it loads the configuration, and the
+// system reads a number such as 0x7f.1 as 127.0.0.1); an address of this
+// host (loopback, unspecified, or one of host, the addresses of its
+// interfaces), which would publish a service the firewall keeps from the
+// network; or a link-local or cloud metadata address. Other hosts of a
+// private network pass.
+func CheckUpstreams(upstreams []string, host []netip.Addr) error {
+	for _, u := range upstreams {
+		params := map[string]any{"upstream": u}
+		h, _, err := net.SplitHostPort(u)
+		if err != nil {
+			return &Error{Code: CodeStreamUpstreamName, Params: params}
+		}
+		ip, err := netip.ParseAddr(h)
+		switch {
+		case err != nil || ip.String() != h:
+			return &Error{Code: CodeStreamUpstreamName, Params: params}
+		case netx.IsHost(ip, host):
+			return &Error{Code: CodeStreamLocalUpstream, Params: params}
+		case netx.IsMetadata(ip):
+			return &Error{Code: CodeStreamMetadataUpstream, Params: params}
+		}
+	}
+	return nil
 }
 
 // ValidHostPort reports whether s is "host:port" with a host name, an IPv4

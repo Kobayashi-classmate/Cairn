@@ -140,10 +140,11 @@ func TestStartTerminal(t *testing.T) {
 
 func TestTerminalUnitArgs(t *testing.T) {
 	env := []string{"TERM=xterm-256color", "CAIRN_TERM=1", "LANG=C.UTF-8"}
-	args := strings.Join(TerminalUnitArgs(Terminal{Shell: "/bin/bash", Uid: 1000, Gid: 1001, Home: "/home/a", Env: env},
+	args := strings.Join(TerminalUnitArgs(Terminal{Shell: "/bin/bash", Uid: 1000, Gid: 1001, Home: "/home/a", Env: env, Properties: []string{"SocketBindDeny=any"}},
 		"cairn-term-x", "/dev/pts/7"), " ")
 	// Every entry of the environment reaches the unit as a --setenv.
 	for _, want := range []string{"--unit=cairn-term-x", "--uid=1000 --gid=1001", "--property=TTYPath=/dev/pts/7", "--property=StandardInput=tty",
+		"--property=SocketBindDeny=any",
 		"--setenv=TERM=xterm-256color", "--setenv=CAIRN_TERM=1", "--setenv=LANG=C.UTF-8", "-- /bin/bash -l",
 		// A shell that outlives its terminal ends, at the latest after 13
 		// hours, and stopping the unit hangs it up.

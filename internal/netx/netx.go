@@ -76,6 +76,53 @@ func IsLocal(ip netip.Addr) bool {
 	return ip.IsLoopback() || ip.IsUnspecified() || thisNetwork.Contains(ip)
 }
 
+// IsHost reports whether ip reaches this host: IsLocal, or one of own, the
+// addresses of its network interfaces (HostAddrs), also inside an IPv6
+// transition address.
+func IsHost(ip netip.Addr, own []netip.Addr) bool {
+	if IsLocal(ip) {
+		return true
+	}
+	ip = ip.Unmap().WithZone("")
+	candidates := []netip.Addr{ip}
+	if v4, ok := embedded(ip); ok {
+		candidates = append(candidates, v4)
+	}
+	for _, a := range own {
+		a = a.Unmap().WithZone("")
+		for _, c := range candidates {
+			if a == c {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// HostAddrs returns the addresses of this host's network interfaces. They
+// change (DHCP, an address added later): a check against them holds for
+// the moment it is made.
+func HostAddrs() ([]netip.Addr, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	var out []netip.Addr
+	for _, a := range addrs {
+		var ip net.IP
+		switch v := a.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if addr, ok := netip.AddrFromSlice(ip); ok {
+			out = append(out, addr.Unmap())
+		}
+	}
+	return out, nil
+}
+
 // IsMetadata reports whether ip is link-local (where most cloud metadata
 // services answer, 169.254.169.254 among them) or a well-known metadata
 // address outside those ranges.

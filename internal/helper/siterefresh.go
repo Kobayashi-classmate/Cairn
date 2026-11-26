@@ -11,6 +11,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
@@ -50,11 +51,46 @@ func (st *Sites) Refresh(ctx context.Context, logger *slog.Logger) {
 	if _, err := os.Stat(st.path(nginxBinary)); err != nil {
 		return
 	}
+	// The logs' directory of an earlier version kept nginx's workers out.
+	if _, err := os.Lstat(st.path(nginxLogDir)); err == nil {
+		if err := st.ensureLogDir(); err != nil {
+			logger.Warn("site refresh: the log directory could not be put right", "err", err)
+		}
+	}
+	// The PHP-FPM services of an earlier version could take the apps'
+	// ports.
+	var out bytes.Buffer
+	err := st.applyFPMPorts(ctx, &out)
+	logLines(logger, slog.LevelInfo, "site refresh", "", out.String())
+	if err != nil {
+		logger.Warn("site refresh: keeping PHP off the apps' ports failed", "err", err)
+	}
 	st.refreshStreamTop(ctx, logger)
+	if !st.refreshSites(ctx, logger) {
+		return
+	}
+	// Pools moved to the socket this version names kept their earlier one
+	// for the nginx that was still running; once nginx has reloaded, a
+	// second pass writes them without it.
+	select {
+	case <-ctx.Done():
+	case <-time.After(bridgeSettle):
+		st.refreshSites(ctx, logger)
+	}
+}
+
+// bridgeSettle is how long the refresh leaves a pool on its earlier socket
+// after reloading nginx: systemctl and the reload signal return before
+// nginx's new workers take over. Tests set it to 0.
+var bridgeSettle = 5 * time.Second
+
+// refreshSites is one pass of Refresh over the sites; it reports whether a
+// pool was written with the socket of an earlier version as well.
+func (st *Sites) refreshSites(ctx context.Context, logger *slog.Logger) (bridged bool) {
 	states, err := st.states()
 	if err != nil {
 		logger.Warn("site refresh: reading the applied sites failed", "err", err)
-		return
+		return false
 	}
 	codes := make([]string, 0, len(states))
 	for c := range states {
@@ -73,6 +109,7 @@ func (st *Sites) Refresh(ctx context.Context, logger *slog.Logger) {
 			continue
 		}
 		sites = append(sites, sf)
+		bridged = bridged || sf.bridged
 	}
 	var out bytes.Buffer
 	var reloaded []string
@@ -89,15 +126,31 @@ func (st *Sites) Refresh(ctx context.Context, logger *slog.Logger) {
 		}
 		logLines(logger, slog.LevelInfo, "site refresh", "", out.String())
 	}()
+	// systemd takes up the apps' rewritten units: a running app keeps its
+	// process, which is not restarted for this.
+	units := false
+	defer func() {
+		if !units || !systemdRunning() {
+			return
+		}
+		var b bytes.Buffer
+		if err := runCommand(ctx, &b, "systemctl", "daemon-reload"); err != nil {
+			logger.Warn("site refresh: reloading systemd after the apps' units changed failed", "err", err)
+		}
+		logLines(logger, slog.LevelInfo, "site refresh", "", b.String())
+	}()
 	if len(sites) == 0 {
-		return
+		return false
 	}
 	changes, checks, reloads := mergeSiteFiles(sites...)
 	done, err := st.transact(ctx, &out, changes, checks, reloads)
 	if err == nil {
 		reloaded = done
+		for _, sf := range sites {
+			units = units || sf.units
+		}
 		logLines(logger, slog.LevelInfo, "site refresh", "", out.String())
-		return
+		return bridged
 	}
 	logLines(logger, slog.LevelWarn, "site refresh", "", out.String())
 	for _, sf := range sites {
@@ -105,6 +158,7 @@ func (st *Sites) Refresh(ctx context.Context, logger *slog.Logger) {
 		changes, checks, reloads := mergeSiteFiles(sf)
 		done, err := st.transact(ctx, &out, changes, checks, reloads)
 		reloaded = append(reloaded, done...)
+		units = units || (err == nil && sf.units)
 		level := slog.LevelInfo
 		if err != nil {
 			level = slog.LevelWarn
@@ -114,6 +168,7 @@ func (st *Sites) Refresh(ctx context.Context, logger *slog.Logger) {
 			logger.Warn("site refresh: the site keeps its previous configuration", "site", sf.code, "err", err)
 		}
 	}
+	return bridged
 }
 
 // siteFiles is one site's part of a refresh.
@@ -121,9 +176,14 @@ type siteFiles struct {
 	code string
 	// regrouped: nginx's membership of the site's group changed.
 	regrouped bool
-	changes   []fileChange
-	checks    []configCheck
-	reloads   []reloader
+	// bridged: the pool keeps the socket of an earlier version as well
+	// (poolBridge).
+	bridged bool
+	// units: an app's unit or environment file changes.
+	units   bool
+	changes []fileChange
+	checks  []configCheck
+	reloads []reloader
 }
 
 // refreshFiles renders a site's files as apply would, after giving nginx
@@ -149,7 +209,12 @@ func (st *Sites) refreshFiles(ctx context.Context, log io.Writer, spec helperapi
 		}
 		fpm = f
 	}
-	conf, pool, err := st.render(spec, fpm)
+	bridge := ""
+	if fpm != nil {
+		bridge = st.poolBridge(fpm, spec)
+	}
+	sf.bridged = bridge != ""
+	conf, pool, err := st.render(spec, fpm, bridge)
 	if err != nil {
 		return sf, err
 	}
@@ -162,7 +227,22 @@ func (st *Sites) refreshFiles(ctx context.Context, log io.Writer, spec helperapi
 	if fpm != nil {
 		sf.changes = append(sf.changes, fileChange{path: poolPath(fpm, spec.Code), data: pool})
 		sf.checks = append(sf.checks, fpmCheck(fpm))
-		sf.reloads = append(sf.reloads, fpmReload(fpm))
+		sf.reloads = append(sf.reloads, fpmReload(fpm, socketPath(fpm, spec.PHP, spec.Code)))
+	}
+	if spec.Type == helperapi.SiteApp {
+		// An app's unit as well: its confinement is what an upgrade may
+		// have changed (it reaches the process when the app next starts).
+		files, checks, err := st.appChanges(spec, false)
+		if err != nil {
+			return sf, err
+		}
+		for _, f := range files {
+			if old, err := os.ReadFile(st.path(f.path)); err != nil || !bytes.Equal(old, f.data) { //nolint:gosec // G304: built from a validated site code.
+				sf.units = true
+			}
+		}
+		sf.changes = append(sf.changes, files...)
+		sf.checks = append(sf.checks, checks...)
 	}
 	sf.checks = append(sf.checks, st.nginxCheck())
 	sf.reloads = append(sf.reloads, st.nginxReload())
@@ -175,7 +255,8 @@ func mergeSiteFiles(sites ...siteFiles) ([]fileChange, []configCheck, []reloader
 	var changes []fileChange
 	var checks []configCheck
 	var fpms, nginx []reloader
-	seenCheck, seenReload, seenFile := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	seenCheck, seenFile := map[string]bool{}, map[string]bool{}
+	seenReload := map[string]int{} // PHP-FPM service -> its index in fpms
 	for _, sf := range sites {
 		for _, c := range sf.changes {
 			// The panel-wide file is every site's.
@@ -185,21 +266,29 @@ func mergeSiteFiles(sites ...siteFiles) ([]fileChange, []configCheck, []reloader
 			}
 		}
 		for _, c := range sf.checks {
-			if !seenCheck[c.name] {
-				seenCheck[c.name] = true
+			// One check of each service; each app's unit is checked.
+			key := c.name + " " + strings.Join(c.argv, " ")
+			if !seenCheck[key] {
+				seenCheck[key] = true
 				checks = append(checks, c)
 			}
 		}
 		for _, r := range sf.reloads {
-			if seenReload[r.name] {
+			if r.name == "nginx" {
+				if len(nginx) == 0 {
+					nginx = append(nginx, r)
+				}
 				continue
 			}
-			seenReload[r.name] = true
-			if r.name == "nginx" {
-				nginx = append(nginx, r)
-			} else {
-				fpms = append(fpms, r)
+			// One reload of a line's PHP-FPM, waiting for every site's
+			// socket.
+			if i, ok := seenReload[r.name]; ok {
+				fpms[i].listen = append(fpms[i].listen, r.listen...)
+				continue
 			}
+			seenReload[r.name] = len(fpms)
+			r.listen = append([]string(nil), r.listen...)
+			fpms = append(fpms, r)
 		}
 	}
 	// nginx is checked last too, as apply does.

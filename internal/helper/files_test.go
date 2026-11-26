@@ -520,8 +520,9 @@ func TestTerminalUsers(t *testing.T) {
 
 func TestTerminalUnitsUnderSystemd(t *testing.T) {
 	e := newFilesEnv(t)
-	e.put("/etc/passwd", "alice:x:1000:1000:Alice:/home/alice:/bin/sh\n")
+	e.put("/etc/passwd", "alice:x:1000:1000:Alice:/home/alice:/bin/sh\ncw-shop:x:997:997::/srv/www/shop:/usr/sbin/nologin\n")
 	e.put("/bin/sh", "#!binary")
+	e.put("/srv/www/shop/app/index.html", "")
 	oldSystemd, oldUnit, oldQuery := systemdRunning, startTerminalUnit, queryCommand
 	t.Cleanup(func() { systemdRunning, startTerminalUnit, queryCommand = oldSystemd, oldUnit, oldQuery })
 	systemdRunning = func() bool { return true }
@@ -533,10 +534,10 @@ func TestTerminalUnitsUnderSystemd(t *testing.T) {
 		return running, nil
 	}
 	var unit string
-	var env []string
+	var env, props []string
 	startTerminalUnit = func(_ context.Context, term execx.Terminal, u string) (*os.File, error) {
-		unit, env = u, term.Env
-		if term.Uid != 1000 || term.Shell != "/bin/sh" {
+		unit, env, props = u, term.Env, term.Properties
+		if (term.Uid != 1000 && term.Uid != 997) || term.Shell != "/bin/sh" {
 			t.Errorf("terminal %+v", term)
 		}
 		r, _, err := os.Pipe()
@@ -550,8 +551,17 @@ func TestTerminalUnitsUnderSystemd(t *testing.T) {
 		t.Fatalf("open %+v %v", s, err)
 	}
 	_ = f.Close()
-	if got := strings.Join(env, " "); !strings.Contains(got, "CAIRN_TERM=1") || !strings.Contains(got, "LANG=C.UTF-8") {
-		t.Fatalf("environment %q", env)
+	if got := strings.Join(env, " "); !strings.Contains(got, "CAIRN_TERM=1") || !strings.Contains(got, "LANG=C.UTF-8") || len(props) != 0 {
+		t.Fatalf("environment %q, properties %q", env, props)
+	}
+	// A site's owner may not listen on a port (an app's among them).
+	if _, f, err := e.f.termOpen(context.Background(), helperapi.Caller{}, helperapi.TermOpenRequest{User: "cw-shop", Cols: 80, Rows: 24}); err != nil {
+		t.Fatal(err)
+	} else {
+		_ = f.Close()
+	}
+	if strings.Join(props, " ") != "SocketBindDeny=any" {
+		t.Fatalf("a site owner's terminal: properties %q", props)
 	}
 	// The system's own UTF-8 locale is kept.
 	t.Setenv("LANG", "zh_CN.UTF-8")

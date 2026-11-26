@@ -3,12 +3,16 @@
 package helper
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
@@ -63,12 +67,19 @@ func newSiteEnv(t *testing.T) *siteEnv {
 		return uid, gid, nil
 	}
 	lookupGroup = func(name string) (int, error) {
+		// The groups of nginx's workers come with nginx.
+		if name == "www-data" || name == "nginx" {
+			return gid, nil
+		}
 		if !exists("groupadd", "groupdel", name) {
 			return 0, os.ErrNotExist
 		}
 		return gid, nil
 	}
 	processAlive = func(string) (int, bool) { return 0, false }
+	// No PHP-FPM runs: its sockets are there as soon as it reloads.
+	oldWait := waitListening
+	waitListening = func(context.Context, []string, time.Duration) error { return nil }
 	// nginx is in a group from its usermod until its gpasswd --delete.
 	oldMember := groupHasMember
 	groupHasMember = func(_, group, user string) (bool, error) {
@@ -85,7 +96,9 @@ func newSiteEnv(t *testing.T) *siteEnv {
 		}
 		return in, nil
 	}
-	t.Cleanup(func() { lookupUser, lookupGroup, processAlive, groupHasMember = oldUser, oldGroup, oldAlive, oldMember })
+	t.Cleanup(func() {
+		lookupUser, lookupGroup, processAlive, groupHasMember, waitListening = oldUser, oldGroup, oldAlive, oldMember, oldWait
+	})
 	return &siteEnv{t: t, f: f, st: st, o: o, r: r}
 }
 
@@ -128,7 +141,7 @@ func TestSiteApplyPHPSite(t *testing.T) {
 		"root /srv/www/blog/app;",
 		"index index.php index.html index.htm;",
 		"try_files $uri $uri/ /index.php?$args;",
-		"fastcgi_pass unix:/run/php/cairn-blog.sock;",
+		"fastcgi_pass unix:/run/php/cairn-blog-php8.4.sock;",
 		"access_log /var/log/nginx/cairn/blog.access.log cairn_json;",
 		"disable_symlinks if_not_owner from=/srv/www/blog/app;",
 	} {
@@ -141,7 +154,7 @@ func TestSiteApplyPHPSite(t *testing.T) {
 	}
 	pool := e.read("/etc/php/8.4/fpm/pool.d/cairn-blog.conf")
 	for _, want := range []string{"[cairn-blog]", "user = cw-blog-run", "group = cw-blog", "listen.owner = www-data",
-		"php_admin_value[open_basedir] = /srv/www/blog/", "listen = /run/php/cairn-blog.sock",
+		"php_admin_value[open_basedir] = /srv/www/blog/", "listen = /run/php/cairn-blog-php8.4.sock",
 		// The line's sites share one opcache.
 		"php_admin_flag[opcache.validate_permission] = on", "php_admin_value[opcache.restrict_api] = /nonexistent/"} {
 		if !strings.Contains(pool, want) {
@@ -249,6 +262,81 @@ func TestSiteCheckFailureRestoresEverything(t *testing.T) {
 	if op.State != helperapi.OpSucceeded || !strings.Contains(conf, "proxy_pass http://127.0.0.1:3000;") ||
 		!strings.Contains(conf, "Connection $cairn_connection_upgrade") || strings.Contains(conf, "root /srv/www") {
 		t.Fatalf("proxy: %+v\n%s\n%s", op.Error, log, conf)
+	}
+}
+
+// After logrotate renames the logs, each nginx worker opens them again
+// itself: the logs' directory is root's, in the workers' group, 0750, for
+// sites and streams alike, and an existing one is put right.
+func TestSiteLogDirectoryLetsNginxWorkersIn(t *testing.T) {
+	needRoot(t)
+	e := newSiteEnv(t)
+	group := lookupGroup
+	lookupGroup = func(name string) (int, error) {
+		switch name {
+		case "www-data":
+			return 33, nil
+		case "nginx":
+			return 991, nil
+		}
+		return group(name)
+	}
+	dir := filepath.Join(e.st.Root, nginxLogDir)
+	owner := func() string {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return err.Error()
+		}
+		sys := info.Sys().(*syscall.Stat_t)
+		return fmt.Sprintf("%d:%d %v", sys.Uid, sys.Gid, info.Mode())
+	}
+	const want = "0:33 drwxr-x---"
+	spec := helperapi.SiteSpec{Code: "docs", Type: helperapi.SiteStatic, Domains: []string{"docs.example.com"}, Enabled: true}
+	if op, log := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpSucceeded || owner() != want {
+		t.Fatalf("new directory: %s (%+v)\n%s", owner(), op.Error, log)
+	}
+	// An earlier version's directory, root's alone: the next change or the
+	// helper's start puts it right.
+	for _, fix := range []func(){
+		func() { e.run(helperapi.ActionSiteApply, spec) },
+		func() { e.st.Refresh(t.Context(), slog.New(slog.DiscardHandler)) },
+		func() {
+			writeSystemFile(t, e.st.Root, "/etc/nginx/modules-enabled/50-mod-stream.conf", "load_module modules/ngx_stream_module.so;\n")
+			e.run(helperapi.ActionStreamApply, helperapi.StreamSpec{Code: "db", Protocol: helperapi.StreamTCP, Port: 3307, Upstreams: []string{"10.0.0.5:3306"}, Enabled: true})
+		},
+	} {
+		if err := os.Chown(dir, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(dir, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fix()
+		if owner() != want {
+			t.Errorf("after putting it right: %s", owner())
+		}
+	}
+	// nginx.conf names the workers' user.
+	writeSystemFile(t, e.st.Root, nginxConf, "user nginx;\nevents {}\n")
+	if op, _ := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpSucceeded || owner() != "0:991 drwxr-x---" {
+		t.Errorf("nginx.conf's user: %s", owner())
+	}
+	// A link in its place is not followed.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(e.st.Root, "/etc/elsewhere")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, dir); err != nil {
+		t.Fatal(err)
+	}
+	if op, _ := e.run(helperapi.ActionSiteApply, spec); op.State != helperapi.OpFailed {
+		t.Errorf("a link for the directory: %+v", op)
+	}
+	if info, _ := os.Stat(target); info.Mode().Perm() != 0o700 || info.Sys().(*syscall.Stat_t).Gid != 0 {
+		t.Errorf("the link's target was changed: %v", info.Mode())
 	}
 }
 

@@ -212,6 +212,10 @@ func (f *Files) termOpen(ctx context.Context, c helperapi.Caller, req helperapi.
 	if systemdRunning() {
 		// Without systemd execx sets a UTF-8 locale itself.
 		term.Env = append(term.Env, "LANG="+terminalLocale(os.Getenv("LANG")))
+		if allowed.Kind == helperapi.TermUserSite {
+			// A site's owner stays off the apps' ports (siteBindDeny).
+			term.Properties = []string{siteBindDeny}
+		}
 		// A unit of its own: the helper's sandbox and control group stay
 		// out of the shell, and a helper restart does not end it.
 		release()

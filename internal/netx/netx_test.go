@@ -61,6 +61,35 @@ func TestClassification(t *testing.T) {
 	}
 }
 
+func TestIsHost(t *testing.T) {
+	own := []netip.Addr{netip.MustParseAddr("192.168.1.10"), netip.MustParseAddr("2001:db8:1::10"), netip.MustParseAddr("::ffff:10.0.0.3")}
+	for ip, want := range map[string]bool{
+		"127.0.0.1": true, "::1": true, "0.0.0.0": true, // IsLocal
+		"192.168.1.10": true, "::ffff:192.168.1.10": true, "2001:db8:1::10": true, "10.0.0.3": true,
+		"64:ff9b::c0a8:10a": true, "2002:c0a8:10a::": true, // NAT64 and 6to4 of 192.168.1.10
+		"192.168.1.11": false, "2001:db8:1::11": false, "10.0.0.4": false, "169.254.169.254": false,
+	} {
+		if got := IsHost(netip.MustParseAddr(ip), own); got != want {
+			t.Errorf("IsHost(%s) = %v", ip, got)
+		}
+	}
+	// This machine's own addresses are found.
+	addrs, err := HostAddrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	loopback := false
+	for _, a := range addrs {
+		loopback = loopback || a.IsLoopback()
+		if !IsHost(a, addrs) {
+			t.Errorf("IsHost(%s) = false for an address of this machine", a)
+		}
+	}
+	if !loopback {
+		t.Errorf("no loopback address among %v", addrs)
+	}
+}
+
 type staticResolver map[string][]netip.Addr
 
 func (s staticResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {

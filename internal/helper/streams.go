@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
+	"github.com/Kobayashi-classmate/Cairn/internal/netx"
 )
 
 // Four-layer proxies use nginx's stream module. The stream block lives in
@@ -67,6 +68,9 @@ server {
 `))
 
 func streamConfPath(code string) string { return path.Join(streamDir, code+".conf") }
+
+// hostAddrs returns this host's interface addresses (replaced in tests).
+var hostAddrs = netx.HostAddrs
 
 // streamStates loads what was applied for every stream.
 func (st *Sites) streamStates() (map[string]helperapi.StreamSpec, error) {
@@ -135,6 +139,18 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 	if !st.streamModule() {
 		return nil, siteErr(helperapi.CodeStreamModuleMissing, nil)
 	}
+	// The web process checked the upstreams of a caller without the
+	// firewall permission; the helper does not take its word for them, and
+	// sees this host's addresses as they are now.
+	if spec.Enabled && !spec.AnyUpstream {
+		host, err := hostAddrs()
+		if err != nil {
+			return nil, err
+		}
+		if err := helperapi.CheckUpstreams(spec.Upstreams, host); err != nil {
+			return nil, err
+		}
+	}
 	streams, err := st.streamStates()
 	if err != nil {
 		return nil, err
@@ -166,7 +182,7 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 		// A stopped stream does not listen at all.
 		changes = append(changes, fileChange{path: streamConfPath(spec.Code)})
 	}
-	if err := os.MkdirAll(st.path(nginxLogDir), 0o750); err != nil {
+	if err := st.ensureLogDir(); err != nil {
 		return nil, err
 	}
 	_, _ = fmt.Fprintf(log, "Applying stream %s: %s %d -> %s\n", spec.Code, spec.Protocol, spec.Port, strings.Join(spec.Upstreams, " "))

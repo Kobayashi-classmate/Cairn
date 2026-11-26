@@ -7,9 +7,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
-	"net/netip"
 	"strconv"
 	"strings"
 	"time"
@@ -52,11 +50,11 @@ func (m *Module) streamRoutes(r *api.Router, doc func(string) api.RouteOption) {
 	// forwards whatever arrives: creating and changing one needs a second
 	// verification, and a loopback upstream the firewall permission too.
 	r.Handle("POST /api/v1/streams", m.createStream, api.Require(Manage), api.StepUp(), api.Body(streamRequest{}),
-		doc("Create a four-layer proxy (starts a job); an upstream on this host needs firewall.manage"), api.Returns(202, jobResponse{}))
+		doc("Create a four-layer proxy (starts a job); an upstream on this host or at a metadata address needs firewall.manage"), api.Returns(202, jobResponse{}))
 	r.Handle("PUT /api/v1/streams/{code}", m.updateStream, api.Require(Manage), api.StepUp(), api.Body(streamRequest{}),
-		doc("Change a four-layer proxy (starts a job); an upstream on this host needs firewall.manage"), api.Returns(202, jobResponse{}))
+		doc("Change a four-layer proxy (starts a job); an upstream on this host or at a metadata address needs firewall.manage"), api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/streams/{code}/start", m.startStream, api.Require(Manage), api.NoBody(),
-		doc("Listen again (starts a job)"), api.Returns(202, jobResponse{}))
+		doc("Listen again (starts a job); upstreams set without firewall.manage are checked again"), api.Returns(202, jobResponse{}))
 	r.Handle("POST /api/v1/streams/{code}/stop", m.stopStream, api.Require(Manage), api.NoBody(),
 		doc("Stop listening (starts a job)"), api.Returns(202, jobResponse{}))
 	r.Handle("DELETE /api/v1/streams/{code}", m.deleteStream, api.Require(Manage), api.StepUp(),
@@ -122,28 +120,37 @@ func (m *Module) listStreams(w http.ResponseWriter, r *http.Request) error {
 // on 127.0.0.1, say) on a public port: that is the firewall's decision.
 const firewallManage authz.Permission = "firewall.manage"
 
+// anyUpstream reports whether the caller may forward to any upstream: it
+// may change the firewall.
+func anyUpstream(r *http.Request) bool {
+	p, ok := api.PrincipalFrom(r.Context())
+	return ok && p.Can(firewallManage)
+}
+
+// hostAddrs returns this host's interface addresses (replaced in tests).
+var hostAddrs = netx.HostAddrs
+
 // checkUpstreams lets callers without the firewall permission name
 // upstreams by IP address only, written the canonical way, and none on
-// this host (loopback or unspecified). nginx resolves names itself, with
-// the system's resolver, when it loads the configuration: a name (or a
-// number such as 0x7f.1 that the system reads as 127.0.0.1) could reach
-// this host, or be pointed at it later, whatever the panel saw.
+// this host (loopback, unspecified or an address of one of its
+// interfaces) or of a metadata service (helperapi.CheckUpstreams). nginx
+// resolves names itself, with the system's resolver, when it loads the
+// configuration: a name (or a number such as 0x7f.1 that the system reads
+// as 127.0.0.1) could reach this host, or be pointed at it later, whatever
+// the panel saw. The helper checks again (StreamSpec.AnyUpstream).
 func checkUpstreams(r *http.Request, upstreams []string) error {
-	if p, ok := api.PrincipalFrom(r.Context()); ok && p.Can(firewallManage) {
+	if anyUpstream(r) {
 		return nil
 	}
-	for _, u := range upstreams {
-		host, _, err := net.SplitHostPort(u)
-		if err != nil {
-			continue // Validate has refused it already
+	host, err := hostAddrs()
+	if err != nil {
+		return err
+	}
+	if err := helperapi.CheckUpstreams(upstreams, host); err != nil {
+		if he, ok := helperapi.AsError(err); ok {
+			return api.NewError(http.StatusForbidden, he.Code, he.Params)
 		}
-		ip, err := netip.ParseAddr(host)
-		if err != nil || ip.String() != host {
-			return api.NewError(http.StatusForbidden, CodeStreamUpstreamName, map[string]any{"upstream": u})
-		}
-		if netx.IsLocal(ip) {
-			return api.NewError(http.StatusForbidden, CodeStreamLocalUpstream, map[string]any{"upstream": u})
-		}
+		return err
 	}
 	return nil
 }
@@ -151,10 +158,12 @@ func checkUpstreams(r *http.Request, upstreams []string) error {
 // Upstreams that need the firewall permission.
 const (
 	// CodeStreamLocalUpstream: an address on this host.
-	CodeStreamLocalUpstream = "stream.local_upstream"
+	CodeStreamLocalUpstream = helperapi.CodeStreamLocalUpstream
+	// CodeStreamMetadataUpstream: a link-local or cloud metadata address.
+	CodeStreamMetadataUpstream = helperapi.CodeStreamMetadataUpstream
 	// CodeStreamUpstreamName: a name, or an address not written the
 	// canonical way.
-	CodeStreamUpstreamName = "stream.upstream_name"
+	CodeStreamUpstreamName = helperapi.CodeStreamUpstreamName
 )
 
 // streamSpec checks a request and that its port is free.
@@ -173,6 +182,7 @@ func (m *Module) streamSpec(r *http.Request, req streamRequest, code string, ena
 	if err := checkUpstreams(r, s.Upstreams); err != nil {
 		return s, err
 	}
+	s.AnyUpstream = anyUpstream(r)
 	if s.Port == m.PanelPort {
 		return s, api.NewError(http.StatusConflict, helperapi.CodeStreamPortTaken, map[string]any{"port": s.Port, "panel": true})
 	}
@@ -255,6 +265,15 @@ func (m *Module) toggleStream(w http.ResponseWriter, r *http.Request, enabled bo
 	}
 	s := rw.spec
 	s.Enabled = enabled
+	// Upstreams set by a caller who may forward anywhere stay allowed;
+	// others are checked again (an address may be this host's by now, or
+	// the stream comes from a version that did not record AnyUpstream).
+	if enabled && !s.AnyUpstream {
+		if err := checkUpstreams(r, s.Upstreams); err != nil {
+			return err
+		}
+		s.AnyUpstream = anyUpstream(r)
+	}
 	return m.saveStream(w, r, map[bool]string{true: "stream.start", false: "stream.stop"}[enabled], s)
 }
 

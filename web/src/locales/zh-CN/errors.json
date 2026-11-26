@@ -288,6 +288,7 @@
     "stream": {
       "port_taken": "端口 {port} 已被{owner}占用。",
       "local_upstream": "{upstream} 位于本服务器上：转发到它会把它暴露到网络上，这需要修改防火墙的权限。",
+      "metadata_upstream": "{upstream} 是链路本地地址或云元数据服务：转发到它会把它暴露到网络上，这需要修改防火墙的权限。",
       "upstream_name": "{upstream} 不是常规写法的 IP 地址。只有可以修改防火墙的账号才能用主机名指定上游，因为主机名可能指向本服务器。",
       "selinux_port": "本机的一条 SELinux 本地规则把 {protocol} 端口 {port} 给了其他服务（类型 {type}），nginx 不能监听它。请换一个端口。"
     },
@@ -442,7 +443,8 @@
     "port_taken": "该端口已被占用。",
     "not_found": "该四层代理不存在。",
     "code_taken": "该代号已被其他四层代理使用。",
-    "local_upstream": "上游位于本服务器上（回环地址）：代理会把它暴露到网络上，这需要修改防火墙的权限。",
+    "local_upstream": "上游位于本服务器上（回环地址或本机自己的地址）：代理会把它暴露到网络上，这需要修改防火墙的权限。",
+    "metadata_upstream": "上游是链路本地地址或云元数据服务：代理会把它暴露到网络上，这需要修改防火墙的权限。",
     "port_listening": "端口 {port} 已被占用：本服务器上的其他程序正在监听它。",
     "upstream_name": "没有修改防火墙的权限时，上游必须是常规写法的 IP 地址：主机名可能指向本服务器。",
     "selinux_port": "本机的一条 SELinux 本地规则把该端口给了其他服务，nginx 不能监听它。请换一个端口。"

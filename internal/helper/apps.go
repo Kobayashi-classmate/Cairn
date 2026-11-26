@@ -5,14 +5,19 @@ package helper
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
 	"time"
 
+	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 )
 
@@ -93,6 +98,11 @@ MemoryMax={{.MemoryMB}}M
 CPUQuota={{.CPUPercent}}%
 {{- end}}
 TasksMax=1024
+# The app listens on its own port and on no other, so it cannot take
+# another app's while that one restarts (sites' PHP, terminals and tasks
+# are kept off the apps' ports as well). This needs cgroup v2.
+SocketBindAllow=tcp:{{.Port}}
+SocketBindDeny=any
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
@@ -177,6 +187,101 @@ func (st *Sites) checkAppPort(spec helperapi.SiteSpec) error {
 	}
 	if st.PanelPort == spec.App.Port {
 		return siteErr(helperapi.CodeAppPortTaken, map[string]any{"port": spec.App.Port, "panel": true})
+	}
+	return nil
+}
+
+// siteBindDeny keeps a unit run as a site's owner (a terminal, a shell
+// task) from listening on any TCP or UDP port: its code could otherwise
+// take an app's port while the app restarts and answer for it. Ports the
+// kernel picks (port 0) stay allowed, and so do Unix sockets. This needs
+// cgroup v2; without it systemd leaves it out.
+const siteBindDeny = "SocketBindDeny=any"
+
+// fpmPortsDropIn is the drop-in of a PHP line's PHP-FPM service that keeps
+// it off the apps' ports.
+func fpmPortsDropIn(f *catalog.FPM) string {
+	return path.Join(appUnitDir, f.Service+".service.d", "cairn-app-ports.conf")
+}
+
+// fpmPortsConf renders that drop-in: the range the panel gives apps their
+// ports from, every app's port outside it, and the panel's own port.
+func (st *Sites) fpmPortsConf(states map[string]helperapi.SiteState) []byte {
+	var b strings.Builder
+	b.WriteString("# " + siteManaged + "\n")
+	b.WriteString("# The pools of every site of this PHP line run in this service: the sites'\n" +
+		"# PHP (and what it starts) may not listen on the ports of the panel's apps\n" +
+		"# or of the panel. The panel's pools listen on Unix sockets, left alone.\n" +
+		"# This needs cgroup v2.\n[Service]\n")
+	fmt.Fprintf(&b, "SocketBindDeny=tcp:%d-%d\n", helperapi.AppPortMin, helperapi.AppPortMax)
+	seen := map[int]bool{}
+	var ports []int
+	add := func(p int) {
+		if p > 0 && (p < helperapi.AppPortMin || p > helperapi.AppPortMax) && !seen[p] {
+			seen[p] = true
+			ports = append(ports, p)
+		}
+	}
+	for _, s := range states {
+		if s.Spec.Type == helperapi.SiteApp && s.Spec.App != nil {
+			add(s.Spec.App.Port)
+		}
+	}
+	add(st.PanelPort)
+	sort.Ints(ports)
+	for _, p := range ports {
+		fmt.Fprintf(&b, "SocketBindDeny=tcp:%d\n", p)
+	}
+	return []byte(b.String())
+}
+
+// applyFPMPorts brings the drop-in of every PHP line's PHP-FPM service to
+// the apps applied now: the pools of a line share one master, in one
+// control group, so the limit is the line's, not a site's. A line no longer
+// installed loses its drop-in. systemd takes up a changed drop-in with a
+// daemon-reload.
+func (st *Sites) applyFPMPorts(ctx context.Context, log io.Writer) error {
+	sw, ok := phpSoftware(st.Software.Catalog)
+	if !ok {
+		return nil
+	}
+	states, err := st.states()
+	if err != nil {
+		return err
+	}
+	conf := st.fpmPortsConf(states)
+	want := map[string]bool{}
+	for _, l := range sw.Lines {
+		if fpm, installed := st.phpFPM(l.Version); fpm != nil {
+			p := fpmPortsDropIn(fpm)
+			want[p] = want[p] || installed
+		}
+	}
+	paths := make([]string, 0, len(want))
+	for p := range want {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	changed := false
+	for _, p := range paths {
+		have, err := os.ReadFile(st.path(p)) //nolint:gosec // G304: built from the catalog's service names.
+		switch {
+		case want[p] && (err != nil || !bytes.Equal(have, conf)):
+			_, _ = fmt.Fprintf(log, "Writing %s\n", p)
+			if err := writeFile(st.path(p), conf); err != nil {
+				return err
+			}
+			changed = true
+		case !want[p] && err == nil:
+			_, _ = fmt.Fprintf(log, "Removing %s\n", p)
+			if err := os.Remove(st.path(p)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			changed = true
+		}
+	}
+	if changed && systemdRunning() {
+		return runCommand(ctx, log, "systemctl", "daemon-reload")
 	}
 	return nil
 }

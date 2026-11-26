@@ -162,7 +162,7 @@ func TestSiteConfigKeepsPanelCookiesFromTheSite(t *testing.T) {
 	fpm := &catalog.FPM{PoolDir: "/etc/php/8.4/fpm/pool.d", SocketDir: "/run/php"}
 	render := func(spec helperapi.SiteSpec) string {
 		t.Helper()
-		conf, _, err := e.st.render(spec, fpm)
+		conf, _, err := e.st.render(spec, fpm, "")
 		if err != nil {
 			t.Fatal(err)
 		}

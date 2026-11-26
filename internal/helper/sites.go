@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"os/user"
 	"path"
@@ -20,6 +21,8 @@ import (
 	"syscall"
 	"text/template"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/Kobayashi-classmate/Cairn/catalog"
 	"github.com/Kobayashi-classmate/Cairn/internal/execx"
@@ -256,6 +259,11 @@ type reloader struct {
 	unit    string
 	pidFile string
 	signal  syscall.Signal // without systemd: the reload signal
+	// listen are Unix sockets the service accepts connections on once it
+	// has reloaded, before the next service reloads: a reload returns as
+	// soon as the service has the signal, and nginx must not move to a
+	// pool's socket before PHP-FPM listens there.
+	listen []string
 }
 
 // configCheck validates the whole configuration of a service.
@@ -276,8 +284,38 @@ func fpmCheck(f *catalog.FPM) configCheck {
 	return configCheck{name: f.Service, argv: []string{f.Binary, "-t"}}
 }
 
-func fpmReload(f *catalog.FPM) reloader {
-	return reloader{name: f.Service, unit: f.Service, pidFile: f.PidFile, signal: syscall.SIGUSR2}
+// fpmReload reloads a PHP line's PHP-FPM; listen are the sockets of the
+// pools that must be there afterwards.
+func fpmReload(f *catalog.FPM, listen ...string) reloader {
+	return reloader{name: f.Service, unit: f.Service, pidFile: f.PidFile, signal: syscall.SIGUSR2, listen: listen}
+}
+
+// fpmReadyLimit bounds the wait for a reloaded PHP-FPM's sockets.
+const fpmReadyLimit = 15 * time.Second
+
+// waitListening waits until every one of the Unix sockets accepts a
+// connection, or fails after limit. Replaced in tests, which run no
+// PHP-FPM.
+var waitListening = func(ctx context.Context, sockets []string, limit time.Duration) error {
+	deadline := time.Now().Add(limit)
+	for _, s := range sockets {
+		for {
+			c, err := net.DialTimeout("unix", s, time.Second)
+			if err == nil {
+				_ = c.Close()
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("%s does not accept connections: %w", s, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(50 * time.Millisecond):
+			}
+		}
+	}
+	return nil
 }
 
 // transact writes the files, runs the checks and reloads the services; if
@@ -365,6 +403,8 @@ func (st *Sites) transact(ctx context.Context, log io.Writer, changes []fileChan
 		if err != nil {
 			restore()
 			for _, again := range reloads {
+				// The previous files are back: their sockets, not these.
+				again.listen = nil
 				_, _ = st.reload(ctx, io.Discard, again)
 			}
 			logf("Reloading %s failed; the previous configuration was put back.\n", r.name)
@@ -386,7 +426,10 @@ func (st *Sites) reload(ctx context.Context, log io.Writer, r reloader) (bool, e
 			_, _ = fmt.Fprintf(log, "%s is not running; the change applies when it starts.\n", r.name)
 			return false, nil
 		}
-		return true, runCommand(ctx, log, "systemctl", "reload", r.unit)
+		if err := runCommand(ctx, log, "systemctl", "reload", r.unit); err != nil {
+			return true, err
+		}
+		return true, st.listening(ctx, log, r)
 	}
 	pid, ok := processAlive(st.path(r.pidFile))
 	if !ok {
@@ -398,7 +441,25 @@ func (st *Sites) reload(ctx context.Context, log io.Writer, r reloader) (bool, e
 		return false, err
 	}
 	time.Sleep(300 * time.Millisecond) // let it re-read before the next step
-	return true, nil
+	return true, st.listening(ctx, log, r)
+}
+
+// listening waits for the sockets a reloaded service must listen on. One
+// that does not come means the service did not take up its new
+// configuration (a pool it refused, a master that did not start again).
+func (st *Sites) listening(ctx context.Context, log io.Writer, r reloader) error {
+	if len(r.listen) == 0 {
+		return nil
+	}
+	paths := make([]string, len(r.listen))
+	for i, s := range r.listen {
+		paths[i] = st.path(s)
+	}
+	if err := waitListening(ctx, paths, fpmReadyLimit); err != nil {
+		_, _ = fmt.Fprintf(log, "%s does not listen as configured: %v\n", r.name, err)
+		return err
+	}
+	return nil
 }
 
 // nginxVersion returns the installed nginx's version ("1.26.3"), or "".
@@ -763,26 +824,35 @@ server {
 {{- end}}
 `))
 
+// poolTemplate is a site's pool file: the pool, and while the site moves
+// to the socket this version names (see poolBridge) the same pool once
+// more on the socket it had.
 var poolTemplate = template.Must(template.New("pool").Parse(`; {{.Managed}}
 ; Site {{.Code}}
-[cairn-{{.Code}}]
-user = {{.Runner}}
-group = {{.Group}}
+{{- range .Pools}}
+{{- if .Bridge}}
+
+; The socket an earlier version of the panel gave the site, kept until
+; nginx sends the site's requests to the one above.
+{{- end}}
+[{{.Name}}]
+user = {{$.Runner}}
+group = {{$.Group}}
 listen = {{.Socket}}
-listen.owner = {{.NginxUser}}
-listen.group = {{.NginxUser}}
+listen.owner = {{$.NginxUser}}
+listen.group = {{$.NginxUser}}
 listen.mode = 0660
 pm = ondemand
 pm.max_children = 10
 pm.process_idle_timeout = 60s
 pm.max_requests = 500
-chdir = {{.AppDir}}
+chdir = {{$.AppDir}}
 catch_workers_output = yes
 security.limit_extensions = .php
-php_admin_value[open_basedir] = {{.SiteDir}}/
-php_admin_value[upload_tmp_dir] = {{.SiteDir}}/tmp
-php_admin_value[sys_temp_dir] = {{.SiteDir}}/tmp
-php_admin_value[session.save_path] = {{.SiteDir}}/tmp
+php_admin_value[open_basedir] = {{$.SiteDir}}/
+php_admin_value[upload_tmp_dir] = {{$.SiteDir}}/tmp
+php_admin_value[sys_temp_dir] = {{$.SiteDir}}/tmp
+php_admin_value[session.save_path] = {{$.SiteDir}}/tmp
 php_admin_value[session.gc_probability] = 1
 php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec
 ; Every site of this PHP line shares the master's opcache: a cached script
@@ -790,7 +860,14 @@ php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,p
 ; reset or invalidate the shared cache. Never set opcache.file_cache here.
 php_admin_flag[opcache.validate_permission] = on
 php_admin_value[opcache.restrict_api] = /nonexistent/
+{{- end}}
 `))
+
+// poolSection is one pool of a site's pool file.
+type poolSection struct {
+	Name, Socket string
+	Bridge       bool
+}
 
 var globalNginx = `# ` + siteManaged + `
 # Panel-wide settings and the sites (` + nginxCairnDir + `/sites).
@@ -876,13 +953,63 @@ func siteConfPath(code string) string { return path.Join(nginxCairnDir, "sites",
 func poolPath(f *catalog.FPM, code string) string {
 	return path.Join(f.PoolDir, "cairn-"+code+".conf")
 }
-func socketPath(f *catalog.FPM, code string) string {
+
+// socketPath is where a site's pool on a PHP line listens. The line is in
+// the name: Debian's lines share one directory, and while a site moves to
+// another line both its pools listen for a moment (nginx moves in
+// between); with one name for both, the new line's PHP-FPM would not
+// start.
+func socketPath(f *catalog.FPM, line, code string) string {
+	return path.Join(f.SocketDir, "cairn-"+code+"-php"+line+".sock")
+}
+
+// legacySocketPath is the socket earlier versions gave a site's pool, the
+// same on every line.
+func legacySocketPath(f *catalog.FPM, code string) string {
 	return path.Join(f.SocketDir, "cairn-"+code+".sock")
 }
 
+// poolName is the name of a site's pool in its PHP-FPM master.
+func poolName(code string) string { return "cairn-" + code }
+
+// poolListen returns what a pool of a pool file listens on, "" if the file
+// has no such pool.
+func poolListen(data []byte, pool string) string {
+	in := false
+	for _, l := range strings.Split(string(data), "\n") {
+		l = strings.TrimSpace(l)
+		if strings.HasPrefix(l, "[") {
+			in = l == "["+pool+"]"
+			continue
+		}
+		if v, ok := strings.CutPrefix(l, "listen ="); in && ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+// poolBridge returns the socket a site's pool keeps listening on while the
+// site moves to the one this version names, "" when it need not: when the
+// pool written before listens on the name of an earlier version. PHP-FPM
+// drops a socket it no longer has in its pools as soon as it reloads, and
+// nginx goes on sending requests to it until nginx reloads; with the pool
+// on both sockets in between, every request finds one. The next change of
+// the site (or the refresh's second pass) writes the pool without it.
+func (st *Sites) poolBridge(fpm *catalog.FPM, spec helperapi.SiteSpec) string {
+	data, err := os.ReadFile(st.path(poolPath(fpm, spec.Code))) //nolint:gosec // G304: built from a validated site code.
+	if err != nil {
+		return ""
+	}
+	if old := legacySocketPath(fpm, spec.Code); poolListen(data, poolName(spec.Code)) == old && old != socketPath(fpm, spec.PHP, spec.Code) {
+		return old
+	}
+	return ""
+}
+
 // render returns the site's nginx server block and, for a PHP site, its
-// pool.
-func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM) ([]byte, []byte, error) {
+// pool; bridge is a socket the pool listens on as well (see poolBridge).
+func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM, bridge string) ([]byte, []byte, error) {
 	dir := siteDirOf(spec.Code)
 	index := spec.Index
 	if len(index) == 0 {
@@ -912,11 +1039,17 @@ func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM) ([]byte, []by
 	}
 	var pool []byte
 	if spec.Type == helperapi.SitePHP {
-		data["Socket"] = socketPath(fpm, spec.Code)
+		socket := socketPath(fpm, spec.PHP, spec.Code)
+		data["Socket"] = socket
+		pools := []poolSection{{Name: poolName(spec.Code), Socket: socket}}
+		if bridge != "" {
+			// A name no site's pool has: site codes have no dots.
+			pools = append(pools, poolSection{Name: poolName(spec.Code) + ".old", Socket: bridge, Bridge: true})
+		}
 		var b bytes.Buffer
 		if err := poolTemplate.Execute(&b, map[string]any{
 			"Managed": siteManaged, "Code": spec.Code, "Runner": runnerOf(spec.Code), "Group": ownerOf(spec.Code),
-			"Socket": socketPath(fpm, spec.Code), "NginxUser": st.nginxUser(), "AppDir": path.Join(dir, "app"), "SiteDir": dir,
+			"Pools": pools, "NginxUser": st.nginxUser(), "AppDir": path.Join(dir, "app"), "SiteDir": dir,
 		}); err != nil {
 			return nil, nil, err
 		}
@@ -1010,7 +1143,11 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 			return nil, err
 		}
 	}
-	conf, pool, err := st.render(spec, fpm)
+	bridge := ""
+	if fpm != nil {
+		bridge = st.poolBridge(fpm, spec)
+	}
+	conf, pool, err := st.render(spec, fpm, bridge)
 	if err != nil {
 		return nil, err
 	}
@@ -1033,7 +1170,7 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 	if err := st.seSetPorts(ctx, log, "site:"+spec.Code, sitePorts(spec)); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(st.path(nginxLogDir), 0o750); err != nil {
+	if err := st.ensureLogDir(); err != nil {
 		return nil, err
 	}
 	if err := writeIfChanged(log, st.path(logrotateFile), logrotateConf); err != nil {
@@ -1045,12 +1182,12 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		fileChange{path: siteConfPath(spec.Code), data: conf})
 	changes = append(changes, oldPool...)
 	checks := append([]configCheck{}, oldChecks...)
-	reloads := append([]reloader{}, oldReloads...)
+	var reloads []reloader
 	if fpm != nil {
 		changes = append(changes, fileChange{path: poolPath(fpm, spec.Code), data: pool})
 		checks = append(checks, fpmCheck(fpm))
 		// The pool must listen before nginx sends requests to it.
-		reloads = append([]reloader{fpmReload(fpm)}, reloads...)
+		reloads = append(reloads, fpmReload(fpm, socketPath(fpm, spec.PHP, spec.Code)))
 	}
 	appChanged := false
 	if spec.Type == helperapi.SiteApp {
@@ -1075,7 +1212,10 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 		changes = append(changes, files...)
 	}
 	checks = append(checks, st.nginxCheck())
+	// nginx stops sending requests to a pool of the previous line before
+	// that line's PHP-FPM lets it go (as in remove).
 	reloads = append(reloads, st.nginxReload())
+	reloads = append(reloads, oldReloads...)
 	reloaded, err := st.transact(ctx, log, changes, checks, reloads)
 	if err != nil {
 		if stoppedApp {
@@ -1088,6 +1228,10 @@ func (st *Sites) apply(ctx context.Context, _ helperapi.Caller, spec helperapi.S
 	// start, so that the next change (or a removal) starts from them.
 	state, _ := json.Marshal(helperapi.SiteState{Spec: spec, AppliedAt: time.Now().Unix()})
 	if err := writePrivate(st.path(path.Join(siteStateDir, spec.Code+".json")), state); err != nil {
+		return nil, err
+	}
+	// The sites' PHP stays off the apps' ports as they are now.
+	if err := st.applyFPMPorts(ctx, log); err != nil {
 		return nil, err
 	}
 	if spec.Type == helperapi.SiteApp {
@@ -1144,6 +1288,9 @@ func (st *Sites) remove(ctx context.Context, _ helperapi.Caller, req helperapi.S
 		_ = runCommand(ctx, log, "systemctl", "daemon-reload")
 	}
 	if err := os.Remove(st.path(path.Join(siteStateDir, req.Code+".json"))); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	if err := st.applyFPMPorts(ctx, log); err != nil {
 		return nil, err
 	}
 	st.seForget(ctx, log, req.Code)
@@ -1217,6 +1364,42 @@ func (st *Sites) readLog(req helperapi.SiteLogRequest) (helperapi.SiteLogRespons
 		}
 	}
 	return helperapi.SiteLogResponse{Data: string(buf), Offset: start + int64(len(buf)), Size: size}, nil
+}
+
+// ensureLogDir makes the directory of the sites' and streams' logs root's,
+// in the group of nginx's workers, 0750, and puts an existing one right.
+// nginx's master opens the logs at start and reload, but on the signal
+// logrotate sends after renaming them each worker opens them again itself:
+// without a way into the directory they would go on writing the renamed
+// files, and the panel would show an empty log until nginx next reloads.
+// The group is the one named like the workers' user, as for the sockets
+// of the PHP-FPM pools. The directory is changed through a descriptor of
+// it, never through a link put in its place.
+func (st *Sites) ensureLogDir() error {
+	p := st.path(nginxLogDir)
+	if err := os.MkdirAll(p, 0o750); err != nil {
+		return err
+	}
+	gid := 0
+	if u := st.nginxUser(); u != "" {
+		g, err := lookupGroup(u)
+		if err != nil {
+			return fmt.Errorf("the group %s of nginx's workers: %w", u, err)
+		}
+		gid = g
+	}
+	fd, err := unix.Open(p, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return &fs.PathError{Op: "open", Path: p, Err: err}
+	}
+	defer func() { _ = unix.Close(fd) }()
+	if err := unix.Fchown(fd, 0, gid); err != nil {
+		return &fs.PathError{Op: "chown", Path: p, Err: err}
+	}
+	if err := unix.Fchmod(fd, 0o750); err != nil {
+		return &fs.PathError{Op: "chmod", Path: p, Err: err}
+	}
+	return nil
 }
 
 // writePrivate writes a root-only file atomically.

@@ -27,6 +27,11 @@ export interface StreamView {
   balance?: 'hash'
   /** A stopped stream does not listen. */
   enabled: boolean
+  /**
+   * The upstreams were set by an account that may change the firewall, so
+   * they may be on this server, a metadata service or host names.
+   */
+  anyUpstream?: boolean
   state: 'applying' | 'active' | 'failed'
   errorCode?: string
   lastJob?: string

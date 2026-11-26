@@ -59,6 +59,7 @@ Releases will come with an installer script, `install.sh`. It checks the release
 - The web process, `cairn-web`, runs as the unprivileged user `cairn`. Work that needs root goes through `cairn-helper`, which listens only on a local socket and accepts a fixed set of actions with checked parameters.
 - Programs are started with argument lists. The only shell code is a fixed wrapper inside the helper and what you write yourself: an application's start command and a scheduled task's script.
 - A browser session needs both its cookie and a key that only the panel's own pages hold. Terminals and downloads use one-time tickets, and websites on the server never receive the panel's cookies.
+- An application listens only on its own port, and neither the sites' PHP nor the terminals and scheduled tasks of site owners can take an application's port; this needs cgroup v2, the default on every supported distribution.
 - Changes to the server and to accounts are recorded in the audit log.
 - Firewall changes roll back unless confirmed, and an SSH port change keeps the old port until the new one is reached from outside, so a mistake does not lock you out.
 - No telemetry: nothing is reported, updates are never forced, and there is no account to bind. The panel only fetches signed public data (official messages, the release index) from the project, and that can be switched off.

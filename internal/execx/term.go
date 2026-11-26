@@ -34,6 +34,9 @@ type Terminal struct {
 	Cols, Rows uint16
 	// TTYGroup owns the terminal device (the "tty" group), -1 to keep it.
 	TTYGroup int
+	// Properties are more properties of the shell's unit
+	// (StartTerminalUnit only).
+	Properties []string
 }
 
 // StartTerminal opens a pseudo-terminal and starts the shell on it as a
@@ -124,6 +127,9 @@ func TerminalUnitArgs(t Terminal, unit, tty string) []string {
 		"--working-directory=" + t.Home,
 		"--service-type=exec", "--property=TTYPath=" + tty, "--property=StandardInput=tty", "--property=StandardOutput=tty", "--property=StandardError=tty",
 		"--property=SendSIGHUP=yes", "--property=RuntimeMaxSec=" + strconv.FormatInt(int64(TerminalMaxRuntime/time.Second), 10)}
+	for _, p := range t.Properties {
+		args = append(args, "--property="+p)
+	}
 	for _, e := range t.Env {
 		args = append(args, "--setenv="+e)
 	}

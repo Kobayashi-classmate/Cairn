@@ -203,7 +203,8 @@ func (c *Cron) render(spec helperapi.CronSpec) ([]fileChange, error) {
 		}
 		switch u.Kind {
 		case helperapi.TermUserSite:
-			extra = append(extra, "ProtectSystem=strict", "ProtectHome=yes", "ReadWritePaths="+siteDirOf(u.Site))
+			// As a site's owner, off the apps' ports (siteBindDeny).
+			extra = append(extra, "ProtectSystem=strict", "ProtectHome=yes", "ReadWritePaths="+siteDirOf(u.Site), siteBindDeny)
 		case helperapi.TermUserUser:
 			extra = append(extra, "ProtectSystem=full")
 		}

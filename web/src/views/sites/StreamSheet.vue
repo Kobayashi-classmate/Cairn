@@ -112,7 +112,8 @@ async function submit() {
     if (isStepUpRequired(err)) return
     // Errors about the upstreams or the port go to their fields.
     const code = isApiError(err) ? err.code : ''
-    if (code === 'stream.local_upstream' || code === 'stream.upstream_name') errors.value = { ...errors.value, upstreams: errorMessage(err) }
+    if (code === 'stream.local_upstream' || code === 'stream.metadata_upstream' || code === 'stream.upstream_name')
+      errors.value = { ...errors.value, upstreams: errorMessage(err) }
     else if (code === 'stream.port_taken' || code === 'stream.selinux_port') errors.value = { ...errors.value, port: errorMessage(err) }
     else error.value = err
   } finally {
