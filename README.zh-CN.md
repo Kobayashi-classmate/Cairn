@@ -14,7 +14,7 @@
 - **发行版**：Debian 12、13，Ubuntu 22.04、24.04、26.04，Rocky Linux、AlmaLinux、RHEL 9、10；amd64 和 arm64。这些发行版都在容器和虚拟机里测试过（RHEL 用 Rocky Linux 和 AlmaLinux 代表）；arm64 的安装包已经构建，但还没有在机器上运行过。在 Enterprise Linux 上 SELinux 保持 enforcing。
 - **网站**：静态网站；PHP 网站，多个 PHP 版本并存，每个网站一个 PHP-FPM 池和两个系统账号；反向代理；Node.js、Python、Go、Java、.NET 应用，作为 systemd 服务运行；以及基于 nginx stream 模块的 TCP、UDP 四层代理。
 - **TLS 证书**：通过 ACME 签发（Let's Encrypt、ZeroSSL、Google Trust Services 或自定义 CA；HTTP-01，或经 Cloudflare、DNSPod、阿里云、华为云、Route 53、GoDaddy、火山引擎、西部数码、RFC 2136 做 DNS-01），也可以上传；网站和面板自己都能用，自动续期。
-- **软件**：nginx、PHP 及其扩展、MariaDB、MySQL、PostgreSQL、Redis、Valkey、Node.js、Python、Go、Java（Temurin）、.NET，以及解压 7z 和 RAR 用的 unar。软件包先用发行版自己的软件源，没有时用上游官方的软件源（发行版没有的 PHP 版本用 sury、ondrej PPA 或 Remi）。编程语言运行时用官方构建，按各项目官方发布元数据里的校验值核对。安装前面板会检查各下载源有没有这个确切版本、速度如何（运行时可以自己选下载源），然后锁定确切版本安装。服务可以在面板里启动、停止、重载，配置文件可以在面板里编辑。
+- **软件**：nginx、PHP 及其扩展、MariaDB、MySQL、PostgreSQL、Redis、Valkey、Node.js、Python、Go、Java（Temurin）、.NET，以及解压 7z 和 RAR 用的 unar。软件包来自发行版自己的软件源和上游官方的软件源（nginx.org、MariaDB、MySQL、PostgreSQL 的 PGDG、Redis）；发行版没有的 PHP 版本用 sury、ondrej PPA 或 Remi。几个来源都有的版本默认用发行版的包，安装时可以换成别的来源；推荐版本是上游最新的长期支持版。这台服务器装不了的版本会列出来并写明原因。编程语言运行时用官方构建，按各项目官方发布元数据里的校验值核对。安装前面板会检查各下载源有没有这个确切版本、速度如何（运行时可以自己选下载源），然后锁定确切版本安装。服务可以在面板里启动、停止、重载，配置文件可以在面板里编辑。
 - **数据库**：MariaDB 或 MySQL、PostgreSQL、Redis 或 Valkey：库、用户和授权、远程访问、转储和恢复（恢复以库自己的用户身份执行），以及 Redis 的键浏览器。Enterprise Linux 上目前只支持 MariaDB 和 Redis 或 Valkey。
 - **文件和终端**：文件管理器，支持断点续传、在线编辑、压缩解压、回收站和从网址下载；Web 终端，可以保存常用命令。
 - **计划任务、日志、备份**：基于 systemd timer 的计划任务（Shell 脚本、访问网址、备份）；系统日志、网站日志和 SSH 登录记录；网站、数据库和目录备份到本地或 S3 兼容存储，可选 age 加密，按日、周、月规则保留。
@@ -78,7 +78,7 @@ root_access = "never"
 
 ## 卸载
 
-卸载软件包不会碰网站：网站的文件、账号、单元（`cairn-app-*`）和 server 配置，数据库，从面板安装的软件，网站要用的文件（`/etc/nginx/cairn`、`/var/lib/cairn-acme`、`/opt/cairn/runtimes`），以及 firewalld 或 ufw 里的规则都会留下，网站照常运行。证书不再自动续期。系统账号 `cairn` 和 `cairn-unpack` 也会留下；面板为安装软件添加的软件源同样留下：`/etc/apt/sources.list.d`、`/etc/apt/keyrings`、`/etc/apt/preferences.d` 里的 `cairn-*` 文件，或者 `/etc/yum.repos.d` 里的 `cairn-*.repo` 及其在 `/etc/pki/rpm-gpg` 里的公钥 `RPM-GPG-KEY-cairn-*`。
+卸载软件包不会碰网站：网站的文件、账号、单元（`cairn-app-*`）和 server 配置，数据库，从面板安装的软件，网站要用的文件（`/etc/nginx/cairn`，nginx.org 的 nginx 在 `nginx.conf` 里会 include 它；`/var/lib/cairn-acme`、`/opt/cairn/runtimes`），以及 firewalld 或 ufw 里的规则都会留下，网站照常运行。证书不再自动续期。系统账号 `cairn` 和 `cairn-unpack` 也会留下；面板为安装软件添加的软件源同样留下：`/etc/apt/sources.list.d`、`/etc/apt/keyrings`、`/etc/apt/preferences.d` 里的 `cairn-*` 文件，或者 `/etc/yum.repos.d` 里的 `cairn-*.repo` 及其在 `/etc/pki/rpm-gpg` 里的公钥 `RPM-GPG-KEY-cairn-*`。
 
 | 内容 | `apt remove cairn` | `apt purge cairn` | `dnf remove cairn` |
 |---|---|---|---|

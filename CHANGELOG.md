@@ -15,14 +15,30 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - Accounts with two-factor authentication, roles, API tokens and an audit
   log of every operation.
 - Notifications, official messages and signed online updates with rollback.
-- A software catalog that installs from the system's repositories first and
-  from official upstream repositories otherwise, with download sources
-  probed at install time. The install sheet shows only the sources the
-  chosen version comes from. System software can be installed from
-  another source that serves the same files as the official one, for that
-  installation only: the server's own package sources stay as they are.
-  The download policy can be changed in the sheet, and a source check is
-  reused for ten minutes unless you check again.
+- A software catalog with the systems' own packages and the official
+  repositories of nginx (nginx.org, stable and mainline), MariaDB, MySQL,
+  PostgreSQL and Redis, and PHP from approved repositories. A version
+  that comes from several of them on the server lists them all: the
+  system's own packages are the default where they have it, and another
+  source can be chosen when installing. A source that no longer updates a
+  version is marked and needs a confirmation. The recommended version is
+  upstream's newest long-term support one; for PHP, the system's own.
+  Versions the server cannot install are listed apart with the reason,
+  such as no packages for its processor architecture.
+- nginx, MariaDB, MySQL, Redis and Valkey have one version installed at a
+  time, and MariaDB and MySQL, or Redis and Valkey, are not installed side
+  by side: the other has to be removed first. System updates keep a
+  version from a repository that serves several (Redis, nginx.org) on that
+  version, and a repository is removed with the last version installed
+  from it. Sites and layer-4 proxies work with nginx.org's nginx as with
+  the system's.
+- Download sources probed at install time. The install sheet shows only
+  the sources the chosen version comes from. System software can be
+  installed from another source that serves the same files as the
+  official one, for that installation only: the server's own package
+  sources stay as they are. The download policy can be changed in the
+  sheet, and a source check is reused for ten minutes unless you check
+  again.
 - Web sites: static, PHP, reverse proxy, application sites and layer-4
   proxies.
 - TLS certificates from ACME (HTTP-01 and DNS-01) or uploaded, for sites and
