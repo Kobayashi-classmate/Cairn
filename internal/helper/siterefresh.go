@@ -50,6 +50,7 @@ func (st *Sites) Refresh(ctx context.Context, logger *slog.Logger) {
 	if _, err := os.Stat(st.path(nginxBinary)); err != nil {
 		return
 	}
+	st.refreshStreamTop(ctx, logger)
 	states, err := st.states()
 	if err != nil {
 		logger.Warn("site refresh: reading the applied sites failed", "err", err)
@@ -217,5 +218,39 @@ func logLines(logger *slog.Logger, level slog.Level, msg, site, text string) {
 		} else {
 			logger.Log(context.Background(), level, msg, "step", l)
 		}
+	}
+}
+
+// refreshStreamTop moves the stream block to where the installed nginx
+// reads it, when there are four-layer proxies and it is not there: after
+// nginx was replaced by one with another layout (nginx.org's for the
+// distribution's, or back), the proxies would otherwise stop, or nginx
+// would read them twice and refuse to start.
+func (st *Sites) refreshStreamTop(ctx context.Context, logger *slog.Logger) {
+	streams, err := st.streamStates()
+	if err != nil || len(streams) == 0 {
+		return
+	}
+	var pending []fileChange
+	for _, c := range st.streamTopChanges() {
+		if c.data != nil {
+			if have, err := os.ReadFile(st.path(c.path)); err == nil && bytes.Equal(have, c.data) {
+				continue
+			}
+		}
+		pending = append(pending, c)
+	}
+	if len(pending) == 0 {
+		return
+	}
+	var out bytes.Buffer
+	_, err = st.transact(ctx, &out, pending, []configCheck{st.nginxCheck()}, []reloader{st.nginxReload()})
+	level := slog.LevelInfo
+	if err != nil {
+		level = slog.LevelWarn
+	}
+	logLines(logger, level, "stream refresh", "", out.String())
+	if err != nil {
+		logger.Warn("stream refresh: the four-layer proxies keep their previous place", "err", err)
 	}
 }

@@ -69,6 +69,9 @@ type Software struct {
 	// ConfigVersionsDir keeps earlier versions of the configuration files
 	// saved from the panel ("" means DefaultConfigVersionsDir).
 	ConfigVersionsDir string
+	// WebServerChanged is called, with the web lock held, after a web
+	// server line was installed (nil: nothing to do).
+	WebServerChanged func(ctx context.Context)
 
 	probing sync.Mutex
 	// originsMu guards the record of where installed lines came from.
@@ -95,7 +98,16 @@ func RegisterSoftware(r *Registry, o *Ops, s *Software) {
 		}
 		return []string{LockPkg}
 	}
-	RegisterOp(r, o, helperapi.ActionPkgInstall, OpSpec[helperapi.SoftwareRequest]{Locks: locks, Run: s.install})
+	// Installing a web server changes what sites run on: sites follow it
+	// afterwards (WebServerChanged), and no site change may run meanwhile.
+	installLocks := func(req helperapi.SoftwareRequest) []string {
+		l := locks(req)
+		if sw, ok := s.Catalog.Find(req.Software); ok && sw.ProvidesCap(catalog.CapWebServer) {
+			l = append(l, LockWeb)
+		}
+		return l
+	}
+	RegisterOp(r, o, helperapi.ActionPkgInstall, OpSpec[helperapi.SoftwareRequest]{Locks: installLocks, Run: s.install})
 	RegisterOp(r, o, helperapi.ActionPkgInstallSet, OpSpec[helperapi.InstallSetRequest]{Locks: s.setLocks, Run: s.installSet})
 	// Removing the web server or a PHP line changes what sites run on: no
 	// site change may run meanwhile (and see a line that is going away).
@@ -233,7 +245,23 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 	if out[0].err != nil {
 		return nil, out[0].err
 	}
+	s.webServerChanged(ctx, log, items, out)
 	return out[0].res, nil
+}
+
+// webServerChanged lets the sites follow a web server line that was just
+// installed.
+func (s *Software) webServerChanged(ctx context.Context, log io.Writer, items []lineItem, out []pkgOutcome) {
+	if s.WebServerChanged == nil {
+		return
+	}
+	for i, it := range items {
+		if out[i].err == nil && it.sw.ProvidesCap(catalog.CapWebServer) {
+			_, _ = fmt.Fprintf(log, "Bringing the sites to %s %s.\n", it.sw.Name, it.o.Line)
+			s.WebServerChanged(ctx)
+			return
+		}
+	}
 }
 
 // lineSource checks the source a request names for a line from the package

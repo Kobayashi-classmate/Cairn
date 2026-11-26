@@ -35,6 +35,12 @@ func (s *Software) setLocks(req helperapi.InstallSetRequest) []string {
 	if pkg {
 		locks = append(locks, LockPkg)
 	}
+	for _, it := range req.Items {
+		if sw, ok := s.Catalog.Find(it.Software); ok && sw.ProvidesCap(catalog.CapWebServer) {
+			locks = append(locks, LockWeb) // see RegisterSoftware
+			break
+		}
+	}
 	if rt {
 		locks = append(locks, LockRuntimes)
 	}
@@ -125,6 +131,7 @@ func (s *Software) installSet(ctx context.Context, _ helperapi.Caller, req helpe
 	if len(pkgItems) > 0 || len(libs) > 0 {
 		var out []pkgOutcome
 		out, libErr = s.installPackages(ctx, main, pkgItems, libs, src)
+		s.webServerChanged(ctx, main, pkgItems, out)
 		for k, i := range pkgIdx {
 			if out[k].err != nil {
 				errs[i] = out[k].err

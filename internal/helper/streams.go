@@ -27,21 +27,16 @@ import (
 // the directory of module files that the distribution's nginx.conf
 // includes at the top level, so the main configuration stays untouched:
 // modules-enabled/ on Debian, /usr/share/nginx/modules on EL (read in name
-// order, after mod-stream.conf).
+// order, after mod-stream.conf). nginx.org's nginx.conf includes no such
+// directory: the block goes into the panel's own, which nginx.conf then
+// includes (nginxconf.go).
 const (
 	streamTopDebian = "/etc/nginx/modules-enabled/99-cairn-stream.conf"
 	streamTopEL     = "/usr/share/nginx/modules/zz-cairn-stream.conf"
+	streamTopOwn    = nginxMainDir + "/stream.conf"
 	streamDir       = "/etc/nginx/cairn/stream"
 	streamStateDir  = "/var/lib/cairn-helper/streams"
 )
-
-// streamTopFile is where this system's nginx takes the stream block.
-func (st *Sites) streamTopFile() string {
-	if st.Family == "el" {
-		return streamTopEL
-	}
-	return streamTopDebian
-}
 
 const streamTop = `# ` + siteManaged + `
 # Four-layer proxies (` + streamDir + `).
@@ -97,12 +92,33 @@ func (st *Sites) streamStates() (map[string]helperapi.StreamSpec, error) {
 	return out, nil
 }
 
-// streamModule reports whether nginx loads its stream module.
+// streamModule reports whether nginx has its stream module: built in, or
+// loaded by nginx.conf or a module file it includes at the top level.
 func (st *Sites) streamModule() bool {
-	files, _ := filepath.Glob(st.path(filepath.Join(filepath.Dir(st.streamTopFile()), "*.conf")))
-	for _, f := range files {
-		if data, err := os.ReadFile(f); err == nil && bytes.Contains(data, []byte("ngx_stream_module")) { //nolint:gosec // G304: nginx module files.
-			return true
+	if st.streamBuiltIn() {
+		return true
+	}
+	globs := []string{filepath.Join(filepath.Dir(streamTopDebian), "*.conf")}
+	if st.Family == "el" {
+		globs = []string{filepath.Join(filepath.Dir(streamTopEL), "*.conf")}
+	}
+	if m, ok := st.readNginxMain(); ok {
+		for _, l := range m.loads {
+			if strings.Contains(l, "ngx_stream_module") {
+				return true
+			}
+		}
+		globs = m.includes
+	}
+	for _, g := range globs {
+		if !filepath.IsAbs(g) {
+			continue
+		}
+		files, _ := filepath.Glob(st.path(g))
+		for _, f := range files {
+			if data, err := os.ReadFile(f); err == nil && bytes.Contains(data, []byte("ngx_stream_module")) { //nolint:gosec // G304: nginx module files.
+				return true
+			}
 		}
 	}
 	return false
@@ -137,7 +153,7 @@ func (st *Sites) applyStream(ctx context.Context, _ helperapi.Caller, spec helpe
 			return nil, err
 		}
 	}
-	changes := []fileChange{{path: st.streamTopFile(), data: []byte(streamTop)}}
+	changes := st.streamTopChanges()
 	if spec.Enabled {
 		var b bytes.Buffer
 		if err := streamTemplate.Execute(&b, map[string]any{"Managed": siteManaged, "Code": spec.Code, "Protocol": spec.Protocol,

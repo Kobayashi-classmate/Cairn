@@ -72,7 +72,8 @@ type Sites struct {
 	Software *Software
 	// Unsupported, when set, is why sites are not available here.
 	Unsupported string
-	// NginxUser is the user nginx workers run as (www-data, nginx).
+	// NginxUser is the user the platform's nginx workers run as (www-data,
+	// nginx); nginxUser says who the installed nginx's run as.
 	NginxUser string
 	// Family is the platform family (debian, el): where nginx takes
 	// module files.
@@ -485,20 +486,35 @@ var groupHasMember = func(root, group, user string) (bool, error) {
 // membership changed: nginx's workers keep the groups they started with
 // until a reload starts new ones.
 func (st *Sites) nginxAccess(ctx context.Context, log io.Writer, code string, serveFiles bool) (bool, error) {
-	if st.NginxUser == "" {
+	user := st.nginxUser()
+	if user == "" {
 		return false, nil
 	}
-	member, err := groupHasMember(st.Root, ownerOf(code), st.NginxUser)
+	changed := false
+	// Once nginx runs as another user than the platform's (nginx.org's on
+	// Debian), the platform's keeps no access: PHP-FPM's default pool and
+	// other web software run as it.
+	if old := st.NginxUser; old != "" && old != user {
+		if member, err := groupHasMember(st.Root, ownerOf(code), old); err != nil {
+			return false, err
+		} else if member {
+			if err := runCommand(ctx, log, "gpasswd", "--delete", old, ownerOf(code)); err != nil {
+				return true, err
+			}
+			changed = true
+		}
+	}
+	member, err := groupHasMember(st.Root, ownerOf(code), user)
 	if err != nil {
-		return false, err
+		return changed, err
 	}
 	switch {
 	case serveFiles && !member:
-		return true, runCommand(ctx, log, "usermod", "--append", "--groups", ownerOf(code), st.NginxUser)
+		return true, runCommand(ctx, log, "usermod", "--append", "--groups", ownerOf(code), user)
 	case !serveFiles && member:
-		return true, runCommand(ctx, log, "gpasswd", "--delete", st.NginxUser, ownerOf(code))
+		return true, runCommand(ctx, log, "gpasswd", "--delete", user, ownerOf(code))
 	}
-	return false, nil
+	return changed, nil
 }
 
 // ensureDirs lays out the site directory:
@@ -894,7 +910,7 @@ func (st *Sites) render(spec helperapi.SiteSpec, fpm *catalog.FPM) ([]byte, []by
 		var b bytes.Buffer
 		if err := poolTemplate.Execute(&b, map[string]any{
 			"Managed": siteManaged, "Code": spec.Code, "Runner": runnerOf(spec.Code), "Group": ownerOf(spec.Code),
-			"Socket": socketPath(fpm, spec.Code), "NginxUser": st.NginxUser, "AppDir": path.Join(dir, "app"), "SiteDir": dir,
+			"Socket": socketPath(fpm, spec.Code), "NginxUser": st.nginxUser(), "AppDir": path.Join(dir, "app"), "SiteDir": dir,
 		}); err != nil {
 			return nil, nil, err
 		}
@@ -1134,8 +1150,8 @@ func (st *Sites) remove(ctx context.Context, _ helperapi.Caller, req helperapi.S
 	if err := os.RemoveAll(st.path(res.Dir)); err != nil {
 		return nil, err
 	}
-	if st.NginxUser != "" {
-		_ = runCommand(ctx, log, "gpasswd", "--delete", st.NginxUser, res.Owner)
+	if user := st.nginxUser(); user != "" {
+		_ = runCommand(ctx, log, "gpasswd", "--delete", user, res.Owner)
 	}
 	for _, u := range []string{res.Runner, res.Owner} {
 		if _, _, err := lookupUser(u); err == nil {
