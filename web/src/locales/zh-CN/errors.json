@@ -263,6 +263,7 @@
     },
     "cert": {
       "invalid": "证书或私钥无效：{reason}",
+      "key_unsupported": "浏览器不接受服务器使用这种密钥（{keyType}）的证书。请使用 2048 位及以上的 RSA 密钥，或 P-256、P-384 曲线的 EC 密钥。",
       "domains_not_covered": "该证书没有覆盖网站 {site} 的 {domains}。"
     },
     "dns": {
@@ -391,6 +392,8 @@
     "in_use": "该证书仍被网站或面板使用，请先将其切换到其他证书。",
     "invalid": "证书或私钥无效。",
     "expired": "证书已过期。",
+    "not_yet_valid": "证书尚未生效：还没有到有效期的开始时间。",
+    "key_unsupported": "浏览器不接受服务器使用这种密钥的证书。请使用 2048 位及以上的 RSA 密钥，或 P-256、P-384 曲线的 EC 密钥。",
     "acme_failed": "证书颁发机构拒绝了请求，或验证失败。",
     "account_failed": "无法在证书颁发机构注册账号。",
     "http01_unavailable": "无法进行 HTTP 验证：nginx 未运行，且 80 端口已被占用。",

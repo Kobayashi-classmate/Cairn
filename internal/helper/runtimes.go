@@ -536,6 +536,12 @@ func (r *Runtimes) finish(ctx context.Context, log io.Writer, f *fetched) (strin
 
 	final := filepath.Join(r.swDir(sw), rel.Version)
 	_ = os.RemoveAll(final) // a leftover of an interrupted attempt
+	// The unpacked files on the disk before the version has its name, with
+	// one flush of the file system rather than one per file: the line is
+	// switched to it and the version before is removed next.
+	if err := syncFilesystems([]string{staging}); err != nil {
+		return "", err
+	}
 	if err := os.Rename(root, final); err != nil {
 		return "", err
 	}

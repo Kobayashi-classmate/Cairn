@@ -263,6 +263,7 @@
     },
     "cert": {
       "invalid": "The certificate or key is not valid: {reason}",
+      "key_unsupported": "Browsers do not accept a certificate with this key ({keyType}) from a server. Use an RSA key of 2048 bits or more, or an EC key on P-256 or P-384.",
       "domains_not_covered": "The certificate does not cover {domains} of site {site}."
     },
     "dns": {
@@ -391,6 +392,8 @@
     "in_use": "The certificate is still used by sites or by the panel. Switch them to another certificate first.",
     "invalid": "The certificate or key is not valid.",
     "expired": "The certificate has expired.",
+    "not_yet_valid": "The certificate is not valid yet: its validity period has not begun.",
+    "key_unsupported": "Browsers do not accept a certificate with this kind of key from a server. Use an RSA key of 2048 bits or more, or an EC key on P-256 or P-384.",
     "acme_failed": "The certificate authority refused the request, or the validation failed.",
     "account_failed": "The account could not be registered with the certificate authority.",
     "http01_unavailable": "HTTP validation is not possible: nginx is not running and port 80 is in use.",

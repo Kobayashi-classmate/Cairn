@@ -18,11 +18,13 @@ import (
 	"path/filepath"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/audit"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
 	"github.com/Kobayashi-classmate/Cairn/internal/buildinfo"
 	"github.com/Kobayashi-classmate/Cairn/internal/config"
+	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/i18n"
 	"github.com/Kobayashi-classmate/Cairn/internal/store"
 	"github.com/Kobayashi-classmate/Cairn/internal/tlsutil"
@@ -33,8 +35,9 @@ const usage = `Usage: cairn <command> [flags]
 Commands:
   version           print the version
   setup-link        print a one-time link for creating the administrator
-  reset-password    reset a user's password and sign them out everywhere
+  reset-password    reset a user's password and end their sessions (API tokens stay valid)
   reset-2fa         turn off a user's two-step sign-in (lost phone and codes)
+  reset-panel-cert  serve the panel's self-signed certificate again (browsers refuse the one set)
 
 Run "cairn <command> -h" for the flags of a command.
 `
@@ -78,6 +81,11 @@ func main() {
 		})
 		if err == nil {
 			err = app.reset2FA(username)
+		}
+	case "reset-panel-cert":
+		app, err = newCLI("reset-panel-cert", args, nil)
+		if err == nil {
+			err = app.resetPanelCert()
 		}
 	case "help", "-h", "--help":
 		fmt.Print(usage)
@@ -266,6 +274,46 @@ func (c *cli) reset2FA(username string) error {
 	return nil
 }
 
+// resetPanelCert has the helper serve the panel's self-signed certificate
+// again, as choosing it on the certificates page does: the way back for a
+// panel whose certificate no browser takes. The panel picks it up within
+// seconds, without a restart.
+func (c *cli) resetPanelCert() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	h := helperapi.NewClient(c.cfg.Paths.HelperSocket)
+	caller := helperapi.Caller{Source: "cli"}
+	var ref helperapi.OpRef
+	if err := h.Call(ctx, helperapi.ActionPanelCert, caller, helperapi.PanelCertRequest{}, &ref); err != nil {
+		return err
+	}
+	for {
+		var res helperapi.OpGetResponse
+		if err := h.Call(ctx, helperapi.ActionOpGet, caller, helperapi.OpGetRequest{ID: ref.ID}, &res); err != nil {
+			return err
+		}
+		if helperapi.OpDone(res.Op.State) {
+			if res.Op.State == helperapi.OpSucceeded {
+				break
+			}
+			if res.Op.Error != nil {
+				return res.Op.Error
+			}
+			return errors.New(string(res.Op.State))
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	if err := audit.Record(ctx, c.db, audit.Entry{Action: "cert.panel", Params: map[string]any{"cert": ""}, Result: "ok", Source: "cli"}); err != nil {
+		return err
+	}
+	fmt.Println(c.t("cli.reset_panel_cert.done", nil))
+	return nil
+}
+
 func (c *cli) resetPassword(username string) error {
 	ctx := context.Background()
 	u, err := c.pickUser(ctx, username)
@@ -290,5 +338,6 @@ func (c *cli) resetPassword(username string) error {
 	}
 	fmt.Println(c.t("cli.reset_password.done", map[string]any{"Username": u.Username, "Password": password}))
 	fmt.Println(c.t("cli.reset_password.sessions_revoked", nil))
+	fmt.Println(c.t("cli.reset_password.tokens_kept", nil))
 	return nil
 }

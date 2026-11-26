@@ -96,11 +96,7 @@ func writeJob(p string, job helperapi.UpdateJob) error {
 	if err != nil {
 		return err
 	}
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return writeFileAs(p, data, 0o600)
 }
 
 // Start verifies the requested version against the signed release index,
@@ -221,6 +217,10 @@ func (u *Updater) download(ctx context.Context, pkg *cloud.Package) (string, err
 	defer func() { _ = os.Remove(tmp.Name()) }() // no-op after the rename
 	h := sha256.New()
 	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(res.Body, maxPackageSize+1))
+	if err == nil {
+		// Kept to go back to later: on the disk before it has its name.
+		err = fsync(tmp)
+	}
 	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}

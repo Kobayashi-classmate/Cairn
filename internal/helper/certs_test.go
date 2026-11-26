@@ -4,14 +4,19 @@ package helper
 
 import (
 	"context"
+	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"net/http"
@@ -26,6 +31,7 @@ import (
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/netx"
+	"github.com/Kobayashi-classmate/Cairn/internal/tlsutil"
 )
 
 // testCA signs leaf certificates for tests.
@@ -165,8 +171,13 @@ func TestCertImportServeAndRemove(t *testing.T) {
 	if op, log := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpSucceeded {
 		t.Fatalf("panel: %+v\n%s", op.Error, log)
 	}
-	if info, err := os.Stat(filepath.Join(c.Root, panelTLSDir, "panel.key")); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(filepath.Join(c.Root, panelTLSDir, tlsutil.DeployedFile)); err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("panel key: %v %v", info, err)
+	}
+	// The key and the chain in one file, which the panel loads as it is.
+	pair := e.read(panelTLSDir + "/" + tlsutil.DeployedFile)
+	if _, err := tls.X509KeyPair([]byte(pair), []byte(pair)); err != nil || !strings.HasPrefix(pair, "-----BEGIN EC PRIVATE KEY") {
+		t.Fatalf("panel copy: %v\n%s", err, pair)
 	}
 	st := c.Status()
 	if got := st.Certs[id]; st.Panel != id || !got.Panel || strings.Join(got.Sites, ",") != "shop" || got.Source != "upload" {
@@ -180,7 +191,7 @@ func TestCertImportServeAndRemove(t *testing.T) {
 	spec.Domains, spec.TLS = spec.Domains[:2], nil
 	e.run(helperapi.ActionSiteApply, spec)
 	e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{})
-	if e.exists(panelTLSDir + "/panel.crt") {
+	if e.exists(panelTLSDir + "/" + tlsutil.DeployedFile) {
 		t.Fatal("panel copy left after going back to self-signed")
 	}
 	if op, _ := e.run(helperapi.ActionCertRemove, helperapi.CertRef{ID: id}); op.State != helperapi.OpSucceeded {
@@ -304,15 +315,18 @@ func TestCertPanelCopyStaysInDataDir(t *testing.T) {
 	}
 
 	// A missing tls/ is made for the panel; a planted link in it is
-	// replaced, not followed.
+	// replaced, not followed, and links under the names of earlier
+	// versions go without what they point to.
 	if op, log := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpSucceeded {
 		t.Fatalf("panel: %+v\n%s", op.Error, log)
 	}
-	if err := os.Remove(filepath.Join(tls, "panel.key")); err != nil {
+	if err := os.Remove(filepath.Join(tls, tlsutil.DeployedFile)); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Join(elsewhere, "panel.crt"), filepath.Join(tls, "panel.key")); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{tlsutil.DeployedFile, tlsutil.LegacyCertFile, tlsutil.LegacyKeyFile} {
+		if err := os.Symlink(filepath.Join(elsewhere, "panel.crt"), filepath.Join(tls, name)); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if op, log := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpSucceeded {
 		t.Fatalf("panel again: %+v\n%s", op.Error, log)
@@ -320,14 +334,116 @@ func TestCertPanelCopyStaysInDataDir(t *testing.T) {
 	if got := e.read("/etc/bash_completion.d/panel.crt"); got != "keep" {
 		t.Fatalf("written through a link in tls/: %q", got)
 	}
-	for _, name := range []string{"panel.key", "panel.crt"} {
-		info, err := os.Lstat(filepath.Join(tls, name))
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
-			t.Fatalf("%s: %v %v", name, info, err)
+	info, err := os.Lstat(filepath.Join(tls, tlsutil.DeployedFile))
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		t.Fatalf("%s: %v %v", tlsutil.DeployedFile, info, err)
+	}
+	if entries, _ := os.ReadDir(tls); len(entries) != 1 {
+		t.Fatalf("temporary or earlier files left: %v", entries)
+	}
+}
+
+// leafWith is leaf with a key of the caller's choice and a validity period.
+func (ca *testCA) leafWith(t *testing.T, key crypto.Signer, notBefore, notAfter time.Time, domain string) (string, string) {
+	t.Helper()
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(time.Now().UnixNano()), Subject: pkix.Name{CommonName: domain}, DNSNames: []string{domain},
+		NotBefore: notBefore, NotAfter: notAfter, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, key.Public(), ca.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kd, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chain := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})) + string(ca.pem)
+	return chain, string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: kd}))
+}
+
+// Certificates that browsers do not take from a server are refused on
+// upload and for the panel: a key other than RSA of 2048 bits or more,
+// P-256 or P-384, or a certificate not valid yet. Those they take are
+// served as before.
+func TestCertRefusesWhatBrowsersRefuse(t *testing.T) {
+	e, c := newCertEnv(t)
+	ca := newTestCA(t)
+	now := time.Now()
+	gen := func(f func() (crypto.Signer, error)) crypto.Signer {
+		k, err := f()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return k
+	}
+	ec := func(curve elliptic.Curve) func() (crypto.Signer, error) {
+		return func() (crypto.Signer, error) { return ecdsa.GenerateKey(curve, rand.Reader) }
+	}
+	rsaKey := func(bits int) func() (crypto.Signer, error) {
+		return func() (crypto.Signer, error) { return rsa.GenerateKey(rand.Reader, bits) }
+	}
+	_, edKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := [2]time.Time{now.Add(-time.Hour), now.Add(30 * 24 * time.Hour)}
+	for i, tc := range []struct {
+		name   string
+		key    crypto.Signer
+		period [2]time.Time
+		code   string
+	}{
+		{"ed25519", edKey, valid, helperapi.CodeCertKeyUnsupported},
+		{"P-521", gen(ec(elliptic.P521())), valid, helperapi.CodeCertKeyUnsupported},
+		{"P-224", gen(ec(elliptic.P224())), valid, helperapi.CodeCertKeyUnsupported},
+		{"RSA 1024", gen(rsaKey(1024)), valid, helperapi.CodeCertKeyUnsupported},
+		{"not valid yet", gen(ec(elliptic.P256())), [2]time.Time{now.Add(time.Hour), now.Add(48 * time.Hour)}, helperapi.CodeCertNotYetValid},
+		{"expired", gen(ec(elliptic.P256())), [2]time.Time{now.Add(-48 * time.Hour), now.Add(-time.Hour)}, helperapi.CodeCertExpired},
+		{"P-256", gen(ec(elliptic.P256())), valid, ""},
+		{"P-384", gen(ec(elliptic.P384())), valid, ""},
+		{"RSA 2048", gen(rsaKey(2048)), valid, ""},
+	} {
+		chain, key := ca.leafWith(t, tc.key, tc.period[0], tc.period[1], "panel.example.com")
+		id := fmt.Sprintf("c%015x", i+1)
+		op, log := e.run(helperapi.ActionCertImport, helperapi.CertImportRequest{ID: id, CertPEM: chain, KeyPEM: key})
+		if tc.code != "" {
+			if op.State != helperapi.OpFailed || op.Error.Code != tc.code {
+				t.Errorf("%s: upload %+v %+v", tc.name, op.State, op.Error)
+			}
+			// One stored by an earlier version is not served on the panel
+			// either, and the panel keeps what it served.
+			if _, err := c.store(id, "upload", []byte(chain), []byte(key)); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			if op, _ := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpFailed || op.Error.Code != tc.code {
+				t.Errorf("%s: panel %+v %+v", tc.name, op.State, op.Error)
+			}
+			if e.exists(panelTLSDir+"/"+tlsutil.DeployedFile) || c.panelCert() != "" {
+				t.Errorf("%s: deployed for the panel", tc.name)
+			}
+			continue
+		}
+		if op.State != helperapi.OpSucceeded {
+			t.Fatalf("%s: upload %+v\n%s", tc.name, op.Error, log)
+		}
+		if op, log := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{ID: id}); op.State != helperapi.OpSucceeded || c.panelCert() != id {
+			t.Fatalf("%s: panel %+v\n%s", tc.name, op.Error, log)
+		}
+		pair := e.read(panelTLSDir + "/" + tlsutil.DeployedFile)
+		if _, err := tls.X509KeyPair([]byte(pair), []byte(pair)); err != nil {
+			t.Fatalf("%s: deployed pair: %v", tc.name, err)
+		}
+		if op, _ := e.run(helperapi.ActionPanelCert, helperapi.PanelCertRequest{}); op.State != helperapi.OpSucceeded {
+			t.Fatalf("%s: back to self-signed: %+v", tc.name, op.Error)
 		}
 	}
-	if entries, _ := os.ReadDir(tls); len(entries) != 2 {
-		t.Fatalf("temporary files left: %v", entries)
+}
+
+func TestServableKey(t *testing.T) {
+	for kt, want := range map[string]bool{"ec256": true, "ec384": true, "rsa2048": true, "rsa3072": true, "rsa4096": true,
+		"ec521": false, "ec224": false, "rsa1024": false, "rsa2047": false, "ed25519": false, "unknown": false, "rsa": false, "": false} {
+		if got := servableKey(kt); got != want {
+			t.Errorf("servableKey(%q) = %v", kt, got)
+		}
 	}
 }
 

@@ -96,7 +96,7 @@ func run(cfgPath string, log *slog.Logger) error {
 	if err := store.Migrate(ctx, db); err != nil {
 		return err
 	}
-	tlsHolder, err := tlsutil.NewHolder(filepath.Join(cfg.Paths.DataDir, "tls"))
+	tlsHolder, err := tlsutil.NewHolder(filepath.Join(cfg.Paths.DataDir, "tls"), log)
 	if err != nil {
 		return err
 	}

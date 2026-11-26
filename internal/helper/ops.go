@@ -221,7 +221,9 @@ func (o *Ops) finish(op helperapi.Op, result any, err error) {
 	o.Log.Info("operation finished", "id", op.ID, "kind", op.Kind, "state", op.State, "result", code)
 }
 
-// save writes the state atomically, so readers never see a partial file.
+// save writes the state atomically, so readers never see a partial file,
+// and flushed to the disk (see durable.go), so that a crash leaves the
+// state before or after, never an empty file.
 func (o *Ops) save(op helperapi.Op) error {
 	data, err := json.Marshal(op)
 	if err != nil {
@@ -236,11 +238,20 @@ func (o *Ops) save(op helperapi.Op) error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
+	if err := fsync(tmp); err != nil {
+		tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), o.statePath(op.ID))
+	if err := os.Rename(tmp.Name(), o.statePath(op.ID)); err != nil {
+		return err
+	}
+	syncDir(o.Dir)
+	return nil
 }
 
 func (o *Ops) load(id string) (helperapi.Op, error) {

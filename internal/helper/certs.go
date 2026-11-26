@@ -25,6 +25,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ import (
 
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
 	"github.com/Kobayashi-classmate/Cairn/internal/netx"
+	"github.com/Kobayashi-classmate/Cairn/internal/tlsutil"
 )
 
 // LockACME serializes ACME issuance (one order at a time; lego's logger is
@@ -395,7 +397,9 @@ func (c *Certs) panelTLS(create bool, uid, gid int) (*os.Root, error) {
 
 // writeOwned replaces name inside root with data: a new file of a random
 // name (O_EXCL: never an existing file or link), given its mode and owner
-// through its descriptor before the content, then renamed over name.
+// through its descriptor before the content, then renamed over name. As
+// for writeFileAs, the content is on the disk before the rename, and the
+// rename before it returns.
 func writeOwned(root *os.Root, name string, data []byte, mode os.FileMode, uid, gid int) error {
 	tmp := path.Join(path.Dir(name), "."+path.Base(name)+"."+newHexID(""))
 	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
@@ -418,6 +422,9 @@ func writeOwned(root *os.Root, name string, data []byte, mode os.FileMode, uid, 
 	if _, err := f.Write(data); err != nil {
 		return err
 	}
+	if err := fsync(f); err != nil {
+		return err
+	}
 	if err := f.Close(); err != nil {
 		return err
 	}
@@ -426,11 +433,15 @@ func writeOwned(root *os.Root, name string, data []byte, mode os.FileMode, uid, 
 		_ = root.Remove(tmp)
 		return err
 	}
+	syncRootDir(root, path.Dir(name))
 	return nil
 }
 
 // deployPanel writes the panel's copy, readable by the web process only;
-// the web process picks it up without a restart.
+// the web process picks it up without a restart. The key and the chain go
+// into one file, which a single rename puts in place: the panel never
+// finds the key of one certificate with another, whatever cuts the
+// deployment short. The two files of earlier versions go afterwards.
 func (c *Certs) deployPanel(log io.Writer, certPEM, keyPEM []byte) error {
 	uid, gid, err := lookupUser(c.PanelUser)
 	if err != nil {
@@ -441,15 +452,57 @@ func (c *Certs) deployPanel(log io.Writer, certPEM, keyPEM []byte) error {
 		return err
 	}
 	defer func() { _ = root.Close() }()
-	for _, f := range []struct {
-		name string
-		data []byte
-	}{{"panel.key", keyPEM}, {"panel.crt", certPEM}} {
-		if err := writeOwned(root, f.name, f.data, 0o600, uid, gid); err != nil {
+	pair := append(append([]byte{}, keyPEM...), certPEM...)
+	if err := writeOwned(root, tlsutil.DeployedFile, pair, 0o600, uid, gid); err != nil {
+		return err
+	}
+	if err := removePanelFiles(root, tlsutil.LegacyCertFile, tlsutil.LegacyKeyFile); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(log, "The panel serves the certificate now.\n")
+	return nil
+}
+
+// removePanelFiles removes files of the panel's TLS directory, inside it:
+// no link there may point the removal elsewhere.
+func removePanelFiles(root *os.Root, names ...string) error {
+	for _, name := range names {
+		if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 	}
-	_, _ = fmt.Fprintf(log, "The panel serves the certificate now.\n")
+	return nil
+}
+
+// servableKey reports whether browsers take a server certificate with a
+// key of this type (keyTypeOf): RSA of 2048 bits or more, or ECDSA on
+// P-256 or P-384. No browser takes Ed25519 from a server, and Chrome does
+// not take P-521.
+func servableKey(keyType string) bool {
+	switch keyType {
+	case "ec256", "ec384":
+		return true
+	}
+	bits, ok := strings.CutPrefix(keyType, "rsa")
+	if !ok {
+		return false
+	}
+	n, err := strconv.Atoi(bits)
+	return err == nil && n >= 2048
+}
+
+// checkServable refuses a certificate browsers would refuse from a server
+// at now: outside its validity period, or with a key they do not take.
+func checkServable(info helperapi.CertInfo, now time.Time) error {
+	if time.Unix(info.NotAfter, 0).Before(now) {
+		return pkgErr(helperapi.CodeCertExpired, map[string]any{"notAfter": info.NotAfter})
+	}
+	if now.Before(time.Unix(info.NotBefore, 0)) {
+		return pkgErr(helperapi.CodeCertNotYetValid, map[string]any{"notBefore": info.NotBefore})
+	}
+	if !servableKey(info.KeyType) {
+		return pkgErr(helperapi.CodeCertKeyUnsupported, map[string]any{"keyType": info.KeyType})
+	}
 	return nil
 }
 
@@ -724,8 +777,8 @@ func (c *Certs) importCert(ctx context.Context, _ helperapi.Caller, req helperap
 	if err != nil {
 		return nil, err
 	}
-	if time.Unix(info.NotAfter, 0).Before(time.Now()) {
-		return nil, pkgErr(helperapi.CodeCertExpired, map[string]any{"notAfter": info.NotAfter})
+	if err := checkServable(info, time.Now()); err != nil {
+		return nil, err
 	}
 	if err := c.coverage(req.ID, info.Domains); err != nil {
 		return nil, err
@@ -766,18 +819,14 @@ func (c *Certs) remove(_ context.Context, _ helperapi.Caller, req helperapi.Cert
 // setPanel implements panel.cert.
 func (c *Certs) setPanel(_ context.Context, _ helperapi.Caller, req helperapi.PanelCertRequest, log io.Writer) (any, error) {
 	if req.ID == "" {
-		// Removed inside the data directory too: no link there may point
-		// the removal elsewhere.
 		root, err := c.panelTLS(false, 0, 0)
 		switch {
 		case err == nil:
-			for _, name := range []string{"panel.crt", "panel.key"} {
-				if err := root.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
-					_ = root.Close()
-					return nil, err
-				}
-			}
+			err = removePanelFiles(root, tlsutil.DeployedFile, tlsutil.LegacyCertFile, tlsutil.LegacyKeyFile)
 			_ = root.Close()
+			if err != nil {
+				return nil, err
+			}
 		case !errors.Is(err, fs.ErrNotExist):
 			return nil, err
 		}
@@ -790,6 +839,15 @@ func (c *Certs) setPanel(_ context.Context, _ helperapi.Caller, req helperapi.Pa
 	certPEM, keyPEM, err := readCertFiles(c.Root, req.ID)
 	if err != nil {
 		return nil, pkgErr(helperapi.CodeCertNotFound, map[string]any{"id": req.ID})
+	}
+	// Checked again on what is stored, whatever the web process saw: a
+	// certificate browsers refuse would lock everyone out of the panel.
+	info, err := parseCert(certPEM, keyPEM)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkServable(info, time.Now()); err != nil {
+		return nil, err
 	}
 	if err := c.deployPanel(log, certPEM, keyPEM); err != nil {
 		return nil, err

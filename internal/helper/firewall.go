@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -57,6 +58,8 @@ type Firewall struct {
 	now    func() time.Time
 	// backends replaces the real backends (tests).
 	backends map[string]fwBackend
+	// emptyStateSeen: the empty state file was reported in the log.
+	emptyStateSeen atomic.Bool
 }
 
 // fwConfig is what Cairn wants the firewall to be.
@@ -237,6 +240,16 @@ func (f *Firewall) load() (fwConfig, error) {
 	}
 	if err != nil {
 		return cfg, err
+	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		// A write cut short by a power cut (versions that did not flush
+		// their writes left such files): no state, like a missing file,
+		// rather than every firewall action failing until root removes it.
+		if f.Log != nil && !f.emptyStateSeen.Swap(true) {
+			f.Log.Warn("the firewall's state file is empty: its rules and addresses are no longer on record, and the firewall counts as off until it is switched on again",
+				"path", f.stateDir("state.json"))
+		}
+		return cfg, nil
 	}
 	return cfg, json.Unmarshal(data, &cfg)
 }
@@ -508,16 +521,46 @@ func (f *Firewall) check(cfg fwConfig, remote string, ssh []int) error {
 // Changes -----------------------------------------------------------------
 
 // active reports whether the firewall enforces rules now, and refreshes
-// cfg.Enabled from the system for firewalld and ufw (they may have been
-// switched on or off outside Cairn).
-func (f *Firewall) active(ctx context.Context, cfg *fwConfig, sys fwSystem) bool {
-	if sys.backend != helperapi.FirewallNftables {
-		cfg.Enabled = sys.active
-		if sys.active {
-			cfg.Backend = sys.backend
-		}
+// cfg.Enabled and cfg.Backend from the system (see detect): firewalld and
+// ufw may have been switched on or off outside Cairn. A firewall on record
+// as firewalld or ufw that no longer runs is off, also where Cairn's own
+// nftables table is the platform's choice: taking the record for that
+// table would put its rules, which deny by default, in force without
+// anyone asking for it.
+func (f *Firewall) active(_ context.Context, cfg *fwConfig, sys fwSystem) bool {
+	cfg.Enabled = sys.active
+	if sys.active {
+		cfg.Backend = sys.backend
 	}
 	return cfg.Enabled
+}
+
+// settle is active for a caller that holds the lock and stores nothing
+// otherwise: a firewall that went off outside Cairn is recorded as off.
+func (f *Firewall) settle(ctx context.Context, cfg *fwConfig, sys fwSystem) (bool, error) {
+	was := cfg.Enabled
+	if f.active(ctx, cfg, sys) {
+		return true, nil
+	}
+	if !was {
+		return false, nil
+	}
+	if f.Log != nil {
+		f.Log.Warn("the firewall was switched off outside the panel; it is recorded as off", "backend", cfg.Backend)
+	}
+	return false, f.save(*cfg)
+}
+
+// inForce reports whether the rules of a firewall that is on are in force
+// now. detect saw firewalld or ufw running; Cairn's own nftables table is
+// on record until the panel switches it off, and may have been removed
+// outside Cairn since (nft flush ruleset, systemctl stop cairn-firewall).
+// Putting it back would switch on rules that deny by default.
+func (f *Firewall) inForce(ctx context.Context, sys fwSystem) bool {
+	if sys.backend != helperapi.FirewallNftables {
+		return true
+	}
+	return f.backend(sys.backend).active(ctx)
 }
 
 // detached gives a step of a change a context of its own: the request that
@@ -1068,7 +1111,9 @@ func (f *Firewall) SetManaged(ctx context.Context, log io.Writer, owner, protoco
 		set(&cfg.Pending.Previous)
 	}
 	sys := f.detect(ctx, cfg)
-	on := sys.conflict == "" && f.active(ctx, &cfg, sys)
+	// Stored only, without rules in force: applying them would switch on
+	// rules that deny by default, without a rollback window.
+	on := sys.conflict == "" && f.active(ctx, &cfg, sys) && f.inForce(ctx, sys)
 	var ssh fwSSH
 	if on {
 		ssh = f.sshRemember(ctx, &cfg)
@@ -1433,7 +1478,13 @@ func (f *Firewall) Refresh(ctx context.Context, log io.Writer) error {
 		return err
 	}
 	sys := f.detect(ctx, cfg)
-	if sys.conflict != "" || !f.active(ctx, &cfg, sys) {
+	if sys.conflict != "" {
+		return nil
+	}
+	if on, err := f.settle(ctx, &cfg, sys); !on || err != nil {
+		return err
+	}
+	if !f.inForce(ctx, sys) {
 		return nil
 	}
 	seen, keep := cfg.SSHSeen, cfg.SSHKeep
@@ -1456,9 +1507,12 @@ func (f *Firewall) Refresh(ctx context.Context, log io.Writer) error {
 // upgrade that changed how rules are written takes effect without waiting
 // for the next change. It does nothing while the firewall is off or a
 // change waits for confirmation. The configuration is the one already
-// confirmed: there is no rollback timer and nothing to confirm. When the
-// apply fails the error is returned and the configuration stays as it is
-// (the backends leave the rules in place as they were where they can).
+// confirmed: there is no rollback timer and nothing to confirm. So it only
+// ever rewrites rules in force, of the backend on record as on: it never
+// switches a firewall on (one that went off outside Cairn is recorded as
+// off), and never writes over rules it has no record of. When the apply
+// fails the error is returned and the configuration stays as it is (the
+// backends leave the rules in place as they were where they can).
 func (f *Firewall) Reapply(ctx context.Context) error {
 	ctx = context.WithoutCancel(ctx)
 	unlock, err := f.lock()
@@ -1471,7 +1525,14 @@ func (f *Firewall) Reapply(ctx context.Context) error {
 		return err
 	}
 	sys := f.detect(ctx, cfg)
-	if sys.conflict != "" || !f.active(ctx, &cfg, sys) {
+	if sys.conflict != "" {
+		return nil
+	}
+	recorded := cfg.Enabled && cfg.Backend == sys.backend
+	if on, err := f.settle(ctx, &cfg, sys); !on || err != nil {
+		return err
+	}
+	if !recorded || !f.inForce(ctx, sys) {
 		return nil
 	}
 	b := f.backend(sys.backend)

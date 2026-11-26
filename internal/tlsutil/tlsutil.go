@@ -15,6 +15,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net"
 	"os"
@@ -24,13 +25,35 @@ import (
 	"time"
 )
 
+// The certificate the root helper deploys for the panel, in the TLS
+// directory: the key and the chain in one file, so that both are replaced
+// by a single rename and the panel never finds the key of one certificate
+// with another. Earlier versions wrote two files, LegacyCertFile and
+// LegacyKeyFile, which are still served until a certificate is deployed
+// again.
+const (
+	DeployedFile   = "panel.pem"
+	LegacyCertFile = "panel.crt"
+	LegacyKeyFile  = "panel.key"
+)
+
 // EnsureSelfSigned returns cert and key paths inside dir, generating a new
 // self-signed pair when either file is missing.
 func EnsureSelfSigned(dir string) (certFile, keyFile string, err error) {
-	certFile, keyFile = filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	certFile, keyFile = selfSignedFiles(dir)
 	if exists(certFile) && exists(keyFile) {
 		return certFile, keyFile, nil
 	}
+	return newSelfSigned(dir)
+}
+
+func selfSignedFiles(dir string) (certFile, keyFile string) {
+	return filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+}
+
+// newSelfSigned makes a new self-signed pair in dir, over the old one.
+func newSelfSigned(dir string) (certFile, keyFile string, err error) {
+	certFile, keyFile = selfSignedFiles(dir)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", "", err
 	}
@@ -108,9 +131,10 @@ func writePEM(path, typ string, der []byte, mode os.FileMode) error {
 }
 
 // Holder serves the panel's certificate: the one the root helper deployed
-// for it (panel.crt and panel.key in the TLS directory) when present, the
-// self-signed one otherwise. It notices new files within a few seconds,
-// so a new or renewed certificate needs no restart.
+// for it (DeployedFile in the TLS directory, or the two files of earlier
+// versions) when present, the self-signed one otherwise. It notices new
+// files within a few seconds, so a new or renewed certificate needs no
+// restart.
 type Holder struct {
 	dir               string
 	selfCert, selfKey string
@@ -122,22 +146,59 @@ type Holder struct {
 }
 
 // NewHolder prepares the self-signed certificate in dir and loads the
-// current one.
-func NewHolder(dir string) (*Holder, error) {
+// current one. A deployed certificate that does not load (its key is
+// another certificate's, a file was cut short or changed by hand) does not
+// keep the panel from starting: the self-signed certificate is served
+// instead, and the browser's warning leads to the panel, where another
+// certificate can be set. A self-signed pair that does not load is made
+// anew.
+func NewHolder(dir string, log *slog.Logger) (*Holder, error) {
 	certFile, keyFile, err := EnsureSelfSigned(dir)
 	if err != nil {
 		return nil, err
 	}
 	h := &Holder{dir: dir, selfCert: certFile, selfKey: keyFile, CheckEvery: 5 * time.Second}
-	if err := h.Reload(); err != nil {
+	err = h.Reload()
+	if err == nil {
+		return h, nil
+	}
+	if c, _ := h.Files(); c != h.selfCert {
+		log.Error("the panel's certificate does not load; the panel serves its self-signed certificate until another one is set",
+			"file", c, "err", err)
+		if err = h.loadSelfSigned(); err == nil {
+			return h, nil
+		}
+	}
+	log.Warn("the panel's self-signed certificate does not load; a new one is made", "dir", dir, "err", err)
+	if _, _, err := newSelfSigned(dir); err != nil {
+		return nil, err
+	}
+	if err := h.loadSelfSigned(); err != nil {
 		return nil, err
 	}
 	return h, nil
 }
 
+// loadSelfSigned serves the self-signed pair. The files in use are taken
+// as seen: Reload tries them again once they change.
+func (h *Holder) loadSelfSigned() error {
+	stamp := stampOf(h.Files())
+	cert, err := tls.LoadX509KeyPair(h.selfCert, h.selfKey)
+	if err != nil {
+		return err
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cert, h.stamp, h.checked = &cert, stamp, time.Now()
+	return nil
+}
+
 // Files returns the certificate and key files in use.
 func (h *Holder) Files() (string, string) {
-	c, k := filepath.Join(h.dir, "panel.crt"), filepath.Join(h.dir, "panel.key")
+	if p := filepath.Join(h.dir, DeployedFile); exists(p) {
+		return p, p
+	}
+	c, k := filepath.Join(h.dir, LegacyCertFile), filepath.Join(h.dir, LegacyKeyFile)
 	if exists(c) && exists(k) {
 		return c, k
 	}

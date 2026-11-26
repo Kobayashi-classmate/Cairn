@@ -1189,26 +1189,26 @@ func writeFile(path string, data []byte) error {
 // writeFileAs writes a file atomically with its final mode. The temporary
 // file gets that mode through its descriptor before any content is in it,
 // so a private file (a key) is never readable by others, not even between
-// the write and the rename.
+// the write and the rename. The content is on the disk before the rename,
+// and the rename before it returns (see durable.go): after a crash the
+// file is the old one or the new one, never an empty one.
 func writeFileAs(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil { //nolint:gosec // G301: system configuration directories.
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".cairn-*") // created 0600
+	return writeFileAtomic(path, data, mode, true)
+}
+
+// writeFileAtomic is writeFileAs; without durable nothing is flushed, for a
+// scratch copy that is thrown away after use.
+func writeFileAtomic(path string, data []byte, mode os.FileMode, durable bool) error {
+	tmp, err := stageFile(path, data, mode, durable)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }() // no-op after the rename
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
+	if err := os.Rename(tmp, path); err != nil { //nolint:gosec // G703: tmp is CreateTemp's, beside path, which callers build from fixed or validated system paths.
+		_ = os.Remove(tmp) //nolint:gosec // G703: as above.
 		return err
 	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
+	if durable {
+		syncDir(filepath.Dir(path))
 	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return nil
 }

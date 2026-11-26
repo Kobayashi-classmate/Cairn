@@ -57,10 +57,19 @@ func embedded(ip netip.Addr) (netip.Addr, bool) {
 	return netip.Addr{}, false
 }
 
+// plain is ip as the guards compare it: an IPv4-mapped address as IPv4,
+// and without an IPv6 zone. A zone only names the interface ("[::%eth0]"):
+// the address is the same, and Linux connects "::" with any zone to "::1",
+// while netip's predicates and prefixes take an address with a zone for
+// another one.
+func plain(ip netip.Addr) netip.Addr {
+	return ip.Unmap().WithZone("")
+}
+
 // IsLocal reports whether ip reaches this host itself: a loopback address,
 // or the unspecified address (0.0.0.0, ::), which connects to this host too.
 func IsLocal(ip netip.Addr) bool {
-	ip = ip.Unmap()
+	ip = plain(ip)
 	if v4, ok := embedded(ip); ok {
 		ip = v4
 	}
@@ -71,7 +80,7 @@ func IsLocal(ip netip.Addr) bool {
 // services answer, 169.254.169.254 among them) or a well-known metadata
 // address outside those ranges.
 func IsMetadata(ip netip.Addr) bool {
-	ip = ip.Unmap()
+	ip = plain(ip)
 	if v4, ok := embedded(ip); ok {
 		ip = v4
 	}
@@ -83,7 +92,7 @@ func IsMetadata(ip netip.Addr) bool {
 // (CGNAT, 100.64.0.0/10), link-local, unique-local (fc00::/7),
 // unspecified, multicast, and the documentation and reserved ranges.
 func IsPublic(ip netip.Addr) bool {
-	ip = ip.Unmap()
+	ip = plain(ip)
 	if ip.Is6() {
 		if nat64Local.Contains(ip) {
 			return false
@@ -115,14 +124,21 @@ func (e *DeniedError) Error() string {
 // DialControl returns a net.Dialer Control function refusing connections to
 // addresses deny reports. It sees the address after name resolution, for
 // every connection (redirects and retries included), so neither a DNS name
-// nor a redirect can lead around it.
+// nor a redirect can lead around it. The address is judged without its
+// zone, which the dialer keeps even on an IPv4 address it unmapped
+// ("127.0.0.1%lo:80" for "[::ffff:127.0.0.1%lo]").
 func DialControl(deny func(netip.Addr) bool) func(network, address string, c syscall.RawConn) error {
 	return func(_, address string, _ syscall.RawConn) error {
-		ap, err := netip.ParseAddrPort(address)
+		host, _, err := net.SplitHostPort(address)
 		if err != nil {
 			return fmt.Errorf("netx: unexpected dial address %q: %w", address, err)
 		}
-		if ip := ap.Addr().Unmap(); deny(ip) {
+		host, _, _ = strings.Cut(host, "%")
+		addr, err := netip.ParseAddr(host)
+		if err != nil {
+			return fmt.Errorf("netx: unexpected dial address %q: %w", address, err)
+		}
+		if ip := plain(addr); deny(ip) {
 			return &DeniedError{Addr: ip}
 		}
 		return nil

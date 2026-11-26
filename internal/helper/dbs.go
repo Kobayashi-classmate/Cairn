@@ -480,6 +480,11 @@ func (d *DBs) writeDump(engine, database, ext string, gz bool, fill func(w io.Wr
 			return helperapi.DumpInfo{}, err
 		}
 	}
+	// On the disk before it has its name: a dump cut short by a crash must
+	// not look like a whole one.
+	if err := fsync(f); err != nil {
+		return helperapi.DumpInfo{}, err
+	}
 	if err := f.Close(); err != nil {
 		return helperapi.DumpInfo{}, err
 	}

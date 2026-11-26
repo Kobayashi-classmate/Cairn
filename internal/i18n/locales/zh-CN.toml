@@ -8,9 +8,11 @@
 "cli.setup_link.hint" = "要创建管理员账号，请运行 sudo cairn setup-link 获取一次性的初始化链接。"
 "cli.reset_password.done" = "已重置 {{.Username}} 的密码。新密码：{{.Password}}"
 "cli.reset_password.sessions_revoked" = "该用户所有已登录的会话都已退出。"
+"cli.reset_password.tokens_kept" = "该用户的 API 令牌没有被撤销，仍然可以使用。如果某个令牌可能已被他人知道，请在面板的“API 令牌”页面删除它。"
 "cli.reset_password.no_user" = "不存在名为 {{.Username}} 的用户。"
 "cli.reset_password.need_username" = "存在多个用户，请用 --username 指定。"
 "cli.reset_2fa.done" = "已关闭 {{.Username}} 的两步验证。该用户可以只用密码登录，然后重新设置。"
+"cli.reset_panel_cert.done" = "面板几秒内会重新使用自签名证书。浏览器会对它显示警告：请先确认地址无误再继续，然后在“证书”页面设置一张浏览器接受的证书。"
 
 "notify.security.lockout.title" = "[Cairn] {{.host}} 的登录已被锁定"
 "notify.security.lockout.body" = "账号 {{.username}} 从 {{.ip}} 多次登录失败，接下来 {{.minutes}} 分钟内的登录尝试将被拒绝。"

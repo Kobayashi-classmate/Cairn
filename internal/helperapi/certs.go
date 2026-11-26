@@ -33,6 +33,15 @@ const (
 	CodeDNSRequest       = "dns.request_failed"
 )
 
+// Certificates browsers do not take from a server, refused for the panel
+// and on upload: a key other than RSA of 2048 bits or more, P-256 or P-384
+// (no browser takes Ed25519, Chrome not P-521), or a certificate not valid
+// yet (an expired one is CodeCertExpired).
+const (
+	CodeCertKeyUnsupported = "cert.key_unsupported"
+	CodeCertNotYetValid    = "cert.not_yet_valid"
+)
+
 // ACME challenge types.
 const (
 	ChallengeHTTP01 = "http-01"

@@ -301,16 +301,21 @@ func (st *Sites) transact(ctx context.Context, log io.Writer, changes []fileChan
 		}
 		backups = append(backups, b)
 	}
+	// The files are written as a batch: a refresh of every site may change
+	// hundreds of them, which are not flushed to the disk one by one.
 	restore := func() {
+		var back []fileWrite
 		for _, b := range backups {
 			if b.exists {
-				_ = writeFileMode(b.path, b.data, b.mode)
+				back = append(back, fileWrite{path: b.path, data: b.data, mode: b.mode})
 			} else {
 				_ = os.Remove(b.path)
 			}
 		}
+		_ = writeFilesAs(back)
 	}
 	changed := false
+	var writes []fileWrite
 	for i, c := range changes {
 		b := backups[i]
 		switch {
@@ -333,10 +338,11 @@ func (st *Sites) transact(ctx context.Context, log io.Writer, changes []fileChan
 		if mode == 0 {
 			mode = 0o644
 		}
-		if err := writeFileMode(b.path, c.data, mode); err != nil {
-			restore()
-			return nil, err
-		}
+		writes = append(writes, fileWrite{path: b.path, data: c.data, mode: mode})
+	}
+	if err := writeFilesAs(writes); err != nil {
+		restore()
+		return nil, err
 	}
 	if !changed {
 		logf("The configuration is already up to date.\n")

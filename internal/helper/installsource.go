@@ -385,7 +385,8 @@ func (s *Software) privateDNF(cfg *pkgConfig) error {
 
 // copyConfigFile copies a system configuration file into the private
 // configuration, with content instead of the file's own when given, and
-// the file's mode.
+// the file's mode. The private configuration is thrown away after the
+// command: nothing is flushed to the disk for it.
 func copyConfigFile(src, dst string, content []byte) error {
 	info, err := os.Stat(src)
 	if err != nil || !info.Mode().IsRegular() {
@@ -396,7 +397,7 @@ func copyConfigFile(src, dst string, content []byte) error {
 			return err
 		}
 	}
-	return writeFileAs(dst, content, info.Mode().Perm())
+	return writeFileAtomic(dst, content, info.Mode().Perm(), false)
 }
 
 // copyTree copies the regular files of src that keep accepts (and the
