@@ -74,7 +74,14 @@ php=$(api "$base/api/v1/software" | json '[o["line"] for s in d["software"] if s
 nginx=$(api "$base/api/v1/software" | json '[o["line"] for s in d["software"] if s["id"]=="nginx" for o in s["offers"] if o["recommended"]][0]')
 r=$(api "$base/api/v1/sites")
 [ "$(printf '%s' "$r" | json 'd["nginx"]["installed"]')" = False ] || fail "nginx reported before it is installed"
-follow POST /api/v1/software/install "{\"items\":[{\"software\":\"nginx\",\"line\":\"$nginx\"},{\"software\":\"php\",\"line\":\"$php\"}]}"
+# Their repositories are on the network: a failed download is tried
+# again, with what went wrong shown.
+for try in 1 2 3; do
+	if (follow POST /api/v1/software/install "{\"items\":[{\"software\":\"nginx\",\"line\":\"$nginx\"},{\"software\":\"php\",\"line\":\"$php\"}]}"); then break; fi
+	tail -15 /tmp/job.log >&2
+	[ "$try" != 3 ] || fail "nginx $nginx and PHP $php could not be installed"
+	sleep 10
+done
 mkdir -p /run/php
 # A reload of PHP-FPM lets the requests it serves finish (by default it
 # kills them): the checks below count every request that fails.
@@ -185,72 +192,77 @@ step "lara.test: own public/storage served after saving; links to php.test's fil
 # A second PHP line next to the first, from the vendor repository: the
 # lines share /run/php. A site moves to it and back while a site stays on
 # each line; both masters keep running and every site keeps answering.
-php2=$(api "$base/api/v1/software" | json '[o["line"] for s in d["software"] if s["id"]=="php" for o in s["offers"] if o["installable"] and not o["recommended"] and not o["endOfLife"] and not o.get("installed")][0]')
-# The vendor repository is on the network: a failed download is tried again.
-for try in 1 2 3; do
-	if (follow POST /api/v1/software/install "{\"items\":[{\"software\":\"php\",\"line\":\"$php2\"}]}"); then break; fi
-	[ "$try" != 3 ] || fail "PHP $php2 could not be installed"
-	sleep 10
-done
-graceful "$php2"
-# Some vendor builds leave the pid file to systemd; without systemd the
-# helper finds the master by it.
-"/usr/sbin/php-fpm$php2" --daemonize --pid "/run/php/php$php2-fpm.pid"
-running() { kill -0 "$(cat "/run/php/php$1-fpm.pid" 2>/dev/null)" 2>/dev/null; }
-serves() { [ "$(get "$1" /)" = "$2" ]; }
-follow POST /api/v1/sites "{\"type\":\"php\",\"domains\":[\"two.test\"],\"php\":\"$php2\"}"
-follow POST /api/v1/sites "{\"type\":\"php\",\"domains\":[\"mover.test\"],\"php\":\"$php\"}"
-for c in two-test mover-test; do
-	printf '%s\n' '<?php echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION . "\n";' | runuser -u "cw-$c" -- tee "/srv/www/$c/app/index.php" >/dev/null
-done
-serves two.test "$php2" && serves mover.test "$php" || fail "the sites of two lines: $(get two.test /) $(get mover.test /)"
-for to in "$php2" "$php"; do
-	follow PUT /api/v1/sites/mover-test "{\"type\":\"php\",\"domains\":[\"mover.test\"],\"php\":\"$to\"}"
-	running "$php" && running "$php2" || fail "a PHP-FPM master stopped when mover.test moved to $to"
-	serves mover.test "$to" || fail "mover.test on $to answers: $(get mover.test /)"
-	serves two.test "$php2" || fail "two.test, on $php2, answers: $(get two.test /)"
-	get php.test / | grep_q -x "user=cw-php-test-run" || fail "php.test, on $php, answers: $(get php.test /)"
-	[ -S "/run/php/cairn-mover-test-php$to.sock" ] || fail "no socket for mover.test on $to: $(ls /run/php)"
-done
-step "PHP $php and $php2 side by side: mover.test moved to $php2 and back, both masters running, every site answering"
-
-# The pools of an earlier version listened on /run/php/cairn-<code>.sock.
-# The helper's start moves them to the sockets that name their lines and
-# no request fails meanwhile: PHP-FPM drops a socket it no longer has as
-# soon as it reloads, and nginx uses the old one until it reloads.
-for c in "mover-test:$php" "two-test:$php2"; do
-	code=${c%%:*} line=${c#*:}
-	sed -i "s#/run/php/cairn-$code-php$line.sock#/run/php/cairn-$code.sock#" "/etc/php/$line/fpm/pool.d/cairn-$code.conf" "/etc/nginx/cairn/sites/$code.conf"
-done
-for line in "$php" "$php2"; do kill -USR2 "$(cat "/run/php/php$line-fpm.pid")"; done
-sleep 2
-nginx -s reload
-sleep 1
-[ -S /run/php/cairn-mover-test.sock ] && serves mover.test "$php" && serves two.test "$php2" || fail "the earlier layout: $(ls /run/php)"
-rm -f /tmp/stop-loop
-(
-	while [ ! -e /tmp/stop-loop ]; do
-		for h in mover.test two.test; do curl -s -o /dev/null -w "$h %{http_code}\n" -H "Host: $h" http://127.0.0.1/ || true; done
+php2=$(api "$base/api/v1/software" | json '([o["line"] for s in d["software"] if s["id"]=="php" for o in s["offers"] if o["installable"] and not o["recommended"] and not o["endOfLife"] and not o.get("installed")] + [""])[0]')
+# Ubuntu 26.04 has its own PHP only: nothing to move a site to.
+if [ -n "$php2" ]; then
+	# The vendor repository is on the network: a failed download is tried again.
+	for try in 1 2 3; do
+		if (follow POST /api/v1/software/install "{\"items\":[{\"software\":\"php\",\"line\":\"$php2\"}]}"); then break; fi
+		[ "$try" != 3 ] || fail "PHP $php2 could not be installed"
+		sleep 10
 	done
-) >/tmp/codes.txt &
-loop=$!
-pkill -x cairn-helper
-for _ in $(seq 50); do pgrep -x cairn-helper >/dev/null || break; sleep 0.1; done
-/usr/lib/cairn/cairn-helper >>/tmp/helper.log 2>&1 &
-moved() { [ -S "/run/php/cairn-$1-php$2.sock" ] && [ ! -e "/run/php/cairn-$1.sock" ] && ! grep_q "cairn-$1.old" "/etc/php/$2/fpm/pool.d/cairn-$1.conf"; }
-for _ in $(seq 120); do
-	if moved mover-test "$php" && moved two-test "$php2"; then break; fi
-	sleep 0.5
-done
-sleep 1
-touch /tmp/stop-loop
-wait "$loop"
-moved mover-test "$php" && moved two-test "$php2" || fail "the pools did not move: $(ls /run/php)"
-grep_q "fastcgi_pass unix:/run/php/cairn-two-test-php$php2.sock;" /etc/nginx/cairn/sites/two-test.conf || fail "two-test.conf: $(grep fastcgi_pass /etc/nginx/cairn/sites/two-test.conf)"
-total=$(wc -l </tmp/codes.txt)
-bad=$(grep -vc ' 200$' /tmp/codes.txt || true)
-[ "$total" -gt 50 ] && [ "$bad" = 0 ] || fail "while the pools moved, $bad of $total requests failed: $(grep -v ' 200$' /tmp/codes.txt | sort | uniq -c)"
-step "the helper's start moved the pools of an earlier version to their lines' sockets: $total requests meanwhile, none failed"
+	graceful "$php2"
+	# Some vendor builds leave the pid file to systemd; without systemd the
+	# helper finds the master by it.
+	"/usr/sbin/php-fpm$php2" --daemonize --pid "/run/php/php$php2-fpm.pid"
+	running() { kill -0 "$(cat "/run/php/php$1-fpm.pid" 2>/dev/null)" 2>/dev/null; }
+	serves() { [ "$(get "$1" /)" = "$2" ]; }
+	follow POST /api/v1/sites "{\"type\":\"php\",\"domains\":[\"two.test\"],\"php\":\"$php2\"}"
+	follow POST /api/v1/sites "{\"type\":\"php\",\"domains\":[\"mover.test\"],\"php\":\"$php\"}"
+	for c in two-test mover-test; do
+		printf '%s\n' '<?php echo PHP_MAJOR_VERSION . "." . PHP_MINOR_VERSION . "\n";' | runuser -u "cw-$c" -- tee "/srv/www/$c/app/index.php" >/dev/null
+	done
+	serves two.test "$php2" && serves mover.test "$php" || fail "the sites of two lines: $(get two.test /) $(get mover.test /)"
+	for to in "$php2" "$php"; do
+		follow PUT /api/v1/sites/mover-test "{\"type\":\"php\",\"domains\":[\"mover.test\"],\"php\":\"$to\"}"
+		running "$php" && running "$php2" || fail "a PHP-FPM master stopped when mover.test moved to $to"
+		serves mover.test "$to" || fail "mover.test on $to answers: $(get mover.test /)"
+		serves two.test "$php2" || fail "two.test, on $php2, answers: $(get two.test /)"
+		get php.test / | grep_q -x "user=cw-php-test-run" || fail "php.test, on $php, answers: $(get php.test /)"
+		[ -S "/run/php/cairn-mover-test-php$to.sock" ] || fail "no socket for mover.test on $to: $(ls /run/php)"
+	done
+	step "PHP $php and $php2 side by side: mover.test moved to $php2 and back, both masters running, every site answering"
+
+	# The pools of an earlier version listened on /run/php/cairn-<code>.sock.
+	# The helper's start moves them to the sockets that name their lines and
+	# no request fails meanwhile: PHP-FPM drops a socket it no longer has as
+	# soon as it reloads, and nginx uses the old one until it reloads.
+	for c in "mover-test:$php" "two-test:$php2"; do
+		code=${c%%:*} line=${c#*:}
+		sed -i "s#/run/php/cairn-$code-php$line.sock#/run/php/cairn-$code.sock#" "/etc/php/$line/fpm/pool.d/cairn-$code.conf" "/etc/nginx/cairn/sites/$code.conf"
+	done
+	for line in "$php" "$php2"; do kill -USR2 "$(cat "/run/php/php$line-fpm.pid")"; done
+	sleep 2
+	nginx -s reload
+	sleep 1
+	[ -S /run/php/cairn-mover-test.sock ] && serves mover.test "$php" && serves two.test "$php2" || fail "the earlier layout: $(ls /run/php)"
+	rm -f /tmp/stop-loop
+	(
+		while [ ! -e /tmp/stop-loop ]; do
+			for h in mover.test two.test; do curl -s -o /dev/null -w "$h %{http_code}\n" -H "Host: $h" http://127.0.0.1/ || true; done
+		done
+	) >/tmp/codes.txt &
+	loop=$!
+	pkill -x cairn-helper
+	for _ in $(seq 50); do pgrep -x cairn-helper >/dev/null || break; sleep 0.1; done
+	/usr/lib/cairn/cairn-helper >>/tmp/helper.log 2>&1 &
+	moved() { [ -S "/run/php/cairn-$1-php$2.sock" ] && [ ! -e "/run/php/cairn-$1.sock" ] && ! grep_q "cairn-$1.old" "/etc/php/$2/fpm/pool.d/cairn-$1.conf"; }
+	for _ in $(seq 120); do
+		if moved mover-test "$php" && moved two-test "$php2"; then break; fi
+		sleep 0.5
+	done
+	sleep 1
+	touch /tmp/stop-loop
+	wait "$loop"
+	moved mover-test "$php" && moved two-test "$php2" || fail "the pools did not move: $(ls /run/php)"
+	grep_q "fastcgi_pass unix:/run/php/cairn-two-test-php$php2.sock;" /etc/nginx/cairn/sites/two-test.conf || fail "two-test.conf: $(grep fastcgi_pass /etc/nginx/cairn/sites/two-test.conf)"
+	total=$(wc -l </tmp/codes.txt)
+	bad=$(grep -vc ' 200$' /tmp/codes.txt || true)
+	[ "$total" -gt 50 ] && [ "$bad" = 0 ] || fail "while the pools moved, $bad of $total requests failed: $(grep -v ' 200$' /tmp/codes.txt | sort | uniq -c)"
+	step "the helper's start moved the pools of an earlier version to their lines' sockets: $total requests meanwhile, none failed"
+else
+	step "one PHP line on this system: moving a site between lines not tried"
+fi
 
 # Reverse proxy with WebSocket upgrades.
 mkdir -p /tmp/upstream && echo "upstream marker" >/tmp/upstream/index.html
