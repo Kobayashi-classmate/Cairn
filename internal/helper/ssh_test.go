@@ -49,7 +49,7 @@ func (f *fakeSSHD) effective() string {
 			}
 			if !seen[k] {
 				seen[k] = true
-				out = append(out, k+" "+fl[1])
+				out = append(out, k+" "+strings.Join(fl[1:], " "))
 			}
 		}
 	}
@@ -59,7 +59,8 @@ func (f *fakeSSHD) effective() string {
 	for _, p := range ports {
 		out = append(out, "port "+p)
 	}
-	for _, d := range []string{"passwordauthentication yes", "permitrootlogin without-password", "pubkeyauthentication yes"} {
+	for _, d := range []string{"passwordauthentication yes", "permitrootlogin without-password", "pubkeyauthentication yes",
+		"authorizedkeysfile .ssh/authorized_keys .ssh/authorized_keys2"} {
 		if k := strings.Fields(d)[0]; !seen[k] {
 			out = append(out, d)
 		}
@@ -115,6 +116,8 @@ func newTestSSH(t *testing.T) (*SSH, *fakeSSHD) {
 	write("etc/ssh/sshd_config.d/50-cloud-init.conf", "PasswordAuthentication no\n")
 	write("etc/passwd", "root:x:0:0:root:/root:/bin/bash\ndeploy:x:1000:1000::/home/deploy:/bin/bash\n"+
 		"cw-shop:x:1001:1001::/srv/www/shop:/bin/bash\nnobody:x:65534:65534::/:/usr/sbin/nologin\n")
+	// deploy has a password; root has none, as on images that take keys only.
+	write("etc/shadow", "root:*:19000:0:99999:7:::\ndeploy:$y$j9T$salt$hash:19000:0:99999:7:::\n")
 	write("proc/net/tcp", "  sl  local_address rem_address   st\n   0: 00000000:1F90 00000000:0000 0A\n")
 	files := &Files{Root: root, StateDir: t.TempDir()}
 	f := &fakeSSHD{root: root}

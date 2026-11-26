@@ -17,6 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
 	"github.com/Kobayashi-classmate/Cairn/internal/auth"
@@ -260,16 +262,56 @@ func (m *Module) attempt(r *http.Request, keys ...string) error {
 }
 
 // failed announces a lockout when the failed check (counted by attempt)
-// locked one of the keys.
+// locked one of the keys. One notice per address: the name tried is the
+// sender's to choose, and a new one for every attempt must not make each
+// a new notice.
 func (m *Module) failed(r *http.Request, username string, keys ...string) {
 	wait, err := auth.LockedFor(r.Context(), m.DB, keys...)
 	if err == nil && wait > 0 {
 		ip := api.ClientIP(r)
 		m.Events.Publish(events.Event{
-			Type: events.SecurityLockout, Level: events.Warning, DedupeKey: "lockout:" + username + ":" + ip,
-			Params: map[string]any{"username": username, "ip": ip, "minutes": int(wait.Round(time.Minute) / time.Minute)},
+			Type: events.SecurityLockout, Level: events.Warning, DedupeKey: "lockout:" + auth.IPKey(ip),
+			Params: map[string]any{"username": logName(username), "ip": ip, "minutes": int(wait.Round(time.Minute) / time.Minute)},
 		})
 	}
+}
+
+// maxLogName bounds a username as tried, where it is recorded.
+const maxLogName = 64
+
+// logName is a username someone tried, as recorded in the audit log and a
+// lockout notice: any text an anonymous client sent, so cut short and
+// without control characters (line breaks, terminal escapes).
+func logName(name string) string {
+	name = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, strings.ToValidUTF8(name, "\uFFFD"))
+	if len(name) <= maxLogName {
+		return name
+	}
+	cut := maxLogName
+	for cut > 0 && !utf8.RuneStart(name[cut]) {
+		cut--
+	}
+	return name[:cut]
+}
+
+// finishTimeout bounds what a sign-in still does once its credentials are
+// checked: a few database writes.
+const finishTimeout = 15 * time.Second
+
+// finish gives what is left of a request whose credentials have been
+// checked a context of its own. A client that goes away now, or half-closes
+// its connection to end the request's context, must leave the attempt
+// audited, the lockout announced and the throttle up to date; and with the
+// right password it must not get an error where a wrong one gets an
+// answer, which would tell the two apart.
+func finish(r *http.Request) (*http.Request, context.CancelFunc) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), finishTimeout)
+	return r.WithContext(ctx), cancel
 }
 
 // knownDevice reports whether this browser signed in as username before:
@@ -376,15 +418,32 @@ func (m *Module) setup(w http.ResponseWriter, r *http.Request) error {
 	if req.Locale != "" && !i18n.IsSupported(req.Locale) {
 		return localeError(req.Locale)
 	}
+	done := api.NewError(http.StatusConflict, "setup.already_completed", nil)
+	if n, err := auth.CountUsers(r.Context(), m.DB); err != nil {
+		return err
+	} else if n > 0 {
+		return done
+	}
+	// Tokens are tried like passwords: counted per address, and each wrong
+	// one audited without the rest of what was sent.
+	key := auth.IPKey(api.ClientIP(r))
+	if err := m.attempt(r, key); err != nil {
+		return err
+	}
 	u, err := auth.CompleteSetup(r.Context(), m.DB, req.Token, req.Username, req.Password, req.Locale)
 	switch {
 	case errors.Is(err, auth.ErrSetupDone):
-		return api.NewError(http.StatusConflict, "setup.already_completed", nil)
+		return done
 	case errors.Is(err, auth.ErrSetupToken):
-		m.audit(r, modutil.Actor{Username: req.Username}, "auth.setup", "setup.invalid_token", nil)
+		m.audit(r, modutil.Actor{}, "auth.setup", "setup.invalid_token", nil)
 		return api.NewError(http.StatusBadRequest, "setup.invalid_token", nil)
 	case err != nil:
 		return modutil.MapError(err, nil)
+	}
+	r, cancel := finish(r)
+	defer cancel()
+	if err := auth.ResetFailures(r.Context(), m.DB, key); err != nil {
+		return err
 	}
 	m.audit(r, modutil.Actor{UserID: u.ID, Username: u.Username}, "auth.setup", "ok", nil)
 	// The password was entered a moment ago: the new session starts
@@ -418,18 +477,28 @@ func (m *Module) login(w http.ResponseWriter, r *http.Request) error {
 	if req.Password == "" {
 		return required("password")
 	}
-	ctx := r.Context()
-	keys, err := m.signInKeys(r, req.Username)
-	if err != nil {
-		return err
+	// A name no account can have is wrong credentials like any other, but
+	// gets no throttle key of its own: anyone could make up any number of
+	// them, of any size.
+	keys := []string{auth.IPKey(api.ClientIP(r))}
+	if auth.ValidateUsername(req.Username) == nil {
+		var err error
+		if keys, err = m.signInKeys(r, req.Username); err != nil {
+			return err
+		}
 	}
 	if err := m.attempt(r, keys...); err != nil {
 		return err
 	}
-	u, err := auth.Authenticate(ctx, m.DB, req.Username, req.Password)
+	// The password check waits for a hashing slot only as long as the
+	// client does; what follows it is finished either way.
+	u, err := auth.Authenticate(r.Context(), m.DB, req.Username, req.Password)
+	r, cancel := finish(r)
+	defer cancel()
+	ctx := r.Context()
 	if errors.Is(err, auth.ErrInvalidCredentials) {
 		m.failed(r, req.Username, keys...)
-		m.audit(r, modutil.Actor{Username: req.Username}, "auth.login", "auth.invalid_credentials", nil)
+		m.audit(r, modutil.Actor{Username: logName(req.Username)}, "auth.login", "auth.invalid_credentials", nil)
 		return api.NewError(http.StatusUnauthorized, "auth.invalid_credentials", nil)
 	}
 	if err != nil {
@@ -485,6 +554,9 @@ func (m *Module) loginMFA(w http.ResponseWriter, r *http.Request) error {
 	if _, err := auth.ClaimMFAChallenge(ctx, m.DB, req.MFAToken); err != nil {
 		return modutil.MapError(err, nil)
 	}
+	r, cancel := finish(r)
+	defer cancel()
+	ctx = r.Context()
 	method := "totp"
 	if req.Code == "" {
 		method = "recovery"
@@ -567,7 +639,11 @@ func (m *Module) elevate(w http.ResponseWriter, r *http.Request) error {
 		m.audit(r, modutil.ActorOf(r), "auth.elevate", modutil.ErrorCode(err), nil)
 		return modutil.MapError(err, nil)
 	}
-	if err := auth.CheckPassword(ctx, m.DB, p.UserID, req.Password); errors.Is(err, auth.ErrWrongPassword) {
+	err := auth.CheckPassword(ctx, m.DB, p.UserID, req.Password)
+	r, cancel := finish(r)
+	defer cancel()
+	ctx = r.Context()
+	if errors.Is(err, auth.ErrWrongPassword) {
 		return fail(err)
 	} else if err != nil {
 		return modutil.MapError(err, nil)

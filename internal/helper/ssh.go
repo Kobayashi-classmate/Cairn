@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -633,8 +634,15 @@ func (s *SSH) settings(ctx context.Context, _ helperapi.Caller, q helperapi.SSHS
 		return nil, err
 	}
 	defer unlock()
-	if !q.PasswordAuthentication && !s.anyKey(q.PermitRootLogin != helperapi.RootLoginNo) {
-		return nil, sshErr(helperapi.CodeSSHNoKeys, nil)
+	// Without sshd there is nothing to lock anyone out of: apply says so.
+	if s.installed() {
+		c, err := s.effective(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.leavesAWayIn(c, sshWay{password: q.PasswordAuthentication, rootLogin: q.PermitRootLogin}); err != nil {
+			return nil, err
+		}
 	}
 	st := s.load()
 	st.Password, st.RootLogin = &q.PasswordAuthentication, q.PermitRootLogin
@@ -644,43 +652,337 @@ func (s *SSH) settings(ctx context.Context, _ helperapi.Caller, q helperapi.SSHS
 	return nil, s.save(st)
 }
 
-// keepsAKey refuses to leave nobody a way in: with password logins off,
-// deleting a key must leave some user who can log in a key (kept are the
-// lines user's file keeps).
-func (s *SSH) keepsAKey(ctx context.Context, user string, kept []string) error {
+// keepsAWayIn refuses a key deletion after which nobody could log in
+// (kept are the lines user's file keeps), under the settings sshd has now.
+func (s *SSH) keepsAWayIn(ctx context.Context, user string, kept []string) error {
 	if !s.installed() {
 		return nil
 	}
 	c, err := s.effective(ctx)
-	if err != nil || c.get("passwordauthentication") == "yes" {
+	if err != nil {
 		return nil //nolint:nilerr // sshd's configuration unknown: the key goes as asked
 	}
-	rootOK := rootLogin(c.get("permitrootlogin")) != helperapi.RootLoginNo
-	if user != "root" || rootOK {
-		for _, line := range kept {
-			if _, ok := parseKeyLine(line); ok {
-				return nil
-			}
-		}
-	}
-	if s.anyKey(rootOK, user) {
-		return nil
-	}
-	return sshErr(helperapi.CodeSSHNoKeys, map[string]any{"user": user})
+	return s.leavesAWayIn(c, sshWay{password: passwordsOn(c), rootLogin: rootLogin(c.get("permitrootlogin")), keysOf: user, kept: kept})
 }
 
-// anyKey reports whether some user who can log in has a key; root counts
-// only when it may still log in (rootLogin). Users in skip are not counted.
-func (s *SSH) anyKey(rootLogin bool, skip ...string) bool {
+// Who can still log in ----------------------------------------------------
+//
+// A change of the login settings, or a key that goes, must leave someone a
+// way in: on many servers root is the only account, and nobody can then
+// undo the change over SSH. Whether a way in is left is worked out from
+// what sshd -T says and from the account files. sshd may know ways the
+// panel cannot see (accounts from a directory service, AuthenticationMethods
+// asking for several methods at once): those count as not there, so the
+// panel errs on refusing.
+
+// sshWay is how sshd lets users in after a change: whether it takes
+// passwords, how root may log in, and the keys file of one user as it will
+// be (the lines in kept; every other file stays as it is).
+type sshWay struct {
+	password  bool
+	rootLogin string
+	keysOf    string
+	kept      []string
+}
+
+// leavesAWayIn refuses a change after which nobody could log in.
+func (s *SSH) leavesAWayIn(c sshdConfig, w sshWay) error {
+	if s.loginLeft(c, w) {
+		return nil
+	}
+	var params map[string]any
+	if w.keysOf != "" {
+		params = map[string]any{"user": w.keysOf}
+	}
+	if !w.password {
+		return sshErr(helperapi.CodeSSHNoKeys, params)
+	}
+	return sshErr(helperapi.CodeSSHNoLogin, params)
+}
+
+// passwordsOn reports whether sshd takes passwords: as such, or asked for
+// through PAM by keyboard-interactive.
+func passwordsOn(c sshdConfig) bool {
+	if c.get("passwordauthentication") == "yes" {
+		return true
+	}
+	kbd := c.get("kbdinteractiveauthentication")
+	if kbd == "" {
+		kbd = c.get("challengeresponseauthentication") // OpenSSH before 8.7
+	}
+	return kbd == "yes" && c.get("usepam") == "yes"
+}
+
+// loginLeft reports whether some account could log in over SSH the way w
+// says: allowed in by sshd, not expired, and with a password sshd takes or
+// a key sshd reads.
+func (s *SSH) loginLeft(c sshdConfig, w sshWay) bool {
+	shadow := s.shadow()
+	now := s.clock()
+	var groups map[string][]string
+	if len(c["allowgroups"]) > 0 || len(c["denygroups"]) > 0 {
+		groups = s.groups()
+	}
 	for _, u := range s.users() {
-		if u.Root && !rootLogin || slices.Contains(skip, u.Name) {
+		password := w.password
+		if u.Root {
+			switch w.rootLogin {
+			case helperapi.RootLoginNo:
+				continue
+			case helperapi.RootLoginKeysOnly:
+				password = false
+			}
+		}
+		account, err := s.account(u.Name)
+		if err != nil {
 			continue
 		}
-		if k, err := s.keys(u.Name); err == nil && len(k.Keys) > 0 {
+		sh := shadow[u.Name]
+		if sh.expired(now) || !sshdAdmits(c, u.Name, groupsOf(groups, u.Name, account.gid)) {
+			continue
+		}
+		if password && sh.password {
+			return true
+		}
+		if s.keyLeft(c, account, w, now) {
 			return true
 		}
 	}
 	return false
+}
+
+// keyLeft reports whether a user could log in with a key: sshd takes keys
+// and reads the file the panel keeps them in, and a key there lets the user
+// in. Keys from elsewhere (AuthorizedKeysCommand, certificates of a trusted
+// CA) the panel does not see; when sshd takes them, every user is assumed
+// to have one.
+func (s *SSH) keyLeft(c sshdConfig, u passwdEntry, w sshWay, now time.Time) bool {
+	if c.get("pubkeyauthentication") == "no" {
+		return false
+	}
+	for _, k := range []string{"authorizedkeyscommand", "trustedusercakeys"} {
+		if v := c.get(k); v != "" && v != "none" {
+			return true
+		}
+	}
+	if !keysFileRead(c, u) {
+		return false
+	}
+	lines := w.kept
+	if u.name != w.keysOf {
+		data, err := s.readKeys(u)
+		if err != nil {
+			return false
+		}
+		lines = strings.Split(string(data), "\n")
+	}
+	return slices.ContainsFunc(lines, func(l string) bool { return loginKey(l, now) })
+}
+
+// keysFileRead reports whether sshd reads ~/.ssh/authorized_keys, the file
+// the panel keeps a user's keys in (AuthorizedKeysFile: %h, %u and %% are
+// expanded, a relative path is in the home).
+func keysFileRead(c sshdConfig, u passwdEntry) bool {
+	files := []string{".ssh/authorized_keys"} // sshd's default
+	if v, ok := c["authorizedkeysfile"]; ok {
+		files = nil
+		for _, line := range v {
+			files = append(files, strings.Fields(line)...)
+		}
+	}
+	want := filepath.Join(u.home, ".ssh/authorized_keys")
+	expand := strings.NewReplacer("%%", "%", "%h", u.home, "%u", u.name)
+	for _, f := range files {
+		if f == "none" {
+			continue
+		}
+		f = expand.Replace(f)
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(u.home, f)
+		}
+		if filepath.Clean(f) == want {
+			return true
+		}
+	}
+	return false
+}
+
+// loginKey reports whether an authorized_keys line lets its user log in: a
+// key not bound to a forced command (which runs instead of the user's
+// shell), and not past its expiry-time.
+func loginKey(line string, now time.Time) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return false
+	}
+	_, _, options, _, err := ssh.ParseAuthorizedKey([]byte(line))
+	if err != nil {
+		return false
+	}
+	for _, o := range options {
+		name, value, _ := strings.Cut(o, "=")
+		switch strings.ToLower(name) {
+		case "command":
+			return false
+		case "expiry-time":
+			// sshd ignores a line whose time it cannot read.
+			if until, ok := keyExpiry(strings.Trim(value, `"`)); !ok || !now.Before(until) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// keyExpiry reads an expiry-time: YYYYMMDD[HHMM[SS]], in local time unless
+// it ends in Z.
+func keyExpiry(v string) (time.Time, bool) {
+	loc := time.Local
+	if s, ok := strings.CutSuffix(v, "Z"); ok {
+		v, loc = s, time.UTC
+	}
+	var layout string
+	switch len(v) {
+	case 8:
+		layout = "20060102"
+	case 12:
+		layout = "200601021504"
+	case 14:
+		layout = "20060102150405"
+	default:
+		return time.Time{}, false
+	}
+	t, err := time.ParseInLocation(layout, v, loc)
+	return t, err == nil
+}
+
+// shadowEntry is what /etc/shadow says about an account's logins.
+type shadowEntry struct {
+	// password: a password hash sshd can check; not a locked one ("!..."),
+	// none ("*"), or an empty one, which sshd refuses unless
+	// PermitEmptyPasswords is on.
+	password bool
+	// expireDay is the day (since 1970) from which the account is expired,
+	// for every way of logging in; -1 when it does not expire.
+	expireDay int64
+}
+
+func (e shadowEntry) expired(now time.Time) bool {
+	return e.expireDay >= 0 && now.Unix()/86400 >= e.expireDay
+}
+
+// shadow reads /etc/shadow; an account without an entry has no password
+// and does not expire.
+func (s *SSH) shadow() map[string]shadowEntry {
+	out := map[string]shadowEntry{}
+	data, err := os.ReadFile(s.path("/etc/shadow")) //nolint:gosec // G304: the system's shadow file.
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) < 2 || f[0] == "" {
+			continue
+		}
+		e := shadowEntry{expireDay: -1}
+		e.password = f[1] != "" && !strings.HasPrefix(f[1], "!") && !strings.HasPrefix(f[1], "*")
+		if len(f) > 7 && f[7] != "" {
+			if n, err := strconv.ParseInt(f[7], 10, 64); err == nil {
+				e.expireDay = n
+			}
+		}
+		out[f[0]] = e
+	}
+	return out
+}
+
+// groups reads /etc/group: the members of each group, by group name, and
+// "#<gid>" naming each group's name.
+func (s *SSH) groups() map[string][]string {
+	out := map[string][]string{}
+	data, err := os.ReadFile(s.path("/etc/group")) //nolint:gosec // G304: the system's group file.
+	if err != nil {
+		return out
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Split(line, ":")
+		if len(f) != 4 || f[0] == "" {
+			continue
+		}
+		out["#"+f[2]] = []string{f[0]}
+		out[f[0]] = strings.Split(f[3], ",")
+	}
+	return out
+}
+
+// groupsOf names the groups of a user: the primary one and those listing
+// the user as a member.
+func groupsOf(groups map[string][]string, user string, gid int) []string {
+	out := groups["#"+strconv.Itoa(gid)]
+	out = slices.Clone(out)
+	for name, members := range groups {
+		if !strings.HasPrefix(name, "#") && slices.Contains(members, user) && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// sshdAdmits reports whether DenyUsers, AllowUsers, DenyGroups and
+// AllowGroups let a user in, from some address: the host part of a
+// "user@host" pattern limits where from, so it denies nobody everywhere and
+// allows the user from somewhere.
+func sshdAdmits(c sshdConfig, user string, groups []string) bool {
+	matches := func(key string, names []string, hosts bool) (set, hit bool) {
+		for _, line := range c[key] {
+			for _, p := range strings.Fields(line) {
+				set = true
+				p, host, _ := strings.Cut(p, "@")
+				if host != "" && !hosts {
+					continue
+				}
+				for _, n := range names {
+					if sshdPattern(p, n) {
+						hit = true
+					}
+				}
+			}
+		}
+		return set, hit
+	}
+	if _, hit := matches("denyusers", []string{user}, false); hit {
+		return false
+	}
+	if set, hit := matches("allowusers", []string{user}, true); set && !hit {
+		return false
+	}
+	if _, hit := matches("denygroups", groups, false); hit {
+		return false
+	}
+	if set, hit := matches("allowgroups", groups, false); set && !hit {
+		return false
+	}
+	return true
+}
+
+// sshdPattern matches a name against an sshd pattern: * stands for any run
+// of characters, ? for one.
+func sshdPattern(pattern, name string) bool {
+	var b strings.Builder
+	b.WriteString("^")
+	for _, r := range pattern {
+		switch r {
+		case '*':
+			b.WriteString(".*")
+		case '?':
+			b.WriteString(".")
+		default:
+			b.WriteString(regexp.QuoteMeta(string(r)))
+		}
+	}
+	b.WriteString("$")
+	ok, err := regexp.MatchString(b.String(), name)
+	return err == nil && ok
 }
 
 // Ports -------------------------------------------------------------------
@@ -1113,7 +1415,7 @@ func (s *SSH) deleteKey(ctx context.Context, _ helperapi.Caller, q helperapi.SSH
 	if !found {
 		return helperapi.Empty{}, sshErr(helperapi.CodeSSHKeyInvalid, map[string]any{"reason": "not_found"})
 	}
-	if err := s.keepsAKey(ctx, q.User, kept); err != nil {
+	if err := s.keepsAWayIn(ctx, q.User, kept); err != nil {
 		return helperapi.Empty{}, err
 	}
 	out := strings.Join(kept, "\n")
@@ -1125,26 +1427,68 @@ func (s *SSH) deleteKey(ctx context.Context, _ helperapi.Caller, q helperapi.SSH
 
 // Logins ------------------------------------------------------------------
 
+// The name of an unknown user is whatever the client sent, spaces and all,
+// and sshd writes the address, the port (and "ssh2") after it, last. So a
+// name takes everything up to the last " from ": one made to look like an
+// address cannot stand in for the real one.
 var (
-	loginAttempt = regexp.MustCompile(`^(Accepted|Failed) (\S+) for (invalid user )?(\S*) from (\S+) port [0-9]+`)
-	loginInvalid = regexp.MustCompile(`^Invalid user (\S*) from (\S+) port [0-9]+`)
+	loginAttempt = regexp.MustCompile(`^(Accepted|Failed) (\S+) for (invalid user )?(.*) from (\S+) port [0-9]+ ssh2(?:: .*)?$`)
+	loginInvalid = regexp.MustCompile(`^Invalid user (.*) from (\S+) port [0-9]+$`)
 )
 
 func parseLogin(msg string) (helperapi.SSHLogin, bool) {
+	var l helperapi.SSHLogin
 	if m := loginAttempt.FindStringSubmatch(msg); m != nil {
-		l := helperapi.SSHLogin{Method: strings.TrimSuffix(m[2], "/pam"), User: m[4], IP: m[5], Result: helperapi.LoginFailed}
+		l = helperapi.SSHLogin{Method: strings.TrimSuffix(m[2], "/pam"), User: m[4], IP: m[5], Result: helperapi.LoginFailed}
 		switch {
 		case m[1] == "Accepted":
 			l.Result = helperapi.LoginAccepted
 		case m[3] != "":
 			l.Result = helperapi.LoginInvalidUser
 		}
-		return l, true
+	} else if m := loginInvalid.FindStringSubmatch(msg); m != nil {
+		l = helperapi.SSHLogin{User: m[1], IP: m[2], Result: helperapi.LoginInvalidUser}
+	} else {
+		return l, false
 	}
-	if m := loginInvalid.FindStringSubmatch(msg); m != nil {
-		return helperapi.SSHLogin{User: m[1], IP: m[2], Result: helperapi.LoginInvalidUser}, true
+	// sshd writes the client's address, never a name.
+	if _, err := netip.ParseAddr(l.IP); err != nil {
+		return helperapi.SSHLogin{}, false
 	}
-	return helperapi.SSHLogin{}, false
+	return l, true
+}
+
+// sshUnits are the units sshd runs in: its service (ssh on Debian and
+// Ubuntu, sshd elsewhere), and the instances a socket with Accept=yes
+// starts, one per connection.
+var (
+	sshUnits    = []string{"ssh.service", "sshd.service", "ssh@*.service", "sshd@*.service"}
+	sshUnitName = regexp.MustCompile(`^sshd?(@[^/]+)?\.service$`)
+)
+
+// sshdUIDs are the users sshd logs as: root, and the unprivileged user its
+// pre-authentication process runs as (OpenSSH 10's sshd-auth; its lines
+// normally reach the journal through the privileged process).
+func (s *SSH) sshdUIDs() []string {
+	uids := []string{"0"}
+	if s.Files != nil {
+		for _, e := range s.Files.passwd() {
+			if e.name == "sshd" {
+				uids = append(uids, strconv.Itoa(e.uid))
+			}
+		}
+	}
+	return uids
+}
+
+// fromSSHD reports whether a journal entry was written by sshd. The
+// identifier and the message are whatever the writer says, and any local
+// user (a website's code among them) can log as "sshd"; the unit and the
+// user are journald's, taken from the writer's control group and
+// credentials. The user is checked too: where no PAM session moves a
+// logged-in user's processes out of sshd's unit, they would run in it.
+func fromSSHD(fields map[string]json.RawMessage, uids []string) bool {
+	return sshUnitName.MatchString(journalField(fields["_SYSTEMD_UNIT"])) && slices.Contains(uids, journalField(fields["_UID"]))
 }
 
 // usecArg turns a cursor (microseconds) into a journalctl time.
@@ -1167,8 +1511,13 @@ func (s *SSH) logins(ctx context.Context, _ helperapi.Caller, q helperapi.SSHLog
 	// Newer ones (After) come oldest first; with more lines than scanned
 	// since the cursor, the oldest of them are skipped.
 	scan := min(limit*8, 4000)
-	args := []string{"--no-pager", "--output=json", "--lines=" + strconv.Itoa(scan),
-		"SYSLOG_IDENTIFIER=sshd", "SYSLOG_IDENTIFIER=sshd-session", "SYSLOG_IDENTIFIER=sshd-auth"}
+	// Only sshd's units: lines others write under sshd's name are neither
+	// shown nor can they push sshd's own out of the lines read.
+	args := []string{"--no-pager", "--output=json", "--lines=" + strconv.Itoa(scan)}
+	for _, u := range sshUnits {
+		args = append(args, "--unit="+u)
+	}
+	args = append(args, "SYSLOG_IDENTIFIER=sshd", "SYSLOG_IDENTIFIER=sshd-session", "SYSLOG_IDENTIFIER=sshd-auth")
 	if q.After != "" {
 		args = append(args, "--since="+usecArg(q.After, 1))
 	} else {
@@ -1183,6 +1532,7 @@ func (s *SSH) logins(ctx context.Context, _ helperapi.Caller, q helperapi.SSHLog
 	}
 	var last int64
 	seen, full := 0, false
+	uids := s.sshdUIDs()
 	for _, line := range strings.Split(text, "\n") {
 		var fields map[string]json.RawMessage
 		if line == "" || json.Unmarshal([]byte(line), &fields) != nil {
@@ -1197,6 +1547,12 @@ func (s *SSH) logins(ctx context.Context, _ helperapi.Caller, q helperapi.SSHLog
 		last = ts
 		if q.After == "" && out.Latest == "" {
 			out.Latest = strconv.FormatInt(ts, 10)
+		}
+		// The query keeps to sshd's units already; each line is checked
+		// again, and for its user, which the query cannot ask for (--unit
+		// also takes in what root daemons log about a unit).
+		if !fromSSHD(fields, uids) {
+			continue
 		}
 		if l, ok := parseLogin(journalField(fields["MESSAGE"])); ok {
 			l.Time = ts / 1e6

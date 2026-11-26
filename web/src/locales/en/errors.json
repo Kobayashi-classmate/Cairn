@@ -350,7 +350,8 @@
       "selinux_port": "SELinux does not allow SSH on port {port} (type {type}).",
       "not_listening": "SSH is not listening on port {port}.",
       "port_unreached": "Nobody has connected to port {port} from another host yet, so the old port stays open.",
-      "no_keys": "Deleting this key would leave {user} without a usable key while password sign-in is off, so the account could no longer sign in. Add another key or turn on password sign-in first."
+      "no_keys": "Deleting this key would leave {user} without a usable key while password sign-in is off, so the account could no longer sign in. Add another key or turn on password sign-in first.",
+      "no_login": "Deleting this key would leave no account that can log in over SSH: {user} would have no usable key left, and no other account has a password or key that SSH accepts. Add another key first."
     },
     "host": {
       "swap_unsupported": "{reasonText}",
@@ -543,7 +544,8 @@
     "not_installed": "The SSH server is not installed.",
     "config_invalid": "The SSH configuration is not valid.",
     "conflict": "Another configuration file sets this option.",
-    "no_keys": "No user has an authorized key, so turning off passwords would lock everyone out.",
+    "no_keys": "No account has a key that SSH accepts, so turning off passwords would lock everyone out.",
+    "no_login": "After this change no account could log in over SSH: none would be left with a password or key that SSH accepts and lets it use. Add a key first, or keep a way for root to log in.",
     "port_in_use": "This port is already in use.",
     "port_invalid": "This port cannot be used for SSH.",
     "pending": "A port move is in progress; finish or cancel it first.",

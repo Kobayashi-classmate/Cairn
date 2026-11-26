@@ -268,9 +268,14 @@ func TouchLogin(ctx context.Context, q queryer, userID int64) error {
 
 // Authenticate checks credentials. It spends the same hashing effort whether
 // or not the user exists, and returns ErrInvalidCredentials for every
-// failure that must look identical to the client.
+// failure that must look identical to the client. A name no account can
+// have (see ValidateUsername) is not looked up at all.
 func Authenticate(ctx context.Context, q queryer, username, password string) (*User, error) {
-	u, err := UserByName(ctx, q, username)
+	var u *User
+	err := ErrNotFound
+	if ValidateUsername(username) == nil {
+		u, err = UserByName(ctx, q, username)
+	}
 	if errors.Is(err, ErrNotFound) {
 		if _, err := VerifyPassword(ctx, password, dummyHash()); err != nil {
 			return nil, err // the request ended while waiting for a slot

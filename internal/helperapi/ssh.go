@@ -42,6 +42,9 @@ const (
 	CodeSSHKeyExists     = "ssh.key_exists"
 	CodeSSHUserNotFound  = "ssh.user_not_found"
 	CodeSSHRootDisabled  = "ssh.root_disabled"
+	// CodeSSHNoLogin: after the change nobody could log in, although sshd
+	// takes passwords (CodeSSHNoKeys: with passwords off).
+	CodeSSHNoLogin = "ssh.no_login"
 )
 
 // PermitRootLogin values the panel sets.

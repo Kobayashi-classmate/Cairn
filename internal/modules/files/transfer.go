@@ -464,7 +464,7 @@ func (m *Module) fetch(w http.ResponseWriter, r *http.Request) error {
 	}
 	who := modutil.ActorOf(r)
 	id := newID()
-	params := map[string]any{"root": req.Root, "path": join(req.Dir, req.Name), "url": u.Redacted()}
+	params := map[string]any{"root": req.Root, "path": join(req.Dir, req.Name), "url": bareURL(u)}
 	client := m.HTTP
 	if client == nil {
 		client = fetchClient()
@@ -492,6 +492,29 @@ func (m *Module) fetch(w http.ResponseWriter, r *http.Request) error {
 	return api.WriteJSON(w, http.StatusAccepted, jobResponse{Job: job})
 }
 
+// bareURL is a URL as the panel records and shows it: scheme, host and
+// path. The query and the fragment stay out of the audit entry, the job's
+// parameters, its log and its error: a presigned link or a token there is
+// a credential, and those are read by more people (auditors, operators)
+// than the one who pasted the URL.
+func bareURL(u *url.URL) string {
+	return (&url.URL{Scheme: u.Scheme, Host: u.Host, Path: u.Path, RawPath: u.RawPath}).String()
+}
+
+// fetchError describes a failed request with its URL (the one asked for,
+// or where a redirect led) as bareURL gives it.
+func fetchError(err error) string {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err.Error()
+	}
+	bare := ""
+	if u, perr := url.Parse(ue.URL); perr == nil {
+		bare = bareURL(u)
+	}
+	return (&url.Error{Op: ue.Op, URL: bare, Err: ue.Err}).Error()
+}
+
 // fetchURL fetches a URL into uploads/<id>.part, as the panel's own user.
 func (m *Module) fetchURL(ctx context.Context, j *jobs.Job, client *http.Client, rawURL, id string) error {
 	failed := func(detail string) error {
@@ -499,37 +522,38 @@ func (m *Module) fetchURL(ctx context.Context, j *jobs.Job, client *http.Client,
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return failed(err.Error())
+		return failed(fetchError(err))
 	}
 	req.Header.Set("User-Agent", "Cairn")
 	res, err := client.Do(req)
 	if err != nil {
-		return failed(err.Error())
+		return failed(fetchError(err))
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		return failed(res.Status)
 	}
-	limit := min(int64(maxUpload), m.freeSpace())
-	if res.ContentLength > limit {
-		return api.NewError(http.StatusInsufficientStorage, helperapi.CodeFileNoSpace, map[string]any{"size": res.ContentLength})
-	}
+	// The uploads directory exists once dataRoot ran: measure after it.
 	root, err := m.dataRoot()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = root.Close() }()
+	limit := min(int64(maxUpload), m.freeSpace())
+	if res.ContentLength > limit {
+		return api.NewError(http.StatusInsufficientStorage, helperapi.CodeFileNoSpace, map[string]any{"size": res.ContentLength})
+	}
 	f, err := root.OpenFile(partOf(id), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	j.Logf("Downloading %s.\n", res.Request.URL.Redacted())
+	j.Logf("Downloading %s.\n", bareURL(res.Request.URL))
 	n, err := io.Copy(f, io.LimitReader(res.Body, limit+1))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
 	if err != nil {
-		return failed(err.Error())
+		return failed(fetchError(err))
 	}
 	if n > limit {
 		return api.NewError(http.StatusInsufficientStorage, helperapi.CodeFileNoSpace, map[string]any{"size": n})

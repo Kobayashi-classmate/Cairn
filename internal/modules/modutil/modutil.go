@@ -5,6 +5,7 @@
 package modutil
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"log/slog"
@@ -112,18 +113,29 @@ func ActorOf(r *http.Request) Actor {
 	return Actor{}
 }
 
+// auditTimeout bounds an audit write. It is longer than the database waits
+// for its lock (store.Open), so that a busy database delays the entry
+// rather than losing it.
+const auditTimeout = 15 * time.Second
+
 // Audit records an action. Failures are logged, not returned: the action
 // already happened and must not be reported as failed to the client.
+//
+// The entry is written whatever becomes of the request: a client that
+// goes away, or half-closes its connection to end the request's context,
+// must not take the record of what it did (or tried) with it.
 func Audit(r *http.Request, db *sql.DB, log *slog.Logger, who Actor, action, result string, params map[string]any) {
 	src := who.Source
 	if src == "" {
 		src = "web"
 	}
-	err := audit.Record(r.Context(), db, audit.Entry{
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), auditTimeout)
+	defer cancel()
+	err := audit.Record(ctx, db, audit.Entry{
 		UserID: who.UserID, Username: who.Username, Action: action, Params: params,
 		Result: result, Remote: api.ClientIP(r), Source: src,
 	})
 	if err != nil {
-		log.Error("audit write failed", "action", action, "err", err)
+		log.Error("audit write failed", "action", action, "user", who.Username, "remote", api.ClientIP(r), "err", err)
 	}
 }

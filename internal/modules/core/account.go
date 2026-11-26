@@ -91,7 +91,13 @@ func (m *Module) changePassword(w http.ResponseWriter, r *http.Request) error {
 	if err := m.attempt(r, keys...); err != nil {
 		return err
 	}
-	if err := auth.CheckPassword(ctx, m.DB, p.UserID, req.CurrentPassword); errors.Is(err, auth.ErrWrongPassword) {
+	err := auth.CheckPassword(ctx, m.DB, p.UserID, req.CurrentPassword)
+	// The new password and signing out the other sessions go together,
+	// whatever becomes of the request (see finish).
+	r, cancel := finish(r)
+	defer cancel()
+	ctx = r.Context()
+	if errors.Is(err, auth.ErrWrongPassword) {
 		m.failed(r, p.Username, keys...)
 		m.audit(r, modutil.ActorOf(r), "auth.change_password", "auth.wrong_password", nil)
 		return modutil.MapError(err, nil)

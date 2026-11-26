@@ -186,13 +186,14 @@ func TestSSHModule(t *testing.T) {
 	admin.expect(admin.do("GET", "/api/v1/ssh/keys?user=../etc", nil), 400, "validation.invalid")
 
 	// Logins: the first check only finds the end of the log; then each
-	// accepted login is reported.
+	// accepted login is reported, as long as it names an address.
 	got := e.published(events.SSHLogin)
 	e.helper.respond(helperapi.ActionSSHLogins, helperapi.SSHLogins{Latest: "1000"})
 	e.ssh.Check(context.Background())
 	e.helper.respond(helperapi.ActionSSHLogins, helperapi.SSHLogins{Latest: "2000", Entries: []helperapi.SSHLogin{
 		{Time: 1, User: "root", IP: "203.0.113.9", Method: "publickey", Result: "accepted"},
 		{Time: 2, User: "admin", IP: "198.51.100.1", Method: "password", Result: "invalid_user"},
+		{Time: 3, User: "root", IP: "https://evil.example/reset", Method: "password", Result: "accepted"},
 	}})
 	e.ssh.Check(context.Background())
 	if q := sentAs[helperapi.SSHLoginsRequest](t, e, helperapi.ActionSSHLogins); q.After != "1000" {

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"time"
 
@@ -282,7 +283,9 @@ func (m *Module) Check(ctx context.Context) {
 		m.cursor = out.Latest
 	}
 	for _, l := range out.Entries {
-		if l.Result != helperapi.LoginAccepted {
+		// The helper reads the address from sshd's log line; what is not an
+		// address does not go out in a notification.
+		if _, err := netip.ParseAddr(l.IP); err != nil || l.Result != helperapi.LoginAccepted {
 			continue
 		}
 		m.Events.Publish(events.Event{Type: events.SSHLogin, Level: events.Info,
