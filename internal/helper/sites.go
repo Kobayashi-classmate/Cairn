@@ -158,11 +158,9 @@ func (st *Sites) phpFPM(line string) (fpm *catalog.FPM, installed bool) {
 	if !ok {
 		return nil, false
 	}
-	for _, o := range sw.Offers(st.Software.system()) {
-		if o.Line == line && o.FPM != nil {
-			_, err := os.Stat(st.path(o.FPM.Binary))
-			return o.FPM, err == nil
-		}
+	if o, ok := st.Software.currentOffer(sw, line); ok && o.FPM != nil {
+		_, err := os.Stat(st.path(o.FPM.Binary))
+		return o.FPM, err == nil
 	}
 	return nil, false
 }
@@ -198,9 +196,9 @@ func (st *Sites) Status(_ context.Context) helperapi.SiteStatus {
 	}
 	_, s.Nginx.Running = processAlive(st.path(nginxPidFile))
 	if sw, ok := phpSoftware(st.Software.Catalog); ok {
-		for _, o := range sw.Offers(st.Software.system()) {
-			if _, installed := st.phpFPM(o.Line); installed {
-				s.PHP = append(s.PHP, o.Line)
+		for _, l := range sw.Lines {
+			if _, installed := st.phpFPM(l.Version); installed {
+				s.PHP = append(s.PHP, l.Version)
 			}
 		}
 	}

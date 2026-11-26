@@ -5,8 +5,10 @@ package helper
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -69,6 +71,8 @@ type Software struct {
 	ConfigVersionsDir string
 
 	probing sync.Mutex
+	// originsMu guards the record of where installed lines came from.
+	originsMu sync.Mutex
 	// now is the clock the lines' end-of-life dates are compared with (nil
 	// means time.Now; tests).
 	now func() time.Time
@@ -122,19 +126,29 @@ func (s *Software) system() catalog.System {
 }
 
 // knownOffer resolves a request to a line the catalog describes for this
-// system, whether or not it can still be installed. Everything that acts on
-// an installed line (removing it, its services, files and extensions) goes
-// by it: a line does not stop being here when its upstream support ends.
+// system, whether or not it can still be installed: from the origin the
+// request names, else from the one the line was installed from, else from
+// its default source. Everything that acts on an installed line (removing
+// it, its services, files and extensions) goes by it, through
+// installedOffer: a line does not stop being here when its upstream
+// support ends.
 func (s *Software) knownOffer(req helperapi.SoftwareRequest) (*catalog.Software, catalog.Offer, error) {
 	notAvailable := pkgErr(helperapi.CodePkgNotAvailable, map[string]any{"software": req.Software, "line": req.Line})
 	sw, ok := s.Catalog.Find(req.Software)
 	if !ok || (s.Manager != "apt" && s.Manager != "dnf") {
 		return nil, catalog.Offer{}, notAvailable
 	}
-	for _, o := range sw.Offers(s.system()) {
-		if o.Line == req.Line && s.handles(o.Method) {
+	if req.Origin != "" {
+		if o, ok := s.lineOffer(sw, req.Line, req.Origin); ok {
 			return sw, o, nil
 		}
+		if _, ok := s.lineOffer(sw, req.Line, ""); ok {
+			return nil, catalog.Offer{}, pkgErr(helperapi.CodePkgOriginUnknown, map[string]any{"software": req.Software, "line": req.Line, "origin": req.Origin})
+		}
+		return nil, catalog.Offer{}, notAvailable
+	}
+	if o, ok := s.currentOffer(sw, req.Line); ok {
+		return sw, o, nil
 	}
 	return nil, catalog.Offer{}, notAvailable
 }
@@ -172,10 +186,12 @@ func (s *Software) expand(tmpl, line string) string {
 }
 
 // instance names the files of a repository; repositories whose definition
-// depends on the line (PGDG on EL) get one instance per line.
+// depends on the line (PGDG on EL, MariaDB) and those whose packages are
+// pinned to a line get one instance per line.
 func instance(r catalog.Repo, line string) string {
-	usesLine := r.DNF != nil && strings.Contains(r.DNF.BaseURL, "{line}")
+	usesLine := r.PinLine || r.DNF != nil && strings.Contains(r.DNF.BaseURL, "{line}")
 	if r.APT != nil {
+		usesLine = usesLine || strings.Contains(r.APT.URI, "{line}") || strings.Contains(r.APT.Suite, "{line}")
 		for _, c := range r.APT.Components {
 			usesLine = usesLine || strings.Contains(c, "{line}")
 		}
@@ -208,8 +224,12 @@ func (s *Software) install(ctx context.Context, _ helperapi.Caller, req helperap
 	if err != nil {
 		return nil, err
 	}
+	items := []lineItem{{req: req, sw: sw, o: o}}
+	if err := s.checkInstall(ctx, items); err != nil {
+		return nil, err
+	}
 	logf("Installing %s %s (%s%s).\n", sw.Name, o.Line, o.Method, map[bool]string{true: ", repository " + o.Repo}[o.Repo != ""])
-	out, _ := s.installPackages(ctx, log, []lineItem{{req: req, sw: sw, o: o}}, nil, src)
+	out, _ := s.installPackages(ctx, log, items, nil, src)
 	if out[0].err != nil {
 		return nil, out[0].err
 	}
@@ -267,7 +287,7 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 	var live []int
 	for i, it := range items {
 		if it.o.Method == catalog.MethodVendor {
-			if err := s.ensureRepo(ctx, log, it.o.Repo, it.o.Line, seen); err != nil {
+			if err := s.ensureRepo(ctx, log, it.o.Repo, it.o, seen); err != nil {
 				out[i].err = err
 				continue
 			}
@@ -406,7 +426,7 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 			continue
 		}
 		sw, o := items[i].sw, items[i].o
-		res := helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Services: o.Services}
+		res := helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Origin: o.Origin, Services: o.Services}
 		for _, p := range o.Packages {
 			if installed[p] != versions[i][p] {
 				out[i].err = pkgErr(helperapi.CodePkgVersionMismatch, map[string]any{"package": p, "want": versions[i][p], "got": installed[p]})
@@ -416,6 +436,11 @@ func (s *Software) installPackages(ctx context.Context, log io.Writer, items []l
 		}
 		if out[i].err != nil {
 			continue
+		}
+		if err := s.setOrigin(sw.ID, o.Line, o.Origin); err != nil {
+			// The line is installed; without the record it is found by
+			// trying its sources in order.
+			s.Log.Warn("software origin not recorded", "software", sw.ID, "line", o.Line, "err", err)
 		}
 		if len(o.Services) > 0 {
 			if !systemdRunning() {
@@ -510,7 +535,7 @@ func (s *Software) ensureLibraries(ctx context.Context, log io.Writer, pkgs []st
 }
 
 func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi.SoftwareRequest, log io.Writer) (any, error) {
-	sw, o, err := s.knownOffer(req)
+	sw, o, err := s.installedOffer(ctx, req.Software, req.Line)
 	if err != nil {
 		return nil, err
 	}
@@ -579,8 +604,14 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 	if err != nil {
 		return nil, err
 	}
-	s.Log.Info("software removed", "software", sw.ID, "line", o.Line)
-	return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Packages: res}, nil
+	if err := s.setOrigin(sw.ID, o.Line, ""); err != nil {
+		s.Log.Warn("software origin not dropped", "software", sw.ID, "line", o.Line, "err", err)
+	}
+	if o.Method == catalog.MethodVendor {
+		s.dropRepoIfUnused(ctx, log, o)
+	}
+	s.Log.Info("software removed", "software", sw.ID, "line", o.Line, "origin", o.Origin)
+	return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method, Repo: o.Repo, Origin: o.Origin, Packages: res}, nil
 }
 
 // Status reports the installed lines of every catalog entry.
@@ -589,22 +620,20 @@ func (s *Software) Status(ctx context.Context) (helperapi.SoftwareStatus, error)
 	if err != nil {
 		return st, err
 	}
-	st.Services, st.Reloadable = s.serviceStates(ctx, st.Installed)
+	st.Services, st.Reloadable = s.serviceStates(ctx, st.Origins)
 	return st, nil
 }
 
 // serviceStates asks systemd for the state of the services the installed
-// lines start, and which of them can reload; nil without systemd.
-func (s *Software) serviceStates(ctx context.Context, installed map[string]map[string][]helperapi.InstalledPackage) (map[string]string, []string) {
+// lines start (software -> line -> origin), and which of them can reload;
+// nil without systemd.
+func (s *Software) serviceStates(ctx context.Context, installed map[string]map[string]string) (map[string]string, []string) {
 	var units []string
 	for i := range s.Catalog.Software {
 		sw := &s.Catalog.Software[i]
-		lines := installed[sw.ID]
-		if len(lines) == 0 {
-			continue
-		}
-		for _, o := range sw.Offers(s.system()) {
-			if _, ok := lines[o.Line]; !ok {
+		for line, origin := range installed[sw.ID] {
+			o, ok := s.lineOffer(sw, line, origin)
+			if !ok {
 				continue
 			}
 			for _, u := range o.Services {
@@ -614,6 +643,7 @@ func (s *Software) serviceStates(ctx context.Context, installed map[string]map[s
 			}
 		}
 	}
+	slices.Sort(units)
 	return s.unitStates(ctx, units)
 }
 
@@ -645,20 +675,32 @@ func parseUnitStates(out string, units []string) (map[string]string, []string) {
 	return states, reloadable
 }
 
-// installedLines finds the installed lines of every software.
+// installedLines finds the installed lines of every software and the
+// origin each came from: the recorded one when its packages are there,
+// else the first of the line's sources, in the default order, whose
+// packages are.
 func (s *Software) installedLines(ctx context.Context) (helperapi.SoftwareStatus, error) {
-	st := helperapi.SoftwareStatus{Installed: map[string]map[string][]helperapi.InstalledPackage{}}
+	st := helperapi.SoftwareStatus{Installed: map[string]map[string][]helperapi.InstalledPackage{}, Origins: map[string]map[string]string{}}
+	found := func(sw, line, origin string, pkgs []helperapi.InstalledPackage) {
+		if st.Installed[sw] == nil {
+			st.Installed[sw] = map[string][]helperapi.InstalledPackage{}
+			st.Origins[sw] = map[string]string{}
+		}
+		st.Installed[sw][line], st.Origins[sw][line] = pkgs, origin
+	}
 	if s.Runtimes != nil {
 		for i := range s.Catalog.Software {
 			sw := &s.Catalog.Software[i]
+			providers := map[string]string{}
 			var lines []string
 			for _, o := range sw.Offers(s.system()) {
 				if o.Method == catalog.MethodStandalone {
 					lines = append(lines, o.Line)
+					providers[o.Line] = o.Origin
 				}
 			}
-			if found := s.Runtimes.status(sw.ID, lines); len(found) > 0 {
-				st.Installed[sw.ID] = found
+			for line, pkgs := range s.Runtimes.status(sw.ID, lines) {
+				found(sw.ID, line, providers[line], pkgs)
 			}
 		}
 	}
@@ -666,42 +708,105 @@ func (s *Software) installedLines(ctx context.Context) (helperapi.SoftwareStatus
 		return st, nil
 	}
 	type pending struct {
-		sw string
-		o  catalog.Offer
+		sw     string
+		offers []catalog.Offer // the line from each of its sources, recorded first
 	}
-	var offers []pending
+	recorded := s.readOrigins()
+	var lines []pending
 	var names []string
 	for i := range s.Catalog.Software {
 		sw := &s.Catalog.Software[i]
-		for _, o := range sw.Offers(s.system()) {
-			if o.Method == catalog.MethodSystem || o.Method == catalog.MethodVendor {
-				offers = append(offers, pending{sw.ID, o})
+		for _, def := range sw.Offers(s.system()) {
+			var offers []catalog.Offer
+			for _, src := range def.Sources {
+				if src.Method != catalog.MethodSystem && src.Method != catalog.MethodVendor {
+					continue
+				}
+				o, ok := s.lineOffer(sw, def.Line, src.Origin)
+				if !ok {
+					continue
+				}
+				if src.Origin == recorded[sw.ID][def.Line] {
+					offers = append([]catalog.Offer{o}, offers...)
+				} else {
+					offers = append(offers, o)
+				}
 				for _, p := range o.Packages {
 					if !slices.Contains(names, p) {
 						names = append(names, p)
 					}
 				}
 			}
+			if len(offers) > 0 {
+				lines = append(lines, pending{sw.ID, offers})
+			}
 		}
 	}
 	installed := s.installed(ctx, names)
-	for _, p := range offers {
-		var pkgs []helperapi.InstalledPackage
-		for _, name := range p.o.Packages {
-			if v := installed[name]; v != "" {
-				pkgs = append(pkgs, helperapi.InstalledPackage{Name: name, Version: v})
+	for _, l := range lines {
+		for _, o := range l.offers {
+			var pkgs []helperapi.InstalledPackage
+			for _, name := range o.Packages {
+				if v := installed[name]; v != "" {
+					pkgs = append(pkgs, helperapi.InstalledPackage{Name: name, Version: v})
+				}
 			}
-		}
-		// Several lines can share package names (EL module streams), so the
-		// installed version must belong to this line.
-		if len(pkgs) == len(p.o.Packages) && lineMatches(pkgs[0].Version, p.o.Line) {
-			if st.Installed[p.sw] == nil {
-				st.Installed[p.sw] = map[string][]helperapi.InstalledPackage{}
+			// Several lines can share package names (EL module streams, the
+			// lines of one vendor), so the installed version must belong to
+			// this line.
+			if len(pkgs) == len(o.Packages) && lineMatches(pkgs[0].Version, o.Line) {
+				found(l.sw, o.Line, o.Origin, pkgs)
+				break
 			}
-			st.Installed[p.sw][p.o.Line] = pkgs
 		}
 	}
 	return st, nil
+}
+
+// checkInstall refuses what cannot be installed next to what is installed
+// already, or next to the other items of the same install: another line of
+// software that has one line at a time, the same line from another origin
+// (it has to be removed first; a package manager would replace one build by
+// the other without migrating anything), and software that conflicts.
+func (s *Software) checkInstall(ctx context.Context, items []lineItem) error {
+	st, err := s.installedLines(ctx)
+	if err != nil {
+		return err
+	}
+	for i, it := range items {
+		sw, o := it.sw, it.o
+		params := map[string]any{"software": sw.ID, "line": o.Line}
+		if origin, ok := st.Origins[sw.ID][o.Line]; ok && origin != o.Origin {
+			params["installed"] = origin
+			return pkgErr(helperapi.CodePkgOtherOrigin, params)
+		}
+		if sw.Single {
+			for line := range st.Installed[sw.ID] {
+				if line != o.Line {
+					params["installed"] = line
+					return pkgErr(helperapi.CodePkgOtherLine, params)
+				}
+			}
+		}
+		for j, other := range items {
+			switch {
+			case j == i:
+			case other.sw.ID == sw.ID && sw.Single && other.o.Line != o.Line:
+				params["installed"] = other.o.Line
+				return pkgErr(helperapi.CodePkgOtherLine, params)
+			case slices.Contains(sw.Conflicts, other.sw.ID):
+				params["other"] = other.sw.ID
+				return pkgErr(helperapi.CodePkgConflictsWith, params)
+			}
+		}
+		for _, c := range sw.Conflicts {
+			if len(st.Installed[c]) > 0 {
+				params["other"] = c
+				return pkgErr(helperapi.CodePkgConflictsWith, params)
+			}
+		}
+	}
+	return nil
 }
 
 // lineMatches reports whether a package version belongs to a line: "8.4"
@@ -774,12 +879,18 @@ func (s *Software) candidates(ctx context.Context, o catalog.Offer, cacheOnly bo
 			}
 		}
 	} else {
-		args := []string{"repoquery", "--latest-limit", "1", "--qf", "%{name} %{evr}\n"}
+		// Every version, not only the newest: one repository can serve
+		// several lines (Redis). A system line is looked for in the
+		// system's repositories only, where a vendor's newer build of the
+		// same name would otherwise hide it.
+		args := []string{"repoquery", "--qf", "%{name} %{evr}\n"}
 		if cacheOnly {
 			args = append(args, "-C")
 		}
 		if o.Method == catalog.MethodVendor {
 			args = append(args, "--repo", instance(s.Catalog.Repos[o.Repo], o.Line))
+		} else {
+			args = append(args, "--disablerepo", "cairn-*")
 		}
 		text, err := queryCommand(ctx, "dnf", pm.args(append(args, o.Packages...)...)...)
 		if err != nil {
@@ -787,8 +898,9 @@ func (s *Software) candidates(ctx context.Context, o catalog.Offer, cacheOnly bo
 		}
 		f := strings.Fields(text)
 		for i := 0; i+1 < len(f); i += 2 {
-			if slices.Contains(o.Packages, f[i]) && out[f[i]] == "" && lineMatches(f[i+1], o.Line) {
-				out[f[i]] = f[i+1]
+			name, evr := f[i], f[i+1]
+			if slices.Contains(o.Packages, name) && lineMatches(evr, o.Line) && (out[name] == "" || rpmEVRCompare(evr, out[name]) > 0) {
+				out[name] = evr
 			}
 		}
 	}
@@ -830,23 +942,30 @@ func (s *Software) enableStream(ctx context.Context, log io.Writer, stream strin
 	return runPackageManager(ctx, log, "dnf", pm.args("module", "enable", "-y", stream)...)
 }
 
-// ensureRepo adds a vendor repository (and the ones it requires) unless it
-// is already configured with a verified key.
-func (s *Software) ensureRepo(ctx context.Context, log io.Writer, id, line string, seen map[string]bool) error {
-	if seen[id] {
-		return nil
-	}
-	seen[id] = true
+// ensureRepo adds the vendor repository of a line (and the ones it
+// requires) unless it is already configured with a verified key.
+func (s *Software) ensureRepo(ctx context.Context, log io.Writer, id string, o catalog.Offer, seen map[string]bool) error {
 	r, ok := s.Catalog.Repos[id]
 	if !ok {
 		return pkgErr(helperapi.CodePkgNotAvailable, map[string]any{"repo": id})
 	}
+	line := o.Line
+	name := instance(r, line)
+	if seen[name] {
+		return nil
+	}
+	seen[name] = true
 	for _, req := range r.Requires {
-		if err := s.ensureRepo(ctx, log, req, line, seen); err != nil {
+		if err := s.ensureRepo(ctx, log, req, catalog.Offer{Line: line}, seen); err != nil {
 			return err
 		}
 	}
-	name := instance(r, line)
+	// The packages a line's updates keep to, in a repository serving every
+	// line (only the line's own packages, as the line installs them).
+	var pinned []string
+	if r.PinLine && o.Repo == id {
+		pinned = o.Packages
+	}
 	switch {
 	case s.Manager == "apt" && r.APT != nil:
 		a := r.APT
@@ -868,6 +987,10 @@ func (s *Software) ensureRepo(ctx context.Context, log io.Writer, id, line strin
 			prefs += fmt.Sprintf("\n# Shared packages its builds need in its newer version.\nPackage: %s\nPin: origin %s\nPin-Priority: %d\n",
 				strings.Join(a.Prefer, " "), host, preferPin)
 		}
+		if len(pinned) > 0 {
+			prefs += fmt.Sprintf("\n# Updates keep to the installed line, %s.\nPackage: %s\nPin: version %s\nPin-Priority: %d\n",
+				line, strings.Join(pinned, " "), aptLinePattern(line), preferPin)
+		}
 		if err := writeIfChanged(log, s.path("/etc/apt/sources.list.d/"+name+".sources"), sources); err != nil {
 			return err
 		}
@@ -885,12 +1008,66 @@ func (s *Software) ensureRepo(ctx context.Context, log io.Writer, id, line strin
 		}
 		repo := fmt.Sprintf("%s\n[%s]\nname=%s (Cairn)\nbaseurl=%s\nenabled=1\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-%s\n",
 			managedNote, name, r.Name, s.expand(d.BaseURL, line), name)
+		if d.ModuleHotfixes {
+			repo += "module_hotfixes=1\n"
+		}
+		if len(pinned) > 0 {
+			globs := make([]string, len(pinned))
+			for i, p := range pinned {
+				globs[i] = p + "-" + line + ".*"
+			}
+			repo += "# Updates keep to the installed line.\nincludepkgs=" + strings.Join(globs, " ") + "\n"
+		}
 		if err := writeIfChanged(log, s.path("/etc/yum.repos.d/"+name+".repo"), repo); err != nil {
 			return err
 		}
 		return runPackageManager(ctx, log, "dnf", "makecache", "--assumeyes", "--repo", name)
 	}
 	return pkgErr(helperapi.CodePkgNotAvailable, map[string]any{"repo": id})
+}
+
+// aptLinePattern is an apt preferences version pattern for the versions
+// of a line, with or without an epoch: "8.10" -> /^([0-9]+:)?8\.10\./.
+func aptLinePattern(line string) string {
+	return "/^([0-9]+:)?" + strings.ReplaceAll(line, ".", `\.`) + `\./`
+}
+
+// dropRepoIfUnused removes the files of the repository instance a removed
+// line came from once no installed line comes from it: a configured
+// repository takes part in every system update, and an EL repository whose
+// packages obsolete the system's (MariaDB, MySQL) would replace them. The
+// repositories it requires (EPEL) stay.
+func (s *Software) dropRepoIfUnused(ctx context.Context, log io.Writer, o catalog.Offer) {
+	r, ok := s.Catalog.Repos[o.Repo]
+	if !ok {
+		return
+	}
+	name := instance(r, o.Line)
+	st, err := s.installedLines(ctx)
+	if err != nil {
+		return
+	}
+	for _, lines := range st.Origins {
+		for line, origin := range lines {
+			if origin == r.ID && instance(r, line) == name {
+				return
+			}
+		}
+	}
+	var files []string
+	switch {
+	case s.Manager == "apt" && r.APT != nil:
+		files = []string{"/etc/apt/sources.list.d/" + name + ".sources", "/etc/apt/preferences.d/" + name, "/etc/apt/keyrings/" + name + ".gpg"}
+	case s.Manager == "dnf" && r.DNF != nil && r.DNF.BaseURL != "":
+		files = []string{"/etc/yum.repos.d/" + name + ".repo", "/etc/pki/rpm-gpg/RPM-GPG-KEY-" + name}
+	}
+	for _, f := range files {
+		if err := os.Remove(s.path(f)); err == nil {
+			_, _ = fmt.Fprintf(log, "Removed %s: no installed line comes from %s any more.\n", f, r.Name)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			s.Log.Warn("repository file not removed", "file", f, "err", err)
+		}
+	}
 }
 
 // ensureKey keeps a verified copy of a repository key at path, downloading

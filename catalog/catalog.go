@@ -6,16 +6,23 @@
 // time); the installer acts on it, nothing here runs anything.
 //
 // Source rules (decided by the project owner, see the design docs):
-//   - a line the system repositories provide is installed from them, and it
-//     is the recommended one; the distribution maintains it, so it counts as
-//     supported even after upstream support ended;
-//   - otherwise the software's official repository or download is used;
-//     a source that is not official needs the owner's recorded approval
-//     (Repo.Approved), as for the PHP repositories;
-//   - lines whose upstream support has ended are no longer installed
-//     natively (containers, which come with the Docker module, are the way
-//     to run them). One that is installed already stays known, with its
-//     packages, services and files, so that it can be managed and removed.
+//   - a line may come from several sources: the system repositories, the
+//     software's official repository or download, or a source that is not
+//     official, which needs the owner's recorded approval (Repo.Approved),
+//     as for the PHP repositories;
+//   - a line's default source is the system repositories' when they have
+//     the line, else the others in catalog order; one whose updates for
+//     the line have ended comes last, and the user may pick any of them
+//     (with a warning for an ended one). The distribution maintains its own
+//     packages, so a system line counts as supported after upstream
+//     support ended;
+//   - the recommended line is upstream's (the newest long-term support
+//     line); PHP, which has no official repository, recommends the
+//     system's own line;
+//   - a line whose upstream support has ended stays installable, with a
+//     warning, and is never recommended. One that is installed stays
+//     known, with its packages, services and files, so that it can be
+//     managed and removed.
 package catalog
 
 import (
@@ -80,7 +87,20 @@ type Software struct {
 	Sources  []Source `toml:"sources" json:"-"`
 	// PHP holds what only PHP has.
 	PHP *PHPSoftware `toml:"php" json:"-"`
+	// Recommend is how the recommended line is chosen: "" for upstream's
+	// (the newest long-term line, else the newest one that is not a
+	// mainline), RecommendSystem for the system's own line first (PHP,
+	// which has no official repository).
+	Recommend string `toml:"recommend" json:"-"`
+	// Single software has one line installed at a time: its lines share
+	// package names, files and ports. Conflicts lists other software that
+	// cannot be installed next to it for the same reasons.
+	Single    bool     `toml:"single" json:"single"`
+	Conflicts []string `toml:"conflicts" json:"conflicts,omitempty"`
 }
+
+// RecommendSystem recommends the system's own line first.
+const RecommendSystem = "system"
 
 // PHPSoftware is the PHP part of a software entry.
 type PHPSoftware struct {
@@ -174,9 +194,11 @@ type Line struct {
 	// EOL is the end of upstream security support (YYYY-MM-DD); empty when
 	// not announced.
 	EOL string `toml:"eol"`
-	// LTS marks long-term support lines; among runtimes without a system
-	// version, the newest LTS line is recommended.
+	// LTS marks long-term support lines; the newest one is recommended.
 	LTS bool `toml:"lts"`
+	// Mainline marks upstream's development branch (nginx mainline): it can
+	// be installed but is never recommended.
+	Mainline bool `toml:"mainline"`
 }
 
 // Source says where some lines come from on some releases.
@@ -257,6 +279,11 @@ type Repo struct {
 	Releases []string `toml:"releases" json:"-"`
 	// Requires lists repositories this one depends on (Remi needs EPEL).
 	Requires []string `toml:"requires" json:"-"`
+	// PinLine is for a repository that serves every line in one place
+	// (Redis): the packages of the installed line are pinned to that line,
+	// so that system updates keep to it. On EL that hides the repository's
+	// other packages, so a line must list every package it needs from it.
+	PinLine bool `toml:"pin_line" json:"-"`
 	// APT and DNF say how to add the repository. Templates may use
 	// {distro} (os-release ID), {codename}, {major} (major version) and
 	// {line}; dnf variables such as $basearch are passed through.
@@ -282,6 +309,9 @@ type DNFRepo struct {
 	BaseURL        string `toml:"baseurl"`
 	Key            Key    `toml:"key"`
 	ReleasePackage string `toml:"release_package"`
+	// ModuleHotfixes keeps the repository's packages visible while a
+	// module stream of the same name is enabled (nginx.org, Redis on EL 9).
+	ModuleHotfixes bool `toml:"module_hotfixes"`
 }
 
 // Key is a repository signing key: where to download it and the primary
@@ -481,7 +511,7 @@ func load(fsys fs.FS) (*Catalog, error) {
 		if err := decode(fsys, f, &r); err != nil {
 			return nil, err
 		}
-		if r.ID != strings.TrimSuffix(path.Base(f), ".toml") {
+		if r.ID != strings.TrimSuffix(path.Base(f), ".toml") || r.ID == OriginSystem {
 			return nil, fmt.Errorf("catalog: %s: id %q does not match the file name", f, r.ID)
 		}
 		if !r.Official && !datePattern.MatchString(r.Approved) {
@@ -508,6 +538,13 @@ func load(fsys fs.FS) (*Catalog, error) {
 			return nil, fmt.Errorf("catalog: %s: %w", s.ID, err)
 		}
 		c.Software = append(c.Software, s)
+	}
+	for _, s := range c.Software {
+		for _, id := range s.Conflicts {
+			if _, ok := c.Find(id); !ok || id == s.ID {
+				return nil, fmt.Errorf("catalog: %s: bad conflict %q", s.ID, id)
+			}
+		}
 	}
 	// rewrites.toml, suites.toml and mirrors.toml are optional in test
 	// catalogs.
@@ -693,6 +730,9 @@ func (c *Catalog) check(s *Software) error {
 	if len(s.Provides) == 0 {
 		return fmt.Errorf("provides nothing")
 	}
+	if s.Recommend != "" && s.Recommend != RecommendSystem {
+		return fmt.Errorf("unknown recommendation rule %q", s.Recommend)
+	}
 	for i, p := range s.Provides {
 		if !idPattern.MatchString(p) || slices.Contains(s.Provides[:i], p) {
 			return fmt.Errorf("bad or duplicate capability %q", p)
@@ -840,8 +880,8 @@ func (c *Catalog) checkSource(src Source, versions []string) error {
 			}
 		}
 	case MethodStandalone:
-		if src.Provider == "" {
-			return fmt.Errorf("standalone source without provider")
+		if src.Provider == "" || src.Provider == OriginSystem {
+			return fmt.Errorf("standalone source without a provider")
 		}
 	default:
 		return fmt.Errorf("unknown method %q", src.Method)
@@ -865,9 +905,41 @@ const (
 	// install of a line past its upstream support was not acknowledged.
 	ReasonEndOfLife = "end_of_life"
 	ReasonNotBuilt  = "not_built" // nobody builds it for this release
+	ReasonArch      = "arch"      // it is built for this release, not for this architecture
 )
 
-// Offer is one line as offered on a given system.
+// OriginSystem is the origin of a line from the system repositories; a
+// vendor line's origin is its repository ID, a prebuilt line's its
+// provider.
+const OriginSystem = "system"
+
+// Origin names a source among those of a line.
+func (src *Source) Origin() string {
+	switch src.Method {
+	case MethodVendor:
+		return src.Repo
+	case MethodStandalone:
+		return src.Provider
+	}
+	return OriginSystem
+}
+
+// SourceInfo is one of the sources a line can be installed from here.
+type SourceInfo struct {
+	Origin   string `json:"origin"`
+	Method   string `json:"method"`
+	Repo     string `json:"repo,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	// EndOfLife is true when the line gets no more updates from this
+	// source: upstream support ended, and the distribution does not
+	// maintain it there.
+	EndOfLife bool `json:"endOfLife"`
+	// Default is the source used unless another is asked for.
+	Default bool `json:"default"`
+}
+
+// Offer is one line as offered on a given system, from one of its sources:
+// the default one (Offers) or one asked for (OfferFrom).
 type Offer struct {
 	Line string `json:"line"`
 	// Method says where the line comes from here; empty when nobody builds
@@ -876,6 +948,7 @@ type Offer struct {
 	Method   string   `json:"method,omitempty"`
 	Repo     string   `json:"repo,omitempty"`
 	Provider string   `json:"provider,omitempty"`
+	Origin   string   `json:"origin,omitempty"`
 	Packages []string `json:"packages,omitempty"`
 	Stream   string   `json:"stream,omitempty"`
 	Services []string `json:"services,omitempty"`
@@ -887,11 +960,12 @@ type Offer struct {
 	Configs     []ConfigFile `json:"configs,omitempty"`
 	Recommended bool         `json:"recommended"`
 	LTS         bool         `json:"lts"`
+	Mainline    bool         `json:"mainline,omitempty"`
 	EOL         string       `json:"eol,omitempty"`
-	// EndOfLife is true when upstream support has ended (system packages
-	// stay maintained by the distribution and do not count as ended). Such
-	// a line can still be installed, with a warning, but is never the
-	// recommended one.
+	// EndOfLife is true when the line gets no more updates from this
+	// offer's source (system packages stay maintained by the distribution
+	// and do not count as ended). Such a line can still be installed, with
+	// a warning, but is never the recommended one.
 	EndOfLife bool `json:"endOfLife"`
 	// Installable is true when the line can be installed here now: when
 	// somebody builds it for this system. Whether a line is installed is
@@ -899,6 +973,9 @@ type Offer struct {
 	Installable bool `json:"installable"`
 	// Reason says why a line is not installable.
 	Reason string `json:"reason,omitempty"`
+	// Sources are every source the line can come from here, the default
+	// one first.
+	Sources []SourceInfo `json:"sources,omitempty"`
 }
 
 // System identifies the machine offers are computed for.
@@ -908,10 +985,7 @@ type System struct {
 	Now   time.Time
 }
 
-func (s System) matches(src Source) bool {
-	if len(src.Arch) > 0 && !slices.Contains(src.Arch, s.Arch) {
-		return false
-	}
+func (s System) forRelease(src Source) bool {
 	for _, rel := range src.Releases {
 		if rel == "*" || slices.Contains(s.Chain, rel) {
 			return true
@@ -920,61 +994,128 @@ func (s System) matches(src Source) bool {
 	return false
 }
 
+func (s System) matches(src Source) bool {
+	return (len(src.Arch) == 0 || slices.Contains(src.Arch, s.Arch)) && s.forRelease(src)
+}
+
 func expand(tmpl, line string) string {
 	return strings.NewReplacer("{line}", line, "{line_nodot}", strings.ReplaceAll(line, ".", "")).Replace(tmpl)
 }
 
-// source picks where a line comes from on sys: the first matching source in
-// catalog order, which lists the system repositories first. The date plays
-// no part: if a line came from elsewhere the day its upstream support ends,
-// what was installed from the earlier source would no longer be recognized.
-func (sw *Software) source(line string, sys System) *Source {
-	for i := range sw.Sources {
-		src := &sw.Sources[i]
-		if slices.Contains(src.Lines, line) && sys.matches(*src) {
-			return src
-		}
-	}
-	return nil
+// ended reports whether line l gets no more updates from src as of today:
+// upstream support ended and the source is not the distribution's.
+func ended(l Line, src *Source, today string) bool {
+	return l.EOL != "" && l.EOL < today && src.Method != MethodSystem
 }
 
-// Offers resolves every line of sw for sys, newest first as in the catalog,
-// and marks the recommended one among those that can be installed and are
-// still supported upstream: the system repositories' line if there is one
-// (the newest of them), else the newest LTS line, else the newest line.
+// sources returns the sources of a line on sys, the default one first: the
+// system repositories' when they have the line, then the others in catalog
+// order, those whose updates for the line ended last. A line installed
+// from any of them is still recognized as such (the helper records which
+// one it used), so the order may change with the date.
+func (sw *Software) sources(l Line, sys System) []*Source {
+	today := sys.Now.Format(time.DateOnly)
+	var out []*Source
+	for i := range sw.Sources {
+		if src := &sw.Sources[i]; slices.Contains(src.Lines, l.Version) && sys.matches(*src) {
+			out = append(out, src)
+		}
+	}
+	rank := func(src *Source) int {
+		switch {
+		case src.Method == MethodSystem:
+			return 0
+		case !ended(l, src, today):
+			return 1
+		}
+		return 2
+	}
+	slices.SortStableFunc(out, func(a, b *Source) int { return rank(a) - rank(b) })
+	return out
+}
+
+// builtElsewhere reports whether some source builds line l for sys's
+// release on other architectures only.
+func (sw *Software) builtElsewhere(l Line, sys System) bool {
+	for _, src := range sw.Sources {
+		if slices.Contains(src.Lines, l.Version) && sys.forRelease(src) {
+			return true
+		}
+	}
+	return false
+}
+
+// resolve describes line l from src, or as not installable when src is nil.
+func (sw *Software) resolve(l Line, src *Source, sys System) Offer {
+	today := sys.Now.Format(time.DateOnly)
+	o := Offer{Line: l.Version, LTS: l.LTS, Mainline: l.Mainline, EOL: l.EOL, EndOfLife: l.EOL != "" && l.EOL < today}
+	if src == nil {
+		o.Reason = ReasonNotBuilt
+		if sw.builtElsewhere(l, sys) {
+			o.Reason = ReasonArch
+		}
+		return o
+	}
+	o.Method, o.Repo, o.Provider, o.Origin = src.Method, src.Repo, src.Provider, src.Origin()
+	for _, p := range src.Packages {
+		o.Packages = append(o.Packages, expand(p, l.Version))
+	}
+	if src.Stream != "" {
+		o.Stream = expand(src.Stream, l.Version)
+	}
+	for _, u := range src.Services {
+		o.Services = append(o.Services, expand(u, l.Version))
+	}
+	if p := src.PHP; p != nil {
+		o.FPM = p.FPM.expand(l.Version)
+		o.CLI = expand(p.CLI, l.Version)
+		o.Ext = p.Ext
+		o.Extensions = p.Ext != "" && len(sw.Extensions()) > 0
+	}
+	for _, cf := range src.Configs {
+		o.Configs = append(o.Configs, cf.expand(l.Version, o.Services))
+	}
+	o.EndOfLife = ended(l, src, today)
+	o.Installable = true
+	return o
+}
+
+// offer describes line l from the source with origin ("" for the default
+// one), with every source the line has here.
+func (sw *Software) offer(l Line, sys System, origin string) (Offer, bool) {
+	today := sys.Now.Format(time.DateOnly)
+	srcs := sw.sources(l, sys)
+	var chosen *Source
+	var infos []SourceInfo
+	for i, src := range srcs {
+		if (origin == "" && i == 0) || (origin != "" && src.Origin() == origin) {
+			chosen = src
+		}
+		infos = append(infos, SourceInfo{Origin: src.Origin(), Method: src.Method, Repo: src.Repo, Provider: src.Provider,
+			EndOfLife: ended(l, src, today), Default: i == 0})
+	}
+	if origin != "" && chosen == nil {
+		return Offer{}, false
+	}
+	o := sw.resolve(l, chosen, sys)
+	o.Sources = infos
+	return o, true
+}
+
+// Offers resolves every line of sw for sys from its default source, newest
+// first as in the catalog, and marks the recommended line among those that
+// can be installed and still get updates. That is upstream's: the newest
+// long-term support line, else the newest line that is not a mainline,
+// else the newest line. Software with Recommend "system" (PHP) prefers the
+// system repositories' line (the newest of them).
 //
 // A line past its upstream support that the distribution does not maintain
 // is marked EndOfLife. It stays installable: the user is warned and asked
 // to acknowledge it, and nothing recommends it.
 func (sw *Software) Offers(sys System) []Offer {
-	today := sys.Now.Format(time.DateOnly)
 	offers := make([]Offer, 0, len(sw.Lines))
 	for _, l := range sw.Lines {
-		ended := l.EOL != "" && l.EOL < today
-		o := Offer{Line: l.Version, LTS: l.LTS, EOL: l.EOL, EndOfLife: ended, Reason: ReasonNotBuilt}
-		if src := sw.source(l.Version, sys); src != nil {
-			o.Method, o.Repo, o.Provider = src.Method, src.Repo, src.Provider
-			for _, p := range src.Packages {
-				o.Packages = append(o.Packages, expand(p, l.Version))
-			}
-			if src.Stream != "" {
-				o.Stream = expand(src.Stream, l.Version)
-			}
-			for _, u := range src.Services {
-				o.Services = append(o.Services, expand(u, l.Version))
-			}
-			if p := src.PHP; p != nil {
-				o.FPM = p.FPM.expand(l.Version)
-				o.CLI = expand(p.CLI, l.Version)
-				o.Ext = p.Ext
-				o.Extensions = p.Ext != "" && len(sw.Extensions()) > 0
-			}
-			for _, cf := range src.Configs {
-				o.Configs = append(o.Configs, cf.expand(l.Version, o.Services))
-			}
-			o.EndOfLife = ended && src.Method != MethodSystem
-			o.Installable, o.Reason = true, ""
-		}
+		o, _ := sw.offer(l, sys, "")
 		offers = append(offers, o)
 	}
 	pick := func(ok func(Offer) bool) bool {
@@ -986,8 +1127,21 @@ func (sw *Software) Offers(sys System) []Offer {
 		}
 		return false
 	}
-	_ = pick(func(o Offer) bool { return o.Method == MethodSystem }) ||
+	_ = (sw.Recommend == RecommendSystem && pick(func(o Offer) bool { return o.Method == MethodSystem })) ||
 		pick(func(o Offer) bool { return o.LTS }) ||
+		pick(func(o Offer) bool { return !o.Mainline }) ||
 		pick(func(Offer) bool { return true })
 	return offers
+}
+
+// OfferFrom resolves one line of sw for sys from the source with origin
+// ("" for the default one); false when the line or that source is not
+// offered here. Recommended is left unset.
+func (sw *Software) OfferFrom(sys System, line, origin string) (Offer, bool) {
+	for _, l := range sw.Lines {
+		if l.Version == line {
+			return sw.offer(l, sys, origin)
+		}
+	}
+	return Offer{}, false
 }

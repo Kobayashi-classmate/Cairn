@@ -6,6 +6,8 @@ name = "Redis"
 category = "cache"
 homepage = "https://redis.io/"
 provides = ["redis-protocol"]
+single = true
+conflicts = ["valkey"]
 
 lines = [
   { version = "8.0" },

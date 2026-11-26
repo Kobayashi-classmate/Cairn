@@ -7,6 +7,8 @@ name = "PHP"
 category = "runtime"
 homepage = "https://www.php.net/"
 provides = ["php-fpm"]
+# No official repository: the system's own line is recommended.
+recommend = "system"
 
 # Each source's [sources.php] says where the line's PHP-FPM keeps its pools
 # (fpm, for per-site pools), its command-line PHP (cli) and how its

@@ -3,6 +3,7 @@
 package catalog
 
 import (
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
@@ -161,7 +162,10 @@ func TestSourceRules(t *testing.T) {
 		// Debian has no MySQL: the official repository, recommended as the
 		// newest LTS line.
 		{"mysql", "debian-13", "8.4", "vendor", "mysql", "", true, "mysql-server"},
-		{"postgresql", "el-10", "18", "vendor", "pgdg", "", false, "postgresql18-server"},
+		// Upstream's newest line is recommended where the system has an
+		// older one.
+		{"postgresql", "el-10", "18", "vendor", "pgdg", "", true, "postgresql18-server"},
+		{"postgresql", "el-10", "16", "system", "", "", false, "postgresql-server"},
 		{"postgresql", "debian-12", "14", "vendor", "pgdg", ended, false, "postgresql-14"},
 		{"nodejs", "el-10", "24", "standalone", "", "", false, "libatomic"},
 		{"nodejs", "el-10", "26", "standalone", "", "", true, "libatomic"},
@@ -226,6 +230,7 @@ func TestEndOfLifeKeepsTheLineInstallable(t *testing.T) {
 			// Apart from that, nothing about the line changes.
 			want := before
 			want.EndOfLife, want.Recommended = true, false
+			want.Sources = endedElsewhere(before.Sources)
 			if !reflect.DeepEqual(after, want) {
 				t.Errorf("%s %s on %s: the offer changed with the date:\n before %+v\n after  %+v", tc.id, tc.line, rel, before, after)
 			}
@@ -246,10 +251,21 @@ func TestEndOfLifeKeepsTheLineInstallable(t *testing.T) {
 		lastDay := date(t, tc.eol)
 		before := offerOn(t, c, tc.id, tc.release, tc.line, lastDay)
 		after := offerOn(t, c, tc.id, tc.release, tc.line, lastDay.AddDate(0, 0, 1))
+		before.Sources = endedElsewhere(before.Sources)
 		if after.Method != MethodSystem || !after.Installable || after.EndOfLife || after.Reason != "" || !reflect.DeepEqual(before, after) {
 			t.Errorf("system line %s %s on %s: before %+v, after %+v", tc.id, tc.line, tc.release, before, after)
 		}
 	}
+}
+
+// endedElsewhere is sources as they are once upstream support has ended:
+// only the system's still gets updates.
+func endedElsewhere(sources []SourceInfo) []SourceInfo {
+	out := slices.Clone(sources)
+	for i := range out {
+		out[i].EndOfLife = out[i].Method != MethodSystem
+	}
+	return out
 }
 
 // The recommended line is always one that can be installed and is still
@@ -334,59 +350,66 @@ func TestRecommendedLineIsInstallable(t *testing.T) {
 	}
 }
 
-// Where a line comes from never depends on the date: the first matching
-// source describes it before and after its upstream support ends. So that
-// the distribution's own packages are still the ones used for a line it
-// maintains, the catalog lists a line's system source before any other
-// source that serves the same release.
-func TestSystemSourceComesFirst(t *testing.T) {
-	c, err := Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, rel := range platform.Names() {
-		chain, err := platform.Chain(rel)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, arch := range []string{"amd64", "arm64", "riscv64"} {
-			sys := System{Chain: chain, Arch: arch}
-			for _, sw := range c.Software {
-				for _, l := range sw.Lines {
-					other := false
-					for _, src := range sw.Sources {
-						if !slices.Contains(src.Lines, l.Version) || !sys.matches(src) {
-							continue
-						}
-						if src.Method == MethodSystem && other {
-							t.Errorf("%s %s on %s/%s: the system source is listed after another source", sw.ID, l.Version, rel, arch)
-						}
-						other = other || src.Method != MethodSystem
-					}
-				}
-			}
-		}
-	}
-
-	// A catalog that lists them the other way round keeps its first source
-	// across the date all the same.
+// The system repositories' source is a line's default, wherever the
+// catalog lists it; the other sources stay offered beside it, and a vendor
+// source whose updates for the line have ended is offered last.
+func TestSystemSourceIsTheDefault(t *testing.T) {
 	cat, err := load(fstest.MapFS{
 		"repos/r.toml": {Data: []byte("id = \"r\"\nname = \"R\"\nofficial = true\nreleases = [\"debian-13\"]\n" +
 			"[apt]\nuri = \"https://r.example/\"\nsuite = \"s\"\ncomponents = [\"main\"]\n" +
 			"key = { url = \"https://r.example/key\", fingerprints = [\"B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8\"] }\n")},
-		"software/x.toml": {Data: []byte("id = \"x\"\nname = \"X\"\ncategory = \"runtime\"\nprovides = [\"x\"]\nlines = [{ version = \"1\", eol = \"2026-06-30\" }]\n" +
-			"[[sources]]\nmethod = \"vendor\"\nrepo = \"r\"\nreleases = [\"debian-13\"]\nlines = [\"1\"]\npackages = [\"x-vendor\"]\n" +
-			"[[sources]]\nmethod = \"system\"\nreleases = [\"debian-13\"]\nlines = [\"1\"]\npackages = [\"x\"]\n")},
+		"repos/q.toml": {Data: []byte("id = \"q\"\nname = \"Q\"\nofficial = true\nreleases = [\"debian-13\"]\n" +
+			"[apt]\nuri = \"https://q.example/\"\nsuite = \"s\"\ncomponents = [\"main\"]\n" +
+			"key = { url = \"https://q.example/key\", fingerprints = [\"B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8\"] }\n")},
+		"software/x.toml": {Data: []byte("id = \"x\"\nname = \"X\"\ncategory = \"runtime\"\nprovides = [\"x\"]\n" +
+			"lines = [{ version = \"2\", eol = \"2026-06-30\" }, { version = \"1\", eol = \"2026-06-30\" }]\n" +
+			"[[sources]]\nmethod = \"vendor\"\nrepo = \"r\"\nreleases = [\"debian-13\"]\nlines = [\"2\", \"1\"]\npackages = [\"x-vendor\"]\n" +
+			"[[sources]]\nmethod = \"system\"\nreleases = [\"debian-13\"]\nlines = [\"1\"]\npackages = [\"x\"]\n" +
+			"[[sources]]\nmethod = \"vendor\"\nrepo = \"q\"\nreleases = [\"debian-13\"]\nlines = [\"2\"]\npackages = [\"x-q\"]\n")},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	sw := &cat.Software[0]
 	sys := System{Chain: []string{"debian-13", "debian"}, Arch: "amd64"}
+	origins := func(o Offer) string {
+		var s []string
+		for _, src := range o.Sources {
+			s = append(s, fmt.Sprintf("%s:%v:%v", src.Origin, src.EndOfLife, src.Default))
+		}
+		return strings.Join(s, " ")
+	}
 	for day, ended := range map[string]bool{"2026-06-30": false, "2026-07-01": true} {
 		sys.Now = date(t, day)
-		if o := cat.Software[0].Offers(sys)[0]; o.Method != MethodVendor || o.Packages[0] != "x-vendor" || !o.Installable || o.EndOfLife != ended {
-			t.Errorf("%s: %+v", day, o)
+		offers := sw.Offers(sys)
+		two, one := offers[0], offers[1]
+		if one.Origin != OriginSystem || one.Packages[0] != "x" || !one.Installable || one.EndOfLife ||
+			origins(one) != fmt.Sprintf("system:false:true r:%v:false", ended) {
+			t.Errorf("%s: line 1: %+v", day, one)
 		}
+		if two.Origin != "r" || two.EndOfLife != ended || origins(two) != fmt.Sprintf("r:%v:true q:%v:false", ended, ended) {
+			t.Errorf("%s: line 2: %+v", day, two)
+		}
+		// Another source of the line, asked for by its origin.
+		o, ok := sw.OfferFrom(sys, "1", "r")
+		if !ok || o.Origin != "r" || o.Packages[0] != "x-vendor" || o.EndOfLife != ended || o.Sources[0].Origin != OriginSystem {
+			t.Errorf("%s: line 1 from r: %v %+v", day, ok, o)
+		}
+		if _, ok := sw.OfferFrom(sys, "1", "q"); ok {
+			t.Errorf("%s: line 1 offered from q", day)
+		}
+	}
+	// Built for another architecture only.
+	sys.Arch = "arm64"
+	cat.Software[0].Sources[1].Arch = []string{"amd64"}
+	if o, _ := sw.OfferFrom(sys, "1", ""); o.Origin != "r" {
+		t.Errorf("arm64: %+v", o)
+	}
+	for i := range cat.Software[0].Sources {
+		cat.Software[0].Sources[i].Arch = []string{"amd64"}
+	}
+	if o, _ := sw.OfferFrom(sys, "1", ""); o.Installable || o.Reason != ReasonArch {
+		t.Errorf("arm64 without a build: %+v", o)
 	}
 }
 
@@ -497,6 +520,16 @@ lines = [{ version = "1" }]
 		},
 		"extension family without extensions": {
 			"software/x.toml": base + "[[sources]]\nmethod = \"system\"\nreleases = [\"el-9\"]\nlines = [\"1\"]\npackages = [\"x\"]\n[sources.php]\next = \"el\"\n",
+		},
+		"unknown recommendation rule": {
+			"software/x.toml": base + "recommend = \"newest\"\n",
+		},
+		"conflict with unknown software": {
+			"software/x.toml": base + "conflicts = [\"y\"]\n",
+		},
+		"repository named like the system": {
+			"repos/system.toml": "id = \"system\"\nname = \"S\"\nofficial = true\nreleases = [\"el-9\"]\n[dnf]\nrelease_package = \"s-release\"\n",
+			"software/x.toml":   base,
 		},
 		"no capability": {
 			"software/x.toml": strings.Replace(base, "provides = [\"x\"]\n", "", 1),

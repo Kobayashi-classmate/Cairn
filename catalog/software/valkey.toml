@@ -6,6 +6,8 @@ name = "Valkey"
 category = "cache"
 homepage = "https://valkey.io/"
 provides = ["redis-protocol"]
+single = true
+conflicts = ["redis"]
 
 lines = [
   { version = "9.0" },

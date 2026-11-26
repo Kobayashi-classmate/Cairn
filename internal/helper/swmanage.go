@@ -90,26 +90,40 @@ func servesSites(sw *catalog.Software) bool {
 	return sw.ProvidesCap(catalog.CapWebServer) || sw.ProvidesCap(catalog.CapPHPFPM)
 }
 
-// installedOffer resolves a request to a line that is installed here.
+// installedOffer resolves a request to a line that is installed here, from
+// the source it was installed from: the recorded one, else the first of
+// its sources whose packages are there.
 func (s *Software) installedOffer(ctx context.Context, software, line string) (*catalog.Software, catalog.Offer, error) {
 	sw, o, err := s.knownOffer(helperapi.SoftwareRequest{Software: software, Line: line})
 	if err != nil {
 		return nil, o, err
 	}
-	notInstalled := pkgErr(helperapi.CodePkgNotInstalled, map[string]any{"software": software, "line": line})
-	if o.Method == catalog.MethodStandalone {
-		if s.Runtimes == nil || s.Runtimes.Installed(sw.ID, o.Line) == "" {
-			return nil, o, notInstalled
-		}
+	if s.isInstalled(ctx, sw, o) {
 		return sw, o, nil
 	}
+	for _, src := range o.Sources {
+		if src.Origin == o.Origin {
+			continue
+		}
+		if alt, ok := s.lineOffer(sw, line, src.Origin); ok && s.isInstalled(ctx, sw, alt) {
+			return sw, alt, nil
+		}
+	}
+	return nil, o, pkgErr(helperapi.CodePkgNotInstalled, map[string]any{"software": software, "line": line})
+}
+
+// isInstalled reports whether a line is installed from the offer's source:
+// its runtime unpacked, or its first package installed in a version of the
+// line.
+func (s *Software) isInstalled(ctx context.Context, sw *catalog.Software, o catalog.Offer) bool {
+	if o.Method == catalog.MethodStandalone {
+		return s.Runtimes != nil && s.Runtimes.Installed(sw.ID, o.Line) != ""
+	}
 	if len(o.Packages) == 0 {
-		return nil, o, notInstalled
+		return false
 	}
-	if v := s.installed(ctx, o.Packages[:1])[o.Packages[0]]; v == "" || !lineMatches(v, o.Line) {
-		return nil, o, notInstalled
-	}
-	return sw, o, nil
+	v := s.installed(ctx, o.Packages[:1])[o.Packages[0]]
+	return v != "" && lineMatches(v, o.Line)
 }
 
 func unitActive(ctx context.Context, unit string) string {

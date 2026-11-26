@@ -7,6 +7,9 @@ name = "MariaDB"
 category = "database"
 homepage = "https://mariadb.org/"
 provides = ["mysql-protocol"]
+# MariaDB and MySQL share the data directory, the port and package names.
+single = true
+conflicts = ["mysql"]
 
 lines = [
   { version = "11.8", lts = true },

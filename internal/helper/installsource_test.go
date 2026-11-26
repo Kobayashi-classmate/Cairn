@@ -670,7 +670,7 @@ func TestInstallFromChosenSourceDNF(t *testing.T) {
 	}
 	var query, install bool
 	for _, c := range f.cmds {
-		query = query || strings.HasPrefix(c, "query dnf --setopt=reposdir=") && strings.Contains(c, " repoquery --latest-limit 1 ")
+		query = query || strings.HasPrefix(c, "query dnf --setopt=reposdir=") && strings.Contains(c, " repoquery --qf ") && strings.HasSuffix(c, " --disablerepo cairn-* nginx")
 		install = install || strings.HasPrefix(c, "dnf --setopt=reposdir=") && strings.HasSuffix(c, " install -y nginx-2:1.26.3-1.el9")
 	}
 	if !query || !install || f.installed["nginx"] != "2:1.26.3-1.el9" {

@@ -157,6 +157,18 @@ const (
 	// CodePkgRepoUnreachable: the package indexes of a repository could not
 	// be downloaded, so its versions are unknown.
 	CodePkgRepoUnreachable = "pkg.repo_unreachable"
+	// CodePkgOriginUnknown: the line is not offered from the requested
+	// origin on this system.
+	CodePkgOriginUnknown = "pkg.origin_unknown"
+	// CodePkgOtherLine: the software has one line at a time and another
+	// one (param installed) is installed; it has to be removed first.
+	CodePkgOtherLine = "pkg.other_line"
+	// CodePkgOtherOrigin: the line is installed from another origin (param
+	// installed); it has to be removed before it comes from this one.
+	CodePkgOtherOrigin = "pkg.other_origin"
+	// CodePkgConflictsWith: software that cannot run next to this one
+	// (param other) is installed, or asked for in the same install set.
+	CodePkgConflictsWith = "pkg.conflicts_with"
 )
 
 var (
@@ -176,6 +188,11 @@ type SoftwareRequest struct {
 	// configured. Policy restricts the candidates.
 	Source string `json:"source,omitempty"`
 	Policy string `json:"policy,omitempty"`
+	// Origin picks which of the line's sources to install from: "system",
+	// a vendor repository ID or a download provider (catalog.SourceInfo).
+	// Empty is the line's default source. Everything that acts on an
+	// installed line finds its origin by itself.
+	Origin string `json:"origin,omitempty"`
 }
 
 // Download source policies.
@@ -193,6 +210,9 @@ func (r SoftwareRequest) Validate() error {
 	}
 	if r.Source != "" && !sourceIDPattern.MatchString(r.Source) {
 		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "source", "rule": "id"}}
+	}
+	if r.Origin != "" && !sourceIDPattern.MatchString(r.Origin) {
+		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "origin", "rule": "id"}}
 	}
 	if r.Policy != PolicyRecommended && r.Policy != PolicyOfficial {
 		return &Error{Code: "validation.invalid", Params: map[string]any{"field": "policy", "rule": "oneof"}}
@@ -362,6 +382,7 @@ type InstallResult struct {
 	Line     string             `json:"line"`
 	Method   string             `json:"method"`
 	Repo     string             `json:"repo,omitempty"`
+	Origin   string             `json:"origin,omitempty"`
 	Packages []InstalledPackage `json:"packages"`
 	// Services were enabled and started (false without systemd).
 	Services        []string `json:"services,omitempty"`
@@ -371,6 +392,9 @@ type InstallResult struct {
 // SoftwareStatus lists the installed lines: software -> line -> packages.
 type SoftwareStatus struct {
 	Installed map[string]map[string][]InstalledPackage `json:"installed"`
+	// Origins says where each installed line came from: software -> line
+	// -> origin (catalog.SourceInfo).
+	Origins map[string]map[string]string `json:"origins,omitempty"`
 	// Services maps the systemd services of the installed lines to their
 	// ActiveState ("active", "inactive", "failed", "activating", ...).
 	// Services systemd does not know are left out; nil without systemd.

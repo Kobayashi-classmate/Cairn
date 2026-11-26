@@ -113,6 +113,8 @@ func (m *Module) Routes(r *api.Router) {
 	m.manageRoutes(r, doc)
 }
 
+// offerView is a line as offered here: from the source it is installed
+// from when it is installed, else from its default source.
 type offerView struct {
 	catalog.Offer
 	Installed         bool                         `json:"installed"`
@@ -153,6 +155,9 @@ type lineRequest struct {
 	// AcceptEndOfLife acknowledges that the line is past its upstream
 	// support; installing such a line is refused without it.
 	AcceptEndOfLife bool `json:"acceptEndOfLife,omitempty"`
+	// Origin picks one of the line's sources (an offer's sources[].origin);
+	// empty is its default source.
+	Origin string `json:"origin,omitempty"`
 }
 
 type suiteView struct {
@@ -167,6 +172,7 @@ type suitesResponse struct {
 type installSetItem struct {
 	Software        string `json:"software"`
 	Line            string `json:"line"`
+	Origin          string `json:"origin,omitempty"`
 	Source          string `json:"source,omitempty"`
 	AcceptEndOfLife bool   `json:"acceptEndOfLife,omitempty"`
 }
@@ -178,6 +184,7 @@ type installSetRequest struct {
 type probeItem struct {
 	Software string `json:"software"`
 	Line     string `json:"line"`
+	Origin   string `json:"origin,omitempty"`
 }
 
 type probeRequest struct {
@@ -225,6 +232,7 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 		e := entry{Software: *sw, Offers: []offerView{}}
 		for _, o := range sw.Offers(sys) {
 			pkgs := st.Installed[sw.ID][o.Line]
+			o = installedFrom(sw, sys, o, st)
 			v := offerView{Offer: o, Installed: len(pkgs) > 0, InstalledPackages: pkgs}
 			if v.Installed && st.Services != nil {
 				for _, u := range o.Services {
@@ -240,6 +248,22 @@ func (m *Module) list(w http.ResponseWriter, r *http.Request) error {
 	}
 	sort.Slice(resp.Repos, func(i, j int) bool { return resp.Repos[i].ID < resp.Repos[j].ID })
 	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+// installedFrom is a line from the source it is installed from, when that
+// is not the default one (o): its packages, services and files are that
+// source's. Whether it is recommended stays as the default offer says.
+func installedFrom(sw *catalog.Software, sys catalog.System, o catalog.Offer, st helperapi.SoftwareStatus) catalog.Offer {
+	origin := st.Origins[sw.ID][o.Line]
+	if origin == "" || origin == o.Origin {
+		return o
+	}
+	alt, ok := sw.OfferFrom(sys, o.Line, origin)
+	if !ok {
+		return o
+	}
+	alt.Recommended = o.Recommended
+	return alt
 }
 
 func (m *Module) refresh(w http.ResponseWriter, r *http.Request) error {
@@ -315,7 +339,7 @@ func (m *Module) installSet(w http.ResponseWriter, r *http.Request) error {
 	names := map[string]string{}
 	systemSource := "" // the transaction's main source, when one is named
 	for _, it := range req.Items {
-		sw, o, err := m.installableLine(it.Software, it.Line, it.AcceptEndOfLife)
+		sw, o, err := m.installableLine(it.Software, it.Line, it.Origin, it.AcceptEndOfLife)
 		if err != nil {
 			return err
 		}
@@ -331,8 +355,8 @@ func (m *Module) installSet(w http.ResponseWriter, r *http.Request) error {
 			systemSource = it.Source
 		}
 		names[it.Software+" "+it.Line] = sw.Name + " " + it.Line
-		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line, Source: it.Source, Policy: policy})
-		entry := map[string]any{"software": it.Software, "name": sw.Name, "line": it.Line}
+		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line, Origin: o.Origin, Source: it.Source, Policy: policy})
+		entry := map[string]any{"software": it.Software, "name": sw.Name, "line": it.Line, "origin": o.Origin}
 		if it.Source != "" {
 			entry["source"] = it.Source
 		}
@@ -399,10 +423,11 @@ func (m *Module) probe(w http.ResponseWriter, r *http.Request) error {
 	hreq := helperapi.ProbeRequest{Policy: helperPolicy(policy)}
 	for _, it := range req.Items {
 		// Checking the sources installs nothing: no acknowledgement needed.
-		if _, _, err := m.installableLine(it.Software, it.Line, true); err != nil {
+		_, o, err := m.installableLine(it.Software, it.Line, it.Origin, true)
+		if err != nil {
 			return err
 		}
-		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line})
+		hreq.Items = append(hreq.Items, helperapi.SoftwareRequest{Software: it.Software, Line: it.Line, Origin: o.Origin})
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
@@ -450,14 +475,22 @@ func (m *Module) knownLine(id, line string) (*catalog.Software, catalog.Offer, e
 	return nil, catalog.Offer{}, api.NewError(http.StatusNotFound, "request.not_found", params)
 }
 
-// installableLine resolves a line that can be installed here now. Only
-// what installs asks it (install, install set, probe). A line past its
-// upstream support is installed only when the request acknowledges it
+// installableLine resolves a line that can be installed here now, from the
+// source with origin ("" for its default one). Only what installs asks it
+// (install, install set, probe). A line that gets no more updates from
+// that source is installed only when the request acknowledges it
 // (acceptEnded): the panel warns about it, an API client must say so.
-func (m *Module) installableLine(id, line string, acceptEnded bool) (*catalog.Software, catalog.Offer, error) {
+func (m *Module) installableLine(id, line, origin string, acceptEnded bool) (*catalog.Software, catalog.Offer, error) {
 	sw, o, err := m.knownLine(id, line)
 	if err != nil {
 		return nil, catalog.Offer{}, err
+	}
+	if origin != "" {
+		var ok bool
+		if o, ok = sw.OfferFrom(m.system(), line, origin); !ok {
+			return nil, catalog.Offer{}, api.NewError(http.StatusConflict, helperapi.CodePkgOriginUnknown,
+				map[string]any{"software": id, "line": line, "origin": origin})
+		}
 	}
 	if !o.Installable {
 		return nil, catalog.Offer{}, api.NewError(http.StatusConflict, helperapi.CodePkgNotAvailable,
@@ -492,15 +525,24 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 	var o catalog.Offer
 	var err error
 	if action == helperapi.ActionPkgInstall {
-		sw, o, err = m.installableLine(id, req.Line, req.AcceptEndOfLife)
+		sw, o, err = m.installableLine(id, req.Line, req.Origin, req.AcceptEndOfLife)
 	} else {
 		sw, _, err = m.knownLine(id, req.Line)
+		if err == nil && req.Origin != "" {
+			// What is removed comes from where it was installed from.
+			err = api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "origin", "rule": "unexpected"})
+		}
 	}
 	if err != nil {
 		return err
 	}
-	hreq := helperapi.SoftwareRequest{Software: id, Line: req.Line}
+	// The helper is told the origin the line resolved to, so that what it
+	// installs is what was checked here.
+	hreq := helperapi.SoftwareRequest{Software: id, Line: req.Line, Origin: o.Origin}
 	params := map[string]any{"software": id, "line": req.Line, "name": sw.Name}
+	if o.Origin != "" {
+		params["origin"] = o.Origin
+	}
 	if o.EndOfLife {
 		params["endOfLife"] = true
 	}
@@ -536,6 +578,9 @@ func (m *Module) startLineJob(w http.ResponseWriter, r *http.Request, kind, acti
 		return err
 	}
 	audit := map[string]any{"software": id, "name": sw.Name, "line": req.Line, "job": job.ID}
+	if o.Origin != "" {
+		audit["origin"] = o.Origin
+	}
 	if req.Source != "" {
 		audit["source"] = req.Source
 	}
@@ -564,6 +609,7 @@ func (m *Module) Summarize(r *http.Request, can func(authz.Permission) bool) (mo
 			if len(pkgs) == 0 {
 				continue
 			}
+			o = installedFrom(sw, sys, o, st)
 			for _, unit := range o.Services {
 				sum.Services = append(sum.Services, module.Service{Software: sw.ID, Line: o.Line, Unit: unit,
 					Version: pkgs[0].Version, State: serviceState(st.Services, unit)})

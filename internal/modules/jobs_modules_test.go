@@ -425,11 +425,11 @@ func TestSoftwareInstallAndRemove(t *testing.T) {
 	if final["state"] != jobs.Succeeded || !strings.Contains(log, "php8.4-fpm 8.4.27-1~deb13u1") {
 		t.Fatalf("install job: %v %q", final, log)
 	}
-	// The helper is told only which entry and line, nothing else.
+	// The helper is told only which entry, line and source, nothing else.
 	e.helper.mu.Lock()
 	sent := string(e.helper.requests[helperapi.ActionPkgInstall])
 	e.helper.mu.Unlock()
-	if sent != `{"software":"php","line":"8.4"}` {
+	if sent != `{"software":"php","line":"8.4","origin":"system"}` {
 		t.Fatalf("sent to the helper: %s", sent)
 	}
 	// Prebuilt runtimes go through the same operation.

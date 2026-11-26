@@ -197,10 +197,8 @@ func (d *DBs) service0(sw, line string) string {
 	if !ok {
 		return ""
 	}
-	for _, o := range s.Offers(d.Software.system()) {
-		if o.Line == line && len(o.Services) > 0 {
-			return o.Services[0]
-		}
+	if o, ok := d.Software.currentOffer(s, line); ok && len(o.Services) > 0 {
+		return o.Services[0]
 	}
 	return ""
 }

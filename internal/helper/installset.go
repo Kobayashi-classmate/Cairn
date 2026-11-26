@@ -66,6 +66,9 @@ func (s *Software) installSet(ctx context.Context, _ helperapi.Caller, req helpe
 		}
 		items = append(items, lineItem{req: r, sw: sw, o: o})
 	}
+	if err := s.checkInstall(ctx, items); err != nil {
+		return nil, err
+	}
 	var mu sync.Mutex
 	main := &lineWriter{mu: &mu, w: log}
 	defer main.Flush()

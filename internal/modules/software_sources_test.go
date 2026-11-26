@@ -53,7 +53,7 @@ func TestSoftwareProbeAndSourcePolicy(t *testing.T) {
 	e.helper.respond(helperapi.ActionOpGet, helperapi.OpGetResponse{Op: helperapi.Op{ID: opID, State: helperapi.OpSucceeded}})
 	id := admin.expect(admin.do("POST", "/api/v1/software/nodejs/install", map[string]any{"line": "24", "source": "official"}), 202, "").obj("job")["id"].(string)
 	waitJob(t, admin, id)
-	if got := e.helper.sent(helperapi.ActionPkgInstall); got != `{"software":"nodejs","line":"24","source":"official","policy":"official"}` {
+	if got := e.helper.sent(helperapi.ActionPkgInstall); got != `{"software":"nodejs","line":"24","source":"official","policy":"official","origin":"nodejs"}` {
 		t.Fatalf("install request: %s", got)
 	}
 	admin.expect(admin.do("POST", "/api/v1/software/nodejs/install", map[string]any{"line": "24", "source": "Not An ID"}), 400, "validation.invalid")
@@ -152,7 +152,7 @@ func TestSoftwareSystemSourceChoice(t *testing.T) {
 	// entry name the source.
 	job := admin.expect(admin.do("POST", "/api/v1/software/nginx/install", map[string]any{"line": "1.26", "source": "ftp.de.debian.org"}), 202, "").obj("job")
 	final, _ := waitJob(t, admin, job["id"].(string))
-	if got := e.helper.sent(helperapi.ActionPkgInstall); got != `{"software":"nginx","line":"1.26","source":"ftp.de.debian.org"}` {
+	if got := e.helper.sent(helperapi.ActionPkgInstall); got != `{"software":"nginx","line":"1.26","source":"ftp.de.debian.org","origin":"system"}` {
 		t.Fatalf("install request: %s", got)
 	}
 	if p, _ := final["params"].(map[string]any); p["source"] != "ftp.de.debian.org" {
