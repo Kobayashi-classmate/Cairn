@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# One nginx per system, from the system repositories (stream module included
-# for TCP/UDP proxying). System versions checked 2026-11-14.
+# One nginx per system: nginx.org's stable and mainline branches on every
+# release, and the system's own version (with its stream module, for TCP/UDP
+# proxying). System versions checked 2026-11-14, nginx.org 2026-11-25.
 id = "nginx"
 name = "nginx"
 category = "web"
@@ -9,6 +10,8 @@ provides = ["web-server"]
 single = true
 
 lines = [
+  { version = "1.31", mainline = true },
+  { version = "1.30" },
   { version = "1.28" },
   { version = "1.26" },
   { version = "1.24" },
@@ -72,13 +75,12 @@ method = "system"
 releases = ["ubuntu-26.04"]
 lines = ["1.28"]
 packages = ["nginx", "libnginx-mod-stream"]
-
-# EL 9: AppStream module streams; only one can be enabled at a time.
 services = ["nginx"]
 configs = [
   { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },
 ]
 
+# EL 9: AppStream module streams; only one can be enabled at a time.
 [[sources]]
 method = "system"
 releases = ["el-9"]
@@ -95,6 +97,29 @@ method = "system"
 releases = ["el-9"]
 lines = ["1.20"]
 packages = ["nginx", "nginx-mod-stream"]
+services = ["nginx"]
+configs = [
+  { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },
+]
+
+# nginx.org: the stream module is built in.
+[[sources]]
+method = "vendor"
+repo = "nginx"
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "el-9", "el-10"]
+lines = ["1.30"]
+packages = ["nginx"]
+services = ["nginx"]
+configs = [
+  { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },
+]
+
+[[sources]]
+method = "vendor"
+repo = "nginx-mainline"
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "el-9", "el-10"]
+lines = ["1.31"]
+packages = ["nginx"]
 services = ["nginx"]
 configs = [
   { id = "nginx.conf", path = "/etc/nginx/nginx.conf", check = ["/usr/sbin/nginx", "-t"], apply = "reload" },

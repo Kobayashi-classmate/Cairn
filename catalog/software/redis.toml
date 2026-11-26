@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Redis from the system repositories. EL 10 ships Valkey instead (see
-# valkey.toml). Checked 2026-11-14.
+# Redis: the system version (EL 10 ships Valkey instead, see valkey.toml),
+# and the newest lines from Redis's own repositories on every release.
+# System versions checked 2026-11-14, the Redis repositories 2026-11-25.
 id = "redis"
 name = "Redis"
 category = "cache"
@@ -10,6 +11,9 @@ single = true
 conflicts = ["valkey"]
 
 lines = [
+  { version = "8.12" },
+  { version = "8.10" },
+  { version = "8.8" },
   { version = "8.0" },
   { version = "7.2" },
   { version = "7.0" },
@@ -62,6 +66,31 @@ configs = [
 method = "system"
 releases = ["el-9"]
 lines = ["6.2"]
+packages = ["redis"]
+services = ["redis"]
+configs = [
+  { id = "redis.conf", path = "/etc/redis/redis.conf", apply = "restart" },
+]
+
+# Redis's repositories: Debian's layout, epoch 6; redis-tools comes from the
+# same build, so its exact version is pinned too. On EL one package, redis,
+# whose installation also adds an SELinux policy module.
+[[sources]]
+method = "vendor"
+repo = "redis"
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04"]
+lines = ["8.12", "8.10", "8.8"]
+packages = ["redis-server", "redis-tools"]
+services = ["redis-server"]
+configs = [
+  { id = "redis.conf", path = "/etc/redis/redis.conf", apply = "restart" },
+]
+
+[[sources]]
+method = "vendor"
+repo = "redis"
+releases = ["el-9", "el-10"]
+lines = ["8.12", "8.10", "8.8"]
 packages = ["redis"]
 services = ["redis"]
 configs = [

@@ -106,9 +106,16 @@ func TestSuitesResolveOnEveryRelease(t *testing.T) {
 			}
 		}
 	}
-	// EL 10 has no Redis: the PHP suite falls back to Valkey.
+	// EL 10 has Redis from Redis's own repository only; without it the
+	// PHP suite falls back to Valkey, the system's.
 	chain, _ := platform.Chain("el-10")
-	if items := c.Resolve(c.Suites[0], System{Chain: chain, Arch: "amd64", Now: day}); items[3].Software != "valkey" {
+	sys := System{Chain: chain, Arch: "amd64", Now: day}
+	if items := c.Resolve(c.Suites[0], sys); items[3].Software != "redis" {
 		t.Errorf("el-10 cache: %+v", items[3])
+	}
+	redis, _ := c.Find("redis")
+	redis.Sources = nil
+	if items := c.Resolve(c.Suites[0], sys); items[3].Software != "valkey" {
+		t.Errorf("el-10 cache without Redis: %+v", items[3])
 	}
 }

@@ -8,6 +8,7 @@ homepage = "https://www.postgresql.org/"
 provides = ["postgresql"]
 
 lines = [
+  { version = "19" },
   { version = "18", eol = "2030-11-14" },
   { version = "17", eol = "2029-11-08" },
   { version = "16", eol = "2028-11-09" },
@@ -89,16 +90,17 @@ packages = ["postgresql-server"]
 method = "vendor"
 repo = "pgdg"
 releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04"]
-lines = ["18", "17", "16", "15", "14", "13"]
+lines = ["19", "18", "17", "16", "15", "14", "13"]
 packages = ["postgresql-{line}"]
 services = ["postgresql"]
 configs = [
   { id = "postgresql.conf", path = "/etc/postgresql/{line}/main/postgresql.conf", check = ["/usr/sbin/runuser", "-u", "postgres", "--", "/usr/lib/postgresql/{line}/bin/postgres", "-D", "/etc/postgresql/{line}/main", "-C", "data_directory"], apply = "reload" },
 ]
 
+# PGDG moved 13 to its archive on EL (2026-11-25).
 [[sources]]
 method = "vendor"
 repo = "pgdg"
 releases = ["el-9", "el-10"]
-lines = ["18", "17", "16", "15", "14", "13"]
+lines = ["19", "18", "17", "16", "15", "14"]
 packages = ["postgresql{line}-server"]

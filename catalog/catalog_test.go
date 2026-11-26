@@ -105,9 +105,10 @@ func TestEveryReleaseIsCovered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// EL 10 ships Valkey only; Debian 12 and Ubuntu 22.04 predate Valkey.
+	// Debian 12 and Ubuntu 22.04 predate Valkey, which has no repository of
+	// its own.
 	// unar is in EPEL only, which the panel does not add.
-	missing := map[string]bool{"redis/el-10": true, "valkey/debian-12": true, "valkey/ubuntu-22.04": true,
+	missing := map[string]bool{"valkey/debian-12": true, "valkey/ubuntu-22.04": true,
 		"unar/el-9": true, "unar/el-10": true}
 	for _, sw := range c.Software {
 		for _, rel := range tier1 {
@@ -159,12 +160,25 @@ func TestSourceRules(t *testing.T) {
 		{"php", "ubuntu-26.04", "8.5", "system", "", "", true, "php8.5-fpm,php8.5-cli"},
 		// A system line stays offered after upstream support ended.
 		{"php", "ubuntu-22.04", "8.1", "system", "", "", true, "php8.1-fpm,php8.1-cli"},
-		// Debian has no MySQL: the official repository, recommended as the
-		// newest LTS line.
-		{"mysql", "debian-13", "8.4", "vendor", "mysql", "", true, "mysql-server"},
+		// Debian has no MySQL: the official repository, whose newest LTS
+		// line is recommended.
+		{"mysql", "debian-13", "9.7", "vendor", "mysql", "", true, "mysql-server"},
+		{"mysql", "debian-13", "8.4", "vendor", "mysql", "", false, "mysql-server"},
+		// Both have the line: the system's is the default.
+		{"mysql", "ubuntu-26.04", "8.4", "system", "", "", false, "mysql-server"},
+		{"mariadb", "debian-12", "10.11", "system", "", "", false, "mariadb-server"},
+		{"mariadb", "debian-12", "12.3", "vendor", "mariadb", "", true, "mariadb-server"},
+		{"mariadb", "el-10", "12.3", "vendor", "mariadb", "", true, "MariaDB-server"},
+		{"redis", "el-10", "8.12", "vendor", "redis", "", true, "redis"},
+		{"redis", "debian-13", "8.10", "vendor", "redis", "", false, "redis-server,redis-tools"},
+		{"redis", "debian-13", "8.0", "system", "", "", false, "redis-server"},
+		// nginx.org's stable branch is recommended, never the mainline.
+		{"nginx", "debian-13", "1.30", "vendor", "nginx", "", true, "nginx"},
+		{"nginx", "debian-13", "1.31", "vendor", "nginx-mainline", "", false, "nginx"},
+		{"nginx", "debian-13", "1.26", "system", "", "", false, "nginx,libnginx-mod-stream"},
 		// Upstream's newest line is recommended where the system has an
 		// older one.
-		{"postgresql", "el-10", "18", "vendor", "pgdg", "", true, "postgresql18-server"},
+		{"postgresql", "el-10", "19", "vendor", "pgdg", "", true, "postgresql19-server"},
 		{"postgresql", "el-10", "16", "system", "", "", false, "postgresql-server"},
 		{"postgresql", "debian-12", "14", "vendor", "pgdg", ended, false, "postgresql-14"},
 		{"nodejs", "el-10", "24", "standalone", "", "", false, "libatomic"},
@@ -185,12 +199,23 @@ func TestSourceRules(t *testing.T) {
 			t.Errorf("%s %s on %s: %+v", tc.id, tc.line, tc.release, o)
 		}
 	}
-	if o := offer(t, c, "nginx", "el-9", "1.26"); o.Stream != "nginx:1.26" || !o.Recommended {
+	// PGDG no longer serves 13 on EL.
+	if o := offer(t, c, "postgresql", "el-10", "13"); o.Installable || o.Reason != ReasonNotBuilt {
+		t.Errorf("postgresql 13 on el-10: %+v", o)
+	}
+	// The MySQL repository builds for amd64 only.
+	sys := system(t, "debian-13")
+	sys.Arch = "arm64"
+	mysql, _ := c.Find("mysql")
+	if o, _ := mysql.OfferFrom(sys, "8.4", ""); o.Installable || o.Reason != ReasonArch {
+		t.Errorf("mysql on arm64: %+v", o)
+	}
+	if o := offer(t, c, "nginx", "el-9", "1.26"); o.Stream != "nginx:1.26" || o.Recommended {
 		t.Errorf("nginx on el-9: %+v", o)
 	}
 	// Runtimes are offered for the supported architectures only.
 	sw, _ := c.Find("nodejs")
-	sys := system(t, "debian-13")
+	sys = system(t, "debian-13")
 	sys.Arch = "loong64"
 	for _, o := range sw.Offers(sys) {
 		if o.Method != "" {

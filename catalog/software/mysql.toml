@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# MySQL: the system version where there is one (Debian has none), otherwise
-# the official MySQL repository. Checked 2026-11-14.
+# MySQL: the system version where there is one (Debian has none), and the
+# long-term support lines from the official MySQL repository on Debian and
+# Ubuntu, which builds for amd64 only. System versions checked 2026-11-14,
+# the MySQL repository 2026-11-25. Its EL packages give root a temporary
+# password instead of socket authentication, which the panel does not
+# handle yet, so EL has the system's MySQL only.
 id = "mysql"
 name = "MySQL"
 category = "database"
@@ -10,6 +14,7 @@ single = true
 conflicts = ["mariadb"]
 
 lines = [
+  { version = "9.7", lts = true },
   { version = "8.4", lts = true },
   { version = "8.0", eol = "2026-04-30" },
 ]
@@ -68,8 +73,9 @@ configs = [
 [[sources]]
 method = "vendor"
 repo = "mysql"
-releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04"]
-lines = ["8.4"]
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04"]
+arch = ["amd64"]
+lines = ["9.7", "8.4"]
 packages = ["mysql-server"]
 services = ["mysql"]
 configs = [

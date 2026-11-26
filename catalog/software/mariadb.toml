@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# MariaDB from the system repositories (checked 2026-11-14). The official
-# MariaDB repositories are added with the installer, once verified per
-# release.
+# MariaDB: the system version, and the long-term support lines from the
+# official MariaDB repositories (system versions checked 2026-11-14, the
+# MariaDB repositories 2026-11-25; 13.x, the rolling releases, are left
+# out).
 id = "mariadb"
 name = "MariaDB"
 category = "database"
@@ -12,7 +13,8 @@ single = true
 conflicts = ["mysql"]
 
 lines = [
-  { version = "11.8", lts = true },
+  { version = "12.3", lts = true, eol = "2029-06-12" },
+  { version = "11.8", lts = true, eol = "2028-06-04" },
   { version = "11.4", lts = true, eol = "2029-05-29" },
   { version = "10.11", lts = true, eol = "2028-02-16" },
   { version = "10.6", lts = true, eol = "2026-07-06" },
@@ -78,4 +80,75 @@ packages = ["mariadb-server"]
 services = ["mariadb"]
 configs = [
   { id = "mariadb-server.cnf", path = "/etc/my.cnf.d/mariadb-server.cnf", check = ["/usr/libexec/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+# The MariaDB repositories: Debian's layout and package names on Debian and
+# Ubuntu; on EL their own packages (MariaDB-server), with server.cnf and
+# /usr/sbin/mariadbd instead of AppStream's mariadb-server.cnf and
+# /usr/libexec/mariadbd.
+
+[[sources]]
+method = "vendor"
+repo = "mariadb"
+releases = ["debian-12"]
+lines = ["12.3", "11.8", "11.4", "10.11"]
+packages = ["mariadb-server"]
+services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+[[sources]]
+method = "vendor"
+repo = "mariadb"
+releases = ["debian-13", "ubuntu-26.04"]
+lines = ["12.3", "11.8"]
+packages = ["mariadb-server"]
+services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+[[sources]]
+method = "vendor"
+repo = "mariadb"
+releases = ["ubuntu-22.04"]
+lines = ["12.3", "11.8", "11.4", "10.11", "10.6"]
+packages = ["mariadb-server"]
+services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+[[sources]]
+method = "vendor"
+repo = "mariadb"
+releases = ["ubuntu-24.04"]
+lines = ["12.3", "11.8", "11.4", "10.11"]
+packages = ["mariadb-server"]
+services = ["mariadb"]
+configs = [
+  { id = "50-server.cnf", path = "/etc/mysql/mariadb.conf.d/50-server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+[[sources]]
+method = "vendor"
+repo = "mariadb"
+releases = ["el-9"]
+lines = ["12.3", "11.8", "11.4", "10.11", "10.6"]
+packages = ["MariaDB-server"]
+services = ["mariadb"]
+configs = [
+  { id = "server.cnf", path = "/etc/my.cnf.d/server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
+]
+
+[[sources]]
+method = "vendor"
+repo = "mariadb"
+releases = ["el-10"]
+lines = ["12.3", "11.8", "11.4", "10.11"]
+packages = ["MariaDB-server"]
+services = ["mariadb"]
+configs = [
+  { id = "server.cnf", path = "/etc/my.cnf.d/server.cnf", check = ["/usr/sbin/mariadbd", "--help", "--verbose"], apply = "restart" },
 ]

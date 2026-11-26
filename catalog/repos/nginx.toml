@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# nginx.org's stable branch. Its builds have the stream module built in and
+# run as the "nginx" user; the panel adapts to that layout. The repository
+# keeps the last builds of earlier branches, so updates are pinned to the
+# installed line. Checked 2026-11-25: 1.30 on every supported release, amd64
+# and arm64.
+id = "nginx"
+name = "nginx.org repository (stable)"
+homepage = "https://nginx.org/en/linux_packages.html"
+official = true
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "el-9", "el-10"]
+pin_line = true
+
+# The key file holds three primary keys; the repositories are signed with
+# the 2024 one (8540A6F1...) at present.
+[apt]
+uri = "https://nginx.org/packages/{distro}"
+suite = "{codename}"
+components = ["nginx"]
+key = { url = "https://nginx.org/keys/nginx_signing.key", fingerprints = ["573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62", "8540A6F18833A80E9C1653A42FD21310B49F6B46", "9E9BE90EACBCDE69FE9B204CBCDCD8A38D88A2B3"] }
+
+# Without module_hotfixes EL 9 hides these packages while an nginx module
+# stream is enabled.
+[dnf]
+baseurl = "https://nginx.org/packages/rhel/{major}/$basearch/"
+key = { url = "https://nginx.org/keys/nginx_signing.key", fingerprints = ["573BFD6B3D8FBC641079A6ABABF5BD827BD9BF62", "8540A6F18833A80E9C1653A42FD21310B49F6B46", "9E9BE90EACBCDE69FE9B204CBCDCD8A38D88A2B3"] }
+module_hotfixes = true

@@ -103,7 +103,7 @@ func TestWizardSuitesAndInstallSet(t *testing.T) {
 		m := it.(map[string]any)
 		lines = append(lines, m["software"].(string)+"@"+m["line"].(string))
 	}
-	if php["id"] != "php-site" || strings.Join(lines, " ") != "nginx@1.26 php@8.4 mariadb@11.8 redis@8.0" {
+	if php["id"] != "php-site" || strings.Join(lines, " ") != "nginx@1.30 php@8.4 mariadb@12.3 redis@8.12" {
 		t.Fatalf("php suite: %v", lines)
 	}
 

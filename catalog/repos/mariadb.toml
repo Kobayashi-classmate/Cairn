@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# The MariaDB repositories at dlm.mariadb.com, the address MariaDB's own
+# setup script (mariadb_repo_setup) uses; one repository per line. The
+# Foundation's deb.mariadb.org serves the same, signed with the same key,
+# but sends each file on to third-party mirrors. Checked 2026-11-25.
+id = "mariadb"
+name = "MariaDB repository"
+homepage = "https://mariadb.org/download/"
+official = true
+releases = ["debian-12", "debian-13", "ubuntu-22.04", "ubuntu-24.04", "ubuntu-26.04", "el-9", "el-10"]
+
+# Its server needs its own builds of these packages, which the systems also
+# have under the same names (checked in containers on trixie and noble).
+[apt]
+uri = "https://dlm.mariadb.com/repo/mariadb-server/{line}/repo/{distro}"
+suite = "{codename}"
+components = ["main"]
+key = { url = "https://supplychain.mariadb.com/MariaDB-Server-GPG-KEY", fingerprints = ["177F4010FE56CA3336300305F1656F24C74CD1D8"] }
+prefer = ["mariadb-common", "mariadb-client", "mariadb-client-core", "mariadb-server-core", "libmariadb3", "mysql-common", "galera-4"]
+
+# Its packages (MariaDB-server, ...) obsolete the system's: the repository
+# is configured only while a line from it is installed.
+[dnf]
+baseurl = "https://dlm.mariadb.com/repo/mariadb-server/{line}/yum/rhel/{major}/$basearch"
+key = { url = "https://supplychain.mariadb.com/MariaDB-Server-GPG-KEY", fingerprints = ["177F4010FE56CA3336300305F1656F24C74CD1D8"] }
+module_hotfixes = true
