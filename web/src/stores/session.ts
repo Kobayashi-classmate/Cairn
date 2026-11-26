@@ -25,6 +25,7 @@ import {
 } from '@/i18n'
 import { matchLocale } from '@/i18n/negotiate'
 import { readStoredLocale, storeLocale } from '@/i18n/preference'
+import { DEFAULT_TERMINAL_SCHEME, isTerminalSchemeId, type TerminalSchemeId } from '@/terminal/schemeIds'
 import { resetAccountData } from './accountReset'
 import { useNavStore } from './nav'
 import { useThemeStore } from './theme'
@@ -297,6 +298,33 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
+  /** The account's web terminal colour scheme; the default for an unknown one. */
+  const terminalScheme = computed<TerminalSchemeId>(() => {
+    const id = user.value?.terminalScheme
+    return isTerminalSchemeId(id) ? id : DEFAULT_TERMINAL_SCHEME
+  })
+
+  let schemeChanges = 0
+
+  /**
+   * Switches the web terminal's colour scheme at once and saves it to the
+   * account; a failed save puts the previous one back.
+   */
+  async function changeTerminalScheme(id: TerminalSchemeId): Promise<void> {
+    const account = user.value
+    if (!account || id === terminalScheme.value) return
+    const previous = account.terminalScheme
+    account.terminalScheme = id
+    const change = ++schemeChanges
+    try {
+      await sessionApi.updateMyTerminalScheme(id)
+    } catch (err) {
+      // A newer choice has been made meanwhile; that one decides.
+      if (change === schemeChanges && user.value === account) account.terminalScheme = previous
+      throw err
+    }
+  }
+
   return {
     meta,
     user,
@@ -324,5 +352,7 @@ export const useSessionStore = defineStore('session', () => {
     takeNotice,
     changeLocale,
     changeTheme,
+    terminalScheme,
+    changeTerminalScheme,
   }
 })

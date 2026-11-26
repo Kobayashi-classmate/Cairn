@@ -53,6 +53,25 @@ func (m *Module) setMyTheme(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+type terminalSchemeRequest struct {
+	Scheme string `json:"scheme"` // one of auth.TerminalSchemes
+}
+
+// setMyTerminalScheme stores the colour scheme of the signed-in user's web
+// terminal, for every device the user signs in from.
+func (m *Module) setMyTerminalScheme(w http.ResponseWriter, r *http.Request) error {
+	var req terminalSchemeRequest
+	if err := api.DecodeJSON(r, &req); err != nil {
+		return err
+	}
+	p, _ := api.PrincipalFrom(r.Context())
+	if err := auth.SetTerminalScheme(r.Context(), m.DB, p.UserID, req.Scheme); err != nil {
+		return modutil.MapError(err, nil)
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 type changePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
 	NewPassword     string `json:"newPassword"`

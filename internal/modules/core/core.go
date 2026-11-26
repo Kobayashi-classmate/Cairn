@@ -120,6 +120,7 @@ func (m *Module) Routes(r *api.Router) {
 
 	r.Handle("PUT /api/v1/me/locale", m.setMyLocale, self, accountDoc("Set my language"), api.Body(localeRequest{}), noContent)
 	r.Handle("PUT /api/v1/me/theme", m.setMyTheme, self, accountDoc("Set my colour scheme: light, dark or system"), api.Body(themeRequest{}), noContent)
+	r.Handle("PUT /api/v1/me/terminal-scheme", m.setMyTerminalScheme, self, accountDoc("Set my web terminal's colour scheme"), api.Body(terminalSchemeRequest{}), noContent)
 	r.Handle("PUT /api/v1/me/password", m.changePassword, self, account, accountDoc("Change my password; signs out other sessions"),
 		api.Body(changePasswordRequest{}), noContent)
 	r.Handle("GET /api/v1/me/sessions", m.listSessions, self, account, accountDoc("List my sessions"), api.Returns(200, sessionsResponse{}))

@@ -509,6 +509,17 @@ func TestSetupSessionAndLanguage(t *testing.T) {
 		t.Fatalf("theme after change: %v", got)
 	}
 
+	// The web terminal's colour scheme: the panel's own until one is chosen.
+	if got := admin.expect(admin.do("GET", "/api/v1/auth/me", nil), 200, "").obj("user")["terminalScheme"]; got != "cairn" {
+		t.Fatalf("default terminal scheme: %v", got)
+	}
+	admin.expect(admin.do("PUT", "/api/v1/me/terminal-scheme", map[string]any{"scheme": "solarized"}), 204, "")
+	admin.expect(admin.do("PUT", "/api/v1/me/terminal-scheme", map[string]any{"scheme": "sepia"}), 400, "validation.invalid")
+	admin.expect(admin.do("PUT", "/api/v1/me/terminal-scheme", map[string]any{"scheme": ""}), 400, "validation.invalid")
+	if got := admin.expect(admin.do("GET", "/api/v1/auth/me", nil), 200, "").obj("user")["terminalScheme"]; got != "solarized" {
+		t.Fatalf("terminal scheme after change: %v", got)
+	}
+
 	admin.expect(admin.do("PUT", "/api/v1/settings/default-locale", map[string]any{"locale": "zh-CN"}), 204, "")
 	if r := admin.do("GET", "/api/v1/settings", nil); r.body["defaultLocale"] != "zh-CN" {
 		t.Fatalf("settings: %v", r.body)

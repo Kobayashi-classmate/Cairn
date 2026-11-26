@@ -60,6 +60,14 @@
   "opened": "opened {time}",
   "hint": "Terminals keep running for 5 minutes after you leave this page.",
   "focusHint": "Press Esc and then Tab to move out of the terminal.",
+  "scheme": {
+    "button": "Colours",
+    "label": "Terminal colour scheme",
+    "cairn": "Cairn (default)",
+    "darkOnly": "Dark only",
+    "note": "Schemes with a light and a dark version follow the panel's mode. Only Cairn's colours are checked to stay readable; the others keep their authors' colours.",
+    "saveFailed": "Could not save the terminal colour scheme to your account."
+  },
   "snippets": {
     "title": "Saved commands",
     "sheetIntro": "Saved commands are kept for your account and pasted into the terminal in front.",

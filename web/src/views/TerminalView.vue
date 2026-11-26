@@ -36,6 +36,7 @@ import { useTerminalStore } from '@/stores/terminal'
 import { lineCount, userLabel } from './terminal/labels'
 import NewTerminalSheet from './terminal/NewTerminalSheet.vue'
 import SnippetSheet from './terminal/SnippetSheet.vue'
+import SchemeMenu from './terminal/SchemeMenu.vue'
 import SnippetsPanel from './terminal/SnippetsPanel.vue'
 
 // Web terminal: one tab per session, the terminal filling the rest of the
@@ -358,6 +359,7 @@ watch(workspace, () => void nextTick(measure))
     <div ref="head">
       <PageHeader :title="t('terminal.title')" :status="status" :status-loading="loading && !users">
         <template #actions>
+          <SchemeMenu />
           <AccessSwitch
             v-if="canAdmin && users"
             :label="t('terminal.root.label')"

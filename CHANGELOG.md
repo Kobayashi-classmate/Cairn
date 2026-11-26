@@ -47,7 +47,9 @@ Removed, Fixed, Security and Upgrade notes, in that order. Versions follow
 - A file manager and a web terminal. The terminal colours the output of
   `ls`, `grep`, `diff` and `ip` and the prompt, through a profile script
   that acts only in the panel's terminals; users' own shell files are not
-  changed and still win.
+  changed and still win. Each account chooses the terminal's colour
+  scheme: Cairn's own, or Solarized, One Half, GitHub, Gruvbox,
+  Catppuccin, Tango, xterm, Dracula or Nord with their authors' colours.
 - Scheduled tasks, a log browser and backups to local or S3 storage. Logs
   show the colours of program output and highlight error and warning
   lines; copying a log gives the text without colour codes.

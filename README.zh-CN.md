@@ -16,7 +16,7 @@
 - **TLS 证书**：通过 ACME 签发（Let's Encrypt、ZeroSSL、Google Trust Services 或自定义 CA；HTTP-01，或经 Cloudflare、DNSPod、阿里云、华为云、Route 53、GoDaddy、火山引擎、西部数码、RFC 2136 做 DNS-01），也可以上传；网站和面板自己都能用，自动续期。
 - **软件**：nginx、PHP 及其扩展、MariaDB、MySQL、PostgreSQL、Redis、Valkey、Node.js、Python、Go、Java（Temurin）、.NET，以及解压 7z 和 RAR 用的 unar。软件包来自发行版自己的软件源和上游官方的软件源（nginx.org、MariaDB、MySQL、PostgreSQL 的 PGDG、Redis）；发行版没有的 PHP 版本用 sury、ondrej PPA 或 Remi。几个来源都有的版本默认用发行版的包，安装时可以换成别的来源；推荐版本是上游最新的长期支持版。这台服务器装不了的版本会列出来并写明原因。编程语言运行时用官方构建，按各项目官方发布元数据里的校验值核对。安装前面板会检查各下载源有没有这个确切版本、速度如何（运行时可以自己选下载源），然后锁定确切版本安装。服务可以在面板里启动、停止、重载，配置文件可以在面板里编辑。
 - **数据库**：MariaDB 或 MySQL、PostgreSQL、Redis 或 Valkey：库、用户和授权、远程访问、转储和恢复（恢复以库自己的用户身份执行），以及 Redis 的键浏览器。Enterprise Linux 上目前只支持 MariaDB 和 Redis 或 Valkey。
-- **文件和终端**：文件管理器，支持断点续传、在线编辑、压缩解压、回收站和从网址下载；Web 终端，可以保存常用命令。
+- **文件和终端**：文件管理器，支持断点续传、在线编辑、压缩解压、回收站和从网址下载；Web 终端，可以保存常用命令、切换配色方案。
 - **计划任务、日志、备份**：基于 systemd timer 的计划任务（Shell 脚本、访问网址、备份）；系统日志、网站日志和 SSH 登录记录；网站、数据库和目录备份到本地或 S3 兼容存储，可选 age 加密，按日、周、月规则保留。
 - **防火墙和 SSH**：在 nftables、firewalld 或 ufw 上管理端口规则、信任和封禁的地址、禁 ping 和端口转发。每次修改如果没有通过新连接确认，60 秒后自动回滚。SSH 设置和公钥；修改 SSH 端口时，旧端口一直保留，直到新端口被外部连上为止。
 - **主机**：主机名、时区、swap、系统更新、自动安全更新，以及系统软件源的镜像。

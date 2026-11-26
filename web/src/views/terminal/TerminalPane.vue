@@ -4,13 +4,13 @@
 // messages carry input and output, text messages control ({"type":"resize"}
 // from here, {"type":"exit"} from the server). On every (re)connection the
 // server first replays recent output, so the screen is cleared first. The
-// colours follow the panel's light and dark mode as it changes. Character
-// widths follow Unicode 11, as the server's C library counts them (emoji
-// take two cells). The server also ends sessions itself, for example when
-// the account's role or password changes: the terminal then shows that it
-// ended.
+// colours are the account's terminal scheme in the panel's light or dark
+// mode, and change with either. Character widths follow Unicode 11, as the
+// server's C library counts them (emoji take two cells). The server
+// also ends sessions itself, for example when the account's role or
+// password changes: the terminal then shows that it ended.
 // Loaded on demand, so xterm.js stays out of the main bundle.
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -18,8 +18,10 @@ import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { isApiError } from '@/api/client'
 import { fetchTermSessions, termSocketUrl, type TermConnection } from '@/api/terminal'
+import { useSessionStore } from '@/stores/session'
 import { useThemeStore } from '@/stores/theme'
-import { TERMINAL_FONT, terminalTheme } from '@/terminal/theme'
+import { schemeTheme } from '@/terminal/schemes'
+import { TERMINAL_FONT } from '@/terminal/theme'
 
 const props = defineProps<{ sessionId: string; active: boolean }>()
 const emit = defineEmits<{ status: [status: TermConnection] }>()
@@ -28,6 +30,9 @@ const { t } = useI18n()
 /** Tells screen reader users how to leave the terminal with the keyboard. */
 const hintId = `term-hint-${props.sessionId}`
 const theme = useThemeStore()
+const session = useSessionStore()
+/** The terminal's colours now; the margin around it takes the same background. */
+const colors = computed(() => schemeTheme(session.terminalScheme, theme.isDark))
 const host = ref<HTMLElement | null>(null)
 const status = ref<TermConnection>('connecting')
 
@@ -205,7 +210,7 @@ onMounted(async () => {
     fontSize: 14,
     lineHeight: 1.15,
     scrollback: 5000,
-    theme: terminalTheme(theme.isDark),
+    theme: colors.value,
   })
   fit = new FitAddon()
   term.loadAddon(fit)
@@ -241,13 +246,11 @@ onMounted(async () => {
   if (props.active) term.focus()
 })
 
-// The colour scheme changed: the tokens are already switched when this runs.
-watch(
-  () => theme.isDark,
-  (dark) => {
-    if (term) term.options.theme = terminalTheme(dark)
-  },
-)
+// The mode or the account's scheme changed: the panel's tokens are already
+// switched when this runs (theme store), so the Cairn scheme reads the new ones.
+watch(colors, (next) => {
+  if (term) term.options.theme = next
+})
 
 watch(
   () => props.active,
@@ -297,7 +300,7 @@ defineExpose({ paste, run, bracketedPaste, focus: () => term?.focus() })
 </script>
 
 <template>
-  <div class="h-full min-h-0 bg-card px-2 pt-2 pb-1">
+  <div class="h-full min-h-0 bg-card px-2 pt-2 pb-1" :style="{ backgroundColor: colors.background }">
     <p :id="hintId" class="sr-only">{{ t('terminal.focusHint') }}</p>
     <div ref="host" class="h-full min-h-0" dir="ltr" />
   </div>

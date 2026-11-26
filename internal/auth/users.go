@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -25,15 +26,16 @@ var (
 
 // User is a panel account.
 type User struct {
-	ID          int64  `json:"id"`
-	Username    string `json:"username"`
-	Locale      string `json:"locale"` // empty: panel default applies
-	Theme       string `json:"theme"`  // ThemeLight, ThemeDark or ThemeSystem
-	Role        string `json:"role"`
-	Disabled    bool   `json:"disabled"`
-	TOTPEnabled bool   `json:"totpEnabled"`
-	CreatedAt   int64  `json:"createdAt"`
-	LastLoginAt int64  `json:"lastLoginAt"`
+	ID             int64  `json:"id"`
+	Username       string `json:"username"`
+	Locale         string `json:"locale"`         // empty: panel default applies
+	Theme          string `json:"theme"`          // ThemeLight, ThemeDark or ThemeSystem
+	TerminalScheme string `json:"terminalScheme"` // one of TerminalSchemes
+	Role           string `json:"role"`
+	Disabled       bool   `json:"disabled"`
+	TOTPEnabled    bool   `json:"totpEnabled"`
+	CreatedAt      int64  `json:"createdAt"`
+	LastLoginAt    int64  `json:"lastLoginAt"`
 
 	passwordHash string
 }
@@ -45,7 +47,7 @@ type queryer interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-const userColumns = `id, username, locale, theme, role, disabled, totp_enabled, created_at, last_login_at, password_hash`
+const userColumns = `id, username, locale, theme, terminal_scheme, role, disabled, totp_enabled, created_at, last_login_at, password_hash`
 
 // Colour schemes a user can choose.
 const (
@@ -54,11 +56,20 @@ const (
 	ThemeSystem = "system" // follow the browser's prefers-color-scheme
 )
 
+// TerminalSchemeCairn, the default terminal colour scheme, is the panel's
+// own palette.
+const TerminalSchemeCairn = "cairn"
+
+// TerminalSchemes are the web terminal's colour schemes a user can choose,
+// by id, as web/src/terminal/schemeIds.ts lists them; the interface holds
+// their colours.
+var TerminalSchemes = []string{TerminalSchemeCairn, "solarized", "one-half", "github", "gruvbox", "catppuccin", "tango", "xterm", "dracula", "nord"}
+
 type scanner interface{ Scan(dest ...any) error }
 
 func scanUser(row scanner) (*User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Username, &u.Locale, &u.Theme, &u.Role, &u.Disabled, &u.TOTPEnabled, &u.CreatedAt, &u.LastLoginAt, &u.passwordHash)
+	err := row.Scan(&u.ID, &u.Username, &u.Locale, &u.Theme, &u.TerminalScheme, &u.Role, &u.Disabled, &u.TOTPEnabled, &u.CreatedAt, &u.LastLoginAt, &u.passwordHash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -208,6 +219,15 @@ func SetTheme(ctx context.Context, q queryer, userID int64, theme string) error 
 		return &FieldError{Field: "theme", Rule: "enum"}
 	}
 	_, err := q.ExecContext(ctx, `UPDATE users SET theme = ?, updated_at = ? WHERE id = ?`, theme, time.Now().Unix(), userID)
+	return err
+}
+
+// SetTerminalScheme stores a user's colour scheme for the web terminal.
+func SetTerminalScheme(ctx context.Context, q queryer, userID int64, scheme string) error {
+	if !slices.Contains(TerminalSchemes, scheme) {
+		return &FieldError{Field: "scheme", Rule: "enum"}
+	}
+	_, err := q.ExecContext(ctx, `UPDATE users SET terminal_scheme = ?, updated_at = ? WHERE id = ?`, scheme, time.Now().Unix(), userID)
 	return err
 }
 

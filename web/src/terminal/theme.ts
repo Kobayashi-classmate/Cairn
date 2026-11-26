@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// Colours of the web terminal (interface spec, sections 2 and 3): the
-// background, text, cursor and selection come from the panel's tokens, so
+// The Cairn colour scheme, the web terminal's default (schemes.ts has the
+// others) and the palette of log views (interface spec, sections 2 and 3):
+// the background, text, cursor and selection come from the panel's tokens, so
 // they follow the light and dark mode; the 16 ANSI colours have a light and
 // a dark set. Every one of them, as text on the terminal's background (the
 // `--card` token), has a contrast of at least 4.5:1 (WCAG 2.2, computed
@@ -69,7 +70,8 @@ const DARK_ANSI: Ansi = {
   brightWhite: '#fafafa',
 }
 
-const ANSI_ORDER = [
+/** The 16 ANSI colours by index, as xterm names them. */
+export const ANSI_ORDER = [
   'black',
   'red',
   'green',

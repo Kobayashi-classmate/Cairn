@@ -60,6 +60,14 @@
   "opened": "{time}打开",
   "hint": "离开此页面后终端会继续运行 5 分钟。",
   "focusHint": "先按 Esc 再按 Tab，可以离开终端。",
+  "scheme": {
+    "button": "配色",
+    "label": "终端配色方案",
+    "cairn": "Cairn（默认）",
+    "darkOnly": "仅深色",
+    "note": "有浅色和深色两个版本的方案会跟着面板切换。只有 Cairn 配色保证每种颜色都看得清，其他方案保持原作者的颜色。",
+    "saveFailed": "无法把终端配色保存到你的账号。"
+  },
   "snippets": {
     "title": "常用命令",
     "sheetIntro": "常用命令保存在你的账号里，可以粘贴到当前终端中。",

@@ -26,6 +26,8 @@ export interface User {
   locale: string
   /** Missing from servers older than the theme preference. */
   theme?: ThemeMode
+  /** The web terminal's colour scheme (terminal/schemes.ts); missing from older servers. */
+  terminalScheme?: string
   role: Role
   totpEnabled: boolean
 }
@@ -165,4 +167,8 @@ export function updateMyLocale(locale: string): Promise<void> {
 
 export function updateMyTheme(theme: ThemeMode): Promise<void> {
   return api.put<void>('/me/theme', { theme })
+}
+
+export function updateMyTerminalScheme(scheme: string): Promise<void> {
+  return api.put<void>('/me/terminal-scheme', { scheme })
 }
