@@ -217,6 +217,11 @@ type Source struct {
 	// libraries the prebuilt build needs, installed from the system
 	// repositories first.
 	Packages []string `toml:"packages"`
+	// Companions are packages (templates) that come with the line's own as
+	// their weak dependencies and depend on them (MariaDB-server-compat):
+	// they are removed with the line when installed, and play no part in
+	// whether it is.
+	Companions []string `toml:"companions"`
 	// Stream is an EL module stream template such as "php:{line}".
 	Stream string `toml:"stream"`
 	// Arch limits the source to these Go architectures; empty means all.
@@ -843,7 +848,7 @@ func (c *Catalog) checkSource(src Source, versions []string) error {
 	if err := checkConfigs(src); err != nil {
 		return err
 	}
-	templates := append(append(slices.Clone(src.Packages), src.Services...), src.Stream)
+	templates := append(append(append(slices.Clone(src.Packages), src.Companions...), src.Services...), src.Stream)
 	if p := src.PHP; p != nil {
 		if p.FPM == nil || !strings.HasPrefix(p.CLI, "/") {
 			return fmt.Errorf("php needs fpm and an absolute cli path")
@@ -950,11 +955,13 @@ type Offer struct {
 	Provider string   `json:"provider,omitempty"`
 	Origin   string   `json:"origin,omitempty"`
 	Packages []string `json:"packages,omitempty"`
-	Stream   string   `json:"stream,omitempty"`
-	Services []string `json:"services,omitempty"`
-	FPM      *FPM     `json:"fpm,omitempty"`
-	CLI      string   `json:"-"`
-	Ext      string   `json:"-"`
+	// Companions are removed with the line (Source.Companions).
+	Companions []string `json:"-"`
+	Stream     string   `json:"stream,omitempty"`
+	Services   []string `json:"services,omitempty"`
+	FPM        *FPM     `json:"fpm,omitempty"`
+	CLI        string   `json:"-"`
+	Ext        string   `json:"-"`
 	// Extensions is true when the line's extensions can be managed.
 	Extensions  bool         `json:"extensions,omitempty"`
 	Configs     []ConfigFile `json:"configs,omitempty"`
@@ -1059,6 +1066,9 @@ func (sw *Software) resolve(l Line, src *Source, sys System) Offer {
 	o.Method, o.Repo, o.Provider, o.Origin = src.Method, src.Repo, src.Provider, src.Origin()
 	for _, p := range src.Packages {
 		o.Packages = append(o.Packages, expand(p, l.Version))
+	}
+	for _, p := range src.Companions {
+		o.Companions = append(o.Companions, expand(p, l.Version))
 	}
 	if src.Stream != "" {
 		o.Stream = expand(src.Stream, l.Version)

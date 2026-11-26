@@ -215,3 +215,31 @@ func TestAptLinePattern(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// A package that came with a line and depends on it goes with it.
+func TestRemoveTakesCompanions(t *testing.T) {
+	files := fstest.MapFS{"software/db.toml": {Data: []byte(`id = "db"
+name = "DB"
+category = "database"
+provides = ["x"]
+lines = [{ version = "2.1" }]
+[[sources]]
+method = "system"
+releases = ["debian-13"]
+lines = ["2.1"]
+packages = ["db-server"]
+companions = ["db-compat", "db-absent"]
+`)}}
+	cat, err := catalog.LoadFS(files)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeSystem{installed: map[string]string{"db-server": "2.1.4-1", "db-compat": "2.1.4-1"},
+		removeSim: "Remv db-server [2.1.4-1]\nRemv db-compat [2.1.4-1]\n"}
+	f.use(t)
+	_, o, r := softwareFor(t, cat, "debian-13", trixie, "apt")
+	op, log := runSoftwareOp(t, o, r, helperapi.ActionPkgRemove, helperapi.SoftwareRequest{Software: "db", Line: "2.1"})
+	if op.State != helperapi.OpSucceeded || !f.ran("apt-get remove -y db-server db-compat") || f.installed["db-compat"] != "" {
+		t.Fatalf("remove: %+v %v\n%s", op.Error, f.cmds, log)
+	}
+}

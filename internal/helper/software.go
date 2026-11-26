@@ -577,7 +577,7 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 		return helperapi.InstallResult{Software: sw.ID, Line: o.Line, Method: o.Method,
 			Packages: []helperapi.InstalledPackage{{Name: sw.ID, Version: v}}}, nil
 	}
-	installed := s.installed(ctx, o.Packages)
+	installed := s.installed(ctx, append(slices.Clone(o.Packages), o.Companions...))
 	var present []string
 	var res []helperapi.InstalledPackage
 	for _, p := range o.Packages {
@@ -588,6 +588,12 @@ func (s *Software) remove(ctx context.Context, _ helperapi.Caller, req helperapi
 	}
 	if len(present) == 0 || !lineMatches(installed[o.Packages[0]], o.Line) {
 		return nil, pkgErr(helperapi.CodePkgNotInstalled, map[string]any{"software": req.Software, "line": req.Line})
+	}
+	// Companions depend on the line's packages: they go with them.
+	for _, p := range o.Companions {
+		if installed[p] != "" && !slices.Contains(present, p) {
+			present = append(present, p)
+		}
 	}
 	if sw.ProvidesCap(catalog.CapPHPFPM) {
 		states, err := siteStatesAt(s.Root)
