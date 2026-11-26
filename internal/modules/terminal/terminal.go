@@ -230,10 +230,7 @@ func (s *session) pump() {
 		if n > 0 {
 			chunk := append([]byte(nil), b[:n]...)
 			s.mu.Lock()
-			s.buf = append(s.buf, chunk...)
-			if over := len(s.buf) - scrollback; over > 0 {
-				s.buf = append([]byte(nil), s.buf[over:]...)
-			}
+			s.buf = trimBacklog(append(s.buf, chunk...), scrollback)
 			for c := range s.clients {
 				select {
 				case c <- chunk:
