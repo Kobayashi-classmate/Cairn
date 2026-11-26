@@ -3,6 +3,7 @@
 package helper
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -254,16 +256,105 @@ func TestJournal(t *testing.T) {
 	e.f.journal = `{"__CURSOR":"s=1;i=1","__REALTIME_TIMESTAMP":"1794800000000000","PRIORITY":"3","_SYSTEMD_UNIT":"nginx.service","SYSLOG_IDENTIFIER":"nginx","_PID":"42","MESSAGE":"bind() failed"}
 {"__CURSOR":"s=1;i=2","__REALTIME_TIMESTAMP":"1794800000000001","MESSAGE":[104,105]}
 `
-	RegisterLogs(e.r, e.st.Root)
-	j, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournal, helperapi.JournalRequest{Unit: "nginx.service", Priority: 3, Grep: "failed"})
+	RegisterLogs(e.r, &Logs{Root: e.st.Root, Software: e.st.Software, Sites: e.st, Cron: e.c})
+	// The whole journal (administrators).
+	j, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournalAll, helperapi.JournalRequest{Unit: "nginx.service", Priority: 3, Grep: "failed"})
 	if err != nil || len(j.Entries) != 2 || j.Entries[0].Message != "bind() failed" || j.Entries[0].PID != 42 || j.Entries[1].Message != "hi" || j.Cursor != "s=1;i=2" {
 		t.Fatalf("journal %+v %v", j, err)
 	}
 	if !e.f.ran("query journalctl --no-pager --output=json --all --lines=200 --unit=nginx.service --priority=3 --grep=failed") {
 		t.Fatalf("journalctl arguments: %v", e.f.cmds)
 	}
-	if _, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournal, helperapi.JournalRequest{Unit: "nginx; rm"}); err == nil {
-		t.Fatal("a bad unit name must be refused")
+	for _, action := range []string{helperapi.ActionLogJournal, helperapi.ActionLogJournalAll} {
+		if _, err := call[helperapi.Journal](t, e.r, action, helperapi.JournalRequest{Unit: "nginx; rm"}); err == nil {
+			t.Fatalf("%s: a bad unit name must be refused", action)
+		}
+	}
+}
+
+// log.journal and log.units cover what every reader of logs may see: the
+// panel's web service, the installed software, app sites and the tasks
+// that run as no one but a site's owner. The rest of the journal (root's
+// tasks, sudo, sshd, the helper's record of every action) is only in
+// log.journal_all.
+func TestJournalForReaders(t *testing.T) {
+	e := newCronEnv(t)
+	writeSystemFile(t, e.st.Root, "/usr/bin/journalctl", "#!binary")
+	e.f.journal = `{"__CURSOR":"s=1;i=1","__REALTIME_TIMESTAMP":"1794800000000000","PRIORITY":"6","_SYSTEMD_UNIT":"php8.4-fpm.service","MESSAGE":"ready"}` + "\n"
+	e.f.installed = map[string]string{"php8.4-fpm": "8.4.27-1~deb13u1", "php8.4-cli": "8.4.27-1~deb13u1"}
+	writeSystemFile(t, e.st.Root, siteStateDir+"/node.json", `{"spec":{"code":"node","type":"app","app":{"command":"npm start"}}}`)
+	writeSystemFile(t, e.st.Root, siteStateDir+"/blog.json", `{"spec":{"code":"blog","type":"php"}}`)
+	tasks := map[string]helperapi.CronSpec{
+		"t1000000000000aa": {Type: helperapi.CronShell, User: "cw-shop"}, // the site's owner: shared
+		"t2000000000000aa": {Type: helperapi.CronShell, User: "root"},
+		"t3000000000000aa": {Type: helperapi.CronShell, User: "alice"},   // a login user
+		"t4000000000000aa": {Type: helperapi.CronShell, User: "cw-gone"}, // no such site any more
+		"t5000000000000aa": {Type: helperapi.CronURL, URL: "http://127.0.0.1/cron"},
+		"t6000000000000aa": {Type: helperapi.CronBackup, Plan: "p1"},
+	}
+	for id, s := range tasks {
+		s.ID, s.Schedule = id, "daily"
+		data, _ := json.Marshal(s)
+		writeSystemFile(t, "/", e.c.stateDir(id+".json"), string(data))
+	}
+	RegisterLogs(e.r, &Logs{Root: e.st.Root, Software: e.st.Software, Sites: e.st, Cron: e.c})
+
+	want := []string{"cairn-app-node.service", "cairn-cron-t1000000000000aa.service", "cairn-cron-t5000000000000aa.service",
+		"cairn-cron-t6000000000000aa.service", "cairn-web.service", "php8.4-fpm.service"}
+	u, err := call[helperapi.Units](t, e.r, helperapi.ActionLogUnits, helperapi.Empty{})
+	if err != nil || !slices.Equal(u.Units, want) {
+		t.Fatalf("units %v %v, want %v", u.Units, err, want)
+	}
+	journalRuns := func() []string {
+		e.f.mu.Lock()
+		defer e.f.mu.Unlock()
+		var out []string
+		for _, c := range e.f.cmds {
+			if strings.HasPrefix(c, "query journalctl") {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	// No unit named: all of them, and only them.
+	j, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournal, helperapi.JournalRequest{Grep: "COMMAND"})
+	if err != nil || len(j.Entries) != 1 {
+		t.Fatalf("journal %+v %v", j, err)
+	}
+	runs := journalRuns()
+	if len(runs) != 1 || runs[0] != "query journalctl --no-pager --output=json --all --lines=200 --unit="+strings.Join(want, " --unit=")+" --grep=COMMAND --case-sensitive=no" {
+		t.Fatalf("journalctl arguments: %v", runs)
+	}
+	// One of them.
+	if _, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournal, helperapi.JournalRequest{Unit: "php8.4-fpm.service"}); err != nil {
+		t.Fatal(err)
+	}
+	if runs := journalRuns(); len(runs) != 2 || !strings.HasSuffix(runs[1], " --lines=200 --unit=php8.4-fpm.service") {
+		t.Fatalf("journalctl arguments: %v", runs)
+	}
+	// Anything else is refused before the journal is read.
+	for _, unit := range []string{"ssh.service", "sshd.service", "cairn-helper.service", "cron.service", "user@0.service", "session-3.scope",
+		"cairn-cron-t2000000000000aa.service", "cairn-cron-t3000000000000aa.service", "cairn-cron-t4000000000000aa.service", "cairn-term-0123456789abcdef.service"} {
+		_, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournal, helperapi.JournalRequest{Unit: unit})
+		if he, ok := helperapi.AsError(err); !ok || he.Code != helperapi.CodeLogUnitNotAllowed {
+			t.Errorf("%s: %v", unit, err)
+		}
+	}
+	if runs := journalRuns(); len(runs) != 2 {
+		t.Fatalf("the journal was read for a unit not allowed: %v", runs)
+	}
+	// Administrators: the whole journal, every unit.
+	if _, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournalAll, helperapi.JournalRequest{Unit: "ssh.service"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call[helperapi.Journal](t, e.r, helperapi.ActionLogJournalAll, helperapi.JournalRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if runs := journalRuns(); len(runs) != 4 || !strings.HasSuffix(runs[2], " --unit=ssh.service") || strings.Contains(runs[3], "--unit") {
+		t.Fatalf("journalctl arguments: %v", runs)
+	}
+	if _, err := call[helperapi.Units](t, e.r, helperapi.ActionLogUnitsAll, helperapi.Empty{}); err != nil || !e.f.ran("query systemctl list-units --type=service --all") {
+		t.Fatalf("all units: %v %v", err, e.f.cmds)
 	}
 }
 
@@ -303,6 +394,57 @@ func TestCronLogOwnRunsOnly(t *testing.T) {
 	}
 	if e.f.ran("query journalctl") {
 		t.Fatal("journal read for a foreign invocation")
+	}
+}
+
+// A URL task's log names the scheme and host of its URL, nothing else of
+// it: its user, password, path and query (where a site's cron key is)
+// never reach the journal, whether the request works or not, also when a
+// redirect fails.
+func TestTaskURLLogsOnlyTheHost(t *testing.T) {
+	secret := []string{"bob", "pw-in-userinfo", "cron.php", "s3cret-token", "nightly", "redirect-token"}
+	clean := func(what, text string) {
+		t.Helper()
+		for _, s := range secret {
+			if strings.Contains(text, s) {
+				t.Errorf("%s names %q: %s", what, s, text)
+			}
+		}
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	t.Cleanup(srv.Close)
+	t.Setenv("CAIRN_URL", strings.Replace(srv.URL, "http://", "http://bob:pw-in-userinfo@", 1)+"/cron.php?key=s3cret-token&job=nightly")
+	var out strings.Builder
+	if err := TaskURL(t.Context(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != srv.URL+": 200 OK (2 bytes)\n" {
+		t.Errorf("success: %q", out.String())
+	}
+	clean("the success line", out.String())
+
+	// Nothing listens there any more.
+	srv.Close()
+	err := TaskURL(t.Context(), &out)
+	if err == nil || !strings.Contains(err.Error(), srv.URL) || !strings.Contains(err.Error(), "connection refused") {
+		t.Fatalf("failure: %v", err)
+	}
+	clean("the failure", err.Error())
+	// An HTTP error is the status alone.
+	notFound := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(notFound.Close)
+	t.Setenv("CAIRN_URL", notFound.URL+"/cron.php?key=s3cret-token")
+	if err := TaskURL(t.Context(), io.Discard); err == nil || err.Error() != "404 Not Found" {
+		t.Fatalf("not found: %v", err)
+	}
+	// A redirect to where nothing listens.
+	moved := httptest.NewServer(http.RedirectHandler(srv.URL+"/next?t=redirect-token", http.StatusFound))
+	t.Cleanup(moved.Close)
+	t.Setenv("CAIRN_URL", moved.URL+"/cron.php?key=s3cret-token")
+	if err := TaskURL(t.Context(), io.Discard); err == nil {
+		t.Fatal("a redirect to a closed port worked")
+	} else {
+		clean("a failed redirect", err.Error())
 	}
 }
 

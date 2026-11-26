@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
-// The system journal (`logs.read`), read through journalctl on the server.
+// The system journal, read through journalctl on the server: the whole of
+// it with `logs.system`, else (`logs.read`) the units `fetchUnits` lists,
+// all of them when no unit is asked for.
 import { api } from './client'
 
 export interface JournalEntry {

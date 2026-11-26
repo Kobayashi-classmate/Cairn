@@ -71,6 +71,9 @@ type Module struct {
 	// revoked counts RevokeUser calls per account: a session whose opening
 	// saw an earlier count is not kept.
 	revoked map[int64]uint64
+	// stopping counts the shells of closed terminals the helper is asked
+	// to end (see stopShell).
+	stopping sync.WaitGroup
 }
 
 // ID implements module.Module.
@@ -207,6 +210,8 @@ type session struct {
 	owner       int64
 	created     time.Time
 	master      *os.File
+	// stop has the helper end the shell, once the terminal is closed.
+	stop func()
 
 	mu       sync.Mutex
 	buf      []byte // the last output, replayed on attach
@@ -248,7 +253,8 @@ func (s *session) pump() {
 	}
 }
 
-// end closes the terminal (hanging up the shell) and its clients.
+// end closes the terminal (hanging up the shell) and its clients, and
+// has the helper end the shell and all it started.
 func (s *session) end() {
 	s.once.Do(func() {
 		_ = s.master.Close()
@@ -259,6 +265,9 @@ func (s *session) end() {
 		}
 		s.mu.Unlock()
 		close(s.done)
+		if s.stop != nil {
+			s.stop()
+		}
 	})
 }
 
@@ -336,6 +345,13 @@ func (m *Module) Run(ctx context.Context) {
 				s.end()
 			}
 			m.mu.Unlock()
+			// Their shells end too, as far as the helper answers soon.
+			done := make(chan struct{})
+			go func() { m.stopping.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(10 * time.Second):
+			}
 			return
 		case <-t.C:
 			m.reap()
@@ -491,8 +507,10 @@ func (m *Module) open(w http.ResponseWriter, r *http.Request) error {
 	}
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
+	caller := callerOf(r)
 	s := &session{id: hex.EncodeToString(b), user: info.User, kind: kind, authSession: p.SessionID, shell: info.Shell, home: info.Home, owner: me, created: time.Now(),
-		master: master, clients: map[chan []byte]struct{}{}, detached: time.Now(), done: make(chan struct{})}
+		master: master, clients: map[chan []byte]struct{}{}, detached: time.Now(), done: make(chan struct{}),
+		stop: func() { m.stopShell(info, caller) }}
 	m.mu.Lock()
 	release()
 	if m.revoked[me] != generation {
@@ -506,6 +524,30 @@ func (m *Module) open(w http.ResponseWriter, r *http.Request) error {
 	go s.pump()
 	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "terminal.open", "ok", map[string]any{"user": info.User, "session": s.id})
 	return api.WriteJSON(w, http.StatusCreated, s.view())
+}
+
+// stopShell has the helper end the shell of a closed terminal, in the
+// background. Closing the terminal hangs the shell up, and one that
+// ignores the hang-up (a trap on HUP, a program run with nohup in its place)
+// would run on, as the user it runs as, and keep one of the server's
+// terminals taken: the helper limits them for everyone together.
+func (m *Module) stopShell(info helperapi.TermSession, caller helperapi.Caller) {
+	req := helperapi.TermCloseRequest{Unit: info.Unit}
+	if req.Unit == "" {
+		req.PID = info.PID
+	}
+	if req.Validate() != nil {
+		return // nothing the helper would know it by
+	}
+	m.stopping.Add(1)
+	go func() {
+		defer m.stopping.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := m.Helper.Call(ctx, helperapi.ActionTermClose, caller, req, nil); err != nil {
+			m.Log.Warn("terminal: ending its shell failed", "unit", req.Unit, "pid", req.PID, "err", err)
+		}
+	}()
 }
 
 func (m *Module) close(w http.ResponseWriter, r *http.Request) error {

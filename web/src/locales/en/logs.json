@@ -2,11 +2,13 @@
   "title": "Logs",
   "tabs": {
     "system": "System journal",
+    "services": "Service logs",
     "sites": "Site logs",
     "ssh": "SSH sign-ins"
   },
   "intro": {
     "system": "Messages of services and the system itself.",
+    "services": "Messages of the panel, the installed software, app sites and scheduled tasks. The rest of the system journal is for administrators.",
     "sites": "Each site's access and error logs.",
     "ssh": "Who signed in over SSH, and who tried."
   },

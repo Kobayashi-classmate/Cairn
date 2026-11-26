@@ -56,6 +56,9 @@ type Files struct {
 
 	mu    sync.Mutex
 	terms int
+	// shells are the shells started without systemd, by PID, until they
+	// end (see termClose).
+	shells map[int]*os.Process
 }
 
 // RegisterFiles adds the file and terminal actions.
@@ -94,6 +97,7 @@ func RegisterFiles(r *Registry, o *Ops, f *Files) {
 		return f.termUsers(), nil
 	})
 	RegisterFD(r, helperapi.ActionTermOpen, f.termOpen)
+	Register(r, helperapi.ActionTermClose, f.termClose)
 }
 
 func fileErr(code string, params map[string]any) error {

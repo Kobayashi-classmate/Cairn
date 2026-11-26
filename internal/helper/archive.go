@@ -114,8 +114,24 @@ type extractor struct {
 	owner func(p string, h *tar.Header) (uid, gid int)
 	// head is the tar entry being written.
 	head *tar.Header
-	// setgid keeps the setgid bit of directories (restores).
-	setgid bool
+	// restore keeps the modes entries had when they were backed up: the
+	// setgid bit of directories, and write access for the group and others
+	// (a site's directories are 2770 by design). Any other archive says
+	// whatever its maker's system said, a zip made on Windows 0666 and 0777:
+	// what it extracts is never writable by the group or others (a site's
+	// runner shares the group of its owner's files).
+	restore bool
+}
+
+// extractMask is what an archive's modes lose unless it is a restore.
+const extractMask fs.FileMode = 0o022
+
+// perm is the permission bits an entry of mode gets.
+func (x *extractor) perm(mode fs.FileMode) fs.FileMode {
+	if x.restore {
+		return mode.Perm()
+	}
+	return mode.Perm() &^ extractMask
 }
 
 // whose is who the entry p (from the tar header h) belongs to.
@@ -291,10 +307,10 @@ func (x *extractor) dir(name string, mode fs.FileMode) error {
 			}
 		}
 		keep := fs.FileMode(0)
-		if x.setgid {
+		if x.restore {
 			keep = mode & fs.ModeSetgid
 		}
-		_ = sub.Chmod(".", mode.Perm()|0o700|keep)
+		_ = sub.Chmod(".", x.perm(mode)|0o700|keep)
 	}
 	return nil
 }
@@ -335,7 +351,7 @@ func (x *extractor) file(name string, mode fs.FileMode, r io.Reader) error {
 	}
 	if err == nil {
 		// Setuid and setgid never come along.
-		err = out.Chmod(mode.Perm())
+		err = out.Chmod(x.perm(mode))
 	}
 	if err == nil && there {
 		// On disk before it takes the place of the file that was there.

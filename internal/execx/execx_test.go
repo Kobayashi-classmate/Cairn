@@ -144,7 +144,10 @@ func TestTerminalUnitArgs(t *testing.T) {
 		"cairn-term-x", "/dev/pts/7"), " ")
 	// Every entry of the environment reaches the unit as a --setenv.
 	for _, want := range []string{"--unit=cairn-term-x", "--uid=1000 --gid=1001", "--property=TTYPath=/dev/pts/7", "--property=StandardInput=tty",
-		"--setenv=TERM=xterm-256color", "--setenv=CAIRN_TERM=1", "--setenv=LANG=C.UTF-8", "-- /bin/bash -l"} {
+		"--setenv=TERM=xterm-256color", "--setenv=CAIRN_TERM=1", "--setenv=LANG=C.UTF-8", "-- /bin/bash -l",
+		// A shell that outlives its terminal ends, at the latest after 13
+		// hours, and stopping the unit hangs it up.
+		"--property=RuntimeMaxSec=46800", "--property=SendSIGHUP=yes"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args lack %q: %s", want, args)
 		}

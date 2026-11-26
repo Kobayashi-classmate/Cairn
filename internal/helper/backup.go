@@ -1208,7 +1208,7 @@ func (b *Backups) restoreOp(ctx context.Context, _ helperapi.Caller, req helpera
 	}
 	defer done()
 	x := &extractor{ctx: ctx, rootID: req.Dest.Root, root: droot, dest: req.Dest.Path, uid: duid, gid: dgid, overwrite: req.Overwrite,
-		b: &batch{log: log}, budget: budget, files: map[string]bool{}, setgid: true, owner: b.restoreOwners(p, key, req.Dest)}
+		b: &batch{log: log}, budget: budget, files: map[string]bool{}, restore: true, owner: b.restoreOwners(p, key, req.Dest)}
 	if err := x.tarFrom(r); err != nil {
 		return nil, badArchive(err)
 	}

@@ -45,7 +45,7 @@ const tailEntry = `{"__CURSOR":"s=abc;i=42;b=def;m=1;t=2;x=3","__REALTIME_TIMEST
 
 func TestReadJournalEmptyReturnsTailCursor(t *testing.T) {
 	root, calls := fakeJournal(t, "", tailEntry+"\n")
-	out, err := readJournal(context.Background(), root, helperapi.JournalRequest{Unit: "nginx.service", Grep: "nothing"})
+	out, err := readJournal(context.Background(), root, helperapi.JournalRequest{Unit: "nginx.service", Grep: "nothing"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestReadJournalEmptyReturnsTailCursor(t *testing.T) {
 func TestReadJournalKeepsCursors(t *testing.T) {
 	entry := `{"__CURSOR":"s=abc;i=7","__REALTIME_TIMESTAMP":"1700000000000000","MESSAGE":"hello","PRIORITY":"3"}`
 	root, calls := fakeJournal(t, entry+"\n", tailEntry)
-	out, err := readJournal(context.Background(), root, helperapi.JournalRequest{})
+	out, err := readJournal(context.Background(), root, helperapi.JournalRequest{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestReadJournalKeepsCursors(t *testing.T) {
 
 	// Following with nothing new keeps the cursor it was given.
 	root, calls = fakeJournal(t, "", tailEntry)
-	out, err = readJournal(context.Background(), root, helperapi.JournalRequest{After: "s=abc;i=7"})
+	out, err = readJournal(context.Background(), root, helperapi.JournalRequest{After: "s=abc;i=7"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,12 +96,21 @@ func TestReadJournalEmptyJournal(t *testing.T) {
 	// No entries at all, or a cursor the API would refuse: no cursor.
 	for _, tail := range []string{"", `{"__CURSOR":"bad cursor!"}`} {
 		root, _ := fakeJournal(t, "", tail)
-		out, err := readJournal(context.Background(), root, helperapi.JournalRequest{})
+		out, err := readJournal(context.Background(), root, helperapi.JournalRequest{}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if out.Cursor != "" {
 			t.Fatalf("tail %q: cursor = %q, want none", tail, out.Cursor)
 		}
+	}
+}
+
+// A reader with no unit to read gets nothing, never the whole journal.
+func TestReadJournalNoUnitsReadsNothing(t *testing.T) {
+	root, calls := fakeJournal(t, tailEntry+"\n", tailEntry)
+	out, err := readJournal(context.Background(), root, helperapi.JournalRequest{After: "s=abc;i=7"}, []string{})
+	if err != nil || len(out.Entries) != 0 || out.Cursor != "s=abc;i=7" || len(*calls) != 0 {
+		t.Fatalf("out = %+v %v after %v", out, err, *calls)
 	}
 }

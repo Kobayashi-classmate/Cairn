@@ -35,6 +35,7 @@ const (
 	ActionAccessSet     = "access.set"     // synchronous: full-disk access, root terminal
 	ActionTermUsers     = "term.users"     // synchronous
 	ActionTermOpen      = "term.open"      // synchronous, answers with the terminal's master side
+	ActionTermClose     = "term.close"     // synchronous: ends a terminal's shell and all it started
 	ActionFileArchiving = "file.archivers" // synchronous: which archive tools exist
 )
 
@@ -66,6 +67,10 @@ const (
 	CodeTermUserNotAllowed = "term.user_not_allowed"
 	CodeTermRootDisabled   = "term.root_disabled"
 	CodeTermTooMany        = "term.too_many"
+	// CodeFileMoveIncomplete: a move to another file system copied the
+	// entry, but not all of it could be removed from where it was: entries
+	// that were skipped, or appeared or changed during the copy, stay there.
+	CodeFileMoveIncomplete = "file.move_incomplete"
 )
 
 // File roots.
@@ -601,6 +606,32 @@ func (r TermOpenRequest) Validate() error {
 	}
 	if r.Cols < 10 || r.Cols > 1000 || r.Rows < 2 || r.Rows > 500 {
 		return invalid("size", "range")
+	}
+	return nil
+}
+
+// termUnit is the name of a terminal's unit (see term.open).
+var termUnit = regexp.MustCompile(`^cairn-term-[0-9a-f]{16}$`)
+
+// TermCloseRequest ends the terminal term.open started as Unit (where
+// systemd runs) or as PID (where it does not): closing the terminal hangs
+// the shell up, and a shell that ignores the hang-up would run on.
+type TermCloseRequest struct {
+	Unit string `json:"unit,omitempty"`
+	PID  int    `json:"pid,omitempty"`
+}
+
+// Validate implements the helper's request validation hook.
+func (r TermCloseRequest) Validate() error {
+	switch {
+	case r.Unit != "" && r.PID != 0:
+		return invalid("unit", "one_of")
+	case r.Unit != "":
+		if !termUnit.MatchString(r.Unit) {
+			return invalid("unit", "term_unit")
+		}
+	case r.PID <= 0:
+		return invalid("pid", "range")
 	}
 	return nil
 }

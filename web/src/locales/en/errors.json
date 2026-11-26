@@ -212,6 +212,9 @@
     "not_optional": "This module is part of the core and cannot be turned off."
   },
   "detailed": {
+    "log": {
+      "unit_not_allowed": "Only administrators can read the log of {unit}."
+    },
     "pkg": {
       "not_available": "This version cannot be installed on this system. {reasonText}",
       "key_download_failed": "The repository's signing key could not be downloaded from {url}.",
@@ -315,6 +318,7 @@
       "no_space": "There is not enough free disk space ({size} needed).",
       "user_unknown": "There is no user or group named {name} on the server.",
       "into_itself": "{path} cannot be copied or moved into itself.",
+      "move_incomplete": "{path} was copied to the other file system, but not all of it was removed where it was: entries that were skipped, or that appeared or changed during the move, are still there. The job log lists them.",
       "too_many_favorites": "You can keep at most {max} favorites.",
       "fetch_failed": "The download failed: {detail}",
       "unpack_failed": "The archive could not be prepared for extraction: {reasonText}."
@@ -477,6 +481,7 @@
     "no_space": "There is not enough free disk space.",
     "user_unknown": "There is no such user or group on the server.",
     "into_itself": "A folder cannot be copied or moved into itself.",
+    "move_incomplete": "The entry was copied to the other file system, but not all of it was removed where it was: entries that were skipped, or that appeared or changed during the move, are still there.",
     "upload_offset": "The upload got out of step with the server.",
     "upload_complete": "This upload is already complete.",
     "fetch_failed": "The download failed.",
@@ -520,7 +525,8 @@
     "endpoint_not_allowed": "The storage address points to this server itself or to a cloud metadata service, which backups may not use."
   },
   "log": {
-    "no_journal": "This server has no system journal (journalctl)."
+    "no_journal": "This server has no system journal (journalctl).",
+    "unit_not_allowed": "Only administrators can read this unit's log."
   },
   "firewall": {
     "pending": "Another firewall change is waiting for confirmation; try again in a minute.",

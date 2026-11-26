@@ -407,6 +407,99 @@ func TestMoveAndTrashAcrossFileSystems(t *testing.T) {
 	}
 }
 
+// A move to another file system removes from where it was only what it
+// copied: an entry the copy skipped keeps the source whole, and what
+// appeared or changed while it copied stays where it was. Either way the
+// move is not reported as done.
+func TestMoveAcrossFileSystemsKeepsWhatItDidNotCopy(t *testing.T) {
+	e := newFilesEnv(t)
+	if err := os.Mkdir(e.abs("/srv/www/shop/app/other"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	crossDevice(t, func(sname, _ string) bool { return strings.HasPrefix(sname, "src") })
+	move := func(name string) helperapi.FileTransferRequest {
+		return helperapi.FileTransferRequest{Root: "sites", Paths: []string{"shop/app/" + name}, Dest: "shop/app/other"}
+	}
+	hooked := ""
+	onEnter(t, func(n string) {
+		if n != hooked {
+			return
+		}
+		hooked = ""
+		switch n {
+		case "d":
+			// The application replaces d by a fresh directory, its old
+			// contents now at d.old, and writes late.txt: the copy skips d.
+			src := e.abs("/srv/www/shop/app/src")
+			if err := os.Rename(src+"/d", src+"/d.old"); err != nil {
+				t.Error(err)
+			}
+			if err := os.Mkdir(src+"/d", 0o750); err != nil {
+				t.Error(err)
+			}
+			if err := os.WriteFile(src+"/late.txt", []byte("late"), 0o600); err != nil {
+				t.Error(err)
+			}
+		case "b":
+			// a.txt was copied already and is written to again; late.txt
+			// is new. Nothing is skipped.
+			src := e.abs("/srv/www/shop/app/src2")
+			f, err := os.OpenFile(src+"/a.txt", os.O_WRONLY|os.O_APPEND, 0)
+			if err == nil {
+				_, err = f.WriteString(" and more")
+				err = errors.Join(err, f.Close())
+			}
+			if err != nil {
+				t.Error(err)
+			}
+			if err := os.WriteFile(src+"/late.txt", []byte("late"), 0o600); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+
+	e.put("/srv/www/shop/app/src/d/data.txt", "precious")
+	e.put("/srv/www/shop/app/src/keep.txt", "keep")
+	hooked = "d"
+	e.fails(helperapi.ActionFileMove, move("src"), helperapi.CodeFileMoveIncomplete)
+	if hooked != "" {
+		t.Fatal("the directory was not replaced during the copy")
+	}
+	for p, want := range map[string]string{"src/d.old/data.txt": "precious", "src/late.txt": "late", "src/keep.txt": "keep", "other/src/keep.txt": "keep"} {
+		if got := e.read("/srv/www/shop/app/" + p); got != want {
+			t.Errorf("after a move that skipped an entry: %s holds %q, want %q", p, got, want)
+		}
+	}
+
+	e.put("/srv/www/shop/app/src2/a.txt", "a")
+	e.put("/srv/www/shop/app/src2/b/c.txt", "c")
+	e.put("/srv/www/shop/app/src2/z.txt", "z")
+	hooked = "b"
+	e.fails(helperapi.ActionFileMove, move("src2"), helperapi.CodeFileMoveIncomplete)
+	if hooked != "" {
+		t.Fatal("nothing changed during the copy")
+	}
+	for p, want := range map[string]string{"src2/a.txt": "a and more", "src2/late.txt": "late", "other/src2/a.txt": "a", "other/src2/b/c.txt": "c", "other/src2/z.txt": "z"} {
+		if got := e.read("/srv/www/shop/app/" + p); got != want {
+			t.Errorf("after a move during which entries changed: %s holds %q, want %q", p, got, want)
+		}
+	}
+	// What was copied unchanged is gone from where it was.
+	for _, p := range []string{"src2/b", "src2/z.txt"} {
+		if e.exists("/srv/www/shop/app/" + p) {
+			t.Errorf("%s was copied but not removed", p)
+		}
+	}
+
+	// Nothing changes meanwhile: moved, nothing left behind.
+	e.put("/srv/www/shop/app/src3/x/y.txt", "y")
+	mustLink(t, "x/y.txt", e.abs("/srv/www/shop/app/src3/l"))
+	e.ok(helperapi.ActionFileMove, move("src3"))
+	if e.exists("/srv/www/shop/app/src3") || e.read("/srv/www/shop/app/other/src3/x/y.txt") != "y" {
+		t.Fatal("an unchanged tree was not moved")
+	}
+}
+
 func TestFailedCopyLeavesWhatTookItsPlace(t *testing.T) {
 	e := newFilesEnv(t)
 	e.put("/srv/www/shop/app/src/app/f.txt", "own")

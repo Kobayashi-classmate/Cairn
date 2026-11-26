@@ -7,15 +7,23 @@ import (
 	"strings"
 )
 
-// The system journal, read through journalctl.
+// The system journal, read through journalctl. log.journal and log.units
+// cover the units whose messages are for every reader of logs (the panel,
+// the installed software, app sites and the tasks that do not run as root
+// or as a login user); log.journal_all and log.units_all the whole journal.
 const (
-	ActionLogJournal = "log.journal" // synchronous
-	ActionLogUnits   = "log.units"   // synchronous
+	ActionLogJournal    = "log.journal"     // synchronous
+	ActionLogUnits      = "log.units"       // synchronous
+	ActionLogJournalAll = "log.journal_all" // synchronous
+	ActionLogUnitsAll   = "log.units_all"   // synchronous
 )
 
 // Log error codes.
 const (
 	CodeLogNoJournal = "log.no_journal" // no journalctl here
+	// CodeLogUnitNotAllowed: log.journal does not read this unit (params:
+	// unit); log.journal_all does.
+	CodeLogUnitNotAllowed = "log.unit_not_allowed"
 )
 
 // JournalMax is the most entries one request returns.

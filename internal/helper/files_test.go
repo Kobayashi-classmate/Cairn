@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/execx"
 	"github.com/Kobayashi-classmate/Cairn/internal/helperapi"
@@ -565,6 +566,97 @@ func TestTerminalUnitsUnderSystemd(t *testing.T) {
 	running = strings.Repeat("cairn-term-x.service loaded active running Cairn terminal\n", maxTerminals)
 	if _, _, err := e.f.termOpen(context.Background(), helperapi.Caller{}, helperapi.TermOpenRequest{User: "alice", Cols: 80, Rows: 24}); errCode(err) != helperapi.CodeTermTooMany {
 		t.Fatalf("limit: %v", err)
+	}
+}
+
+// term.close stops a terminal's unit, and only a terminal's: the name is
+// all the web process sends.
+func TestTerminalCloseStopsItsUnit(t *testing.T) {
+	e := newFilesEnv(t)
+	oldQuery := queryCommand
+	t.Cleanup(func() { queryCommand = oldQuery })
+	var ran []string
+	var fail error
+	queryCommand = func(_ context.Context, name string, args ...string) (string, error) {
+		ran = append(ran, name+" "+strings.Join(args, " "))
+		return "", fail
+	}
+	const unit = "cairn-term-0123456789abcdef"
+	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionTermClose, helperapi.TermCloseRequest{Unit: unit}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ran) != 1 || ran[0] != "systemctl stop --no-block "+unit+".service" {
+		t.Fatalf("ran %q", ran)
+	}
+	// Ended and collected already: done.
+	fail = &execx.ExitError{Name: "systemctl", ExitCode: 5, Stderr: "Unit " + unit + ".service not loaded."}
+	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionTermClose, helperapi.TermCloseRequest{Unit: unit}); err != nil {
+		t.Fatalf("a unit that is gone: %v", err)
+	}
+	fail = &execx.ExitError{Name: "systemctl", ExitCode: 1, Stderr: "Access denied"}
+	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionTermClose, helperapi.TermCloseRequest{Unit: unit}); err == nil {
+		t.Fatal("a failure to stop the unit was not reported")
+	}
+	ran, fail = nil, nil
+	for _, req := range []helperapi.TermCloseRequest{
+		{Unit: "nginx"}, {Unit: "cairn-term-0123456789abcdef.service"}, {Unit: "cairn-term-../../x"}, {Unit: "cairn-cron-0123456789abcdef"},
+		{Unit: "cairn-term-0123456789ABCDEF"}, {Unit: unit, PID: 1}, {}, {PID: -1},
+	} {
+		if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionTermClose, req); errCode(err) != "validation.invalid" {
+			t.Errorf("%+v: %v", req, err)
+		}
+	}
+	if len(ran) != 0 {
+		t.Fatalf("a refused request ran %q", ran)
+	}
+}
+
+// Without systemd, term.close ends a shell the helper started that has not
+// ended yet, and nothing else.
+func TestTerminalCloseEndsItsShell(t *testing.T) {
+	e := newFilesEnv(t)
+	e.put("/etc/passwd", "alice:x:1000:1000:Alice:/home/alice:/bin/sh\n")
+	e.put("/bin/sh", "#!binary")
+	old, oldSystemd := startTerminal, systemdRunning
+	t.Cleanup(func() { startTerminal, systemdRunning = old, oldSystemd })
+	systemdRunning = func() bool { return false }
+	startTerminal = func(execx.Terminal) (*os.File, *exec.Cmd, error) {
+		// A shell that ignores the hang-up.
+		cmd := exec.Command("sleep", "60") //nolint:forbidigo // a stand-in for the shell
+		if err := cmd.Start(); err != nil {
+			return nil, nil, err
+		}
+		r, _, _ := os.Pipe()
+		return r, cmd, nil
+	}
+	s, master, err := e.f.termOpen(context.Background(), helperapi.Caller{}, helperapi.TermOpenRequest{User: "alice", Cols: 80, Rows: 24})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = master.Close()
+	// Not one of its shells: nothing happens.
+	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionTermClose, helperapi.TermCloseRequest{PID: os.Getpid()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionTermClose, helperapi.TermCloseRequest{PID: s.PID}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		e.f.mu.Lock()
+		n, left := e.f.terms, len(e.f.shells)
+		e.f.mu.Unlock()
+		if n == 0 && left == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the shell still counts: %d terminals, %d shells", n, left)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// Ended already: done.
+	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionTermClose, helperapi.TermCloseRequest{PID: s.PID}); err != nil {
+		t.Fatal(err)
 	}
 }
 

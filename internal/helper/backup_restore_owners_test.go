@@ -57,6 +57,10 @@ func TestRestoreGivesFilesToTheSitesUsers(t *testing.T) {
 	if err := os.Chmod(filepath.Join(base, "app/data"), 0o770|os.ModeSetgid); err != nil {
 		t.Fatal(err)
 	}
+	// Written by the runner, shared with the owner through the group.
+	if err := os.Chmod(filepath.Join(base, "app/data/upload.bin"), 0o660); err != nil { //nolint:gosec // G302: the mode under test
+		t.Fatal(err)
+	}
 	plan := helperapi.BackupPlan{ID: "p9100000000000aa", Retention: helperapi.DefaultRetention,
 		Targets: []helperapi.BackupTarget{{Kind: "site", Site: "shop"}}}
 	if _, err := call[helperapi.Empty](t, e.r, helperapi.ActionBackupPlanApply, plan); err != nil {
@@ -83,6 +87,8 @@ func TestRestoreGivesFilesToTheSitesUsers(t *testing.T) {
 	if u, _ := fileOwnerOf(t, base); u != 0 {
 		t.Errorf("the site's directory now belongs to %d", u)
 	}
+	// A restore keeps the modes that were backed up, group write included.
+	restoredModes(t, base)
 
 	// Into another site's directory: that site's users.
 	blog := filepath.Join(e.f.Root, "/srv/www/blog")
@@ -100,9 +106,7 @@ func TestRestoreGivesFilesToTheSitesUsers(t *testing.T) {
 			t.Errorf("restored into blog: %s owned by %d:%d, want %d", p, u, g, want)
 		}
 	}
-	if fi, _ := os.Lstat(filepath.Join(blog, "app/data")); fi.Mode()&os.ModeSetgid == 0 || fi.Mode().Perm() != 0o770 {
-		t.Errorf("a directory made by the restore lost its mode: %v", fi.Mode())
-	}
+	restoredModes(t, blog)
 	if fi, _ := os.Lstat(filepath.Join(blog, "app/.env")); fi.Mode().Perm() != 0o600 {
 		t.Errorf(".env mode %v", fi.Mode())
 	}
@@ -119,6 +123,17 @@ func TestRestoreGivesFilesToTheSitesUsers(t *testing.T) {
 		if u, g := fileOwnerOf(t, filepath.Join(copyDir, p)); u != 1500 || g != 1500 {
 			t.Errorf("restored into copy: %s owned by %d:%d", p, u, g)
 		}
+	}
+}
+
+// restoredModes checks the modes of a site's backup restored into dir.
+func restoredModes(t *testing.T, dir string) {
+	t.Helper()
+	if fi, _ := os.Lstat(filepath.Join(dir, "app/data")); fi.Mode()&os.ModeSetgid == 0 || fi.Mode().Perm() != 0o770 {
+		t.Errorf("%s: a restored directory lost its mode: %v", dir, fi.Mode())
+	}
+	if fi, _ := os.Lstat(filepath.Join(dir, "app/data/upload.bin")); fi.Mode().Perm() != 0o660 {
+		t.Errorf("%s: a restored file lost its mode: %v", dir, fi.Mode())
 	}
 }
 
@@ -334,7 +349,7 @@ func TestSetgidOnlyForRestores(t *testing.T) {
 	defer func() { _ = root.Close() }()
 	for _, keep := range []bool{false, true} {
 		x := &extractor{ctx: t.Context(), rootID: "sites", root: root, dest: "shop/app", b: &batch{log: io.Discard},
-			budget: 1 << 30, files: map[string]bool{}, uid: os.Getuid(), gid: os.Getgid(), setgid: keep}
+			budget: 1 << 30, files: map[string]bool{}, uid: os.Getuid(), gid: os.Getgid(), restore: keep}
 		name := map[bool]string{false: "plain", true: "kept"}[keep]
 		if err := x.dir(name, 0o770|fs.ModeSetgid); err != nil {
 			t.Fatal(err)

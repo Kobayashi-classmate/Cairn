@@ -103,17 +103,27 @@ func preparePTY(t Terminal) (*os.File, *os.File, error) {
 	return master, slave, nil
 }
 
+// TerminalMaxRuntime is how long a terminal's unit may run at most. The
+// panel ends a terminal with the browser session that opened it, and a
+// session lasts 12 hours at most: no terminal in use runs this long. It
+// ends a shell that outlived its terminal (one that ignores the hang-up
+// when the terminal is closed, while the panel could not stop its unit).
+const TerminalMaxRuntime = 13 * time.Hour
+
 // TerminalUnitArgs is the systemd-run command line that starts the shell
 // as a transient service of its own on tty: its own control group, the
 // host's /tmp, nothing inherited from the caller's unit. With
 // Type=exec, systemd-run returns once the shell runs and holds the
 // terminal, so the caller may close its own copy of the terminal: the
-// master would see a hang-up only when the last holder is gone.
+// master would see a hang-up only when the last holder is gone. Stopping
+// the unit ends everything the shell started, with a hang-up besides the
+// SIGTERM (SendSIGHUP), as closing a terminal would.
 func TerminalUnitArgs(t Terminal, unit, tty string) []string {
 	args := []string{"--unit=" + unit, "--description=Cairn terminal", "--collect", "--quiet",
 		"--uid=" + strconv.FormatUint(uint64(t.Uid), 10), "--gid=" + strconv.FormatUint(uint64(t.Gid), 10),
 		"--working-directory=" + t.Home,
-		"--service-type=exec", "--property=TTYPath=" + tty, "--property=StandardInput=tty", "--property=StandardOutput=tty", "--property=StandardError=tty"}
+		"--service-type=exec", "--property=TTYPath=" + tty, "--property=StandardInput=tty", "--property=StandardOutput=tty", "--property=StandardError=tty",
+		"--property=SendSIGHUP=yes", "--property=RuntimeMaxSec=" + strconv.FormatInt(int64(TerminalMaxRuntime/time.Second), 10)}
 	for _, e := range t.Env {
 		args = append(args, "--setenv="+e)
 	}

@@ -4,12 +4,14 @@ package helper
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -114,8 +116,89 @@ func TestExtractKeepsExistingDirModes(t *testing.T) {
 	if op, _, _ := e.run(helperapi.ActionFileExtract, helperapi.FileExtractRequest{Root: "sites", Path: "shop/app/d.tar", Dest: "shop/app", Overwrite: true}); op.State != helperapi.OpSucceeded {
 		t.Fatalf("extract with overwrite: %+v", op)
 	}
-	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o777 {
+	// The archive's mode, without write access for the group and others.
+	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o755 {
 		t.Errorf("overwriting takes the archive's mode: %v", fi.Mode())
+	}
+}
+
+// What an archive extracts is never writable by the group or others,
+// whatever the archive says: a zip made on Windows says 0666 and 0777. Read
+// and execute bits come along as they are.
+func TestExtractNeverGroupOrWorldWritable(t *testing.T) {
+	e := newFilesEnv(t)
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	// CreatorVersion 0 (high byte): made on FAT, MS-DOS attributes only.
+	if _, err := zw.CreateHeader(&zip.FileHeader{Name: "w/", CreatorVersion: 0, ExternalAttrs: 0x10}); err != nil {
+		t.Fatal(err)
+	}
+	w, err := zw.CreateHeader(&zip.FileHeader{Name: "w/a.php", Method: zip.Store, CreatorVersion: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("<?php"))
+	// Made on Unix with explicit modes.
+	h := &zip.FileHeader{Name: "u/run.sh", Method: zip.Store}
+	h.SetMode(0o775)
+	if w, err = zw.CreateHeader(h); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte("#!/bin/sh"))
+	_ = zw.Close()
+	e.put("/srv/www/shop/app/win.zip", buf.String())
+	e.put("/srv/www/shop/app/open.tar", tarOf(t,
+		tarEntry{&tar.Header{Name: "t/", Typeflag: tar.TypeDir, Mode: 0o777}, ""},
+		tarEntry{&tar.Header{Name: "t/f.txt", Typeflag: tar.TypeReg, Mode: 0o666}, "f"},
+		tarEntry{&tar.Header{Name: "t/ro.txt", Typeflag: tar.TypeReg, Mode: 0o440}, "r"},
+		tarEntry{&tar.Header{Name: "t/g/", Typeflag: tar.TypeDir, Mode: 0o2775}, ""},
+	))
+	for _, a := range []string{"shop/app/win.zip", "shop/app/open.tar"} {
+		if op, _, log := e.run(helperapi.ActionFileExtract, helperapi.FileExtractRequest{Root: "sites", Path: a, Dest: "shop/app"}); op.State != helperapi.OpSucceeded {
+			t.Fatalf("extract %s: %+v\n%s", a, op, log)
+		}
+	}
+	for p, want := range map[string]fs.FileMode{
+		"w": 0o755, "w/a.php": 0o644, "u/run.sh": 0o755,
+		"t": 0o755, "t/f.txt": 0o644, "t/ro.txt": 0o440, "t/g": 0o755,
+	} {
+		fi, err := os.Lstat(filepath.Join(e.f.Root, "/srv/www/shop/app", p))
+		if err != nil {
+			t.Errorf("%s: %v", p, err)
+			continue
+		}
+		if fi.Mode().Perm() != want || fi.Mode()&(fs.ModeSetgid|fs.ModeSetuid) != 0 {
+			t.Errorf("%s extracted as %v, want %v", p, fi.Mode(), want)
+		}
+	}
+}
+
+// unar's output goes through the same modes.
+func TestUnarOutputNeverGroupOrWorldWritable(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("changes owners")
+	}
+	e := unarEnv(t, func(_ context.Context, args, _ []string) error {
+		out := args[len(args)-2] // unar ... -o OUT ARCHIVE
+		d := filepath.Join(out, "open")
+		if err := os.Mkdir(d, 0o700); err != nil {
+			return err
+		}
+		f := filepath.Join(d, "a.txt")
+		if err := os.WriteFile(f, []byte("a"), 0o600); err != nil {
+			return err
+		}
+		// Explicitly, whatever the umask.
+		return errors.Join(os.Chmod(d, 0o777), os.Chmod(f, 0o666)) //nolint:gosec // G302: the modes under test
+	})
+	e.put("/srv/www/shop/app/a.7z", "7z")
+	if op, _, log := e.run(helperapi.ActionFileExtract, helperapi.FileExtractRequest{Root: "sites", Path: "shop/app/a.7z", Dest: "shop/app"}); op.State != helperapi.OpSucceeded {
+		t.Fatalf("extract: %+v\n%s", op, log)
+	}
+	for p, want := range map[string]fs.FileMode{"open": 0o755, "open/a.txt": 0o644} {
+		if fi, err := os.Lstat(filepath.Join(e.f.Root, "/srv/www/shop/app", p)); err != nil || fi.Mode().Perm() != want {
+			t.Errorf("%s: %v %v, want %v", p, fi, err, want)
+		}
 	}
 }
 

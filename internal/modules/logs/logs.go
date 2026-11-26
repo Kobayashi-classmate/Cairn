@@ -2,7 +2,10 @@
 
 // Package logs is the system journal browser: journalctl, through the
 // root helper, with filters by unit, priority, time and text, and a cursor
-// to follow new entries.
+// to follow new entries. Readers of logs see the units of the panel, the
+// installed software, app sites and the tasks that are not kept for
+// administrators; administrators see the whole journal, which also holds
+// what root's tasks print, sudo's command lines and SSH sign-ins.
 package logs
 
 import (
@@ -21,8 +24,15 @@ import (
 	"github.com/Kobayashi-classmate/Cairn/internal/modules/modutil"
 )
 
-// Read lets a role read the system journal.
-const Read authz.Permission = "logs.read"
+// Permissions of this module.
+const (
+	// Read lets a role read the journal of the panel's own service, the
+	// installed software, app sites and tasks that do not run as root or
+	// as a login user.
+	Read authz.Permission = "logs.read"
+	// System reads the whole system journal (administrators).
+	System authz.Permission = "logs.system"
+)
 
 // Module implements module.Module.
 type Module struct {
@@ -37,7 +47,7 @@ func (m *Module) ID() string { return "logs" }
 func (m *Module) Info() module.Info {
 	return module.Info{
 		Optional:    true,
-		Permissions: []module.Permission{{Name: Read, Roles: []authz.Role{authz.Operator, authz.Auditor}}},
+		Permissions: []module.Permission{{Name: Read, Roles: []authz.Role{authz.Operator, authz.Auditor}}, {Name: System}},
 		Nav: []module.NavItem{
 			{Key: "logs", LabelKey: "common.nav.logs", Icon: "reader", Route: "logs", Permission: Read, Group: module.GroupOps, Order: 23},
 		},
@@ -48,8 +58,15 @@ func (m *Module) Info() module.Info {
 func (m *Module) Routes(r *api.Router) {
 	doc := func(s string) api.RouteOption { return api.Doc("logs", s) }
 	r.Handle("GET /api/v1/logs/journal", m.journal, api.Require(Read),
-		doc("Journal entries: ?unit=&priority=0-7&since=&until=&grep=&boot=true&limit=; ?after=<cursor> follows"), api.Returns(200, helperapi.Journal{}))
-	r.Handle("GET /api/v1/logs/units", m.units, api.Require(Read), doc("Service units, for the unit filter"), api.Returns(200, helperapi.Units{}))
+		doc("Journal entries: ?unit=&priority=0-7&since=&until=&grep=&boot=true&limit=; ?after=<cursor> follows. "+
+			"Without logs.system only the units /logs/units lists, all of them when no unit is given"), api.Returns(200, helperapi.Journal{}))
+	r.Handle("GET /api/v1/logs/units", m.units, api.Require(Read), doc("Service units, for the unit filter: those the caller may read"), api.Returns(200, helperapi.Units{}))
+}
+
+// whole reports whether the caller reads the whole journal.
+func whole(r *http.Request) bool {
+	p, ok := api.PrincipalFrom(r.Context())
+	return ok && p.Can(System)
 }
 
 func callerOf(r *http.Request) helperapi.Caller {
@@ -63,8 +80,11 @@ func (m *Module) call(r *http.Request, action string, req, resp any) error {
 	err := m.Helper.Call(ctx, action, callerOf(r), req, resp)
 	if he, ok := helperapi.AsError(err); ok {
 		status := http.StatusConflict
-		if he.Code == helperapi.CodeLogNoJournal {
+		switch he.Code {
+		case helperapi.CodeLogNoJournal:
 			status = http.StatusNotFound
+		case helperapi.CodeLogUnitNotAllowed:
+			status = http.StatusForbidden
 		}
 		return api.NewError(status, he.Code, he.Params)
 	}
@@ -91,8 +111,12 @@ func (m *Module) journal(w http.ResponseWriter, r *http.Request) error {
 		}
 		return err
 	}
+	action := helperapi.ActionLogJournal
+	if whole(r) {
+		action = helperapi.ActionLogJournalAll
+	}
 	var resp helperapi.Journal
-	if err := m.call(r, helperapi.ActionLogJournal, req, &resp); err != nil {
+	if err := m.call(r, action, req, &resp); err != nil {
 		return err
 	}
 	if resp.Entries == nil {
@@ -102,8 +126,12 @@ func (m *Module) journal(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (m *Module) units(w http.ResponseWriter, r *http.Request) error {
+	action := helperapi.ActionLogUnits
+	if whole(r) {
+		action = helperapi.ActionLogUnitsAll
+	}
 	var resp helperapi.Units
-	if err := m.call(r, helperapi.ActionLogUnits, nil, &resp); err != nil {
+	if err := m.call(r, action, nil, &resp); err != nil {
 		return err
 	}
 	if resp.Units == nil {

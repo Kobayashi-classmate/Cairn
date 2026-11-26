@@ -97,86 +97,93 @@ func linked(fi fs.FileInfo) bool {
 // one level at a time (see walkTree): a directory swapped for a link
 // meanwhile, in the source or in the copy being made, is never followed.
 // It returns what it made at dname (nil when nothing), also when it fails
-// halfway: see unmake. top is the directory the copy made first (nil for
-// the entry a copy starts with): meeting it again among the entries to
-// copy means the destination lies inside the source, by a link perhaps,
-// and the copy would go on copying itself.
-func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, ddir *os.Root, dname string, uid, gid int, p string, top fs.FileInfo, log io.Writer) (fs.FileInfo, error) {
+// halfway: see unmake; and how many entries it skipped, which the copy
+// lacks. top is the directory the copy made first (nil for the entry a
+// copy starts with): meeting it again among the entries to copy means the
+// destination lies inside the source, by a link perhaps, and the copy
+// would go on copying itself. rec, when not nil, records each source entry
+// copied (see copyRec).
+func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, ddir *os.Root, dname string, uid, gid int, p string, top fs.FileInfo, rec copyRec, log io.Writer) (fs.FileInfo, int, error) {
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return nil, 0, ctx.Err()
 	}
 	switch m := info.Mode(); {
 	case m&fs.ModeSymlink != 0:
 		target, err := sdir.Readlink(sname)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if err := ddir.Symlink(target, dname); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
+		rec.add(info)
 		made, _ := ddir.Lstat(dname)
-		return made, ddir.Lchown(dname, uid, gid)
+		return made, 0, ddir.Lchown(dname, uid, gid)
 	case m.IsDir():
 		if tooDeep(p) {
-			return nil, errTooDeep
+			return nil, 0, errTooDeep
 		}
 		ssub, err := enterDir(sdir, sname, info)
 		if errors.Is(err, errSwapped) {
 			_, _ = fmt.Fprintf(log, "  skipped %s (it changed meanwhile)\n", p)
-			return nil, nil
+			return nil, 1, nil
 		}
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		defer func() { _ = ssub.Close() }()
 		if err := ddir.Mkdir(dname, m.Perm()|0o700); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		made, err := ddir.Lstat(dname)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		if top == nil {
 			top = made
 		}
 		dsub, err := enterDir(ddir, dname, made)
 		if err != nil {
-			return made, fileErr(helperapi.CodeFileIsLink, map[string]any{"path": p})
+			return made, 0, fileErr(helperapi.CodeFileIsLink, map[string]any{"path": p})
 		}
 		defer func() { _ = dsub.Close() }()
 		if err := dsub.Lchown(".", uid, gid); err != nil {
-			return made, err
+			return made, 0, err
 		}
+		rec.add(info)
 		names, err := dirNames(ssub)
 		if err != nil {
-			return made, err
+			return made, 0, err
 		}
+		skipped := 0
 		for _, n := range names {
 			ci, err := ssub.Lstat(n)
 			if err != nil {
 				continue // gone meanwhile
 			}
 			if os.SameFile(ci, top) {
-				return made, fileErr(helperapi.CodeFileIntoItself, map[string]any{"path": p})
+				return made, skipped, fileErr(helperapi.CodeFileIntoItself, map[string]any{"path": p})
 			}
-			if _, err := copyAt(ctx, ssub, n, ci, dsub, n, uid, gid, join(p, n), top, log); err != nil {
-				return made, err
+			_, k, err := copyAt(ctx, ssub, n, ci, dsub, n, uid, gid, join(p, n), top, rec, log)
+			skipped += k
+			if err != nil {
+				return made, skipped, err
 			}
 		}
-		return made, dsub.Chmod(".", m.Perm())
+		return made, skipped, dsub.Chmod(".", m.Perm())
 	case m.IsRegular():
 		in, fi, err := openEntry(sdir, sname, info)
 		if errors.Is(err, errSwapped) {
 			_, _ = fmt.Fprintf(log, "  skipped %s (it changed meanwhile)\n", p)
-			return nil, nil
+			return nil, 1, nil
 		}
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		defer func() { _ = in.Close() }()
 		out, err := ddir.OpenFile(dname, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		made, err := out.Stat()
 		if err == nil {
@@ -192,10 +199,121 @@ func copyAt(ctx context.Context, sdir *os.Root, sname string, info fs.FileInfo, 
 		if cerr := out.Close(); err == nil {
 			err = cerr
 		}
-		return made, err
+		if err == nil {
+			// As it was when it was opened: a write since then is not in
+			// the copy.
+			rec.add(fi)
+		}
+		return made, 0, err
 	}
 	_, _ = fmt.Fprintf(log, "  skipped %s (not a file, directory or link)\n", p)
-	return nil, nil
+	return nil, 1, nil
+}
+
+// copyRec records the source entries a copy took, each by its identity
+// and, for anything but a directory, its size and modification time when
+// it was read: a move across file systems removes from its source only
+// these (see removeCopied). nil records nothing.
+type copyRec map[copyID]copyStamp
+
+type copyID struct{ dev, ino uint64 }
+
+type copyStamp struct {
+	size  int64
+	mtime time.Time
+}
+
+func idOf(fi fs.FileInfo) (copyID, bool) {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	if !ok {
+		return copyID{}, false
+	}
+	return copyID{dev: uint64(st.Dev), ino: st.Ino}, true
+}
+
+func stampOf(fi fs.FileInfo) copyStamp {
+	if fi.IsDir() {
+		// A directory changes as entries come and go: removeCopied looks
+		// at its entries instead.
+		return copyStamp{}
+	}
+	return copyStamp{size: fi.Size(), mtime: fi.ModTime()}
+}
+
+func (r copyRec) add(fi fs.FileInfo) {
+	if r == nil {
+		return
+	}
+	if id, ok := idOf(fi); ok {
+		r[id] = stampOf(fi)
+	}
+}
+
+// took reports whether fi is an entry the copy took, unchanged since.
+func (r copyRec) took(fi fs.FileInfo) bool {
+	id, ok := idOf(fi)
+	if !ok {
+		return false
+	}
+	s, ok := r[id]
+	return ok && s.size == stampOf(fi).size && s.mtime.Equal(stampOf(fi).mtime)
+}
+
+// removeCopied removes the entry name of the open directory dir (p, its
+// path) and what is below it, but only what a copy took (rec): an entry
+// that appeared since, one put in the place of another, and a file written
+// since it was read stay, and so does each directory on the way to one.
+// It walks one level at a time (see walkTree) and returns how many entries
+// stayed.
+func removeCopied(ctx context.Context, dir *os.Root, name, p string, rec copyRec, log io.Writer) (int, error) {
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+	info, err := dir.Lstat(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil // gone meanwhile
+	}
+	if err != nil {
+		return 0, err
+	}
+	stays := func(why string) (int, error) {
+		_, _ = fmt.Fprintf(log, "  %s stays where it is (%s)\n", p, why)
+		return 1, nil
+	}
+	if !rec.took(info) {
+		return stays("it was not copied, or changed since")
+	}
+	if !info.IsDir() {
+		return 0, dir.Remove(name)
+	}
+	sub, err := enter(dir, name, info)
+	if errors.Is(err, errSwapped) {
+		return stays("it changed meanwhile")
+	}
+	if err != nil {
+		return 0, err
+	}
+	names, err := dirNames(sub)
+	left := 0
+	for _, n := range names {
+		if err != nil {
+			break
+		}
+		var k int
+		k, err = removeCopied(ctx, sub, n, join(p, n), rec, log)
+		left += k
+	}
+	_ = sub.Close()
+	if err != nil || left > 0 {
+		return left, err
+	}
+	if err := dir.Remove(name); err != nil {
+		if errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST) {
+			return stays("an entry appeared in it meanwhile")
+		}
+		return 0, err
+	}
+	return 0, nil
 }
 
 // unmake removes what a copy that failed made at name of the open
@@ -327,6 +445,7 @@ func (f *Files) copyOp(ctx context.Context, c helperapi.Caller, req helperapi.Fi
 		case dst == p:
 			b.failed(p, fileErr(helperapi.CodeFileExists, map[string]any{"path": dst}))
 		default:
+			skipped := 0
 			err := func() error {
 				// The source's directory is opened once, too.
 				sdir, sname, done, err := root.parent(p)
@@ -346,7 +465,7 @@ func (f *Files) copyOp(ctx context.Context, c helperapi.Caller, req helperapi.Fi
 					settle(false)
 					return notFound(err, p)
 				}
-				made, err := copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, nil, log)
+				made, k, err := copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, nil, nil, log)
 				if err != nil {
 					if rerr := unmake(dest, name, made); rerr != nil {
 						_, _ = fmt.Fprintf(log, "! %s: the unfinished copy is left there: %v\n", dst, rerr)
@@ -354,10 +473,15 @@ func (f *Files) copyOp(ctx context.Context, c helperapi.Caller, req helperapi.Fi
 				}
 				// What was there goes only once something took its place.
 				settle(err == nil && made != nil)
+				skipped = k
 				return err
 			}()
 			if err != nil {
 				b.failed(p, err)
+				continue
+			}
+			if skipped > 0 {
+				b.done("copied %s to %s, without what was skipped (%d)", p, dst, skipped)
 				continue
 			}
 			b.done("copied %s to %s", p, dst)
@@ -455,9 +579,10 @@ func (f *Files) moveOp(ctx context.Context, c helperapi.Caller, req helperapi.Fi
 			err = renameAt(sdir, sname, dest, name, true)
 			switch {
 			case errors.Is(err, syscall.EXDEV):
-				// Another file system: copy, then remove.
-				var made fs.FileInfo
-				if made, err = copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, nil, log); err != nil {
+				// Another file system: copy, then remove what was copied.
+				rec := copyRec{}
+				made, skipped, err := copyAt(ctx, sdir, sname, info, dest, name, uid, gid, p, nil, rec, log)
+				if err != nil {
 					if rerr := unmake(dest, name, made); rerr != nil {
 						_, _ = fmt.Fprintf(log, "! %s: the unfinished copy is left there: %v\n", dst, rerr)
 					}
@@ -471,7 +596,24 @@ func (f *Files) moveOp(ctx context.Context, c helperapi.Caller, req helperapi.Fi
 					return fmt.Errorf("%s was not copied to the other file system", p)
 				}
 				settle(true)
-				return sdir.RemoveAll(sname)
+				incomplete := fileErr(helperapi.CodeFileMoveIncomplete, map[string]any{"path": p, "dest": dst})
+				if skipped > 0 {
+					// The copy lacks what was skipped: the source stays
+					// whole, and the copy stays too.
+					_, _ = fmt.Fprintf(log, "! %s: copied to %s without what was skipped (%d), so it stays where it is\n", p, dst, skipped)
+					return incomplete
+				}
+				// What appeared or changed while the copy was made is not
+				// in it, and stays.
+				left, err := removeCopied(ctx, sdir, sname, p, rec, log)
+				if err != nil {
+					return err
+				}
+				if left > 0 {
+					_, _ = fmt.Fprintf(log, "! %s: copied to %s, but what appeared or changed meanwhile (%d) stays where it was\n", p, dst, left)
+					return incomplete
+				}
+				return nil
 			case errors.Is(err, fs.ErrExist):
 				settle(false)
 				return fileErr(helperapi.CodeFileExists, map[string]any{"path": dst})

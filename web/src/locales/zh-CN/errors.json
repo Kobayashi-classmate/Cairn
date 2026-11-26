@@ -212,6 +212,9 @@
     "not_optional": "该模块属于核心部分，无法关闭。"
   },
   "detailed": {
+    "log": {
+      "unit_not_allowed": "只有管理员能查看 {unit} 的日志。"
+    },
     "pkg": {
       "not_available": "此版本无法在此系统上安装。{reasonText}",
       "key_download_failed": "无法从 {url} 下载软件源的签名密钥。",
@@ -315,6 +318,7 @@
       "no_space": "磁盘剩余空间不足（需要 {size}）。",
       "user_unknown": "服务器上没有名为 {name} 的用户或用户组。",
       "into_itself": "{path} 不能复制或移动到它自身里面。",
+      "move_incomplete": "{path} 已复制到另一个文件系统，但原处没有全部删除：被跳过的条目，以及移动期间新出现或被改动的条目，仍留在原处。任务日志里列出了它们。",
       "too_many_favorites": "最多只能收藏 {max} 个。",
       "fetch_failed": "下载失败：{detail}",
       "unpack_failed": "无法准备解压该压缩包：{reasonText}。"
@@ -477,6 +481,7 @@
     "no_space": "磁盘剩余空间不足。",
     "user_unknown": "服务器上没有这个用户或用户组。",
     "into_itself": "文件夹不能复制或移动到它自身里面。",
+    "move_incomplete": "已复制到另一个文件系统，但原处没有全部删除：被跳过的条目，以及移动期间新出现或被改动的条目，仍留在原处。",
     "upload_offset": "上传进度与服务器不一致。",
     "upload_complete": "此上传已经完成。",
     "fetch_failed": "下载失败。",
@@ -520,7 +525,8 @@
     "endpoint_not_allowed": "存储地址指向本服务器自身或云元数据服务，备份不能使用它。"
   },
   "log": {
-    "no_journal": "本服务器没有系统日志（journalctl）。"
+    "no_journal": "本服务器没有系统日志（journalctl）。",
+    "unit_not_allowed": "只有管理员能查看这个单元的日志。"
   },
   "firewall": {
     "pending": "另一项防火墙修改正在等待确认，请一分钟后再试。",

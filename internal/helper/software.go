@@ -662,6 +662,12 @@ func (s *Software) Status(ctx context.Context) (helperapi.SoftwareStatus, error)
 // lines start (software -> line -> origin), and which of them can reload;
 // nil without systemd.
 func (s *Software) serviceStates(ctx context.Context, installed map[string]map[string]string) (map[string]string, []string) {
+	return s.unitStates(ctx, s.lineServices(installed))
+}
+
+// lineServices lists the services the installed lines start (software ->
+// line -> origin), as the catalog names them, sorted.
+func (s *Software) lineServices(installed map[string]map[string]string) []string {
 	var units []string
 	for i := range s.Catalog.Software {
 		sw := &s.Catalog.Software[i]
@@ -678,7 +684,17 @@ func (s *Software) serviceStates(ctx context.Context, installed map[string]map[s
 		}
 	}
 	slices.Sort(units)
-	return s.unitStates(ctx, units)
+	return units
+}
+
+// installedServices lists the services of the installed software, as the
+// catalog names them.
+func (s *Software) installedServices(ctx context.Context) ([]string, error) {
+	st, err := s.installedLines(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.lineServices(st.Origins), nil
 }
 
 // parseUnitStates reads "systemctl show" output for units, which prints one

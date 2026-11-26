@@ -32,6 +32,7 @@ export type KnownPermission =
   | 'backups.read'
   | 'backups.manage'
   | 'logs.read'
+  | 'logs.system'
   | 'firewall.read'
   | 'firewall.manage'
   | 'ssh.read'

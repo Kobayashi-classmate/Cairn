@@ -280,7 +280,8 @@
       "manage": "Manage backups"
     },
     "logs": {
-      "read": "Read the system journal"
+      "read": "Read the logs of the panel, the installed software, app sites and their tasks",
+      "system": "Read the whole system journal"
     },
     "firewall": {
       "read": "View the firewall",

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -522,25 +523,44 @@ func taskURLClient() *http.Client {
 	return &http.Client{Timeout: 10 * time.Minute, Transport: tr}
 }
 
-// TaskURL fetches $CAIRN_URL; an HTTP error fails the run.
+// TaskURL fetches $CAIRN_URL; an HTTP error fails the run. What it prints
+// goes to the journal, which more can read than may see the task's URL
+// (the task's log is for every reader of tasks, and the server's journal
+// readers see it too): of the URL only the scheme and host appear, never
+// its user, password, path or query, where a site's cron key is.
 func TaskURL(ctx context.Context, out io.Writer) error {
 	u := os.Getenv("CAIRN_URL")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil) //nolint:gosec // G704: the task's own URL, set by an administrator.
 	if err != nil {
-		return err
+		return withoutURL(err, "")
 	}
+	origin := req.URL.Scheme + "://" + req.URL.Host
 	req.Header.Set("User-Agent", "Cairn")
 	res, err := taskURLClient().Do(req) //nolint:gosec // G704: as above, link-local and metadata addresses refused.
 	if err != nil {
-		return err
+		return withoutURL(err, origin)
 	}
 	defer res.Body.Close()
 	n, _ := io.Copy(io.Discard, io.LimitReader(res.Body, 64<<20))
-	_, _ = fmt.Fprintf(out, "%s: %s (%d bytes)\n", req.URL.Redacted(), res.Status, n)
+	_, _ = fmt.Fprintf(out, "%s: %s (%d bytes)\n", origin, res.Status, n)
 	if res.StatusCode >= 400 {
 		return fmt.Errorf("%s", res.Status)
 	}
 	return nil
+}
+
+// withoutURL is err with origin (a URL's scheme and host) in place of the
+// whole URL a *url.Error names: the request's, or a redirect's. The cause
+// stays in the chain.
+func withoutURL(err error, origin string) error {
+	var ue *url.Error
+	if !errors.As(err, &ue) {
+		return err
+	}
+	if origin == "" {
+		origin = "the task's URL"
+	}
+	return fmt.Errorf("%s %s: %w", ue.Op, origin, ue.Err)
 }
 
 // TaskBackup runs a backup task's plan.

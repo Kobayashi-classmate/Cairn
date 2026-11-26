@@ -423,20 +423,66 @@ func TestBackupsModule(t *testing.T) {
 func TestLogsModule(t *testing.T) {
 	e := newEnv(t)
 	admin := e.setupAdmin("admin")
-	e.helper.respond(helperapi.ActionLogJournal, helperapi.Journal{Entries: []helperapi.JournalEntry{{Message: "started"}}, Cursor: "s=1"})
+	// Administrators read the whole journal.
+	e.helper.respond(helperapi.ActionLogJournalAll, helperapi.Journal{Entries: []helperapi.JournalEntry{{Message: "started"}}, Cursor: "s=1"})
 	r := admin.expect(admin.do("GET", "/api/v1/logs/journal?unit=nginx.service&priority=4&grep=error&limit=50", nil), 200, "")
 	if r.body["cursor"] != "s=1" {
 		t.Fatalf("journal %s", r.raw)
 	}
-	if q := sentAs[helperapi.JournalRequest](t, e, helperapi.ActionLogJournal); q.Unit != "nginx.service" || q.Priority != 4 || q.Limit != 50 {
+	if q := sentAs[helperapi.JournalRequest](t, e, helperapi.ActionLogJournalAll); q.Unit != "nginx.service" || q.Priority != 4 || q.Limit != 50 {
 		t.Fatalf("sent %+v", q)
 	}
 	admin.expect(admin.do("GET", "/api/v1/logs/journal?unit=x%3Brm.service", nil), 400, "validation.invalid")
 	admin.expect(admin.do("GET", "/api/v1/logs/journal?priority=9", nil), 400, "validation.invalid")
+	admin.expect(admin.do("GET", "/api/v1/logs/units", nil), 200, "")
+	if !e.helper.called(helperapi.ActionLogUnitsAll) || e.helper.called(helperapi.ActionLogJournal) || e.helper.called(helperapi.ActionLogUnits) {
+		t.Fatalf("an administrator's calls: %v", e.helper.callsOf())
+	}
 	e.helper.mu.Lock()
-	e.helper.errs = map[string]error{helperapi.ActionLogJournal: &helperapi.Error{Code: helperapi.CodeLogNoJournal}}
+	e.helper.errs = map[string]error{helperapi.ActionLogJournalAll: &helperapi.Error{Code: helperapi.CodeLogNoJournal}}
 	e.helper.mu.Unlock()
 	admin.expect(admin.do("GET", "/api/v1/logs/journal", nil), 404, helperapi.CodeLogNoJournal)
+	e.helper.mu.Lock()
+	e.helper.errs = nil
+	e.helper.mu.Unlock()
+
+	// Operators, auditors and tokens without logs.system read the units the
+	// helper allows: it refuses the others.
+	e.helper.respond(helperapi.ActionLogJournal, helperapi.Journal{Entries: []helperapi.JournalEntry{{Message: "nginx started"}}, Cursor: "s=2"})
+	e.helper.respond(helperapi.ActionLogUnits, helperapi.Units{Units: []string{"cairn-web.service", "nginx.service"}})
+	admin.elevate("")
+	readers := map[string]func(method, path string) reply{}
+	for _, role := range []string{"operator", "auditor"} {
+		admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": role, "password": pw, "role": role}), 201, "")
+		c := e.client()
+		c.expect(c.login(role, pw), 200, "")
+		readers[role] = func(method, path string) reply { return c.do(method, path, nil) }
+	}
+	tok := admin.expect(admin.do("POST", "/api/v1/me/tokens", map[string]any{"name": "logs", "permissions": []string{"logs.read"}, "expiresInDays": 1}), 201, "").body["token"].(string)
+	readers["admin's logs.read token"] = func(method, path string) reply { return e.bearer(tok, method, path, nil) }
+	for who, do := range readers {
+		e.helper.mu.Lock()
+		e.helper.calls, e.helper.errs = nil, nil
+		e.helper.mu.Unlock()
+		if r := do("GET", "/api/v1/logs/journal?unit=nginx.service"); r.status != 200 || r.body["cursor"] != "s=2" {
+			t.Fatalf("%s: %d %s", who, r.status, r.raw)
+		}
+		if q := sentAs[helperapi.JournalRequest](t, e, helperapi.ActionLogJournal); q.Unit != "nginx.service" {
+			t.Fatalf("%s sent %+v", who, q)
+		}
+		if r := do("GET", "/api/v1/logs/units"); r.status != 200 || len(r.body["units"].([]any)) != 2 {
+			t.Fatalf("%s units: %d %s", who, r.status, r.raw)
+		}
+		if e.helper.called(helperapi.ActionLogJournalAll) || e.helper.called(helperapi.ActionLogUnitsAll) {
+			t.Fatalf("%s reached the whole journal: %v", who, e.helper.callsOf())
+		}
+		e.helper.mu.Lock()
+		e.helper.errs = map[string]error{helperapi.ActionLogJournal: &helperapi.Error{Code: helperapi.CodeLogUnitNotAllowed, Params: map[string]any{"unit": "ssh.service"}}}
+		e.helper.mu.Unlock()
+		if r := do("GET", "/api/v1/logs/journal?unit=ssh.service"); r.status != 403 || r.code() != helperapi.CodeLogUnitNotAllowed {
+			t.Fatalf("%s reads ssh.service: %d %s", who, r.status, r.raw)
+		}
+	}
 }
 
 func TestCronRecoverInterrupted(t *testing.T) {

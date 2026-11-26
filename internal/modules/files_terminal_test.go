@@ -578,3 +578,53 @@ func TestTerminalEndsWithItsSession(t *testing.T) {
 		t.Fatalf("after the password change %v", l)
 	}
 }
+
+// Closing a terminal has the helper end its shell: one that ignores the
+// hang-up would run on and keep one of the server's terminals. So does a
+// shell that ends by itself (its unit is gone already, which the helper
+// takes as done).
+func TestClosingATerminalEndsItsShell(t *testing.T) {
+	e := newEnv(t)
+	admin := e.setupAdmin("admin")
+	e.helper.respond(helperapi.ActionTermUsers, helperapi.TermUsers{Users: []helperapi.TermUser{{Name: "cw-shop", Kind: "site", Home: "/srv/www/shop", Site: "shop"}}})
+	var shells []*os.File
+	defer func() {
+		for _, f := range shells {
+			_ = f.Close()
+		}
+	}()
+	e.helper.giveFile(helperapi.ActionTermOpen, func() (*os.File, error) {
+		fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+		if err != nil {
+			return nil, err
+		}
+		_ = syscall.SetNonblock(fds[0], true)
+		shells = append(shells, os.NewFile(uintptr(fds[1]), "shell"))
+		return os.NewFile(uintptr(fds[0]), "master"), nil
+	})
+	admin.elevate("")
+	open := map[string]any{"user": "cw-shop", "cols": 80, "rows": 24}
+	ended := func(want string) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for e.helper.sent(helperapi.ActionTermClose) != want {
+			if time.Now().After(deadline) {
+				t.Fatalf("term.close sent %q, want %q", e.helper.sent(helperapi.ActionTermClose), want)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	// Under systemd: the shell's unit.
+	e.helper.respond(helperapi.ActionTermOpen, helperapi.TermSession{Unit: "cairn-term-0123456789abcdef", User: "cw-shop", Shell: "/bin/bash", Home: "/srv/www/shop"})
+	id := admin.expect(admin.do("POST", "/api/v1/terminal/sessions", open), 201, "").body["id"].(string)
+	if e.helper.called(helperapi.ActionTermClose) {
+		t.Fatal("an open terminal's shell was ended")
+	}
+	admin.expect(admin.do("DELETE", "/api/v1/terminal/sessions/"+id, nil), 204, "")
+	ended(`{"unit":"cairn-term-0123456789abcdef"}`)
+	// Without systemd: the shell's process.
+	e.helper.respond(helperapi.ActionTermOpen, helperapi.TermSession{PID: 4242, User: "cw-shop", Shell: "/bin/bash", Home: "/srv/www/shop"})
+	admin.expect(admin.do("POST", "/api/v1/terminal/sessions", open), 201, "")
+	_ = shells[len(shells)-1].Close()
+	ended(`{"pid":4242}`)
+}

@@ -161,7 +161,7 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	helper.RegisterFiles(reg, ops, e.files)
 	helper.RegisterBackups(reg, ops, e.backups)
 	helper.RegisterCron(reg, ops, e.cron)
-	helper.RegisterLogs(reg, "")
+	helper.RegisterLogs(reg, &helper.Logs{Software: e.software, Sites: e.sites, Cron: e.cron})
 	helper.RegisterFirewall(reg, ops, e.firewall)
 	helper.RegisterSSH(reg, ops, e.ssh)
 	helper.RegisterHost(reg, ops, e.host)

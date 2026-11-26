@@ -36,6 +36,7 @@ import {
 } from '@/logs/journal'
 import { TONE_TEXT } from '@/lib/tone'
 import { cn } from '@/lib/utils'
+import { useSessionStore } from '@/stores/session'
 
 // The system journal: filters by unit, level, time and text (kept in the
 // address), and following new entries by polling after the last one. At
@@ -50,6 +51,7 @@ const KEEP_MAX = 5000
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const session = useSessionStore()
 /** The colours of messages with ANSI colours. */
 const palette = useAnsiPalette()
 
@@ -312,7 +314,7 @@ function toneClass(priority: number): string {
 
     <LogView
       v-model:wrap="wrap"
-      :label="t('logs.tabs.system')"
+      :label="t(session.can('logs.system') ? 'logs.tabs.system' : 'logs.tabs.services')"
       :loading="loading && !loaded"
       :error="loadError"
       :empty="rows.length === 0"

@@ -4,6 +4,8 @@ package helper
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/user"
 	"path"
@@ -18,7 +20,9 @@ import (
 
 // Terminals: a login shell on a new pseudo-terminal, as a site's owner or
 // an ordinary login user (root only when switched on), whose master side
-// goes to the web process. Closing it hangs the shell up.
+// goes to the web process. Closing it hangs the shell up; a shell that
+// ignores the hang-up is ended by term.close, which the web process calls
+// when it closes a terminal.
 
 const maxTerminals = 16
 
@@ -228,11 +232,52 @@ func (f *Files) termOpen(ctx context.Context, c helperapi.Caller, req helperapi.
 		return helperapi.TermSession{}, nil, err
 	}
 	pid := cmd.Process.Pid
+	f.mu.Lock()
+	if f.shells == nil {
+		f.shells = map[int]*os.Process{}
+	}
+	f.shells[pid] = cmd.Process
+	f.mu.Unlock()
 	f.Log.Info("terminal opened", "user", e.name, "pid", pid, "by", c.Username, "remote", c.Remote)
 	go func() {
 		_ = cmd.Wait()
+		f.mu.Lock()
+		delete(f.shells, pid)
+		f.mu.Unlock()
 		release()
 		f.Log.Info("terminal closed", "user", e.name, "pid", pid)
 	}()
 	return helperapi.TermSession{PID: pid, User: e.name, Home: home, Shell: shell}, master, nil
+}
+
+// termClose ends a terminal term.open started: its unit, with everything
+// in it (the unit's name says it is a terminal's, and only the helper
+// starts units), or a shell started without systemd that has not ended
+// yet. One that ended already is no error.
+func (f *Files) termClose(ctx context.Context, c helperapi.Caller, req helperapi.TermCloseRequest) (helperapi.Empty, error) {
+	if req.Unit != "" {
+		// Not waiting for it to stop: it is not counted as running from
+		// now on (see activeTerminalUnits).
+		_, err := queryCommand(ctx, "systemctl", "stop", "--no-block", req.Unit+".service")
+		var ee *execx.ExitError
+		if errors.As(err, &ee) && ee.ExitCode == 5 {
+			return helperapi.Empty{}, nil // not loaded: ended and collected
+		}
+		if err != nil {
+			return helperapi.Empty{}, fmt.Errorf("stopping %s: %w", req.Unit, err)
+		}
+		f.Log.Info("terminal ended", "unit", req.Unit, "by", c.Username, "remote", c.Remote)
+		return helperapi.Empty{}, nil
+	}
+	f.mu.Lock()
+	p := f.shells[req.PID]
+	f.mu.Unlock()
+	if p == nil {
+		return helperapi.Empty{}, nil
+	}
+	if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return helperapi.Empty{}, err
+	}
+	f.Log.Info("terminal ended", "pid", req.PID, "by", c.Username, "remote", c.Remote)
+	return helperapi.Empty{}, nil
 }

@@ -96,7 +96,7 @@ func TestWalkAndCopyStopAtDepth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := copyAt(context.Background(), root, "d", info, out, "d", os.Getuid(), os.Getgid(), "d", nil, io.Discard); !errors.Is(err, errTooDeep) {
+	if _, _, err := copyAt(context.Background(), root, "d", info, out, "d", os.Getuid(), os.Getgid(), "d", nil, nil, io.Discard); !errors.Is(err, errTooDeep) {
 		t.Fatalf("copy: %v", err)
 	}
 }

@@ -14,7 +14,9 @@ import SiteLogsTab from './logs/SiteLogsTab.vue'
 // Logs ("list" skeleton): the system journal, the sites' access and error
 // logs and the SSH sign-ins, a tab each, shown with the permission to read
 // them. Each tab keeps its filters in the address (`?unit=`, `?site=&kind=`),
-// so other pages link straight to them.
+// so other pages link straight to them. Without `logs.system` the journal
+// covers the panel's, the software's, app sites' and tasks' units only, and
+// the tab says so.
 type Tab = 'system' | 'sites' | 'ssh'
 
 const { t } = useI18n()
@@ -40,12 +42,17 @@ function tabLocation(value: Tab): RouteLocationRaw {
   return { query: value === allowed.value[0] ? {} : { [TAB_QUERY]: value } }
 }
 
-const tabs = computed<PageTab<Tab>[]>(() => allowed.value.map((value) => ({ value, label: t(`logs.tabs.${value}`) })))
+/** The journal tab's texts: the whole journal, or the services' part of it. */
+function textKey(value: Tab): string {
+  return value === 'system' && !session.can('logs.system') ? 'services' : value
+}
+
+const tabs = computed<PageTab<Tab>[]>(() => allowed.value.map((value) => ({ value, label: t(`logs.tabs.${textKey(value)}`) })))
 
 const tabStatus = ref('')
 watch(tab, () => (tabStatus.value = ''))
 
-const status = computed(() => tabStatus.value || (tab.value ? t(`logs.intro.${tab.value}`) : ''))
+const status = computed(() => tabStatus.value || (tab.value ? t(`logs.intro.${textKey(tab.value)}`) : ''))
 </script>
 
 <template>
