@@ -90,7 +90,8 @@ upload() {
 }
 dump() { # dump ENGINE NAME: dumps and prints the newest dump's file name
 	follow POST "/api/v1/databases/$1/dumps" "{\"name\":\"$2\"}"
-	api "$base/api/v1/databases/$1/dumps" | json 'd["dumps"][0]["file"]'
+	# Not the copy a restore took of the database before it.
+	api "$base/api/v1/databases/$1/dumps" | json '[x["file"] for x in d["dumps"] if "-before-restore" not in x["file"]][0]'
 }
 
 rec() { api "$base/api/v1/software" | json "[o['line'] for s in d['software'] if s['id']=='$1' for o in s['offers'] if o['recommended']][0]"; }
@@ -159,12 +160,52 @@ follow POST /api/v1/databases/mysql/dbs/shop/restore '{"file":"shop_more.sql"}'
 [ "$("$myc" shop -N -e "SELECT count(*) FROM t")" = 2 ] || fail "uploaded dump not restored"
 step "dump downloaded (owned by cairn, 0600), table restored; an uploaded dump restored"
 
-# A dump runs with the owner's rights only.
-printf 'CREATE DATABASE evil;\nGRANT ALL PRIVILEGES ON *.* TO shop@localhost;\n' >/tmp/evil.sql
+ls /var/lib/cairn/backups/db/mysql/shop_*-before-restore.sql.gz >/dev/null || fail "no copy before the restore"
+step "every restore took a copy of the database first"
+
+# A view root made: its dump says DEFINER=root@localhost, which the owner
+# may not set; it restores as the owner's.
+"$myc" shop -e "CREATE VIEW v AS SELECT id FROM t"
+file=$(dump mysql shop)
+gunzip -c "/var/lib/cairn/backups/db/mysql/$file" | grep_q "DEFINER=\`root\`@\`localhost\`" || fail "the dump lacks root's definer"
+"$myc" shop -e "DROP VIEW v"
+follow POST /api/v1/databases/mysql/dbs/shop/restore "{\"file\":\"$file\"}"
+[ "$("$myc" shop -N -e "SELECT count(*) FROM v")" = 2 ] || fail "view not restored"
+[ "$("$myc" -N -e "SELECT DEFINER FROM information_schema.VIEWS WHERE TABLE_SCHEMA = 'shop' AND TABLE_NAME = 'v'")" = shop@localhost ] || fail "definer of v"
+step "a dump with root's definers restores as the owner (the view is the owner's now)"
+
+# A dump runs with the owner's rights only, and one that fails partway
+# leaves the database as it was.
+printf 'CREATE TABLE t2 (id int);\nINSERT INTO t VALUES (7);\nCREATE DATABASE evil;\nGRANT ALL PRIVILEGES ON *.* TO shop@localhost;\n' >/tmp/evil.sql
 [ "$(upload mysql shop_evil.sql /tmp/evil.sql)" = 201 ] || fail "upload evil"
-refused db.query_failed POST /api/v1/databases/mysql/dbs/shop/restore '{"file":"shop_evil.sql"}'
+refused db.restore_rolled_back POST /api/v1/databases/mysql/dbs/shop/restore '{"file":"shop_evil.sql"}'
 [ -z "$("$myc" -N -e "SHOW DATABASES LIKE 'evil'")" ] || fail "a restored dump created a database"
-step "a dump that reaches beyond its database fails: it runs as the owner, not as root"
+[ "$("$myc" shop -N -e "SELECT count(*) FROM t")" = 2 ] || fail "rows after the failed restore"
+[ -z "$("$myc" shop -N -e "SHOW TABLES LIKE 't2'")" ] || fail "t2 stays after the failed restore"
+[ "$("$myc" -ushop -p"$shop_pw" -h127.0.0.1 shop -N -e "SELECT count(*) FROM v")" = 2 ] || fail "the owner lost its access"
+step "a dump that reaches beyond its database fails, and the database is put back from the copy"
+
+# Accounts the panel did not create: a plain one gets its new password,
+# one with rights over the whole server is left alone.
+"$myc" -e "CREATE USER dba@localhost IDENTIFIED BY 'dba-pass-1'; GRANT ALL PRIVILEGES ON *.* TO dba@localhost WITH GRANT OPTION"
+refused db.user_privileged PUT /api/v1/databases/mysql/users/dba '{"password":"taken-pass-1"}'
+refused db.user_privileged DELETE /api/v1/databases/mysql/users/dba
+"$myc" -udba -pdba-pass-1 -e "SELECT 1" >/dev/null || fail "dba's password changed"
+follow PUT /api/v1/databases/mysql/users/legacy '{"password":"legacy-pass-2"}'
+"$myc" -ulegacy -plegacy-pass-2 -e "SELECT 1" >/dev/null || fail "legacy's new password"
+step "an unmanaged user with global privileges is refused; a plain one gets its password"
+
+# NO_BACKSLASH_ESCAPES in the server's mode changes nothing: the grants on
+# a database (my\_app in mysql.db) go with it.
+mode=$("$myc" -N -e "SELECT @@GLOBAL.sql_mode")
+"$myc" -e "SET GLOBAL sql_mode = 'NO_BACKSLASH_ESCAPES'"
+follow POST /api/v1/databases/mysql/dbs '{"name":"nbe_app"}'
+"$myc" -unbe_app -p"$(password mysql nbe_app)" -h127.0.0.1 nbe_app -e "SELECT 1" >/dev/null || fail "nbe_app cannot sign in"
+follow DELETE /api/v1/databases/mysql/dbs/nbe_app
+[ "$("$myc" -N -e "SELECT count(*) FROM mysql.db WHERE User = 'nbe_app'")" = 0 ] || fail "the grants on nbe_app stay"
+follow DELETE /api/v1/databases/mysql/users/nbe_app
+"$myc" -e "SET GLOBAL sql_mode = '$mode'"
+step "with NO_BACKSLASH_ESCAPES on the server, the grants on a database go with it"
 
 refused db.systemd_required PUT /api/v1/databases/mysql/remote '{"enabled":true}'
 follow DELETE "/api/v1/databases/mysql/dbs/shop?dropOwner=true"
@@ -196,11 +237,26 @@ case "$file" in blog_*.dump) ;; *) fail "dump name $file" ;; esac
 psql_as blog "$blog_pw" blog "DROP TABLE posts;"
 follow POST "$P/dbs/blog/restore" "{\"file\":\"$file\"}"
 [ "$(psql_as blog "$blog_pw" blog "SELECT count(*) FROM posts")" = 1 ] || fail "restored rows"
-printf 'ALTER ROLE blog SUPERUSER;\n' >/tmp/evil.sql
+printf 'CREATE TABLE junk (id int);\nALTER ROLE blog SUPERUSER;\n' >/tmp/evil.sql
 [ "$(upload "$pg" blog_evil.sql /tmp/evil.sql)" = 201 ] || fail "upload evil"
-refused db.query_failed POST "$P/dbs/blog/restore" '{"file":"blog_evil.sql"}'
+refused db.restore_unchanged POST "$P/dbs/blog/restore" '{"file":"blog_evil.sql"}'
 [ "$(runuser -u postgres -- psql -X -At -p "$pgport" -c "SELECT rolsuper FROM pg_roles WHERE rolname = 'blog'")" = f ] || fail "blog became superuser"
-step "dump restored as the owner; a dump cannot make its owner a superuser"
+[ -z "$(psql_as blog "$blog_pw" blog "SELECT 1 FROM pg_tables WHERE tablename = 'junk'")" ] || fail "junk stays: the restore was not one transaction"
+ls "/var/lib/cairn/backups/db/$pg"/blog_*-before-restore.dump >/dev/null || fail "no copy before the restore"
+step "dump restored as the owner after a copy; a dump cannot make its owner a superuser, and a failing one changes nothing"
+
+# Roles the panel did not create: a superuser, or a member of a role that
+# runs programs as postgres, is left alone; a plain one gets its password.
+runuser -u postgres -- psql -X -q -p "$pgport" -c "CREATE ROLE dba SUPERUSER LOGIN PASSWORD 'dba-pass-1'" \
+	-c "CREATE ROLE runner LOGIN PASSWORD 'runner-pass-1'" -c "GRANT pg_execute_server_program TO runner" \
+	-c "CREATE ROLE plain LOGIN PASSWORD 'plain-pass-1'"
+refused db.user_privileged PUT "$P/users/dba" '{"password":"taken-pass-1"}'
+refused db.user_privileged PUT "$P/users/runner" '{"password":"taken-pass-1"}'
+refused db.user_privileged DELETE "$P/users/dba"
+psql_as dba dba-pass-1 postgres "SELECT 1" >/dev/null || fail "dba's password changed"
+follow PUT "$P/users/plain" '{"password":"plain-pass-2"}'
+psql_as plain plain-pass-2 postgres "SELECT 1" >/dev/null || fail "plain's new password"
+step "unmanaged superusers and members of pg_execute_server_program are refused; a plain role gets its password"
 
 # PostgreSQL restarts without systemd (pg_ctlcluster).
 follow PUT "$P/remote" '{"enabled":true}'

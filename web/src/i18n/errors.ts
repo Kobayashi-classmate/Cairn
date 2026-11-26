@@ -109,6 +109,10 @@ export function errorText(code: string, params: ErrorParams = {}): string | null
   if (code === 'file.fetch_failed' && typeof params.detail === 'string' && params.detail.includes('not allowed')) {
     return t('errors.file.fetch_not_allowed')
   }
+  // A restore that stopped partway without a copy of the database to go back to.
+  if (code === 'db.restore_partial' && params.copy === undefined && params.database !== undefined) {
+    return t('errors.detailed.db.restore_partial_no_copy', decorate(params))
+  }
   // A file operation where every entry failed (the job log lists them).
   if (code === 'op.failed' && typeof params.failed === 'number') return t('errors.op.all_failed', { failed: params.failed }, params.failed)
   const detailed = `errors.detailed.${code}`

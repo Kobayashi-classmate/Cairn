@@ -140,9 +140,15 @@
     "pickDatabase": "Choose a database",
     "pickFile": "Choose a dump",
     "steps": {
+      "copy": "Save a copy of {database} with the dumps",
       "load": "Load {file} into {database}",
       "as": "Run it as {user}",
       "asOwner": "Run it as the owner of the database"
+    },
+    "copy": "Save a copy of the database first",
+    "copyHint": {
+      "mysql": "If the dump fails partway, the database is put back from this copy. The copy stays with the dumps.",
+      "postgresql": "A dump that fails changes nothing; the copy lets you go back after one that worked. It stays with the dumps."
     }
   },
   "redis": {
@@ -187,6 +193,12 @@
     "delete": "Delete keys",
     "ttlSaved": "Expiry saved.",
     "ttlSeconds": "Expires in (seconds)"
+  },
+  "keyspace": {
+    "intro": "How many keys each database holds. Browsing keys and values takes the permission to manage databases.",
+    "keys": "Keys",
+    "expires": "With an expiry",
+    "empty": "No database holds keys."
   },
   "listSeparator": ", ",
   "service": {

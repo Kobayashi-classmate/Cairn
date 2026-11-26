@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +36,9 @@ type fakeRedis struct {
 	failGet  string
 	saves    int
 	dataFile string
+	// stream, when set, answers a command itself (writing to the
+	// connection) when it returns true: for replies too large to build.
+	stream func(w io.Writer, args []string) bool
 }
 
 func newFakeRedis() *fakeRedis {
@@ -72,6 +76,9 @@ func (f *fakeRedis) serve(c net.Conn, e *dbEnv) {
 		var args []string
 		for _, a := range asList(v) {
 			args = append(args, asString(a))
+		}
+		if f.stream != nil && f.stream(c, args) {
+			continue
 		}
 		f.mu.Lock()
 		f.cmds = append(f.cmds, strings.Join(args, " "))
@@ -393,5 +400,93 @@ func TestRedisRefusesLinkedConfig(t *testing.T) {
 	v.untouched(t)
 	if e.f.ran("systemctl restart redis-server") {
 		t.Fatal("restarted")
+	}
+}
+
+// A reply nesting arrays deeper than any the helper reads is refused
+// before it exhausts the stack.
+func TestRedisReadRefusesDeepNesting(t *testing.T) {
+	payload := strings.Repeat("*1\r\n", 200000) + ":1\r\n"
+	rc := &redisConn{r: bufio.NewReader(strings.NewReader(payload))}
+	if _, err := rc.read(); err == nil {
+		t.Fatalf("parsed %d nested arrays", 200000)
+	}
+	// A stream entry (an id, then its fields) inside a reply reads.
+	entry := array(array(bulk("1-0"), bulks("who", "alice")))
+	rc = &redisConn{r: bufio.NewReader(strings.NewReader(array(bulk("0"), entry)))}
+	v, err := rc.read()
+	if l := asList(v); err != nil || len(l) != 2 || asString(asList(asList(asList(l[1])[0])[1])[1]) != "alice" {
+		t.Fatalf("stream reply %v %v", v, err)
+	}
+}
+
+// What one reply may make the helper hold is bounded, and so is a line.
+func TestRedisReadBoundsAReply(t *testing.T) {
+	item := bulk(strings.Repeat("x", 1<<20))
+	big := "*40\r\n" + strings.Repeat(item, 40)
+	rc := &redisConn{r: bufio.NewReader(strings.NewReader(big))}
+	if _, err := rc.read(); err == nil {
+		t.Fatal("parsed a 40 MiB reply")
+	}
+	// The same for the replies of one pipeline together.
+	rc = &redisConn{r: bufio.NewReader(strings.NewReader(strings.Repeat(item, 40)))}
+	if _, err := rc.replies(40); err == nil {
+		t.Fatal("parsed 40 MiB of replies to one pipeline")
+	}
+	rc = &redisConn{r: bufio.NewReader(strings.NewReader("+" + strings.Repeat("a", 1<<20) + "\r\n"))}
+	if _, err := rc.read(); err == nil {
+		t.Fatal("parsed a 1 MiB status line")
+	}
+	// A large reply within the bound reads.
+	rc = &redisConn{r: bufio.NewReader(strings.NewReader("*8\r\n" + strings.Repeat(item, 8)))}
+	if v, err := rc.read(); err != nil || len(asList(v)) != 8 || len(asString(asList(v)[7])) != 1<<20 {
+		t.Fatalf("8 MiB reply: %v", err)
+	}
+}
+
+// A preview reads what it does not show and drops it: a list of large
+// items is never held whole in memory.
+func TestRedisPreviewDropsWhatItDoesNotShow(t *testing.T) {
+	e, f := newRedisEnv(t)
+	const items, size = 200, 1 << 20
+	chunk := []byte(strings.Repeat("v", size))
+	f.stream = func(w io.Writer, args []string) bool {
+		if len(args) < 2 || args[1] != "big:list" {
+			return false
+		}
+		switch strings.ToUpper(args[0]) {
+		case "TYPE":
+			_, _ = io.WriteString(w, "+list\r\n")
+		case "TTL":
+			_, _ = io.WriteString(w, ":-1\r\n")
+		case "LLEN":
+			_, _ = fmt.Fprintf(w, ":%d\r\n", items)
+		case "LRANGE":
+			_, _ = fmt.Fprintf(w, "*%d\r\n", items)
+			for range items {
+				_, _ = fmt.Fprintf(w, "$%d\r\n", size)
+				_, _ = w.Write(chunk)
+				_, _ = io.WriteString(w, "\r\n")
+			}
+		default:
+			return false
+		}
+		return true
+	}
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	v, err := call[helperapi.RedisValue](t, e.r, helperapi.ActionRedisGet, helperapi.RedisKeyRequest{Key: "big:list"})
+	runtime.ReadMemStats(&after)
+	if err != nil || v.Type != "list" || v.Length != items || len(v.Items) != items || !v.Truncated {
+		t.Fatalf("preview %v: %s %d %d %v", err, v.Type, v.Length, len(v.Items), v.Truncated)
+	}
+	for _, it := range v.Items {
+		if len(it) != redisItemMax {
+			t.Fatalf("item of %d bytes", len(it))
+		}
+	}
+	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 64<<20 {
+		t.Fatalf("the preview of %d MiB allocated %d MiB", items*size>>20, alloc>>20)
 	}
 }

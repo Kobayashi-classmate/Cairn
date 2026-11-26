@@ -4,8 +4,11 @@ package databases
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Kobayashi-classmate/Cairn/internal/api"
@@ -31,12 +34,14 @@ func (m *Module) redisRoutes(r *api.Router, doc func(string) api.RouteOption) {
 		doc("Change the Redis password, memory limit or persistence (starts a job)"), api.Returns(202, jobResponse{}))
 	r.Handle("GET /api/v1/databases/redis/password", m.redisPassword, api.Require(Manage), api.StepUp(),
 		doc("Show the Redis password, if the panel set it"), api.Returns(200, passwordView{}))
-	r.Handle("GET /api/v1/databases/redis/keys", m.redisScan, api.Require(Read),
+	// Values hold sessions and tokens, and so do the names of many keys
+	// (PHPREDIS_SESSION:<id>): listing keys and reading values is for those
+	// who may change them, after a second verification. Those who may only
+	// read see how many keys each database has (the list's keyspace).
+	r.Handle("GET /api/v1/databases/redis/keys", m.redisScan, api.Require(Manage), api.StepUp(),
 		doc("Keys matching ?pattern= in ?db=, from ?cursor= (at most ?count=)"), api.Returns(200, helperapi.RedisScanResponse{}))
-	// Values hold sessions and tokens: reading them is for those who may
-	// change them; listing key names is not.
-	r.Handle("GET /api/v1/databases/redis/value", m.redisGet, api.Require(Manage),
-		doc("A preview of ?key= in ?db="), api.Returns(200, helperapi.RedisValue{}))
+	r.Handle("GET /api/v1/databases/redis/value", m.redisGet, api.Require(Manage), api.StepUp(),
+		doc("A preview of ?key= in ?db= (audited without the value)"), api.Returns(200, helperapi.RedisValue{}))
 	r.Handle("POST /api/v1/databases/redis/delete", m.redisDelete, api.Require(Manage), api.StepUp(), api.Body(helperapi.RedisDeleteRequest{}),
 		doc("Delete keys"), api.Returns(200, helperapi.RedisDeleteResponse{}))
 	r.Handle("PUT /api/v1/databases/redis/ttl", m.redisTTL, api.Require(Manage), api.StepUp(), api.Body(helperapi.RedisTTLRequest{}),
@@ -169,7 +174,22 @@ func (m *Module) redisGet(w http.ResponseWriter, r *http.Request) error {
 	if err := m.call(r, helperapi.ActionRedisGet, req, &resp); err != nil {
 		return err
 	}
+	prefix, sum := auditKey(req.Key)
+	modutil.Audit(r, m.DB, m.Log, modutil.ActorOf(r), "redis.value_read", "ok", map[string]any{"db": req.DB, "keyPrefix": prefix, "keySha256": sum})
 	return api.WriteJSON(w, http.StatusOK, resp)
+}
+
+// auditKey names a Redis key in the audit without its secret part: keys
+// often hold a session ID or a token (PHPREDIS_SESSION:<id>), and auditors
+// read the audit. It keeps the namespace before the first colon, cut to 32
+// bytes, and the key's SHA-256, which identifies the key to whoever knows
+// it.
+func auditKey(key string) (prefix, sum string) {
+	if i := strings.IndexByte(key, ':'); i > 0 {
+		prefix = key[:min(i, 32)]
+	}
+	h := sha256.Sum256([]byte(key))
+	return prefix, hex.EncodeToString(h[:])
 }
 
 func (m *Module) redisDelete(w http.ResponseWriter, r *http.Request) error {

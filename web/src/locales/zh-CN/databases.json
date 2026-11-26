@@ -140,9 +140,15 @@
     "pickDatabase": "选择数据库",
     "pickFile": "选择备份文件",
     "steps": {
+      "copy": "把 {database} 的副本保存到转储列表",
       "load": "把 {file} 导入 {database}",
       "as": "以 {user} 的身份执行",
       "asOwner": "以数据库所有者的身份执行"
+    },
+    "copy": "先保存数据库的副本",
+    "copyHint": {
+      "mysql": "转储中途失败时，用这份副本把数据库恢复原样。副本留在转储列表里。",
+      "postgresql": "失败的转储不会改动数据库；有了副本，恢复成功后也能回到之前。副本留在转储列表里。"
     }
   },
   "redis": {
@@ -187,6 +193,12 @@
     "delete": "删除键",
     "ttlSaved": "已保存过期时间。",
     "ttlSeconds": "过期时间（秒）"
+  },
+  "keyspace": {
+    "intro": "各个库里有多少个键。浏览键和值需要管理数据库的权限。",
+    "keys": "键数",
+    "expires": "设了过期时间的",
+    "empty": "所有库都没有键。"
   },
   "listSeparator": "、",
   "service": {

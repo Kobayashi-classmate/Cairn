@@ -12,6 +12,7 @@ import type { ColumnDef } from '@/components/common/dataTable'
 import type { RowAction } from '@/components/common/types'
 import { Button } from '@/components/ui/button'
 import { notifyError } from '@/lib/notify'
+import { useSessionStore } from '@/stores/session'
 import { askDropUser } from './actions'
 import PasswordDialog from './PasswordDialog.vue'
 
@@ -22,6 +23,9 @@ const props = defineProps<{ engine: DbEngine; canManage: boolean }>()
 const emit = defineEmits<{ create: []; edit: [user: DbUser] }>()
 
 const { t } = useI18n()
+const session = useSessionStore()
+/** A user the panel did not create is changed and deleted by administrators only. */
+const canAdmin = computed(() => session.can('databases.admin'))
 const search = ref('')
 const revealed = ref<string | null>(null)
 const revealedUser = ref('')
@@ -48,7 +52,7 @@ async function reveal(user: DbUser) {
 }
 
 function actions(user: DbUser): RowAction[] {
-  if (!props.canManage || user.missing) return []
+  if (!props.canManage || user.missing || (!user.managed && !canAdmin.value)) return []
   // A user the panel did not create: its privileges are not the panel's to
   // edit (it does not know them), only its password.
   const edit: RowAction = user.managed
@@ -119,7 +123,7 @@ function hostText(host: string): string {
           <KeyRound aria-hidden="true" />
           {{ t('databases.password.show') }}
         </Button>
-        <RowActions :actions="actions(row)" :label="t('databases.user.more', { name: row.name })" />
+        <RowActions v-if="actions(row).length > 0" :actions="actions(row)" :label="t('databases.user.more', { name: row.name })" />
       </div>
     </template>
   </DataTable>

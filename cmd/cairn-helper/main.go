@@ -195,6 +195,9 @@ func run(cfgPath, account string, log *slog.Logger) error {
 	// connection from outside. Neither holds up the first request.
 	go e.firewall.Startup(ctx)
 	e.ssh.Resume()
+	// The MySQL snippet of earlier releases gets the name the server reads
+	// last (it takes effect when the server restarts next).
+	e.dbs.MigrateConfig(log)
 
 	srv := &helper.Server{
 		Registry: reg,

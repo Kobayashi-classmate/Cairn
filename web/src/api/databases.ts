@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 //
 // Database servers: MySQL/MariaDB, PostgreSQL and Redis/Valkey
-// (`databases.read` to view, `databases.manage` to change). Changes run as
+// (`databases.read` to view, `databases.manage` to change, `databases.admin`
+// to change or delete users the panel did not create). Changes run as
 // jobs; several routes are step-up protected.
 import { API_BASE, ApiError, api, apiErrorFromBody, authHeaders, reportUnauthorized, type ErrorParams } from './client'
 import type { Job } from './jobs'
@@ -68,6 +69,15 @@ export interface RedisInfo {
   persistence: RedisPersistence
   keys: number
   usedMemory: number
+  /** Keys of each database that has any. */
+  keyspace?: RedisKeyspace[]
+}
+
+export interface RedisKeyspace {
+  db: number
+  keys: number
+  /** How many of them expire. */
+  expires: number
 }
 
 export interface DbEngine {
@@ -182,6 +192,7 @@ export function dropDatabase(engine: string, name: string, dropOwner: boolean): 
   return jobOf(api.delete<{ job: Job }>(`${base(engine)}/dbs/${encodeURIComponent(name)}${query}`))
 }
 
+/** Step-up protected when the user gets access to databases or hosts other than this server. */
 export function createDbUser(engine: string, body: DbUserRequest): Promise<Job> {
   return jobOf(api.post<{ job: Job }>(`${base(engine)}/users`, body))
 }
@@ -237,11 +248,24 @@ export async function dumpLink(engine: string, file: string): Promise<string> {
   return (await api.get<{ url: string }>(`${base(engine)}/dumps/${encodeURIComponent(file)}?link=1`)).url
 }
 
-/** Step-up protected; runs as the database's owner or `user`. */
-export function restoreDump(engine: string, database: string, file: string, user?: string): Promise<Job> {
+/**
+ * Step-up protected; runs as the database's owner or `user`. A copy of the
+ * database is taken first (kept with the dumps, named
+ * `<database>_<time>-before-restore.<ext>`) unless `skipCopy`.
+ */
+export function restoreDump(engine: string, database: string, file: string, user?: string, skipCopy = false): Promise<Job> {
   return jobOf(
-    api.post<{ job: Job }>(`${base(engine)}/dbs/${encodeURIComponent(database)}/restore`, user ? { file, user } : { file }),
+    api.post<{ job: Job }>(`${base(engine)}/dbs/${encodeURIComponent(database)}/restore`, {
+      file,
+      ...(user ? { user } : {}),
+      ...(skipCopy ? { skipCopy: true } : {}),
+    }),
   )
+}
+
+/** The copy of a database a restore takes first. */
+export function isRestoreCopy(file: string): boolean {
+  return /_\d{8}-\d{6}(?:-\d+)?-before-restore\.(?:sql\.gz|dump)$/.test(file)
 }
 
 /**
@@ -292,6 +316,7 @@ export async function revealRedisPassword(): Promise<string> {
   return (await api.get<{ password: string }>('/databases/redis/password')).password
 }
 
+/** Step-up protected (databases.manage). */
 export function scanRedisKeys(
   db: number,
   pattern: string,
@@ -302,6 +327,7 @@ export function scanRedisKeys(
   return api.get<{ keys: RedisKey[]; cursor: string }>(`/databases/redis/keys?${query.toString()}`)
 }
 
+/** Step-up protected (databases.manage); audited without the value. */
 export function fetchRedisValue(db: number, key: string): Promise<RedisValue> {
   const query = new URLSearchParams({ db: String(db), key })
   return api.get<RedisValue>(`/databases/redis/value?${query.toString()}`)

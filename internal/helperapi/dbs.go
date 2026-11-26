@@ -51,9 +51,33 @@ const (
 	// a pipe or another special file, has a second name, or a directory
 	// on its path is a link (params: path, reason); nothing was changed.
 	CodeDBConfigUnsafe = "db.config_unsafe"
-	CodeRedisNeedsPass = "redis.password_required" // remote access needs a password
-	CodeRedisCommand   = "redis.command_failed"
-	CodeRedisNoKey     = "redis.key_not_found"
+	// CodeDBUserPrivileged: the user can do more than use single databases
+	// (a superuser, a global privilege, a role; params: name, privilege),
+	// so the panel neither changes nor drops it.
+	CodeDBUserPrivileged = "db.user_privileged"
+	// CodeDBUnsafeEntry: the server holds a name the helper would have to
+	// put into a statement of its own but does not take (quotes,
+	// backslashes, spaces, control characters; params: value); nothing was
+	// changed.
+	CodeDBUnsafeEntry = "db.unsafe_entry"
+	// CodeDBRemoteNotApplied: after the restart the server does not listen
+	// where it was told to (another setting wins; params: engine, listen);
+	// the previous configuration is back.
+	CodeDBRemoteNotApplied = "db.remote_not_applied"
+	// Restores (params: database, copy when one was taken, detail): the
+	// copy of the database taken first could not be made, so nothing was
+	// restored (CodeDBCopyFailed); the dump failed and the database was put
+	// back from the copy (CodeDBRestoreRolledBack); the dump failed partway
+	// and the database could not be put back, or there was no copy
+	// (CodeDBRestorePartial); the dump failed inside its single
+	// transaction, so nothing changed (CodeDBRestoreUnchanged).
+	CodeDBCopyFailed        = "db.copy_failed"
+	CodeDBRestoreRolledBack = "db.restore_rolled_back"
+	CodeDBRestorePartial    = "db.restore_partial"
+	CodeDBRestoreUnchanged  = "db.restore_unchanged"
+	CodeRedisNeedsPass      = "redis.password_required" // remote access needs a password
+	CodeRedisCommand        = "redis.command_failed"
+	CodeRedisNoKey          = "redis.key_not_found"
 )
 
 // Database engine kinds.
@@ -286,6 +310,10 @@ type DBRestoreRequest struct {
 	File     string `json:"file"`
 	User     string `json:"user"`
 	Password string `json:"password"`
+	// SkipCopy restores without first dumping the database as it is (the
+	// copy a failed restore is undone from); for a database that cannot be
+	// dumped any more, or does not fit twice.
+	SkipCopy bool `json:"skipCopy,omitempty"`
 }
 
 // Validate implements the helper's request validation hook.
@@ -368,6 +396,17 @@ type RedisInfo struct {
 	Persistence     string `json:"persistence"` // rdb | aof | both | none
 	Keys            int64  `json:"keys"`
 	UsedMemory      int64  `json:"usedMemory"`
+	// Keyspace counts the keys of each database that has any: what those
+	// who may not browse the keys see of them.
+	Keyspace []RedisKeyspace `json:"keyspace"`
+}
+
+// RedisKeyspace is the number of keys of one database, and how many of
+// them expire.
+type RedisKeyspace struct {
+	DB      int   `json:"db"`
+	Keys    int64 `json:"keys"`
+	Expires int64 `json:"expires"`
 }
 
 // DBEngineInfo is one installed database engine.

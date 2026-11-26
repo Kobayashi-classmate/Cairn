@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"sort"
@@ -33,6 +34,9 @@ import (
 const (
 	Read   authz.Permission = "databases.read"
 	Manage authz.Permission = "databases.manage"
+	// Admin changes and drops users the panel did not create
+	// (administrators): the panel does not know what such a user may do.
+	Admin authz.Permission = "databases.admin"
 )
 
 const (
@@ -73,6 +77,7 @@ func (m *Module) Info() module.Info {
 		Permissions: []module.Permission{
 			{Name: Read, Roles: []authz.Role{authz.Operator, authz.Auditor}},
 			{Name: Manage, Roles: []authz.Role{authz.Operator}},
+			{Name: Admin},
 		},
 		Nav: []module.NavItem{
 			{Key: "databases", LabelKey: "common.nav.databases", Icon: "database", Route: "databases", Permission: Read, Group: module.GroupApps, Order: 18},
@@ -91,11 +96,12 @@ func (m *Module) Routes(r *api.Router) {
 	r.Handle("DELETE /api/v1/databases/{engine}/dbs/{name}", m.dropDB, api.Require(Manage), api.StepUp(),
 		doc("Drop a database; ?dropOwner=true also drops its owner (starts a job)"), job)
 	r.Handle("POST /api/v1/databases/{engine}/users", m.createUser, api.Require(Manage), api.Body(userRequest{}),
-		doc("Create a user (starts a job)"), job)
+		doc("Create a user (starts a job); with access to databases, or hosts other than this server, it needs a second verification"), job)
 	r.Handle("PUT /api/v1/databases/{engine}/users/{name}", m.updateUser, api.Require(Manage), api.StepUp(), api.Body(userRequest{}),
-		doc("Change a user's password, hosts or access; an empty password, absent hosts and absent grants keep what it has (starts a job)"), job)
+		doc("Change a user's password, hosts or access; an empty password, absent hosts and absent grants keep what it has; "+
+			"a user the panel did not create needs databases.admin (starts a job)"), job)
 	r.Handle("DELETE /api/v1/databases/{engine}/users/{name}", m.dropUser, api.Require(Manage), api.StepUp(),
-		doc("Drop a user (starts a job)"), job)
+		doc("Drop a user; a user the panel did not create needs databases.admin (starts a job)"), job)
 	r.Handle("GET /api/v1/databases/{engine}/users/{name}/password", m.revealPassword, api.Require(Manage), api.StepUp(),
 		doc("Show a user's password, if the panel set it"), api.Returns(200, passwordView{}))
 	r.Handle("PUT /api/v1/databases/{engine}/remote", m.remote, api.Require(Manage), api.StepUp(), api.Body(remoteRequest{}),
@@ -241,6 +247,26 @@ func newPassword() string {
 		}
 	}
 	return string(out)
+}
+
+// requireAdmin refuses a change to a user the panel did not create to
+// those without Admin: the panel does not know what the user may do
+// (the helper refuses users with rights beyond single databases anyway).
+func requireAdmin(r *http.Request) error {
+	if p, ok := api.PrincipalFrom(r.Context()); ok && p.Can(Admin) {
+		return nil
+	}
+	return api.ErrForbidden
+}
+
+// localOnly reports whether hosts name this server only.
+func localOnly(hosts []string) bool {
+	for _, h := range hosts {
+		if ip := net.ParseIP(h); h != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return false
+		}
+	}
+	return true
 }
 
 func defaultHosts(engine string) []string {
@@ -574,6 +600,15 @@ func (m *Module) dropDB(w http.ResponseWriter, r *http.Request) error {
 	params := map[string]any{"database": name}
 	if dropOwner && owner != "" {
 		params["user"] = owner
+		// An owner the panel no longer has a record of is a user it did
+		// not create.
+		if _, have, err := m.loadUser(r.Context(), engine, owner); err != nil {
+			return err
+		} else if !have {
+			if err := requireAdmin(r); err != nil {
+				return err
+			}
+		}
 	}
 	return m.start(w, r, "db.drop", engine, params, func(ctx context.Context, j *jobs.Job) error {
 		ctx = context.WithoutCancel(ctx)
@@ -642,6 +677,14 @@ func (m *Module) createUser(w http.ResponseWriter, r *http.Request) error {
 	if err := u.Validate(); err != nil {
 		return badRequest(err)
 	}
+	// A user with access to databases, or one reachable from elsewhere, is
+	// as much as changing a user: a second verification (a token cannot
+	// give one). A local user without access still needs none.
+	if len(u.Grants) > 0 || !localOnly(u.Hosts) {
+		if err := api.CheckStepUp(r); err != nil {
+			return err
+		}
+	}
 	return m.start(w, r, "db.user_create", engine, map[string]any{"user": u.Name}, func(ctx context.Context, j *jobs.Job) error {
 		if err := j.RunOp(helperapi.ActionDBUserSet, u, nil); err != nil {
 			return err
@@ -666,6 +709,11 @@ func (m *Module) updateUser(w http.ResponseWriter, r *http.Request) error {
 	rec, have, err := m.loadUser(r.Context(), engine, name)
 	if err != nil {
 		return err
+	}
+	if !have {
+		if err := requireAdmin(r); err != nil {
+			return err
+		}
 	}
 	// Nil hosts or grants leave them as they are: changing the password of
 	// a user the panel did not create never revokes its privileges.
@@ -717,6 +765,13 @@ func (m *Module) dropUser(w http.ResponseWriter, r *http.Request) error {
 	name := r.PathValue("name")
 	if !helperapi.ValidDBUser(engine, name) {
 		return api.NewError(http.StatusBadRequest, "validation.invalid", map[string]any{"field": "name", "rule": "db_user"})
+	}
+	if _, have, err := m.loadUser(r.Context(), engine, name); err != nil {
+		return err
+	} else if !have {
+		if err := requireAdmin(r); err != nil {
+			return err
+		}
 	}
 	return m.start(w, r, "db.user_drop", engine, map[string]any{"user": name}, func(ctx context.Context, j *jobs.Job) error {
 		return m.runDropUser(context.WithoutCancel(ctx), j, engine, name)

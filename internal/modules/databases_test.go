@@ -273,11 +273,11 @@ func TestDatabaseDumpsAndRedis(t *testing.T) {
 		t.Fatalf("scan %+v %v", s, keys.body)
 	}
 	admin.expect(admin.do("GET", "/api/v1/databases/redis/keys?db=99", nil), 400, "validation.invalid")
-	// Auditors see key names, never values.
+	// Auditors see neither key names (they hold session IDs) nor values.
 	admin.expect(admin.do("POST", "/api/v1/users", map[string]any{"username": "aud", "password": pw, "role": "auditor"}), 201, "")
 	aud := e.client()
 	aud.expect(aud.login("aud", pw), 200, "")
-	aud.expect(aud.do("GET", "/api/v1/databases/redis/keys?db=2", nil), 200, "")
+	aud.expect(aud.do("GET", "/api/v1/databases/redis/keys?db=2", nil), 403, "auth.forbidden")
 	aud.expect(aud.do("GET", "/api/v1/databases/redis/value?db=2&key=user:1", nil), 403, "auth.forbidden")
 	e.helper.mu.Lock()
 	e.helper.errs = map[string]error{helperapi.ActionRedisGet: &helperapi.Error{Code: helperapi.CodeRedisNoKey}}

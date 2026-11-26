@@ -14,6 +14,7 @@ import DatabaseSheet from './DatabaseSheet.vue'
 import DatabaseTable from './DatabaseTable.vue'
 import DumpTable from './DumpTable.vue'
 import RedisKeys from './RedisKeys.vue'
+import RedisKeyspace from './RedisKeyspace.vue'
 import RedisSettings from './RedisSettings.vue'
 import RestoreSheet from './RestoreSheet.vue'
 import UserSheet from './UserSheet.vue'
@@ -119,7 +120,9 @@ function openRestore(target: { database?: string; file?: string }) {
 
     <template v-if="isRedis">
       <RedisSettings v-if="view === 'settings'" :engine="engine" :can-manage="canManage" />
-      <RedisKeys v-else-if="view === 'keys'" :can-manage="canManage" />
+      <!-- Key names hold session IDs: those who may only read see how many keys there are. -->
+      <RedisKeys v-else-if="view === 'keys' && canManage" :can-manage="canManage" />
+      <RedisKeyspace v-else-if="view === 'keys'" :engine="engine" />
       <DumpTable v-else :key="engine.id" :engine="engine" :can-manage="canManage" />
     </template>
     <template v-else>

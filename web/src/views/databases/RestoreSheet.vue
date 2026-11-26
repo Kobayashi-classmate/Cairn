@@ -3,18 +3,20 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { isApiError, isStepUpRequired } from '@/api/client'
-import { fetchDumps, restoreDump, type DbEngine, type DumpInfo } from '@/api/databases'
+import { fetchDumps, isRestoreCopy, restoreDump, type DbEngine, type DumpInfo } from '@/api/databases'
 import FormField from '@/components/common/FormField.vue'
 import FormSheet from '@/components/common/FormSheet.vue'
 import Notice from '@/components/common/Notice.vue'
 import SelectField from '@/components/common/SelectField.vue'
+import SwitchField from '@/components/common/SwitchField.vue'
 import type { SelectOption } from '@/components/common/types'
 import { errorMessage } from '@/i18n/errors'
 import { formatBytes, formatDateTime } from '@/i18n/format'
 import { useDatabasesStore } from '@/stores/databases'
 
 // "Restore a dump" (form sheet, step-up protected): loads a dump into an
-// existing database, as its owner or a user with full access to it.
+// existing database, as its owner or a user with full access to it, after
+// a copy of the database (kept with the dumps) unless turned off.
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{
   engine: DbEngine
@@ -30,6 +32,7 @@ const dumps = ref<DumpInfo[]>([])
 const database = ref('')
 const file = ref('')
 const user = ref('')
+const takeCopy = ref(true)
 const submitting = ref(false)
 const error = ref<unknown>(null)
 const loadError = ref<unknown>(null)
@@ -39,6 +42,7 @@ watch(open, async (value) => {
   database.value = props.database ?? ''
   file.value = props.file ?? ''
   user.value = ''
+  takeCopy.value = true
   error.value = null
   loadError.value = null
   try {
@@ -46,10 +50,13 @@ watch(open, async (value) => {
   } catch (err) {
     loadError.value = err
   }
-  // A dump made of a database restores into it by default; a database takes its newest dump.
+  // A dump made of a database restores into it by default; a database takes its newest dump
+  // (not the copy an earlier restore took of it).
   if (!database.value && file.value) database.value = dumps.value.find((d) => d.file === file.value)?.database ?? ''
   if (!file.value && database.value) {
-    const newest = dumps.value.filter((d) => d.database === database.value).sort((a, b) => b.createdAt - a.createdAt)[0]
+    const newest = dumps.value
+      .filter((d) => d.database === database.value && !isRestoreCopy(d.file))
+      .sort((a, b) => b.createdAt - a.createdAt)[0]
     file.value = newest?.file ?? ''
   }
 })
@@ -79,6 +86,7 @@ const needsUser = computed(() => isApiError(error.value) && error.value.code ===
 const steps = computed(() =>
   database.value && file.value
     ? [
+        ...(takeCopy.value ? [t('databases.restore.steps.copy', { database: database.value })] : []),
         t('databases.restore.steps.load', { file: file.value, database: database.value }),
         user.value ? t('databases.restore.steps.as', { user: user.value }) : t('databases.restore.steps.asOwner'),
       ]
@@ -91,7 +99,9 @@ async function submit() {
   error.value = null
   try {
     // Step-up protected: the client asks for the password and retries.
-    await store.runJob(() => restoreDump(props.engine.id, database.value, file.value, user.value || undefined), { rethrow: true })
+    await store.runJob(() => restoreDump(props.engine.id, database.value, file.value, user.value || undefined, !takeCopy.value), {
+      rethrow: true,
+    })
     open.value = false
   } catch (err) {
     if (!isStepUpRequired(err)) error.value = err
@@ -128,6 +138,7 @@ async function submit() {
         <SelectField v-bind="field" v-model="user" :options="userOptions" />
       </template>
     </FormField>
+    <SwitchField v-model="takeCopy" :label="t('databases.restore.copy')" :hint="t(`databases.restore.copyHint.${engine.kind === 'mysql' ? 'mysql' : 'postgresql'}`)" />
     <Notice tone="warning">{{ t('databases.restore.warning') }}</Notice>
     <Notice v-if="error" tone="destructive">
       {{ errorMessage(error) }}

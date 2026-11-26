@@ -35,6 +35,12 @@ const (
 	redisItemMax  = 4 << 10
 	redisSaveRDB  = "3600 1 300 100 60 10000"
 	redisSaveWait = 10 * time.Minute
+	// What the replies to one command, or one pipeline, may take in
+	// memory, and how deep their arrays may nest (the deepest the helper
+	// reads is a stream entry inside a reply: three). The instance is
+	// reached on a local port another user can take while it is down.
+	redisReplyMax = 32 << 20
+	redisDepthMax = 8
 )
 
 // redisError is an error reply.
@@ -45,6 +51,9 @@ func (e redisError) Error() string { return string(e) }
 type redisConn struct {
 	c net.Conn
 	r *bufio.Reader
+	// keep, when set, is how much of each bulk string the replies keep:
+	// the rest is read and dropped (the key browser's previews).
+	keep int
 }
 
 func (rc *redisConn) Close() error { return rc.c.Close() }
@@ -72,6 +81,30 @@ func (rc *redisConn) do(args ...string) (any, error) {
 	return rc.read()
 }
 
+// replyReader reads the replies to one command or pipeline within
+// redisReplyMax.
+type replyReader struct {
+	r    *bufio.Reader
+	left int64
+	keep int
+}
+
+func (rc *redisConn) replyReader() *replyReader {
+	keep := rc.keep
+	if keep <= 0 || keep > redisBulkMax {
+		keep = redisBulkMax
+	}
+	return &replyReader{r: rc.r, left: redisReplyMax, keep: keep}
+}
+
+// take counts n bytes the replies hold in memory.
+func (p *replyReader) take(n int64) error {
+	if p.left -= n; p.left < 0 {
+		return errors.New("redis: reply too large")
+	}
+	return nil
+}
+
 // pipeline sends several commands and reads every reply (error replies
 // stay in the list).
 func (rc *redisConn) pipeline(cmds [][]string) ([]any, error) {
@@ -97,9 +130,10 @@ func (rc *redisConn) pipeline(cmds [][]string) ([]any, error) {
 }
 
 func (rc *redisConn) replies(n int) ([]any, error) {
+	p := rc.replyReader()
 	out := make([]any, n)
 	for i := range out {
-		v, err := rc.read()
+		v, err := p.read(0)
 		var re redisError
 		if err != nil && !errors.As(err, &re) {
 			return nil, err
@@ -113,12 +147,22 @@ func (rc *redisConn) replies(n int) ([]any, error) {
 }
 
 // read parses one RESP2 reply: string, redisError, int64, nil or []any.
-func (rc *redisConn) read() (any, error) {
-	line, err := rc.r.ReadString('\n')
+func (rc *redisConn) read() (any, error) { return rc.replyReader().read(0) }
+
+// read parses a reply at the given depth of arrays.
+func (p *replyReader) read(depth int) (any, error) {
+	// Lines are short: anything long comes as a bulk string.
+	raw, err := p.r.ReadSlice('\n')
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return nil, errors.New("redis: reply line too long")
+	}
 	if err != nil {
 		return nil, err
 	}
-	line = strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+	if err := p.take(int64(len(raw))); err != nil {
+		return nil, err
+	}
+	line := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
 	if line == "" {
 		return nil, errors.New("redis: empty reply")
 	}
@@ -138,11 +182,18 @@ func (rc *redisConn) read() (any, error) {
 		if n < 0 {
 			return nil, nil
 		}
-		buf := make([]byte, n+2)
-		if _, err := io.ReadFull(rc.r, buf); err != nil {
+		kept := min(n, p.keep)
+		if err := p.take(int64(kept)); err != nil {
 			return nil, err
 		}
-		return string(buf[:n]), nil
+		buf := make([]byte, kept)
+		if _, err := io.ReadFull(p.r, buf); err != nil {
+			return nil, err
+		}
+		if _, err := p.r.Discard(n - kept + 2); err != nil {
+			return nil, err
+		}
+		return string(buf), nil
 	case '*':
 		n, err := strconv.Atoi(body)
 		if err != nil || n > 1<<20 {
@@ -151,9 +202,16 @@ func (rc *redisConn) read() (any, error) {
 		if n < 0 {
 			return nil, nil
 		}
+		if depth >= redisDepthMax {
+			return nil, errors.New("redis: reply nested too deeply")
+		}
+		// Each element is an interface value of two words.
+		if err := p.take(int64(n) * 16); err != nil {
+			return nil, err
+		}
 		out := make([]any, n)
 		for i := range out {
-			v, err := rc.read()
+			v, err := p.read(depth + 1)
 			var re redisError
 			if err != nil && !errors.As(err, &re) {
 				return nil, err
@@ -329,11 +387,23 @@ func (d *DBs) redisStatus(ctx context.Context, e dbEngine, info *helperapi.DBEng
 	}
 	ri := &helperapi.RedisInfo{PasswordSet: conf.password != ""}
 	ri.UsedMemory, _ = strconv.ParseInt(infoField(asString(r[1]), "used_memory"), 10, 64)
+	ri.Keyspace = []helperapi.RedisKeyspace{}
 	for _, line := range strings.Split(asString(r[2]), "\n") {
-		if _, stats, ok := strings.Cut(strings.TrimSpace(line), ":keys="); ok && strings.HasPrefix(line, "db") {
-			n, _ := strconv.ParseInt(strings.SplitN(stats, ",", 2)[0], 10, 64)
-			ri.Keys += n
+		// db0:keys=12,expires=3,avg_ttl=0
+		name, stats, ok := strings.Cut(strings.TrimSpace(line), ":keys=")
+		db, err := strconv.Atoi(strings.TrimPrefix(name, "db"))
+		if !ok || !strings.HasPrefix(name, "db") || err != nil {
+			continue
 		}
+		n, _ := strconv.ParseInt(strings.SplitN(stats, ",", 2)[0], 10, 64)
+		ks := helperapi.RedisKeyspace{DB: db, Keys: n}
+		for _, field := range strings.Split(stats, ",") {
+			if v, ok := strings.CutPrefix(field, "expires="); ok {
+				ks.Expires, _ = strconv.ParseInt(v, 10, 64)
+			}
+		}
+		ri.Keys += n
+		ri.Keyspace = append(ri.Keyspace, ks)
 	}
 	maxBytes, _ := strconv.ParseInt(configValue(r[3]), 10, 64)
 	ri.MaxMemoryMB = int(maxBytes >> 20)
@@ -491,8 +561,8 @@ func (d *DBs) redisRemote(ctx context.Context, log io.Writer, e dbEngine, enable
 	if !replaced {
 		lines = append(lines, "bind "+bind)
 	}
-	return d.reconfigure(ctx, log, e, conf.file, []byte(strings.Join(lines, "\n")),
-		func() error { return d.systemctl(ctx, log, e, helperapi.ServiceRestart) })
+	return d.reconfigure(ctx, log, e, []confEdit{{conf.file, []byte(strings.Join(lines, "\n"))}},
+		func() error { return d.systemctl(ctx, log, e, helperapi.ServiceRestart) }, nil)
 }
 
 // redisSelect connects and selects a database for the key browser.
@@ -583,6 +653,12 @@ func (d *DBs) redisGet(ctx context.Context, _ helperapi.Caller, req helperapi.Re
 	v := helperapi.RedisValue{Key: req.Key, Type: asString(r[0]), TTL: asInt(r[1])}
 	k := req.Key
 	maxItems := strconv.Itoa(helperapi.RedisItemsMax - 1)
+	// Items are shown clipped (see clip): what goes beyond is read and
+	// dropped as it comes, one byte more kept to tell that it was cut. A
+	// string comes from GETRANGE, already cut by the server.
+	if v.Type != "string" {
+		rc.keep = redisItemMax + 1
+	}
 	var items []any
 	switch v.Type {
 	case "none":

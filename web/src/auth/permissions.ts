@@ -21,6 +21,7 @@ export type KnownPermission =
   | 'certs.manage'
   | 'databases.read'
   | 'databases.manage'
+  | 'databases.admin'
   | 'files.read'
   | 'files.manage'
   | 'files.admin'

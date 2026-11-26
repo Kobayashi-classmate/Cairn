@@ -306,7 +306,15 @@
       "user_exists": "A user named {name} already exists.",
       "restore_needs_user": "{database} cannot be restored: no user with full access to it whose password the panel knows.",
       "dump_exists": "A dump named {file} already exists.",
-      "upload_too_large": "The file is larger than {size}."
+      "upload_too_large": "The file is larger than {size}.",
+      "user_privileged": "{name} can do more than use single databases ({privilege}); the panel does not change or delete such users. Use the database server's own tools.",
+      "unsafe_entry": "The database server holds a name the panel does not handle ({value}). Nothing was changed.",
+      "remote_not_applied": "After the restart {engine} listens on {listen}: another setting overrides the panel's. The previous configuration is back.",
+      "copy_failed": "The copy of {database} taken before restoring could not be made, so nothing was restored. To restore anyway, turn the copy off.",
+      "restore_rolled_back": "The dump could not be restored; {database} was put back as it was before, from {copy}.",
+      "restore_partial": "The dump stopped partway and {database} could not be put back: part of the dump is restored. Restore {copy}, the copy taken before, to go back.",
+      "restore_partial_no_copy": "The dump stopped partway: part of it is restored in {database}, and no copy was taken before.",
+      "restore_unchanged": "The dump could not be restored; nothing in {database} was changed."
     },
     "redis": {
       "key_not_found": "The key {key} does not exist (it may have expired)."
@@ -465,7 +473,14 @@
     "restore_needs_user": "The dump cannot be restored: no user with full access to the database whose password the panel knows.",
     "password_unknown": "The panel does not know this password.",
     "dump_exists": "A dump with this file name already exists.",
-    "upload_too_large": "The file is too large."
+    "upload_too_large": "The file is too large.",
+    "user_privileged": "This database user can do more than use single databases; the panel does not change or delete such users.",
+    "unsafe_entry": "The database server holds a name the panel does not handle. Nothing was changed.",
+    "remote_not_applied": "The database server does not listen where the panel told it to: another setting overrides the panel's. The previous configuration is back.",
+    "copy_failed": "The copy of the database taken before restoring could not be made. Nothing was restored.",
+    "restore_rolled_back": "The dump could not be restored. The database was put back as it was before.",
+    "restore_partial": "The dump stopped partway and the database could not be put back: part of the dump is restored.",
+    "restore_unchanged": "The dump could not be restored. Nothing in the database was changed."
   },
   "redis": {
     "password_required": "Redis needs a password while other hosts can connect to it: set one before allowing remote access, and allow local access only before removing it.",

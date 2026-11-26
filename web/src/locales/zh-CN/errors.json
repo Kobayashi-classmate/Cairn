@@ -306,7 +306,15 @@
       "user_exists": "已存在名为 {name} 的用户。",
       "restore_needs_user": "无法恢复 {database}：没有对它拥有完全权限、且面板知道其密码的用户。",
       "dump_exists": "已存在名为 {file} 的备份文件。",
-      "upload_too_large": "文件大于 {size}。"
+      "upload_too_large": "文件大于 {size}。",
+      "user_privileged": "{name} 的权限超出了单个数据库（{privilege}），面板不修改也不删除这类用户。请用数据库自带的工具处理。",
+      "unsafe_entry": "数据库服务器里有面板无法处理的名称（{value}），没有做任何更改。",
+      "remote_not_applied": "重启后 {engine} 监听的是 {listen}：另有设置覆盖了面板的。已恢复原来的配置。",
+      "copy_failed": "恢复前没能保存 {database} 的副本，所以没有恢复。如果仍要恢复，请关掉副本。",
+      "restore_rolled_back": "转储没能恢复，已用 {copy} 把 {database} 恢复到之前的样子。",
+      "restore_partial": "转储中途失败，{database} 也没能恢复原样：转储的一部分已经导入。恢复前保存的副本是 {copy}，恢复它即可回到原样。",
+      "restore_partial_no_copy": "转储中途失败：一部分已经导入 {database}，恢复前也没有保存副本。",
+      "restore_unchanged": "转储没能恢复，{database} 没有任何变化。"
     },
     "redis": {
       "key_not_found": "键 {key} 不存在（可能已过期）。"
@@ -465,7 +473,14 @@
     "restore_needs_user": "无法恢复备份：没有对该数据库拥有完全权限、且面板知道其密码的用户。",
     "password_unknown": "面板不知道该密码。",
     "dump_exists": "已存在同名的备份文件。",
-    "upload_too_large": "文件过大。"
+    "upload_too_large": "文件过大。",
+    "user_privileged": "这个数据库用户的权限超出了单个数据库，面板不修改也不删除这类用户。",
+    "unsafe_entry": "数据库服务器里有面板无法处理的名称，没有做任何更改。",
+    "remote_not_applied": "数据库服务器没有按面板的设置监听：另有设置覆盖了面板的。已恢复原来的配置。",
+    "copy_failed": "恢复前没能保存数据库的副本，没有恢复任何内容。",
+    "restore_rolled_back": "转储没能恢复，数据库已恢复到之前的样子。",
+    "restore_partial": "转储中途失败，数据库也没能恢复原样：转储的一部分已经导入。",
+    "restore_unchanged": "转储没能恢复，数据库没有任何变化。"
   },
   "redis": {
     "password_required": "其他主机可以连接 Redis 时必须设置密码：请先设置密码再允许远程访问，移除密码前请先改为仅本机访问。",

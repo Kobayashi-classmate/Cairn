@@ -259,7 +259,8 @@
     },
     "databases": {
       "read": "View databases",
-      "manage": "Manage databases"
+      "manage": "Manage databases",
+      "admin": "Change and delete database users the panel did not create"
     },
     "files": {
       "read": "Browse files",

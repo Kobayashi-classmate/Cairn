@@ -44,6 +44,9 @@ type restoreRequest struct {
 	// User restores the dump (its rights bound what the dump can do);
 	// "" means the database's owner.
 	User string `json:"user,omitempty"`
+	// SkipCopy restores without a copy of the database first: a failed
+	// MySQL restore then stays half done.
+	SkipCopy bool `json:"skipCopy,omitempty"`
 }
 
 func (m *Module) dumpRoutes(r *api.Router, doc func(string) api.RouteOption) {
@@ -60,7 +63,7 @@ func (m *Module) dumpRoutes(r *api.Router, doc func(string) api.RouteOption) {
 	r.Handle("DELETE /api/v1/databases/{engine}/dumps/{file}", m.deleteDump, api.Require(Manage), api.StepUp(),
 		doc("Delete a dump"), api.Returns(204, nil))
 	r.Handle("POST /api/v1/databases/{engine}/dbs/{name}/restore", m.restore, api.Require(Manage), api.StepUp(), api.Body(restoreRequest{}),
-		doc("Load a dump into a database as one of its users (starts a job)"), job)
+		doc("Load a dump into a database as one of its users, after a copy of the database unless skipCopy (starts a job)"), job)
 }
 
 // dumpRoot opens the data directory; links never lead out of it.
@@ -332,7 +335,7 @@ func (m *Module) restore(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	q := helperapi.DBRestoreRequest{Engine: engine, Name: name, File: req.File, User: user, Password: pw}
+	q := helperapi.DBRestoreRequest{Engine: engine, Name: name, File: req.File, User: user, Password: pw, SkipCopy: req.SkipCopy}
 	if err := q.Validate(); err != nil {
 		return badRequest(err)
 	}
@@ -345,7 +348,7 @@ func (m *Module) restore(w http.ResponseWriter, r *http.Request) error {
 	if err != nil || !fi.Mode().IsRegular() {
 		return api.NewError(http.StatusNotFound, helperapi.CodeDBDumpNotFound, map[string]any{"file": req.File})
 	}
-	return m.start(w, r, "db.restore", engine, map[string]any{"database": name, "file": req.File, "user": user}, func(_ context.Context, j *jobs.Job) error {
+	return m.start(w, r, "db.restore", engine, map[string]any{"database": name, "file": req.File, "user": user, "copy": !req.SkipCopy}, func(_ context.Context, j *jobs.Job) error {
 		return j.RunOp(helperapi.ActionDBRestore, q, nil)
 	})
 }

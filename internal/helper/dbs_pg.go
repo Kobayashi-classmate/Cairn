@@ -180,7 +180,7 @@ SELECT 'u', rolname FROM pg_roles WHERE rolcanlogin ORDER BY 2;`))
 		case r[0] == "v" && len(r) > 1:
 			info.Version = r[1]
 		case r[0] == "l" && len(r) > 1:
-			info.Remote = slices.ContainsFunc(strings.Split(r[1], ","), func(a string) bool { return a == "*" || !isLoopback(a) })
+			info.Remote = pgListensRemotely(r[1])
 		case r[0] == "d" && len(r) > 3:
 			if helperapi.ValidDBName(e.id, r[1]) {
 				size, _ := strconv.ParseInt(r[2], 10, 64)
@@ -326,6 +326,44 @@ func (d *DBs) pgRoleExists(ctx context.Context, e dbEngine, c pgClusterInfo, nam
 	return len(rows) > 0, err
 }
 
+// pgRefusePrivileged refuses an existing role that can do more than use
+// single databases: a superuser, a role that creates roles, replicates or
+// bypasses row security, one that runs programs or reads and writes files
+// as the server's account (pg_execute_server_program, pg_read_server_files,
+// pg_write_server_files), and one that is a member of any of these, whose
+// rights it can take with SET ROLE. The helper changes and drops only
+// users of single databases: whoever asks it to, the panel or someone in
+// its place, could otherwise set the password or the hosts of such a role
+// and take it over.
+func (d *DBs) pgRefusePrivileged(ctx context.Context, e dbEngine, c pgClusterInfo, name string) error {
+	rows, err := d.psql(ctx, nil, e, c, "postgres", pgQuery(`SELECT 'p', r.rolname, r.rolsuper, r.rolcreaterole, r.rolreplication, r.rolbypassrls
+FROM pg_catalog.pg_roles r, pg_catalog.pg_roles u
+WHERE u.rolname = %s AND pg_catalog.pg_has_role(u.oid, r.oid, 'MEMBER')
+AND (r.rolsuper OR r.rolcreaterole OR r.rolreplication OR r.rolbypassrls
+OR r.rolname IN ('pg_execute_server_program', 'pg_read_server_files', 'pg_write_server_files'))
+ORDER BY r.oid OPERATOR(pg_catalog.<>) u.oid, r.rolname;`, pgStr(name)))
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		if r[0] != "p" || len(r) < 6 {
+			continue
+		}
+		var what []string
+		for i, attr := range []string{"SUPERUSER", "CREATEROLE", "REPLICATION", "BYPASSRLS"} {
+			if r[2+i] == "t" {
+				what = append(what, attr)
+			}
+		}
+		why := strings.Join(what, ", ")
+		if r[1] != name {
+			why = "member of " + r[1]
+		}
+		return dbErr(helperapi.CodeDBUserPrivileged, map[string]any{"name": name, "privilege": why})
+	}
+	return nil
+}
+
 func (d *DBs) pgCreate(ctx context.Context, log io.Writer, e dbEngine, req helperapi.DBCreateRequest) error {
 	c, err := d.pgOnline(ctx, e)
 	if err != nil {
@@ -425,6 +463,11 @@ func (d *DBs) pgUserSet(ctx context.Context, log io.Writer, e dbEngine, req help
 	if req.Hosts == nil && !exists {
 		return dbErr(helperapi.CodeDBUserNotFound, map[string]any{"name": req.Name})
 	}
+	if exists {
+		if err := d.pgRefusePrivileged(ctx, e, c, req.Name); err != nil {
+			return err
+		}
+	}
 	dbs, err := d.pgDatabases(ctx, e, c)
 	if err != nil {
 		return err
@@ -444,7 +487,8 @@ func (d *DBs) pgUserSet(ctx context.Context, log io.Writer, e dbEngine, req help
 	case !exists:
 		s.add("CREATE ROLE %s LOGIN PASSWORD %s;", pgID(req.Name), secret(pgStr(req.Password)))
 	case req.Password != "":
-		s.add("ALTER ROLE %s WITH LOGIN PASSWORD %s;", pgID(req.Name), secret(pgStr(req.Password)))
+		// The password only: a role that may not log in (NOLOGIN) stays so.
+		s.add("ALTER ROLE %s WITH PASSWORD %s;", pgID(req.Name), secret(pgStr(req.Password)))
 	}
 	// Nil grants leave the privileges as they are: a password or host
 	// change never revokes anything.
@@ -506,6 +550,9 @@ func (d *DBs) pgUserDrop(ctx context.Context, log io.Writer, e dbEngine, name st
 	} else if !ok {
 		return dbErr(helperapi.CodeDBUserNotFound, map[string]any{"name": name})
 	}
+	if err := d.pgRefusePrivileged(ctx, e, c, name); err != nil {
+		return err
+	}
 	dbs, err := d.pgDatabases(ctx, e, c)
 	if err != nil {
 		return err
@@ -552,8 +599,44 @@ func (d *DBs) pgRemote(ctx context.Context, log io.Writer, e dbEngine, enabled b
 	if err := d.pgConfDir(dir); err != nil {
 		return err
 	}
-	return d.reconfigure(ctx, log, e, path.Join(dir, "99-cairn.conf"), []byte(conf),
-		func() error { return d.pgCtl(ctx, log, c, helperapi.ServiceRestart) })
+	return d.reconfigure(ctx, log, e, []confEdit{{path.Join(dir, "99-cairn.conf"), []byte(conf)}},
+		func() error { return d.pgCtl(ctx, log, c, helperapi.ServiceRestart) },
+		func() error { return d.pgCheckRemote(ctx, log, e, c, enabled) })
+}
+
+// pgListensRemotely tells from listen_addresses whether the server takes
+// connections from other hosts (an empty list: none over TCP).
+func pgListensRemotely(listen string) bool {
+	return slices.ContainsFunc(strings.Split(listen, ","), func(a string) bool {
+		a = strings.TrimSpace(a)
+		return a == "*" || a != "" && !isLoopback(a)
+	})
+}
+
+// pgCheckRemote reads back, after a restart, where the server listens:
+// postgresql.auto.conf (ALTER SYSTEM) and files after the panel's in
+// conf.d come later and win.
+func (d *DBs) pgCheckRemote(ctx context.Context, log io.Writer, e dbEngine, c pgClusterInfo, enabled bool) error {
+	var rows [][]string
+	err := retryRunning(ctx, func() error {
+		var err error
+		rows, err = d.psql(ctx, nil, e, c, "postgres", pgQuery("SELECT 'l', current_setting('listen_addresses');"))
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	listen := ""
+	for _, r := range rows {
+		if r[0] == "l" && len(r) > 1 {
+			listen = r[1]
+		}
+	}
+	if pgListensRemotely(listen) == enabled {
+		return nil
+	}
+	_, _ = fmt.Fprintf(log, "the server listens on %q after the restart: another setting overrides the panel's\n", listen)
+	return dbErr(helperapi.CodeDBRemoteNotApplied, map[string]any{"engine": e.id, "listen": listen})
 }
 
 // pgConfDir makes sure the cluster's conf.d is a directory of its own
@@ -635,13 +718,15 @@ func (d *DBs) pgDumpTo(ctx context.Context, log io.Writer, e dbEngine, c pgClust
 }
 
 // pgRestore loads a dump as the given user over TCP with its password, so
-// the dump has that user's rights only. The client itself is unprivileged:
-// psql runs a script's meta-commands (\!, \o |command, \copy ... from
-// program) with its own rights. With systemd it runs in a unit of its own,
-// as a user allocated for this run (nothing it starts outlives the unit,
-// and no other run shares its user), with the password in a credential
-// file only it can read; a psql that knows \restrict also refuses every
-// meta-command of the dump.
+// the dump has that user's rights only, in a single transaction: a dump
+// that fails changes nothing. A copy of the database as it is comes first
+// (unless req.SkipCopy), to go back to after a restore that worked. The
+// client itself is unprivileged: psql runs a script's meta-commands (\!,
+// \o |command, \copy ... from program) with its own rights. With systemd
+// it runs in a unit of its own, as a user allocated for this run (nothing
+// it starts outlives the unit, and no other run shares its user), with the
+// password in a credential file only it can read; a psql that knows
+// \restrict also refuses every meta-command of the dump.
 func (d *DBs) pgRestore(ctx context.Context, log io.Writer, e dbEngine, req helperapi.DBRestoreRequest) error {
 	c, err := d.pgOnline(ctx, e)
 	if err != nil {
@@ -659,13 +744,28 @@ func (d *DBs) pgRestore(ctx context.Context, log io.Writer, e dbEngine, req help
 		return err
 	}
 	defer func() { _ = in.Close() }()
+	if err := d.pgRefusePrivileged(ctx, e, c, req.User); err != nil {
+		return err
+	}
+	copied := ""
+	if !req.SkipCopy {
+		info, err := d.writeDump(e.id, req.Name, dbCopySuffix+".dump", false, func(w io.Writer) error { return d.pgDumpTo(ctx, log, e, c, req.Name, w) })
+		if err != nil {
+			return copyFailed(req.Name, err)
+		}
+		copied = info.File
+		_, _ = fmt.Fprintf(log, "A copy of %s as it was before the restore: %s\n", req.Name, copied)
+	}
 	conn := []string{"-h", "127.0.0.1", "-p", strconv.Itoa(c.port), "-U", req.User, "-d", req.Name}
 	var cmd execx.Cmd
 	var input io.Reader = in
+	// A statement that cannot run in a transaction (CREATE DATABASE,
+	// VACUUM, CREATE INDEX CONCURRENTLY) fails the whole dump, as do more
+	// objects than the server's lock table holds (max_locks_per_transaction).
 	if strings.HasSuffix(req.File, ".dump") {
-		cmd = execx.Cmd{Name: pgBin(e, "pg_restore"), Args: append([]string{"--no-owner", "--no-privileges", "--clean", "--if-exists", "--exit-on-error"}, conn...)}
+		cmd = execx.Cmd{Name: pgBin(e, "pg_restore"), Args: append([]string{"--no-owner", "--no-privileges", "--clean", "--if-exists", "--exit-on-error", "--single-transaction"}, conn...)}
 	} else {
-		cmd = execx.Cmd{Name: pgBin(e, "psql"), Args: append([]string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "-f", "-"}, conn...)}
+		cmd = execx.Cmd{Name: pgBin(e, "psql"), Args: append([]string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "--single-transaction", "-f", "-"}, conn...)}
 		if v, ok := d.pgRestrictable(ctx, e); ok {
 			key, err := randomAlnum(32)
 			if err != nil {
@@ -690,10 +790,19 @@ func (d *DBs) pgRestore(ctx context.Context, log io.Writer, e dbEngine, req help
 		cmd.Env = append(cmd.Env, "PGPASSWORD="+req.Password)
 		_, err = dbRun(ctx, cmd)
 	}
-	if err != nil {
-		return pgError(err, e)
+	if err == nil {
+		return nil
 	}
-	return nil
+	err = pgError(err, e)
+	if he := asError(err); he.Code == helperapi.CodeDBQuery {
+		_, _ = fmt.Fprintf(log, "The restore failed; nothing in %s was changed.\n", req.Name)
+		params := map[string]any{"database": req.Name, "detail": he.Params["detail"]}
+		if copied != "" {
+			params["copy"] = copied
+		}
+		return dbErr(helperapi.CodeDBRestoreUnchanged, params)
+	}
+	return err
 }
 
 // pgpassLine is a password file's line for the restore's connection; ':'

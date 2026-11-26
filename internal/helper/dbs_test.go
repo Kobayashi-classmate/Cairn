@@ -187,7 +187,7 @@ func TestMySQLCreateUserAndDrop(t *testing.T) {
 		switch {
 		case strings.Contains(c.stdin, "FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = 'taken'"):
 			return "d\n", nil
-		case strings.HasPrefix(c.stdin, "SELECT 'h', Host FROM mysql.user WHERE User = 'my_shop'"):
+		case strings.Contains(c.stdin, "SELECT 'h', Host FROM mysql.user WHERE User = 'my_shop'"):
 			return hosts, nil
 		case strings.Contains(c.stdin, "FROM mysql.db WHERE Db IN ('my_shop', 'my\\\\_shop')"):
 			return "d\ng\tmy_shop\tlocalhost\tmy\\\\_shop\n", nil
@@ -250,7 +250,7 @@ func TestMySQLCreateUserAndDrop(t *testing.T) {
 			t.Errorf("password script lacks %q:\n%s", want, sql)
 		}
 	}
-	for _, never := range []string{"REVOKE", "GRANT", "DROP USER", "CREATE USER"} {
+	for _, never := range []string{"REVOKE", "GRANT ", "DROP USER", "CREATE USER"} {
 		if strings.Contains(sql, never) {
 			t.Errorf("password script has %s:\n%s", never, sql)
 		}
@@ -294,6 +294,12 @@ func TestMySQLCreateUserAndDrop(t *testing.T) {
 
 func TestMySQLRemoteNeedsSystemd(t *testing.T) {
 	e := newDBEnv(t, map[string]string{"mariadb-server": mariadbInstalled})
+	e.reply = func(c dbCall) (string, error) {
+		if strings.Contains(c.stdin, "bind_address") {
+			return "bind_address\t0.0.0.0\nskip_networking\tOFF\n", nil
+		}
+		return "", nil
+	}
 	if op, _ := e.run(helperapi.ActionDBRemote, helperapi.DBRemoteRequest{Engine: "mysql", Enabled: true}); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBSystemd {
 		t.Fatalf("remote without systemd: %+v", op)
 	}
@@ -301,7 +307,7 @@ func TestMySQLRemoteNeedsSystemd(t *testing.T) {
 	if op, log := e.run(helperapi.ActionDBRemote, helperapi.DBRemoteRequest{Engine: "mysql", Enabled: true}); op.State != helperapi.OpSucceeded {
 		t.Fatalf("remote: %+v\n%s", op, log)
 	}
-	conf, err := os.ReadFile(filepath.Join(e.d.Root, "/etc/mysql/mariadb.conf.d/99-cairn.cnf"))
+	conf, err := os.ReadFile(filepath.Join(e.d.Root, "/etc/mysql/mariadb.conf.d/zz-cairn.cnf"))
 	if err != nil || !strings.Contains(string(conf), "[mysqld]\nbind-address = 0.0.0.0\n") {
 		t.Fatalf("config %q, %v", conf, err)
 	}
@@ -313,7 +319,7 @@ func TestMySQLRemoteNeedsSystemd(t *testing.T) {
 	if op, _ := e.run(helperapi.ActionDBRemote, helperapi.DBRemoteRequest{Engine: "mysql", Enabled: false}); op.State != helperapi.OpFailed || op.Error.Code != helperapi.CodeDBRestartFailed {
 		t.Fatalf("failed restart: %+v", op)
 	}
-	if conf, _ := os.ReadFile(filepath.Join(e.d.Root, "/etc/mysql/mariadb.conf.d/99-cairn.cnf")); !strings.Contains(string(conf), "0.0.0.0") {
+	if conf, _ := os.ReadFile(filepath.Join(e.d.Root, "/etc/mysql/mariadb.conf.d/zz-cairn.cnf")); !strings.Contains(string(conf), "0.0.0.0") {
 		t.Fatalf("config not restored: %q", conf)
 	}
 }
@@ -330,8 +336,13 @@ func TestMySQLDumpAndRestore(t *testing.T) {
 				cnf = string(data)
 			}
 		}
-		if strings.HasSuffix(c.name, "mariadb-dump") {
+		switch {
+		case strings.HasSuffix(c.name, "mariadb-dump"):
 			return dump, nil
+		case strings.Contains(c.stdin, "SELECT 'h', Host FROM mysql.user WHERE User = 'shop'"):
+			return "h\tlocalhost\n", nil
+		case strings.Contains(c.stdin, "DEFAULT_CHARACTER_SET_NAME"):
+			return "c\tutf8mb4\tutf8mb4_general_ci\n", nil
 		}
 		return "", nil
 	}
@@ -371,7 +382,7 @@ func TestMySQLDumpAndRestore(t *testing.T) {
 	if op.State != helperapi.OpSucceeded {
 		t.Fatalf("restore: %+v\n%s", op, log)
 	}
-	c := e.calls[0]
+	c := e.calls[slices.IndexFunc(e.calls, func(c dbCall) bool { return slices.Contains(c.args, "--database=shop") })]
 	if c.stdin != dump || !strings.Contains(c.line(), "--database=shop") || strings.Contains(c.line(), "pass#word1") {
 		t.Fatalf("restore call %s with %q", c.line(), c.stdin)
 	}
@@ -617,7 +628,7 @@ func TestPostgreSQLUsersAndHosts(t *testing.T) {
 		t.Fatalf("password only: %+v\n%s", op, log)
 	}
 	sql := e.script()
-	if !strings.Contains(sql, `ALTER ROLE "report" WITH LOGIN PASSWORD 'N3w-secret';`) || strings.Contains(sql, "REVOKE") || strings.Contains(sql, "GRANT") ||
+	if !strings.Contains(sql, `ALTER ROLE "report" WITH PASSWORD 'N3w-secret';`) || strings.Contains(sql, "LOGIN") || strings.Contains(sql, "REVOKE") || strings.Contains(sql, "GRANT") ||
 		strings.Contains(sql, "pg_reload_conf") {
 		t.Fatalf("password only script:\n%s", sql)
 	}
@@ -675,6 +686,8 @@ func TestPostgreSQLCreateClusterRemoteAndDump(t *testing.T) {
 			return "d\n", nil
 		case strings.Contains(c.line(), "pg_dump"):
 			return "PGDMP-data", nil
+		case strings.Contains(c.stdin, "current_setting('listen_addresses')"):
+			return "l\t*\n", nil
 		}
 		return "", nil
 	}
@@ -872,7 +885,7 @@ func TestPostgreSQLRestoreInUnit(t *testing.T) {
 		rest != "-- PostgreSQL dump\nSET x = 1;\nCOPY public.t (a) FROM stdin;\n\\restrict kept\n\\.\n\\! id\n" {
 		t.Fatalf("psql input %q", c.stdin)
 	}
-	if !strings.Contains(c.line(), "/usr/lib/postgresql/17/bin/psql -X -q -v ON_ERROR_STOP=1 -f -") {
+	if !strings.Contains(c.line(), "/usr/lib/postgresql/17/bin/psql -X -q -v ON_ERROR_STOP=1 --single-transaction -f -") {
 		t.Fatalf("psql call %s", c.line())
 	}
 	// An older psql cannot restrict: the dump goes as it is, with a note.

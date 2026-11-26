@@ -22,7 +22,8 @@ import { notifyError, notifySuccess } from '@/lib/notify'
 
 // Browses the keys of the system Redis/Valkey instance: pick a database
 // number and a pattern, scan, open a key to see its value and change its
-// expiry, select keys to delete them (step-up protected).
+// expiry, select keys to delete them. Everything here is step-up protected
+// and for databases.manage: key names hold session IDs too.
 defineProps<{ canManage: boolean }>()
 
 const { t } = useI18n()
@@ -69,7 +70,8 @@ async function scan(reset: boolean) {
     keys.value = reset ? page.keys : [...keys.value, ...page.keys.filter((k) => !keys.value.some((known) => known.key === k.key))]
     cursor.value = page.cursor
   } catch (err) {
-    if (mine === seq) scanError.value = err
+    // Step-up protected: the client asks for the password and retries.
+    if (mine === seq && !isStepUpRequired(err)) scanError.value = err
   } finally {
     if (mine === seq) scanning.value = false
   }
@@ -87,7 +89,7 @@ async function open(key: RedisKey) {
     value.value = await fetchRedisValue(scanned.value?.db ?? Number(db.value), key.key)
     ttl.value = String(value.value.ttl > 0 ? value.value.ttl : 0)
   } catch (err) {
-    notifyError(err)
+    if (!isStepUpRequired(err)) notifyError(err)
   } finally {
     opening.value = null
   }
